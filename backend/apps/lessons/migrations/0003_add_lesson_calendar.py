@@ -8,7 +8,7 @@ import uuid
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("schools", "0007_add_grade_update_date"),
+        ("schools", "0006_alter_classroom_capacity"),
         ("lessons", "0002_initial"),
     ]
 
