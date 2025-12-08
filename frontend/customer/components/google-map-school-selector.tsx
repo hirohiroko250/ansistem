@@ -135,19 +135,19 @@ export function GoogleMapSchoolSelector({
 
       const isSelected = school.id === selectedSchoolId;
 
-      const marker = new window.google.maps.Marker({
+      const marker = new window.google!.maps.Marker({
         position: { lat: school.latitude, lng: school.longitude },
         map,
         title: school.name,
         icon: {
-          path: window.google.maps.SymbolPath.CIRCLE,
+          path: window.google!.maps.SymbolPath.CIRCLE,
           fillColor: isSelected ? '#EF4444' : brandColor,
           fillOpacity: 1,
           strokeColor: '#FFFFFF',
           strokeWeight: 3,
           scale: isSelected ? 14 : 10,
         },
-        animation: isSelected ? window.google.maps.Animation.BOUNCE : undefined,
+        animation: isSelected ? window.google!.maps.Animation.BOUNCE : undefined,
       });
 
       marker.addListener('click', () => {
@@ -172,7 +172,7 @@ export function GoogleMapSchoolSelector({
 
     // マップを校舎に合わせてフィット
     if (newMarkers.length > 0) {
-      const bounds = new window.google.maps.LatLngBounds();
+      const bounds = new window.google!.maps.LatLngBounds();
       newMarkers.forEach(marker => {
         const pos = marker.getPosition();
         if (pos) bounds.extend(pos);
@@ -180,10 +180,10 @@ export function GoogleMapSchoolSelector({
       map.fitBounds(bounds);
 
       // ズームを適度に調整
-      const listener = window.google.maps.event.addListener(map, 'idle', () => {
+      const listener = window.google!.maps.event.addListener(map, 'idle', () => {
         const currentZoom = map.getZoom();
         if (currentZoom && currentZoom > 15) map.setZoom(15);
-        window.google.maps.event.removeListener(listener);
+        window.google!.maps.event.removeListener(listener);
       });
     }
 
