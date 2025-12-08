@@ -347,7 +347,7 @@ export default function ChatConversationPage() {
             // 自分のメッセージかどうか判定（sender または senderId で比較、または senderGuardian が存在する = 保護者）
             const senderId = message.sender || message.senderId;
             const isOwnMessage = senderId === currentUserId ||
-              (message.senderGuardian && senderId === currentUserId);
+              (!!message.senderGuardian && senderId === currentUserId);
             // 本部/アシスタント/ボットからのメッセージ = 左側（自分以外でかつsenderGuardianが無い、またはisBotMessage）
             const isFromHQ = message.isBotMessage || (!message.senderGuardian && senderId !== currentUserId);
 
