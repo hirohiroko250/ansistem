@@ -47,7 +47,7 @@ function loadGoogleMapsAPI(): Promise<void> {
 declare global {
   interface Window {
     google?: {
-      maps: typeof google.maps;
+      maps: any;
     };
   }
 }
@@ -212,11 +212,10 @@ export function GoogleMapSchoolSelector({
           schools.map((school) => (
             <Card
               key={school.id}
-              className={`rounded-xl shadow-md cursor-pointer transition-all ${
-                selectedSchoolId === school.id
+              className={`rounded-xl shadow-md cursor-pointer transition-all ${selectedSchoolId === school.id
                   ? 'border-2 border-blue-500 bg-blue-50'
                   : 'hover:shadow-lg'
-              }`}
+                }`}
               onClick={() => onSelectSchool(school.id)}
             >
               <CardContent className="p-4">
@@ -283,11 +282,10 @@ export function GoogleMapSchoolSelector({
         {schools.map((school) => (
           <Card
             key={school.id}
-            className={`rounded-xl shadow-sm cursor-pointer transition-all ${
-              selectedSchoolId === school.id
+            className={`rounded-xl shadow-sm cursor-pointer transition-all ${selectedSchoolId === school.id
                 ? 'border-2 border-blue-500'
                 : 'hover:shadow-md border border-gray-200'
-            }`}
+              }`}
             onClick={() => {
               onSelectSchool(school.id);
               // マップの中心を移動
