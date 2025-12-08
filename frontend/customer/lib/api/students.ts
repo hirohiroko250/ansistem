@@ -20,7 +20,10 @@ export async function getChildren(): Promise<Child[]> {
   if ('data' in response && Array.isArray(response.data)) {
     return response.data;
   }
-  return response.results || [];
+  if ('results' in response && Array.isArray(response.results)) {
+    return response.results;
+  }
+  return [];
 }
 
 /**
