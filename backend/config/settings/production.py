@@ -1,6 +1,7 @@
 """
 Django settings for OZA System project - Production Configuration
 """
+import os
 from .base import *
 
 DEBUG = False
@@ -9,20 +10,34 @@ DEBUG = False
 SECURE_BROWSER_XSS_FILTER = True
 SECURE_CONTENT_TYPE_NOSNIFF = True
 X_FRAME_OPTIONS = 'DENY'
-SECURE_SSL_REDIRECT = True
-SESSION_COOKIE_SECURE = True
-CSRF_COOKIE_SECURE = True
-SECURE_HSTS_SECONDS = 31536000
-SECURE_HSTS_INCLUDE_SUBDOMAINS = True
-SECURE_HSTS_PRELOAD = True
+
+# SSL settings - only enable if using HTTPS (set via environment variable)
+USE_SSL = os.environ.get('USE_SSL', 'False').lower() == 'true'
+SECURE_SSL_REDIRECT = USE_SSL
+SESSION_COOKIE_SECURE = USE_SSL
+CSRF_COOKIE_SECURE = USE_SSL
+if USE_SSL:
+    SECURE_HSTS_SECONDS = 31536000
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+    SECURE_HSTS_PRELOAD = True
+
+# CSRF trusted origins (for production server)
+CSRF_TRUSTED_ORIGINS = os.environ.get(
+    'CSRF_TRUSTED_ORIGINS',
+    'http://localhost:3000,http://localhost:3001'
+).split(',')
 
 # Static files
 STATICFILES_STORAGE = 'django.contrib.staticfiles.storage.ManifestStaticFilesStorage'
 
+# Ensure logs directory exists
+LOGS_DIR = BASE_DIR / 'logs'
+LOGS_DIR.mkdir(exist_ok=True)
+
 # Logging
 LOGGING['handlers']['file'] = {
     'class': 'logging.handlers.RotatingFileHandler',
-    'filename': BASE_DIR / 'logs' / 'django.log',
+    'filename': LOGS_DIR / 'django.log',
     'maxBytes': 1024 * 1024 * 5,  # 5 MB
     'backupCount': 5,
     'formatter': 'verbose',
