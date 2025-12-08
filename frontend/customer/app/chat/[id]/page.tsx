@@ -84,6 +84,7 @@ export default function ChatConversationPage() {
           setMessages([
             {
               id: 'welcome-message',
+              channel: AI_ASSISTANT_ID,
               channelId: AI_ASSISTANT_ID,
               senderId: 'ai',
               senderName: 'AIアシスタント',
@@ -344,7 +345,7 @@ export default function ChatConversationPage() {
             // 自分のメッセージかどうか判定（sender または senderId で比較、または senderGuardian が存在する = 保護者）
             const senderId = message.sender || message.senderId;
             const isOwnMessage = senderId === currentUserId ||
-                                (message.senderGuardian && senderId === currentUserId);
+              (message.senderGuardian && senderId === currentUserId);
             // 本部/アシスタント/ボットからのメッセージ = 左側（自分以外でかつsenderGuardianが無い、またはisBotMessage）
             const isFromHQ = message.isBotMessage || (!message.senderGuardian && senderId !== currentUserId);
 
@@ -354,13 +355,12 @@ export default function ChatConversationPage() {
                   className={`flex ${isOwnMessage ? 'justify-end' : 'justify-start'}`}
                 >
                   <div
-                    className={`max-w-[75%] ${
-                      isOwnMessage
+                    className={`max-w-[75%] ${isOwnMessage
                         ? 'bg-blue-500 text-white rounded-2xl rounded-br-md'
                         : isFromHQ
-                        ? 'bg-gray-100 text-gray-800 rounded-2xl rounded-bl-md'
-                        : 'bg-white text-gray-800 shadow-md rounded-2xl rounded-bl-md'
-                    } px-4 py-3 ${isOwnMessage ? 'cursor-pointer select-none' : ''}`}
+                          ? 'bg-gray-100 text-gray-800 rounded-2xl rounded-bl-md'
+                          : 'bg-white text-gray-800 shadow-md rounded-2xl rounded-bl-md'
+                      } px-4 py-3 ${isOwnMessage ? 'cursor-pointer select-none' : ''}`}
                     onTouchStart={() => handleTouchStart(message.id, isOwnMessage)}
                     onTouchEnd={handleTouchEnd}
                     onTouchMove={handleTouchEnd}
@@ -376,9 +376,8 @@ export default function ChatConversationPage() {
                       {message.content}
                     </p>
                     <div
-                      className={`flex items-center gap-1 mt-1 ${
-                        isOwnMessage ? 'justify-end' : 'justify-start'
-                      }`}
+                      className={`flex items-center gap-1 mt-1 ${isOwnMessage ? 'justify-end' : 'justify-start'
+                        }`}
                     >
                       <span className={`text-xs ${isOwnMessage ? 'text-blue-100' : 'text-gray-500'}`}>
                         {formatMessageTime(message.createdAt)}
