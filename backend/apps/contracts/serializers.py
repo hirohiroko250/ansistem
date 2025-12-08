@@ -1,0 +1,516 @@
+"""
+Contracts Serializers - シンプル版
+"""
+from rest_framework import serializers
+from .models import (
+    Product, Discount, Course, CourseItem,
+    Pack, PackCourse,
+    Seminar, Certification, CourseRequiredSeminar,
+    Contract, StudentItem, SeminarEnrollment, CertificationEnrollment
+)
+
+
+# =============================================================================
+# 商品 (Product)
+# =============================================================================
+class ProductListSerializer(serializers.ModelSerializer):
+    """商品一覧"""
+    brand_name = serializers.CharField(source='brand.brand_name', read_only=True)
+    school_name = serializers.CharField(source='school.school_name', read_only=True)
+    grade_name = serializers.CharField(source='grade.grade_name', read_only=True)
+
+    class Meta:
+        model = Product
+        fields = [
+            'id', 'product_code', 'product_name', 'item_type',
+            'brand', 'brand_name', 'school', 'school_name',
+            'grade', 'grade_name',
+            'base_price', 'is_one_time', 'is_active'
+        ]
+
+
+class ProductDetailSerializer(serializers.ModelSerializer):
+    """商品詳細"""
+    brand_name = serializers.CharField(source='brand.brand_name', read_only=True)
+    school_name = serializers.CharField(source='school.school_name', read_only=True)
+    grade_name = serializers.CharField(source='grade.grade_name', read_only=True)
+
+    class Meta:
+        model = Product
+        fields = [
+            'id', 'product_code', 'product_name', 'product_name_short',
+            'item_type',
+            'brand', 'brand_name', 'school', 'school_name',
+            'grade', 'grade_name',
+            'base_price', 'tax_rate', 'is_tax_included',
+            'prorate_first_month', 'is_one_time',
+            'description', 'sort_order', 'is_active',
+            'created_at', 'updated_at'
+        ]
+        read_only_fields = ['id', 'created_at', 'updated_at']
+
+
+# =============================================================================
+# 割引 (Discount)
+# =============================================================================
+class DiscountListSerializer(serializers.ModelSerializer):
+    """割引一覧"""
+
+    class Meta:
+        model = Discount
+        fields = [
+            'id', 'discount_code', 'discount_name', 'discount_type',
+            'calculation_type', 'value', 'is_active'
+        ]
+
+
+class DiscountDetailSerializer(serializers.ModelSerializer):
+    """割引詳細"""
+
+    class Meta:
+        model = Discount
+        fields = [
+            'id', 'discount_code', 'discount_name', 'discount_type',
+            'calculation_type', 'value',
+            'valid_from', 'valid_until', 'is_active',
+            'created_at', 'updated_at'
+        ]
+        read_only_fields = ['id', 'created_at', 'updated_at']
+
+
+# =============================================================================
+# コース (Course)
+# =============================================================================
+class CourseItemSerializer(serializers.ModelSerializer):
+    """コース商品構成"""
+    product_name = serializers.CharField(source='product.product_name', read_only=True)
+    price = serializers.SerializerMethodField()
+
+    class Meta:
+        model = CourseItem
+        fields = [
+            'id', 'product', 'product_name', 'quantity',
+            'price_override', 'price', 'sort_order', 'is_active'
+        ]
+
+    def get_price(self, obj):
+        return obj.get_price()
+
+
+class CourseListSerializer(serializers.ModelSerializer):
+    """コース一覧"""
+    brand_name = serializers.CharField(source='brand.brand_name', read_only=True)
+    price = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Course
+        fields = [
+            'id', 'course_code', 'course_name', 'brand', 'brand_name',
+            'course_price', 'price', 'is_active'
+        ]
+
+    def get_price(self, obj):
+        return obj.get_price()
+
+
+class CourseDetailSerializer(serializers.ModelSerializer):
+    """コース詳細"""
+    brand_name = serializers.CharField(source='brand.brand_name', read_only=True)
+    school_name = serializers.CharField(source='school.school_name', read_only=True)
+    grade_name = serializers.CharField(source='grade.grade_name', read_only=True)
+    course_items = CourseItemSerializer(many=True, read_only=True)
+    price = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Course
+        fields = [
+            'id', 'course_code', 'course_name',
+            'brand', 'brand_name', 'school', 'school_name',
+            'grade', 'grade_name',
+            'course_price', 'price',
+            'description', 'sort_order', 'is_active',
+            'course_items',
+            'created_at', 'updated_at'
+        ]
+        read_only_fields = ['id', 'created_at', 'updated_at']
+
+    def get_price(self, obj):
+        return obj.get_price()
+
+
+# =============================================================================
+# パック (Pack)
+# =============================================================================
+class PackCourseSerializer(serializers.ModelSerializer):
+    """パックコース構成"""
+    course_name = serializers.CharField(source='course.course_name', read_only=True)
+    course_price = serializers.SerializerMethodField()
+
+    class Meta:
+        model = PackCourse
+        fields = [
+            'id', 'course', 'course_name', 'course_price',
+            'sort_order', 'is_active'
+        ]
+
+    def get_course_price(self, obj):
+        return obj.course.get_price()
+
+
+class PackListSerializer(serializers.ModelSerializer):
+    """パック一覧"""
+    brand_name = serializers.CharField(source='brand.brand_name', read_only=True)
+    price = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Pack
+        fields = [
+            'id', 'pack_code', 'pack_name', 'brand', 'brand_name',
+            'pack_price', 'price', 'discount_type', 'discount_value', 'is_active'
+        ]
+
+    def get_price(self, obj):
+        return obj.get_price()
+
+
+class PackDetailSerializer(serializers.ModelSerializer):
+    """パック詳細"""
+    brand_name = serializers.CharField(source='brand.brand_name', read_only=True)
+    pack_courses = PackCourseSerializer(many=True, read_only=True)
+    price = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Pack
+        fields = [
+            'id', 'pack_code', 'pack_name',
+            'brand', 'brand_name',
+            'pack_price', 'price', 'discount_type', 'discount_value',
+            'description', 'sort_order', 'is_active',
+            'pack_courses',
+            'created_at', 'updated_at'
+        ]
+        read_only_fields = ['id', 'created_at', 'updated_at']
+
+    def get_price(self, obj):
+        return obj.get_price()
+
+
+# =============================================================================
+# 講習 (Seminar)
+# =============================================================================
+class SeminarListSerializer(serializers.ModelSerializer):
+    """講習一覧"""
+    brand_name = serializers.CharField(source='brand.brand_name', read_only=True)
+
+    class Meta:
+        model = Seminar
+        fields = [
+            'id', 'seminar_code', 'seminar_name', 'seminar_type',
+            'brand', 'brand_name', 'year', 'base_price', 'is_active'
+        ]
+
+
+class SeminarDetailSerializer(serializers.ModelSerializer):
+    """講習詳細"""
+    brand_name = serializers.CharField(source='brand.brand_name', read_only=True)
+    grade_name = serializers.CharField(source='grade.grade_name', read_only=True)
+
+    class Meta:
+        model = Seminar
+        fields = [
+            'id', 'seminar_code', 'seminar_name', 'seminar_type',
+            'brand', 'brand_name', 'grade', 'grade_name',
+            'year', 'start_date', 'end_date', 'base_price',
+            'description', 'sort_order', 'is_active',
+            'created_at', 'updated_at'
+        ]
+        read_only_fields = ['id', 'created_at', 'updated_at']
+
+
+# =============================================================================
+# 検定 (Certification)
+# =============================================================================
+class CertificationListSerializer(serializers.ModelSerializer):
+    """検定一覧"""
+    brand_name = serializers.CharField(source='brand.brand_name', read_only=True)
+
+    class Meta:
+        model = Certification
+        fields = [
+            'id', 'certification_code', 'certification_name',
+            'certification_type', 'level',
+            'brand', 'brand_name', 'year', 'exam_fee', 'is_active'
+        ]
+
+
+class CertificationDetailSerializer(serializers.ModelSerializer):
+    """検定詳細"""
+    brand_name = serializers.CharField(source='brand.brand_name', read_only=True)
+
+    class Meta:
+        model = Certification
+        fields = [
+            'id', 'certification_code', 'certification_name',
+            'certification_type', 'level',
+            'brand', 'brand_name', 'year', 'exam_date', 'exam_fee',
+            'description', 'sort_order', 'is_active',
+            'created_at', 'updated_at'
+        ]
+        read_only_fields = ['id', 'created_at', 'updated_at']
+
+
+# =============================================================================
+# 生徒商品/請求明細 (StudentItem)
+# =============================================================================
+class StudentItemSerializer(serializers.ModelSerializer):
+    """生徒商品（請求明細）"""
+    student_name = serializers.CharField(source='student.full_name', read_only=True)
+    product_name = serializers.CharField(source='product.product_name', read_only=True)
+
+    class Meta:
+        model = StudentItem
+        fields = [
+            'id', 'student', 'student_name', 'contract',
+            'product', 'product_name',
+            'billing_month', 'quantity', 'unit_price',
+            'discount_amount', 'final_price', 'notes'
+        ]
+        read_only_fields = ['id']
+
+
+# =============================================================================
+# 契約 (Contract)
+# =============================================================================
+class ContractListSerializer(serializers.ModelSerializer):
+    """契約一覧"""
+    student_name = serializers.CharField(source='student.full_name', read_only=True)
+    school_name = serializers.CharField(source='school.school_name', read_only=True)
+    course_name = serializers.CharField(source='course.course_name', read_only=True)
+
+    class Meta:
+        model = Contract
+        fields = [
+            'id', 'contract_no', 'student', 'student_name',
+            'school', 'school_name', 'brand',
+            'course', 'course_name',
+            'contract_date', 'start_date', 'end_date',
+            'status', 'monthly_total'
+        ]
+
+
+class ContractDetailSerializer(serializers.ModelSerializer):
+    """契約詳細"""
+    student_name = serializers.CharField(source='student.full_name', read_only=True)
+    guardian_name = serializers.CharField(source='guardian.full_name', read_only=True)
+    school_name = serializers.CharField(source='school.school_name', read_only=True)
+    brand_name = serializers.CharField(source='brand.brand_name', read_only=True)
+    course_name = serializers.CharField(source='course.course_name', read_only=True)
+    student_items = StudentItemSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = Contract
+        fields = [
+            'id', 'contract_no',
+            'student', 'student_name', 'guardian', 'guardian_name',
+            'school', 'school_name', 'brand', 'brand_name',
+            'course', 'course_name',
+            'contract_date', 'start_date', 'end_date',
+            'status', 'monthly_total', 'notes',
+            'student_items',
+            'created_at', 'updated_at'
+        ]
+        read_only_fields = ['id', 'created_at', 'updated_at']
+
+
+class ContractCreateSerializer(serializers.ModelSerializer):
+    """契約作成"""
+
+    class Meta:
+        model = Contract
+        fields = [
+            'contract_no', 'student', 'guardian', 'school', 'brand',
+            'course', 'contract_date', 'start_date', 'end_date',
+            'notes'
+        ]
+
+
+# =============================================================================
+# 講習申込 (SeminarEnrollment)
+# =============================================================================
+class SeminarEnrollmentListSerializer(serializers.ModelSerializer):
+    """講習申込一覧"""
+    student_name = serializers.CharField(source='student.full_name', read_only=True)
+    seminar_name = serializers.CharField(source='seminar.seminar_name', read_only=True)
+
+    class Meta:
+        model = SeminarEnrollment
+        fields = [
+            'id', 'student', 'student_name',
+            'seminar', 'seminar_name',
+            'status', 'unit_price', 'final_price', 'applied_at'
+        ]
+
+
+class SeminarEnrollmentDetailSerializer(serializers.ModelSerializer):
+    """講習申込詳細"""
+    student_name = serializers.CharField(source='student.full_name', read_only=True)
+    seminar_name = serializers.CharField(source='seminar.seminar_name', read_only=True)
+
+    class Meta:
+        model = SeminarEnrollment
+        fields = [
+            'id', 'student', 'student_name',
+            'seminar', 'seminar_name',
+            'status', 'applied_at',
+            'unit_price', 'discount_amount', 'final_price',
+            'is_required', 'notes',
+            'created_at', 'updated_at'
+        ]
+        read_only_fields = ['id', 'created_at', 'updated_at']
+
+
+# =============================================================================
+# 検定申込 (CertificationEnrollment)
+# =============================================================================
+class CertificationEnrollmentListSerializer(serializers.ModelSerializer):
+    """検定申込一覧"""
+    student_name = serializers.CharField(source='student.full_name', read_only=True)
+    certification_name = serializers.CharField(source='certification.certification_name', read_only=True)
+
+    class Meta:
+        model = CertificationEnrollment
+        fields = [
+            'id', 'student', 'student_name',
+            'certification', 'certification_name',
+            'status', 'exam_fee', 'final_price', 'score', 'applied_at'
+        ]
+
+
+class CertificationEnrollmentDetailSerializer(serializers.ModelSerializer):
+    """検定申込詳細"""
+    student_name = serializers.CharField(source='student.full_name', read_only=True)
+    certification_name = serializers.CharField(source='certification.certification_name', read_only=True)
+
+    class Meta:
+        model = CertificationEnrollment
+        fields = [
+            'id', 'student', 'student_name',
+            'certification', 'certification_name',
+            'status', 'applied_at',
+            'exam_fee', 'discount_amount', 'final_price',
+            'score', 'notes',
+            'created_at', 'updated_at'
+        ]
+        read_only_fields = ['id', 'created_at', 'updated_at']
+
+
+# =============================================================================
+# 公開API用シリアライザ（顧客向け）
+# =============================================================================
+
+class PublicBrandCategorySerializer(serializers.Serializer):
+    """公開ブランドカテゴリシリアライザ"""
+    id = serializers.UUIDField()
+    categoryCode = serializers.CharField(source='category_code')
+    categoryName = serializers.CharField(source='category_name')
+    categoryNameShort = serializers.CharField(source='category_name_short', allow_null=True)
+    colorPrimary = serializers.CharField(source='color_primary', allow_null=True)
+    sortOrder = serializers.IntegerField(source='sort_order')
+
+
+class PublicBrandSerializer(serializers.Serializer):
+    """公開ブランドシリアライザ"""
+    id = serializers.UUIDField()
+    brandCode = serializers.CharField(source='brand_code')
+    brandName = serializers.CharField(source='brand_name')
+    brandNameShort = serializers.CharField(source='brand_name_short', allow_null=True)
+    brandType = serializers.CharField(source='brand_type', allow_null=True)
+    description = serializers.CharField(allow_null=True)
+    logoUrl = serializers.CharField(source='logo_url', allow_null=True)
+    colorPrimary = serializers.CharField(source='color_primary', allow_null=True)
+    colorSecondary = serializers.CharField(source='color_secondary', allow_null=True)
+    category = PublicBrandCategorySerializer(allow_null=True)
+
+
+class PublicCourseItemSerializer(serializers.Serializer):
+    """公開コース商品シリアライザ"""
+    productId = serializers.UUIDField(source='product.id')
+    productName = serializers.CharField(source='product.product_name')
+    productType = serializers.CharField(source='product.item_type')
+    quantity = serializers.IntegerField()
+    price = serializers.SerializerMethodField()
+
+    def get_price(self, obj):
+        return obj.get_price()
+
+
+class PublicCourseSerializer(serializers.Serializer):
+    """公開コースシリアライザ"""
+    id = serializers.UUIDField()
+    courseCode = serializers.CharField(source='course_code')
+    courseName = serializers.CharField(source='course_name')
+    description = serializers.CharField(allow_null=True, allow_blank=True)
+    price = serializers.SerializerMethodField()
+    isMonthly = serializers.SerializerMethodField()
+
+    # ブランド情報
+    brandId = serializers.UUIDField(source='brand.id', allow_null=True)
+    brandName = serializers.CharField(source='brand.brand_name', allow_null=True)
+    brandCode = serializers.CharField(source='brand.brand_code', allow_null=True)
+
+    # 校舎情報
+    schoolId = serializers.UUIDField(source='school.id', allow_null=True)
+    schoolName = serializers.CharField(source='school.school_name', allow_null=True)
+
+    # 学年情報
+    gradeName = serializers.CharField(source='grade.grade_name', allow_null=True)
+
+    # コースに含まれる商品
+    items = PublicCourseItemSerializer(source='course_items', many=True, read_only=True)
+
+    def get_price(self, obj):
+        return obj.get_price()
+
+    def get_isMonthly(self, obj):
+        # コース価格が設定されていれば月額コースとみなす
+        return obj.course_price is not None
+
+
+class PublicPackCourseSerializer(serializers.Serializer):
+    """公開パックコースシリアライザ"""
+    courseId = serializers.UUIDField(source='course.id')
+    courseName = serializers.CharField(source='course.course_name')
+    courseCode = serializers.CharField(source='course.course_code')
+    coursePrice = serializers.SerializerMethodField()
+
+    def get_coursePrice(self, obj):
+        return obj.course.get_price()
+
+
+class PublicPackSerializer(serializers.Serializer):
+    """公開パックシリアライザ"""
+    id = serializers.UUIDField()
+    packCode = serializers.CharField(source='pack_code')
+    packName = serializers.CharField(source='pack_name')
+    description = serializers.CharField(allow_null=True, allow_blank=True)
+    price = serializers.SerializerMethodField()
+    discountType = serializers.CharField(source='discount_type')
+    discountValue = serializers.DecimalField(source='discount_value', max_digits=10, decimal_places=2)
+
+    # ブランド情報
+    brandId = serializers.UUIDField(source='brand.id', allow_null=True)
+    brandName = serializers.CharField(source='brand.brand_name', allow_null=True)
+    brandCode = serializers.CharField(source='brand.brand_code', allow_null=True)
+
+    # 校舎情報
+    schoolId = serializers.UUIDField(source='school.id', allow_null=True)
+    schoolName = serializers.CharField(source='school.school_name', allow_null=True)
+
+    # 学年情報
+    gradeName = serializers.CharField(source='grade.grade_name', allow_null=True)
+
+    # 含まれるコース
+    courses = PublicPackCourseSerializer(source='pack_courses', many=True, read_only=True)
+
+    def get_price(self, obj):
+        return obj.get_price()

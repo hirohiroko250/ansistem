@@ -1,0 +1,62 @@
+version: '3.8'
+
+# Development Docker Compose Configuration
+
+services:
+  # PostgreSQL Database
+  db:
+    image: postgres:15-alpine
+    container_name: oza_db_dev
+    volumes:
+      - postgres_data_dev:/var/lib/postgresql/data
+    environment:
+      - POSTGRES_DB=oza_db
+      - POSTGRES_USER=oza_user
+      - POSTGRES_PASSWORD=oza_password
+    ports:
+      - "5432:5432"
+    networks:
+      - oza_network_dev
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: oza_redis_dev
+    ports:
+      - "6379:6379"
+    networks:
+      - oza_network_dev
+
+  # Django Backend (Development)
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    container_name: oza_backend_dev
+    command: python manage.py runserver 0.0.0.0:8000
+    volumes:
+      - .:/app
+    ports:
+      - "8000:8000"
+    environment:
+      - DEBUG=True
+      - DJANGO_SETTINGS_MODULE=config.settings.development
+      - SECRET_KEY=dev-secret-key-not-for-production
+      - DB_HOST=db
+      - DB_PORT=5432
+      - DB_NAME=oza_db
+      - DB_USER=oza_user
+      - DB_PASSWORD=oza_password
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      - db
+      - redis
+    networks:
+      - oza_network_dev
+
+volumes:
+  postgres_data_dev:
+
+networks:
+  oza_network_dev:
+    driver: bridge

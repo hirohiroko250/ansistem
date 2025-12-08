@@ -1,0 +1,170 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  db:
+    image: postgres:15-alpine
+    container_name: oza_db
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    environment:
+      - POSTGRES_DB=${DB_NAME:-oza_db}
+      - POSTGRES_USER=${DB_USER:-oza_user}
+      - POSTGRES_PASSWORD=${DB_PASSWORD:-oza_password}
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U ${DB_USER:-oza_user} -d ${DB_NAME:-oza_db}" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - oza_network
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: oza_redis
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - oza_network
+
+  # Django Backend
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: oza_backend
+    command: >
+      sh -c "python manage.py migrate --settings=config.settings.production &&
+             gunicorn --bind 0.0.0.0:8000 --workers 4 --threads 2 config.wsgi:application"
+    volumes:
+      - static_volume:/app/staticfiles
+      - media_volume:/app/media
+    ports:
+      - "8000:8000"
+    environment:
+      - DEBUG=False
+      - DJANGO_SETTINGS_MODULE=config.settings.production
+      - SECRET_KEY=${SECRET_KEY}
+      - DB_HOST=db
+      - DB_PORT=5432
+      - DB_NAME=${DB_NAME:-oza_db}
+      - DB_USER=${DB_USER:-oza_user}
+      - DB_PASSWORD=${DB_PASSWORD:-oza_password}
+      - REDIS_URL=redis://redis:6379/0
+      - ALLOWED_HOSTS=${ALLOWED_HOSTS:-localhost,127.0.0.1,backend}
+      - CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS:-http://localhost:3000,http://localhost:3001}
+      - CSRF_TRUSTED_ORIGINS=${CSRF_TRUSTED_ORIGINS:-http://localhost:3000,http://localhost:3001}
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8000/health/" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - oza_network
+
+  # Celery Worker
+  celery_worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: oza_celery_worker
+    command: celery -A config worker -l info
+    volumes:
+      - ./backend:/app
+    environment:
+      - DEBUG=False
+      - DJANGO_SETTINGS_MODULE=config.settings.production
+      - SECRET_KEY=${SECRET_KEY}
+      - DB_HOST=db
+      - DB_PORT=5432
+      - DB_NAME=${DB_NAME:-oza_db}
+      - DB_USER=${DB_USER:-oza_user}
+      - DB_PASSWORD=${DB_PASSWORD:-oza_password}
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      - backend
+      - redis
+    networks:
+      - oza_network
+
+  # Celery Beat (Scheduler)
+  celery_beat:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: oza_celery_beat
+    command: celery -A config beat -l info --scheduler django_celery_beat.schedulers:DatabaseScheduler
+    volumes:
+      - ./backend:/app
+    environment:
+      - DEBUG=False
+      - DJANGO_SETTINGS_MODULE=config.settings.production
+      - SECRET_KEY=${SECRET_KEY}
+      - DB_HOST=db
+      - DB_PORT=5432
+      - DB_NAME=${DB_NAME:-oza_db}
+      - DB_USER=${DB_USER:-oza_user}
+      - DB_PASSWORD=${DB_PASSWORD:-oza_password}
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      - backend
+      - redis
+    networks:
+      - oza_network
+
+  # Frontend Customer (Next.js)
+  frontend-customer:
+    build:
+      context: ./frontend/customer
+      dockerfile: Dockerfile
+    container_name: oza_frontend_customer
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+    depends_on:
+      - backend
+    networks:
+      - oza_network
+
+  # Frontend Syain (Next.js)
+  frontend-syain:
+    build:
+      context: ./frontend/syain
+      dockerfile: Dockerfile
+    container_name: oza_frontend_syain
+    ports:
+      - "3001:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+    depends_on:
+      - backend
+    networks:
+      - oza_network
+
+volumes:
+  postgres_data:
+  redis_data:
+  static_volume:
+  media_volume:
+
+
+networks:
+  oza_network:
+    driver: bridge

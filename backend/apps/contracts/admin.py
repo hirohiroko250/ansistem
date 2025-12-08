@@ -1,0 +1,838 @@
+from django.contrib import admin
+from apps.core.admin_csv import CSVImportExportMixin
+from .models import (
+    Product, ProductPrice, ProductSet, ProductSetItem,
+    Discount, Course, CourseItem,
+    Pack, PackCourse, PackItem,
+    Seminar, Certification, CourseRequiredSeminar,
+    Contract, StudentItem, SeminarEnrollment, CertificationEnrollment
+)
+
+
+# =============================================================================
+# T03: 商品マスタ
+# =============================================================================
+@admin.register(Product)
+class ProductAdmin(CSVImportExportMixin, admin.ModelAdmin):
+    list_display = [
+        'product_code', 'product_name', 'item_type', 'base_price',
+        'is_one_time', 'is_active', 'tenant_ref'
+    ]
+    list_filter = ['tenant_ref', 'item_type', 'is_one_time', 'is_active', 'brand', 'grade']
+    search_fields = ['product_code', 'product_name']
+    ordering = ['sort_order', 'product_code']
+    raw_id_fields = ['brand', 'school', 'grade', 'tenant_ref']
+
+    csv_import_fields = {
+        '商品コード': 'product_code',
+        '商品名': 'product_name',
+        '商品名略称': 'product_name_short',
+        '商品種別': 'item_type',
+        'ブランドコード': 'brand__brand_code',
+        '教室コード': 'school__school_code',
+        '学年コード': 'grade__grade_code',
+        '基本価格': 'base_price',
+        '税率': 'tax_rate',
+        '税込': 'is_tax_included',
+        '一回きり': 'is_one_time',
+        '説明': 'description',
+        '表示順': 'sort_order',
+        '有効': 'is_active',
+    }
+    csv_required_fields = ['商品コード', '商品名']
+    csv_unique_fields = ['product_code']
+    csv_export_fields = [
+        'product_code', 'product_name', 'product_name_short', 'item_type',
+        'brand.brand_name', 'school.school_name', 'grade.grade_name',
+        'base_price', 'tax_rate', 'is_tax_included', 'is_one_time',
+        'description', 'sort_order', 'is_active'
+    ]
+    csv_export_headers = {
+        'product_code': '商品コード',
+        'product_name': '商品名',
+        'product_name_short': '商品名略称',
+        'item_type': '商品種別',
+        'brand.brand_name': 'ブランド名',
+        'school.school_name': '校舎名',
+        'grade.grade_name': '学年名',
+        'base_price': '基本価格',
+        'tax_rate': '税率',
+        'is_tax_included': '税込',
+        'is_one_time': '一回きり',
+        'description': '説明',
+        'sort_order': '表示順',
+        'is_active': '有効',
+    }
+
+
+# =============================================================================
+# T05: 商品価格マスタ（月別料金設定）
+# =============================================================================
+@admin.register(ProductPrice)
+class ProductPriceAdmin(CSVImportExportMixin, admin.ModelAdmin):
+    list_display = [
+        'product', 'get_product_code',
+        'enrollment_price_apr', 'billing_price_apr', 'is_active'
+    ]
+    list_filter = ['is_active', 'product__brand', 'product__item_type']
+    search_fields = ['product__product_code', 'product__product_name']
+    ordering = ['product__product_code']
+    raw_id_fields = ['product', 'tenant_ref']
+
+    fieldsets = (
+        ('商品情報', {
+            'fields': ('product', 'is_active')
+        }),
+        ('入会月別料金（当月分＝〜月入会者）', {
+            'fields': (
+                ('enrollment_price_apr', 'enrollment_price_may', 'enrollment_price_jun'),
+                ('enrollment_price_jul', 'enrollment_price_aug', 'enrollment_price_sep'),
+                ('enrollment_price_oct', 'enrollment_price_nov', 'enrollment_price_dec'),
+                ('enrollment_price_jan', 'enrollment_price_feb', 'enrollment_price_mar'),
+            ),
+            'description': '入会した月に請求される金額（〜月入会者の列）'
+        }),
+        ('請求月別料金（次月以降＝〜月）', {
+            'fields': (
+                ('billing_price_apr', 'billing_price_may', 'billing_price_jun'),
+                ('billing_price_jul', 'billing_price_aug', 'billing_price_sep'),
+                ('billing_price_oct', 'billing_price_nov', 'billing_price_dec'),
+                ('billing_price_jan', 'billing_price_feb', 'billing_price_mar'),
+            ),
+            'description': '翌月以降に請求される金額（〜月の列）'
+        }),
+    )
+
+    def get_product_code(self, obj):
+        return obj.product.product_code
+    get_product_code.short_description = '商品コード'
+    get_product_code.admin_order_field = 'product__product_code'
+
+    csv_import_fields = {
+        '商品コード': 'product__product_code',
+        # 入会月別料金（〜月入会者 = 当月分）
+        '1月入会者': 'enrollment_price_jan',
+        '2月入会者': 'enrollment_price_feb',
+        '3月入会者': 'enrollment_price_mar',
+        '4月入会者': 'enrollment_price_apr',
+        '5月入会者': 'enrollment_price_may',
+        '6月入会者': 'enrollment_price_jun',
+        '7月入会者': 'enrollment_price_jul',
+        '8月入会者': 'enrollment_price_aug',
+        '9月入会者': 'enrollment_price_sep',
+        '10月入会者': 'enrollment_price_oct',
+        '11月入会者': 'enrollment_price_nov',
+        '12月入会者': 'enrollment_price_dec',
+        # 請求月別料金（〜月 = 次月以降）
+        '1月': 'billing_price_jan',
+        '2月': 'billing_price_feb',
+        '3月': 'billing_price_mar',
+        '4月': 'billing_price_apr',
+        '5月': 'billing_price_may',
+        '6月': 'billing_price_jun',
+        '7月': 'billing_price_jul',
+        '8月': 'billing_price_aug',
+        '9月': 'billing_price_sep',
+        '10月': 'billing_price_oct',
+        '11月': 'billing_price_nov',
+        '12月': 'billing_price_dec',
+        '有効': 'is_active',
+    }
+    csv_required_fields = ['商品コード']
+    csv_unique_fields = ['product__product_code']
+
+
+# =============================================================================
+# T06: 商品セット
+# =============================================================================
+class ProductSetItemInline(admin.TabularInline):
+    model = ProductSetItem
+    extra = 1
+    raw_id_fields = ['product']
+    verbose_name = '商品'
+    verbose_name_plural = '商品セット明細'
+
+
+@admin.register(ProductSet)
+class ProductSetAdmin(CSVImportExportMixin, admin.ModelAdmin):
+    list_display = [
+        'set_code', 'set_name', 'brand', 'get_items_display', 'get_total_price', 'is_active'
+    ]
+    list_filter = ['brand', 'is_active']
+    search_fields = ['set_code', 'set_name']
+    raw_id_fields = ['brand']
+    inlines = [ProductSetItemInline]
+
+    def get_items_display(self, obj):
+        return obj.get_items_display()
+    get_items_display.short_description = '商品内容'
+
+    def get_total_price(self, obj):
+        return f"¥{obj.get_total_price():,.0f}"
+    get_total_price.short_description = '合計金額'
+
+    csv_import_fields = {
+        'セットコード': 'set_code',
+        'セット名': 'set_name',
+        'ブランドコード': 'brand__brand_code',
+        '説明': 'description',
+        '表示順': 'sort_order',
+        '有効': 'is_active',
+    }
+    csv_required_fields = ['セットコード', 'セット名']
+    csv_unique_fields = ['set_code']
+    csv_export_fields = [
+        'set_code', 'set_name', 'brand.brand_name', 'description', 'sort_order', 'is_active'
+    ]
+    csv_export_headers = {
+        'set_code': 'セットコード',
+        'set_name': 'セット名',
+        'brand.brand_name': 'ブランド名',
+        'description': '説明',
+        'sort_order': '表示順',
+        'is_active': '有効',
+    }
+
+
+@admin.register(ProductSetItem)
+class ProductSetItemAdmin(CSVImportExportMixin, admin.ModelAdmin):
+    list_display = ['product_set', 'product', 'quantity', 'price_override', 'is_active']
+    list_filter = ['is_active', 'product_set']
+    search_fields = ['product_set__set_name', 'product__product_name']
+    raw_id_fields = ['product_set', 'product']
+
+    csv_import_fields = {
+        'セットコード': 'product_set__set_code',
+        '商品コード': 'product__product_code',
+        '数量': 'quantity',
+        '単価上書き': 'price_override',
+        '表示順': 'sort_order',
+        '有効': 'is_active',
+    }
+    csv_required_fields = ['セットコード', '商品コード']
+    csv_unique_fields = []
+    csv_export_fields = [
+        'product_set.set_code', 'product_set.set_name',
+        'product.product_code', 'product.product_name',
+        'quantity', 'price_override', 'sort_order', 'is_active'
+    ]
+    csv_export_headers = {
+        'product_set.set_code': 'セットコード',
+        'product_set.set_name': 'セット名',
+        'product.product_code': '商品コード',
+        'product.product_name': '商品名',
+        'quantity': '数量',
+        'price_override': '単価上書き',
+        'sort_order': '表示順',
+        'is_active': '有効',
+    }
+
+
+# =============================================================================
+# T07: 割引マスタ
+# =============================================================================
+@admin.register(Discount)
+class DiscountAdmin(CSVImportExportMixin, admin.ModelAdmin):
+    list_display = [
+        'discount_code', 'discount_name', 'discount_type',
+        'calculation_type', 'get_value_display', 'valid_from', 'valid_until', 'is_active', 'tenant_ref'
+    ]
+    list_filter = ['tenant_ref', 'discount_type', 'calculation_type', 'is_active']
+    search_fields = ['discount_code', 'discount_name']
+    ordering = ['discount_code']
+    raw_id_fields = ['tenant_ref']
+
+    fieldsets = (
+        ('基本情報', {
+            'fields': ('discount_code', 'discount_name', 'discount_type')
+        }),
+        ('割引設定', {
+            'fields': ('calculation_type', 'value'),
+            'description': '割合の場合は%、固定金額の場合は円で入力'
+        }),
+        ('適用期間', {
+            'fields': ('valid_from', 'valid_until'),
+            'description': '空欄の場合は常に適用'
+        }),
+        ('ステータス', {
+            'fields': ('is_active', 'tenant_ref')
+        }),
+    )
+
+    actions = ['create_task_for_discount']
+
+    @admin.display(description='値')
+    def get_value_display(self, obj):
+        if obj.calculation_type == 'percentage':
+            return f"{obj.value}%"
+        else:
+            return f"¥{obj.value:,.0f}"
+
+    @admin.action(description='選択した割引の確認タスクを作成')
+    def create_task_for_discount(self, request, queryset):
+        from apps.tasks.models import Task
+        created_count = 0
+        for discount in queryset:
+            Task.objects.create(
+                tenant_id=discount.tenant_id,
+                task_type='request',
+                title=f'割引確認: {discount.discount_name}',
+                description=f'割引コード: {discount.discount_code}\n'
+                           f'割引種別: {discount.get_discount_type_display()}\n'
+                           f'計算種別: {discount.get_calculation_type_display()}\n'
+                           f'値: {discount.value}\n'
+                           f'適用期間: {discount.valid_from or "なし"} 〜 {discount.valid_until or "なし"}',
+                status='new',
+                priority='normal',
+                source_type='discount',
+                source_id=discount.id,
+                source_url=f'/admin/contracts/discount/{discount.id}/change/',
+            )
+            created_count += 1
+        self.message_user(request, f'{created_count}件の確認タスクを作成しました。')
+
+    csv_import_fields = {
+        '割引コード': 'discount_code',
+        '割引名': 'discount_name',
+        '割引種別': 'discount_type',
+        '計算種別': 'calculation_type',
+        '値': 'value',
+        '適用開始日': 'valid_from',
+        '適用終了日': 'valid_until',
+        '有効': 'is_active',
+    }
+    csv_required_fields = ['割引コード', '割引名', '値']
+    csv_unique_fields = ['discount_code']
+    csv_export_fields = [
+        'discount_code', 'discount_name', 'discount_type', 'calculation_type',
+        'value', 'valid_from', 'valid_until', 'is_active'
+    ]
+    csv_export_headers = {
+        'discount_code': '割引コード',
+        'discount_name': '割引名',
+        'discount_type': '割引種別',
+        'calculation_type': '計算種別',
+        'value': '値',
+        'valid_from': '適用開始日',
+        'valid_until': '適用終了日',
+        'is_active': '有効',
+    }
+
+
+# =============================================================================
+# T08: コース
+# =============================================================================
+class CourseItemInline(admin.TabularInline):
+    model = CourseItem
+    extra = 1
+    raw_id_fields = ['product']
+
+
+@admin.register(Course)
+class CourseAdmin(CSVImportExportMixin, admin.ModelAdmin):
+    list_display = [
+        'course_code', 'course_name', 'brand', 'grade',
+        'product_set', 'course_price', 'is_active'
+    ]
+    list_filter = ['brand', 'grade', 'product_set', 'is_active']
+    search_fields = ['course_code', 'course_name']
+    raw_id_fields = ['brand', 'school', 'grade', 'product_set']
+    inlines = [CourseItemInline]
+
+    csv_import_fields = {
+        'コースコード': 'course_code',
+        'コース名': 'course_name',
+        'ブランドコード': 'brand__brand_code',
+        '教室コード': 'school__school_code',
+        '学年コード': 'grade__grade_code',
+        'コース料金': 'course_price',
+        '説明': 'description',
+        '表示順': 'sort_order',
+        '有効': 'is_active',
+    }
+    csv_required_fields = ['コースコード', 'コース名']
+    csv_unique_fields = ['course_code']
+    csv_export_fields = [
+        'course_code', 'course_name', 'brand.brand_name', 'school.school_name',
+        'grade.grade_name', 'product_set.set_name', 'course_price',
+        'description', 'sort_order', 'is_active'
+    ]
+    csv_export_headers = {
+        'course_code': 'コースコード',
+        'course_name': 'コース名',
+        'brand.brand_name': 'ブランド名',
+        'school.school_name': '校舎名',
+        'grade.grade_name': '学年名',
+        'product_set.set_name': '商品セット',
+        'course_price': 'コース料金',
+        'description': '説明',
+        'sort_order': '表示順',
+        'is_active': '有効',
+    }
+
+
+# =============================================================================
+# T52: コース商品構成
+# =============================================================================
+@admin.register(CourseItem)
+class CourseItemAdmin(CSVImportExportMixin, admin.ModelAdmin):
+    list_display = ['course', 'product', 'quantity', 'price_override', 'is_active']
+    list_filter = ['is_active', 'course']
+    search_fields = ['course__course_name', 'product__product_name']
+    raw_id_fields = ['course', 'product']
+
+    csv_import_fields = {
+        'コースコード': 'course__course_code',
+        '商品コード': 'product__product_code',
+        '数量': 'quantity',
+        '単価上書き': 'price_override',
+        '表示順': 'sort_order',
+        '有効': 'is_active',
+    }
+    csv_required_fields = ['コースコード', '商品コード']
+    csv_unique_fields = []
+    csv_export_fields = [
+        'course.course_code', 'course.course_name',
+        'product.product_code', 'product.product_name',
+        'quantity', 'price_override', 'sort_order', 'is_active'
+    ]
+    csv_export_headers = {
+        'course.course_code': 'コースコード',
+        'course.course_name': 'コース名',
+        'product.product_code': '商品コード',
+        'product.product_name': '商品名',
+        'quantity': '数量',
+        'price_override': '単価上書き',
+        'sort_order': '表示順',
+        'is_active': '有効',
+    }
+
+
+# =============================================================================
+# T09: パック
+# =============================================================================
+class PackCourseInline(admin.TabularInline):
+    model = PackCourse
+    extra = 1
+    raw_id_fields = ['course']
+    verbose_name = 'コース'
+    verbose_name_plural = 'T53_パックコース構成'
+
+
+class PackItemInline(admin.TabularInline):
+    """T52_パック商品構成（諸経費・教材費など）"""
+    model = PackItem
+    extra = 1
+    raw_id_fields = ['product']
+    verbose_name = '商品（諸経費・教材費等）'
+    verbose_name_plural = 'T52_パック商品構成（諸経費・教材費等）'
+
+    def get_queryset(self, request):
+        """商品種別を表示してわかりやすくする"""
+        return super().get_queryset(request).select_related('product')
+
+
+@admin.register(Pack)
+class PackAdmin(CSVImportExportMixin, admin.ModelAdmin):
+    list_display = [
+        'pack_code', 'pack_name', 'brand', 'school', 'grade',
+        'product_set', 'pack_price', 'discount_type', 'discount_value', 'is_active'
+    ]
+    list_filter = ['brand', 'school', 'grade', 'product_set', 'discount_type', 'is_active']
+    search_fields = ['pack_code', 'pack_name']
+    raw_id_fields = ['brand', 'school', 'grade', 'product_set']
+    inlines = [PackCourseInline, PackItemInline]
+
+    csv_import_fields = {
+        'パックコード': 'pack_code',
+        'パック名': 'pack_name',
+        'ブランドコード': 'brand__brand_code',
+        'パック料金': 'pack_price',
+        '割引種別': 'discount_type',
+        '割引値': 'discount_value',
+        '説明': 'description',
+        '表示順': 'sort_order',
+        '有効': 'is_active',
+    }
+    csv_required_fields = ['パックコード', 'パック名']
+    csv_unique_fields = ['pack_code']
+    csv_export_fields = [
+        'pack_code', 'pack_name', 'brand.brand_name', 'school.school_name',
+        'grade.grade_name', 'product_set.set_name', 'pack_price',
+        'discount_type', 'discount_value', 'description', 'sort_order', 'is_active'
+    ]
+    csv_export_headers = {
+        'pack_code': 'パックコード',
+        'pack_name': 'パック名',
+        'brand.brand_name': 'ブランド名',
+        'school.school_name': '校舎名',
+        'grade.grade_name': '学年名',
+        'product_set.set_name': '商品セット',
+        'pack_price': 'パック料金',
+        'discount_type': '割引種別',
+        'discount_value': '割引値',
+        'description': '説明',
+        'sort_order': '表示順',
+        'is_active': '有効',
+    }
+
+
+# =============================================================================
+# T53: パックコース構成
+# =============================================================================
+@admin.register(PackCourse)
+class PackCourseAdmin(CSVImportExportMixin, admin.ModelAdmin):
+    list_display = ['pack', 'course', 'sort_order', 'is_active']
+    list_filter = ['is_active', 'pack']
+    search_fields = ['pack__pack_name', 'course__course_name']
+    raw_id_fields = ['pack', 'course']
+
+    csv_import_fields = {
+        'パックコード': 'pack__pack_code',
+        'コースコード': 'course__course_code',
+        '並び順': 'sort_order',
+        '有効': 'is_active',
+    }
+    csv_required_fields = ['パックコード', 'コースコード']
+    csv_unique_fields = []
+    csv_export_fields = [
+        'pack.pack_code', 'pack.pack_name',
+        'course.course_code', 'course.course_name',
+        'sort_order', 'is_active'
+    ]
+    csv_export_headers = {
+        'pack.pack_code': 'パックコード',
+        'pack.pack_name': 'パック名',
+        'course.course_code': 'コースコード',
+        'course.course_name': 'コース名',
+        'sort_order': '並び順',
+        'is_active': '有効',
+    }
+
+
+# =============================================================================
+# T11: 講習マスタ
+# =============================================================================
+@admin.register(Seminar)
+class SeminarAdmin(CSVImportExportMixin, admin.ModelAdmin):
+    list_display = [
+        'seminar_code', 'seminar_name', 'seminar_type', 'year',
+        'base_price', 'is_active'
+    ]
+    list_filter = ['seminar_type', 'year', 'brand', 'is_active']
+    search_fields = ['seminar_code', 'seminar_name']
+    raw_id_fields = ['brand', 'grade']
+
+    csv_import_fields = {
+        '講習コード': 'seminar_code',
+        '講習名': 'seminar_name',
+        '講習種別': 'seminar_type',
+        'ブランドコード': 'brand__brand_code',
+        '学年コード': 'grade__grade_code',
+        '年度': 'year',
+        '開始日': 'start_date',
+        '終了日': 'end_date',
+        '価格': 'base_price',
+        '説明': 'description',
+        '表示順': 'sort_order',
+        '有効': 'is_active',
+    }
+    csv_required_fields = ['講習コード', '講習名', '年度']
+    csv_unique_fields = ['seminar_code']
+    csv_export_fields = [
+        'seminar_code', 'seminar_name', 'seminar_type',
+        'brand.brand_name', 'grade.grade_name',
+        'year', 'start_date', 'end_date', 'base_price',
+        'description', 'sort_order', 'is_active'
+    ]
+    csv_export_headers = {
+        'seminar_code': '講習コード',
+        'seminar_name': '講習名',
+        'seminar_type': '講習種別',
+        'brand.brand_name': 'ブランド名',
+        'grade.grade_name': '学年名',
+        'year': '年度',
+        'start_date': '開始日',
+        'end_date': '終了日',
+        'base_price': '価格',
+        'description': '説明',
+        'sort_order': '表示順',
+        'is_active': '有効',
+    }
+
+
+# =============================================================================
+# T12: 検定マスタ
+# =============================================================================
+@admin.register(Certification)
+class CertificationAdmin(CSVImportExportMixin, admin.ModelAdmin):
+    list_display = [
+        'certification_code', 'certification_name', 'certification_type',
+        'level', 'year', 'exam_fee', 'is_active'
+    ]
+    list_filter = ['certification_type', 'year', 'is_active']
+    search_fields = ['certification_code', 'certification_name', 'level']
+    raw_id_fields = ['brand']
+
+    csv_import_fields = {
+        '検定コード': 'certification_code',
+        '検定名': 'certification_name',
+        '検定種別': 'certification_type',
+        '級・レベル': 'level',
+        'ブランドコード': 'brand__brand_code',
+        '年度': 'year',
+        '試験日': 'exam_date',
+        '検定料': 'exam_fee',
+        '説明': 'description',
+        '表示順': 'sort_order',
+        '有効': 'is_active',
+    }
+    csv_required_fields = ['検定コード', '検定名', '年度']
+    csv_unique_fields = ['certification_code']
+    csv_export_fields = [
+        'certification_code', 'certification_name', 'certification_type',
+        'level', 'brand.brand_name', 'year', 'exam_date', 'exam_fee',
+        'description', 'sort_order', 'is_active'
+    ]
+    csv_export_headers = {
+        'certification_code': '検定コード',
+        'certification_name': '検定名',
+        'certification_type': '検定種別',
+        'level': '級・レベル',
+        'brand.brand_name': 'ブランド名',
+        'year': '年度',
+        'exam_date': '試験日',
+        'exam_fee': '検定料',
+        'description': '説明',
+        'sort_order': '表示順',
+        'is_active': '有効',
+    }
+
+
+# =============================================================================
+# T54: コース必須講習
+# =============================================================================
+@admin.register(CourseRequiredSeminar)
+class CourseRequiredSeminarAdmin(CSVImportExportMixin, admin.ModelAdmin):
+    list_display = ['course', 'seminar', 'auto_enroll', 'is_active']
+    list_filter = ['auto_enroll', 'is_active']
+    search_fields = ['course__course_name', 'seminar__seminar_name']
+    raw_id_fields = ['course', 'seminar']
+
+    csv_import_fields = {
+        'コースコード': 'course__course_code',
+        '講習コード': 'seminar__seminar_code',
+        '自動登録': 'auto_enroll',
+        '有効': 'is_active',
+    }
+    csv_required_fields = ['コースコード', '講習コード']
+    csv_unique_fields = []
+    csv_export_fields = [
+        'course.course_code', 'course.course_name',
+        'seminar.seminar_code', 'seminar.seminar_name',
+        'auto_enroll', 'is_active'
+    ]
+    csv_export_headers = {
+        'course.course_code': 'コースコード',
+        'course.course_name': 'コース名',
+        'seminar.seminar_code': '講習コード',
+        'seminar.seminar_name': '講習名',
+        'auto_enroll': '自動登録',
+        'is_active': '有効',
+    }
+
+
+# =============================================================================
+# 契約
+# =============================================================================
+class StudentItemInline(admin.TabularInline):
+    model = StudentItem
+    extra = 0
+    raw_id_fields = ['product']
+    readonly_fields = ['billing_month', 'product', 'quantity', 'unit_price', 'discount_amount', 'final_price']
+
+
+@admin.register(Contract)
+class ContractAdmin(CSVImportExportMixin, admin.ModelAdmin):
+    list_display = [
+        'contract_no', 'student', 'school', 'brand',
+        'course', 'status', 'contract_date', 'monthly_total', 'tenant_ref'
+    ]
+    list_filter = ['tenant_ref', 'status', 'school', 'brand']
+    search_fields = ['contract_no', 'student__last_name', 'student__first_name']
+    raw_id_fields = ['student', 'guardian', 'school', 'brand', 'course', 'tenant_ref']
+    inlines = [StudentItemInline]
+
+    csv_import_fields = {
+        '契約番号': 'contract_no',
+        '生徒番号': 'student__student_no',
+        '保護者番号': 'guardian__guardian_no',
+        '教室コード': 'school__school_code',
+        'ブランドコード': 'brand__brand_code',
+        'コースコード': 'course__course_code',
+        '契約日': 'contract_date',
+        '開始日': 'start_date',
+        '終了日': 'end_date',
+        'ステータス': 'status',
+        '月額合計': 'monthly_total',
+        '備考': 'notes',
+    }
+    csv_required_fields = ['契約番号', '生徒番号', '教室コード', 'ブランドコード', '契約日', '開始日']
+    csv_unique_fields = ['contract_no']
+    csv_export_fields = [
+        'contract_no', 'student.student_no', 'student.last_name', 'student.first_name',
+        'guardian.guardian_no', 'school.school_name', 'brand.brand_name',
+        'course.course_name', 'status', 'contract_date', 'start_date', 'end_date',
+        'monthly_total', 'notes'
+    ]
+    csv_export_headers = {
+        'contract_no': '契約番号',
+        'student.student_no': '生徒番号',
+        'student.last_name': '生徒姓',
+        'student.first_name': '生徒名',
+        'guardian.guardian_no': '保護者番号',
+        'school.school_name': '校舎名',
+        'brand.brand_name': 'ブランド名',
+        'course.course_name': 'コース名',
+        'status': 'ステータス',
+        'contract_date': '契約日',
+        'start_date': '開始日',
+        'end_date': '終了日',
+        'monthly_total': '月額合計',
+        'notes': '備考',
+    }
+
+
+# =============================================================================
+# T04: 生徒商品（請求）
+# =============================================================================
+@admin.register(StudentItem)
+class StudentItemAdmin(CSVImportExportMixin, admin.ModelAdmin):
+    list_display = [
+        'student', 'product', 'billing_month', 'quantity',
+        'unit_price', 'discount_amount', 'final_price'
+    ]
+    list_filter = ['billing_month', 'product__item_type']
+    search_fields = ['student__last_name', 'student__first_name', 'product__product_name']
+    raw_id_fields = ['student', 'contract', 'product']
+
+    csv_import_fields = {
+        '生徒番号': 'student__student_no',
+        '契約番号': 'contract__contract_no',
+        '商品コード': 'product__product_code',
+        '請求月': 'billing_month',
+        '数量': 'quantity',
+        '単価': 'unit_price',
+        '割引額': 'discount_amount',
+        '確定金額': 'final_price',
+        '備考': 'notes',
+    }
+    csv_required_fields = ['生徒番号', '商品コード', '請求月', '単価', '確定金額']
+    csv_unique_fields = []
+    csv_export_fields = [
+        'student.student_no', 'student.last_name', 'student.first_name',
+        'contract.contract_no', 'product.product_code', 'product.product_name',
+        'billing_month', 'quantity', 'unit_price', 'discount_amount', 'final_price', 'notes'
+    ]
+    csv_export_headers = {
+        'student.student_no': '生徒番号',
+        'student.last_name': '生徒姓',
+        'student.first_name': '生徒名',
+        'contract.contract_no': '契約番号',
+        'product.product_code': '商品コード',
+        'product.product_name': '商品名',
+        'billing_month': '請求月',
+        'quantity': '数量',
+        'unit_price': '単価',
+        'discount_amount': '割引額',
+        'final_price': '確定金額',
+        'notes': '備考',
+    }
+
+
+# =============================================================================
+# T55: 講習申込
+# =============================================================================
+@admin.register(SeminarEnrollment)
+class SeminarEnrollmentAdmin(CSVImportExportMixin, admin.ModelAdmin):
+    list_display = [
+        'student', 'seminar', 'status', 'is_required',
+        'unit_price', 'discount_amount', 'final_price', 'applied_at'
+    ]
+    list_filter = ['status', 'is_required', 'seminar__seminar_type', 'seminar__year']
+    search_fields = ['student__last_name', 'student__first_name', 'seminar__seminar_name']
+    raw_id_fields = ['student', 'seminar']
+
+    csv_import_fields = {
+        '生徒番号': 'student__student_no',
+        '講習コード': 'seminar__seminar_code',
+        'ステータス': 'status',
+        '必須': 'is_required',
+        '単価': 'unit_price',
+        '割引額': 'discount_amount',
+        '確定金額': 'final_price',
+    }
+    csv_required_fields = ['生徒番号', '講習コード']
+    csv_unique_fields = []
+    csv_export_fields = [
+        'student.student_no', 'student.last_name', 'student.first_name',
+        'seminar.seminar_code', 'seminar.seminar_name',
+        'status', 'is_required', 'unit_price', 'discount_amount', 'final_price', 'applied_at'
+    ]
+    csv_export_headers = {
+        'student.student_no': '生徒番号',
+        'student.last_name': '生徒姓',
+        'student.first_name': '生徒名',
+        'seminar.seminar_code': '講習コード',
+        'seminar.seminar_name': '講習名',
+        'status': 'ステータス',
+        'is_required': '必須',
+        'unit_price': '単価',
+        'discount_amount': '割引額',
+        'final_price': '確定金額',
+        'applied_at': '申込日時',
+    }
+
+
+# =============================================================================
+# T56: 検定申込
+# =============================================================================
+@admin.register(CertificationEnrollment)
+class CertificationEnrollmentAdmin(CSVImportExportMixin, admin.ModelAdmin):
+    list_display = [
+        'student', 'certification', 'status',
+        'exam_fee', 'final_price', 'score', 'applied_at'
+    ]
+    list_filter = ['status', 'certification__certification_type', 'certification__year']
+    search_fields = ['student__last_name', 'student__first_name', 'certification__certification_name']
+    raw_id_fields = ['student', 'certification']
+
+    csv_import_fields = {
+        '生徒番号': 'student__student_no',
+        '検定コード': 'certification__certification_code',
+        'ステータス': 'status',
+        '検定料': 'exam_fee',
+        '確定金額': 'final_price',
+        '得点': 'score',
+        '合否': 'result',
+    }
+    csv_required_fields = ['生徒番号', '検定コード']
+    csv_unique_fields = []
+    csv_export_fields = [
+        'student.student_no', 'student.last_name', 'student.first_name',
+        'certification.certification_code', 'certification.certification_name',
+        'status', 'exam_fee', 'final_price', 'score', 'result', 'applied_at'
+    ]
+    csv_export_headers = {
+        'student.student_no': '生徒番号',
+        'student.last_name': '生徒姓',
+        'student.first_name': '生徒名',
+        'certification.certification_code': '検定コード',
+        'certification.certification_name': '検定名',
+        'status': 'ステータス',
+        'exam_fee': '検定料',
+        'final_price': '確定金額',
+        'score': '得点',
+        'result': '合否',
+        'applied_at': '申込日時',
+    }

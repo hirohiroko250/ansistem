@@ -1,0 +1,25 @@
+{% extends "admin/change_list.html" %}
+{% load i18n admin_urls %}
+
+{% block object-tools-items %}
+{% if has_csv_import %}
+<li>
+    <a href="import-csv/" class="addlink">
+        CSVインポート
+    </a>
+</li>
+{% endif %}
+{% if has_csv_export %}
+<li>
+    <a href="export-csv/" class="downloadlink">
+        CSVエクスポート
+    </a>
+</li>
+<li>
+    <a href="download-template/" class="downloadlink">
+        テンプレートDL
+    </a>
+</li>
+{% endif %}
+{{ block.super }}
+{% endblock %}

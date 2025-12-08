@@ -1,0 +1,57 @@
+{% extends "admin/base_site.html" %}
+{% load i18n admin_urls %}
+
+{% block content %}
+<h1>{{ title }}</h1>
+
+<div style="margin-bottom: 20px; padding: 15px; background: #f0f0f0; border-radius: 5px;">
+    <h3>CSVフォーマット</h3>
+    <table style="width: 100%; border-collapse: collapse;">
+        <thead>
+            <tr style="background: #ddd;">
+                <th style="padding: 8px; border: 1px solid #ccc; text-align: left;">CSV列名</th>
+                <th style="padding: 8px; border: 1px solid #ccc; text-align: left;">フィールド</th>
+                <th style="padding: 8px; border: 1px solid #ccc; text-align: left;">必須</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for csv_field, model_field in csv_fields.items %}
+            <tr>
+                <td style="padding: 8px; border: 1px solid #ccc;">{{ csv_field }}</td>
+                <td style="padding: 8px; border: 1px solid #ccc;">{{ model_field }}</td>
+                <td style="padding: 8px; border: 1px solid #ccc;">
+                    {% if csv_field in required_fields %}
+                    <span style="color: red;">必須</span>
+                    {% else %}
+                    任意
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<form method="post" enctype="multipart/form-data">
+    {% csrf_token %}
+    <fieldset class="module aligned">
+        <div class="form-row">
+            {{ form.as_p }}
+        </div>
+    </fieldset>
+    <div class="submit-row">
+        <input type="submit" value="インポート実行" class="default">
+        <a href=".." class="closelink">キャンセル</a>
+    </div>
+</form>
+
+<div style="margin-top: 20px; padding: 15px; background: #fff3cd; border-radius: 5px;">
+    <h4>注意事項</h4>
+    <ul>
+        <li>CSVファイルはUTF-8エンコードで保存してください</li>
+        <li>1行目はヘッダー行として扱われます</li>
+        <li>「既存データを更新」をチェックすると、ユニークキーが一致するレコードは更新されます</li>
+        <li>エラーが発生した行はスキップされます</li>
+    </ul>
+</div>
+{% endblock %}

@@ -1,0 +1,32 @@
+# Django
+Django>=4.2,<5.0
+djangorestframework>=3.15.1
+django-cors-headers>=4.3.0
+django-filter>=23.5
+
+# JWT Authentication
+djangorestframework-simplejwt>=5.3.0
+
+# Database
+psycopg2-binary>=2.9.9
+
+# Environment
+python-dotenv>=1.0.0
+
+# API Documentation
+drf-spectacular>=0.27.0
+
+# Celery (Async Tasks)
+celery>=5.3.0
+redis>=5.0.0
+django-redis>=5.4.0
+
+# Utils
+Pillow>=10.0.0
+python-dateutil>=2.8.2
+
+# Validation
+email-validator>=2.1.0
+
+# JSON camelCase support
+djangorestframework-camel-case>=1.4.2
