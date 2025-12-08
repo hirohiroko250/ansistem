@@ -306,7 +306,7 @@ export async function getMakeupAvailableDates(
 export async function getTimeSlots(schoolId?: string): Promise<TimeSlot[]> {
   const query = schoolId ? `?school=${schoolId}` : '';
   const response = await api.get<PaginatedResponse<TimeSlot>>(`/lessons/time-slots/${query}`);
-  return response.results;
+  return response.results || [];
 }
 
 /**
@@ -448,7 +448,7 @@ export async function getTodayLessons(): Promise<StaffLessonSchedule[]> {
     endDate: today,
     pageSize: 100,
   });
-  return response.results;
+  return response.results || [];
 }
 
 /**
@@ -466,7 +466,7 @@ export async function getWeekLessons(): Promise<StaffLessonSchedule[]> {
     endDate: endOfWeek.toISOString().split('T')[0],
     pageSize: 100,
   });
-  return response.results;
+  return response.results || [];
 }
 
 // ============================================
