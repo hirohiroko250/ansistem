@@ -27,8 +27,18 @@ CSRF_TRUSTED_ORIGINS = os.environ.get(
     'http://localhost:3000,http://localhost:3001'
 ).split(',')
 
-# Static files
-STATICFILES_STORAGE = 'django.contrib.staticfiles.storage.ManifestStaticFilesStorage'
+# Static files with WhiteNoise
+STORAGES = {
+    "default": {
+        "BACKEND": "django.core.files.storage.FileSystemStorage",
+    },
+    "staticfiles": {
+        "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
+    },
+}
+
+# WhiteNoise middleware - must be added after SecurityMiddleware
+MIDDLEWARE.insert(1, 'whitenoise.middleware.WhiteNoiseMiddleware')
 
 # Ensure logs directory exists
 LOGS_DIR = BASE_DIR / 'logs'

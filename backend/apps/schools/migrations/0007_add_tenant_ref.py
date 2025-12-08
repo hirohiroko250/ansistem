@@ -8,7 +8,7 @@ class Migration(migrations.Migration):
 
     dependencies = [
         ("tenants", "0001_initial"),
-        ("schools", "0007_add_grade_update_date"),
+        ("schools", "0006_alter_classroom_capacity"),
     ]
 
     operations = [
