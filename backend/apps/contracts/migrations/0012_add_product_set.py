@@ -8,7 +8,7 @@ import uuid
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("schools", "0009_add_brand_school"),
+        ("schools", "0008_add_brand_school"),
         ("contracts", "0011_update_tax_type_choices"),
     ]
 

@@ -9,7 +9,7 @@ class Migration(migrations.Migration):
 
     dependencies = [
         ("students", "0004_add_task_id_ref"),
-        ("schools", "0010_add_lesson_calendar_csv_fields"),
+        ("schools", "0009_add_lesson_calendar_csv_fields"),
         ("communications", "0003_initial"),
     ]
 

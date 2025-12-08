@@ -7,7 +7,7 @@ import django.db.models.deletion
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("schools", "0009_add_brand_school"),
+        ("schools", "0008_add_brand_school"),
         ("contracts", "0006_alter_product_options_product_discount_max_and_more"),
     ]
 

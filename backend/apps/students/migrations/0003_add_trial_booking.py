@@ -8,7 +8,7 @@ import uuid
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("schools", "0010_add_lesson_calendar_csv_fields"),
+        ("schools", "0009_add_lesson_calendar_csv_fields"),
         ("students", "0002_add_payment_fields_to_guardian"),
     ]
 
