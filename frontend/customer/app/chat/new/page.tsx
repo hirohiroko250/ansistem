@@ -22,6 +22,7 @@ function formatMessageTime(dateString: string): string {
 function mapApiMessage(apiMessage: any): Message {
   return {
     id: apiMessage.id,
+    channel: apiMessage.channel || apiMessage.channelId,
     channelId: apiMessage.channel || apiMessage.channelId,
     senderId: apiMessage.sender || apiMessage.senderId || '',
     senderName: apiMessage.sender_name || apiMessage.senderName || '',
@@ -111,6 +112,7 @@ function NewChatContent() {
       // 楽観的更新: 送信中のメッセージを仮表示
       const tempMessage: Message = {
         id: tempMessageId,
+        channel: currentChannel.id,
         channelId: currentChannel.id,
         senderId: 'me',
         senderName: 'あなた',
@@ -229,11 +231,10 @@ function NewChatContent() {
                   className={`flex ${isOwnMessage ? 'justify-end' : 'justify-start'}`}
                 >
                   <div
-                    className={`max-w-[75%] ${
-                      isOwnMessage
+                    className={`max-w-[75%] ${isOwnMessage
                         ? 'bg-blue-500 text-white'
                         : 'bg-gradient-to-br from-green-100 to-teal-100 text-gray-800'
-                    } rounded-2xl px-4 py-3`}
+                      } rounded-2xl px-4 py-3`}
                   >
                     {/* 送信者名（自分以外） */}
                     {!isOwnMessage && (
@@ -245,9 +246,8 @@ function NewChatContent() {
                       {message.content}
                     </p>
                     <p
-                      className={`text-xs mt-1 ${
-                        isOwnMessage ? 'text-blue-100' : 'text-gray-500'
-                      }`}
+                      className={`text-xs mt-1 ${isOwnMessage ? 'text-blue-100' : 'text-gray-500'
+                        }`}
                     >
                       {formatMessageTime(message.createdAt)}
                     </p>
