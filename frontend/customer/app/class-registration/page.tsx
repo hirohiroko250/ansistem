@@ -247,7 +247,7 @@ export default function ClassRegistrationPage() {
         setSelectedBrand({
           id: ticket.brandId,
           name: ticket.brandName,
-          shortName: ticket.brandName,
+          icon: User,
           color: 'bg-blue-500',
         });
       }
@@ -765,9 +765,8 @@ export default function ClassRegistrationPage() {
               {timeSlots.map((time, index) => (
                 <Card
                   key={index}
-                  className={`rounded-xl shadow-md hover:shadow-lg transition-shadow cursor-pointer ${
-                    selectedTime === time ? 'border-blue-500 border-2 bg-blue-50' : ''
-                  }`}
+                  className={`rounded-xl shadow-md hover:shadow-lg transition-shadow cursor-pointer ${selectedTime === time ? 'border-blue-500 border-2 bg-blue-50' : ''
+                    }`}
                   onClick={() => handleTimeSelect(time)}
                 >
                   <CardContent className="p-4 flex items-center gap-3">
