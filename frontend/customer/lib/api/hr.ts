@@ -206,7 +206,7 @@ export async function getMyMonthlyAttendances(
     pageSize: 31,
   });
 
-  return response.results;
+  return response.results || [];
 }
 
 /**
