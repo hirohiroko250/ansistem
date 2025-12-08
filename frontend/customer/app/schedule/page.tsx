@@ -94,7 +94,7 @@ export default function SchedulePage() {
       };
 
       const response = await getStaffLessonSchedules(params);
-      setLessons(response.results);
+      setLessons(response.results || []);
     } catch (err) {
       console.error('Failed to fetch lessons:', err);
       setError('スケジュールの取得に失敗しました');
@@ -117,7 +117,7 @@ export default function SchedulePage() {
         endDate,
         pageSize: 100,
       });
-      setLessons(response.results);
+      setLessons(response.results || []);
     } catch (err) {
       console.error('Failed to fetch calendar:', err);
       setError('カレンダーデータの取得に失敗しました');
@@ -354,9 +354,8 @@ export default function SchedulePage() {
                     {['日', '月', '火', '水', '木', '金', '土'].map((day, i) => (
                       <div
                         key={day}
-                        className={`text-center text-xs font-medium py-1 ${
-                          i === 0 ? 'text-red-500' : i === 6 ? 'text-blue-500' : 'text-gray-500'
-                        }`}
+                        className={`text-center text-xs font-medium py-1 ${i === 0 ? 'text-red-500' : i === 6 ? 'text-blue-500' : 'text-gray-500'
+                          }`}
                       >
                         {day}
                       </div>
@@ -379,22 +378,19 @@ export default function SchedulePage() {
                         <button
                           key={day.toISOString()}
                           onClick={() => setSelectedDate(day)}
-                          className={`h-12 p-1 rounded-lg text-sm relative transition-colors ${
-                            isSelected
+                          className={`h-12 p-1 rounded-lg text-sm relative transition-colors ${isSelected
                               ? 'bg-blue-600 text-white'
                               : isToday
-                              ? 'bg-blue-100 text-blue-600'
-                              : 'hover:bg-gray-100'
-                          } ${
-                            dayOfWeek === 0 ? 'text-red-500' : dayOfWeek === 6 ? 'text-blue-500' : ''
-                          } ${isSelected ? 'text-white' : ''}`}
+                                ? 'bg-blue-100 text-blue-600'
+                                : 'hover:bg-gray-100'
+                            } ${dayOfWeek === 0 ? 'text-red-500' : dayOfWeek === 6 ? 'text-blue-500' : ''
+                            } ${isSelected ? 'text-white' : ''}`}
                         >
                           <span className="block">{format(day, 'd')}</span>
                           {dayEvents.length > 0 && (
                             <span
-                              className={`absolute bottom-1 left-1/2 transform -translate-x-1/2 w-1.5 h-1.5 rounded-full ${
-                                isSelected ? 'bg-white' : 'bg-blue-500'
-                              }`}
+                              className={`absolute bottom-1 left-1/2 transform -translate-x-1/2 w-1.5 h-1.5 rounded-full ${isSelected ? 'bg-white' : 'bg-blue-500'
+                                }`}
                             />
                           )}
                         </button>
