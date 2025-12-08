@@ -6,7 +6,7 @@ from django.db import migrations
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("schools", "0007_add_tenant_ref"),
+        ("schools", "0006_alter_classroom_capacity"),
     ]
 
     operations = [

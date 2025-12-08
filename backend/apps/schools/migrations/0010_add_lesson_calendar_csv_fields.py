@@ -9,7 +9,7 @@ class Migration(migrations.Migration):
 
     dependencies = [
         ("tenants", "0001_initial"),
-        ("schools", "0010_add_brand_school"),
+        ("schools", "0009_add_brand_school"),
     ]
 
     operations = [
