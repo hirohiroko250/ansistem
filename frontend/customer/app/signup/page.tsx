@@ -228,7 +228,7 @@ export default function SignupPage() {
     } else {
       // Step 3 完了時に API 呼び出し
       setIsLoading(true);
-      setErrors({ email: '', password: '', api: '' });
+      setErrors({ email: '', phone: '', password: '', api: '' });
 
       try {
         await register({
@@ -319,9 +319,8 @@ export default function SignupPage() {
             {[1, 2, 3].map((s) => (
               <div
                 key={s}
-                className={`h-2 flex-1 rounded-full transition-colors ${
-                  s <= step ? 'bg-blue-500' : 'bg-gray-200'
-                }`}
+                className={`h-2 flex-1 rounded-full transition-colors ${s <= step ? 'bg-blue-500' : 'bg-gray-200'
+                  }`}
               />
             ))}
           </div>
@@ -345,7 +344,7 @@ export default function SignupPage() {
                       id="lastName"
                       placeholder="山田"
                       value={formData.lastName}
-                      onChange={(e) => setFormData({...formData, lastName: e.target.value})}
+                      onChange={(e) => setFormData({ ...formData, lastName: e.target.value })}
                       className="rounded-xl h-12"
                       required
                     />
@@ -358,7 +357,7 @@ export default function SignupPage() {
                       id="firstName"
                       placeholder="太郎"
                       value={formData.firstName}
-                      onChange={(e) => setFormData({...formData, firstName: e.target.value})}
+                      onChange={(e) => setFormData({ ...formData, firstName: e.target.value })}
                       className="rounded-xl h-12"
                       required
                     />
@@ -374,7 +373,7 @@ export default function SignupPage() {
                       id="lastNameKana"
                       placeholder="ヤマダ"
                       value={formData.lastNameKana}
-                      onChange={(e) => setFormData({...formData, lastNameKana: e.target.value})}
+                      onChange={(e) => setFormData({ ...formData, lastNameKana: e.target.value })}
                       className="rounded-xl h-12"
                       required
                     />
@@ -387,7 +386,7 @@ export default function SignupPage() {
                       id="firstNameKana"
                       placeholder="タロウ"
                       value={formData.firstNameKana}
-                      onChange={(e) => setFormData({...formData, firstNameKana: e.target.value})}
+                      onChange={(e) => setFormData({ ...formData, firstNameKana: e.target.value })}
                       className="rounded-xl h-12"
                       required
                     />
@@ -403,7 +402,7 @@ export default function SignupPage() {
                     type="tel"
                     placeholder="090-1234-5678"
                     value={formData.phone}
-                    onChange={(e) => setFormData({...formData, phone: e.target.value})}
+                    onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
                     className={`rounded-xl h-12 ${errors.phone ? 'border-red-500' : ''}`}
                     required
                   />
@@ -421,7 +420,7 @@ export default function SignupPage() {
                     type="email"
                     placeholder="example@mail.com"
                     value={formData.email}
-                    onChange={(e) => setFormData({...formData, email: e.target.value})}
+                    onChange={(e) => setFormData({ ...formData, email: e.target.value })}
                     className="rounded-xl h-12"
                     required
                   />
@@ -436,7 +435,7 @@ export default function SignupPage() {
                     type="email"
                     placeholder="もう一度入力してください"
                     value={formData.emailConfirm}
-                    onChange={(e) => setFormData({...formData, emailConfirm: e.target.value})}
+                    onChange={(e) => setFormData({ ...formData, emailConfirm: e.target.value })}
                     className="rounded-xl h-12"
                     required
                   />
@@ -454,7 +453,7 @@ export default function SignupPage() {
                     type="password"
                     placeholder="8文字以上"
                     value={formData.password}
-                    onChange={(e) => setFormData({...formData, password: e.target.value})}
+                    onChange={(e) => setFormData({ ...formData, password: e.target.value })}
                     className="rounded-xl h-12"
                     required
                     minLength={8}
@@ -473,7 +472,7 @@ export default function SignupPage() {
                     type="password"
                     placeholder="もう一度入力してください"
                     value={formData.passwordConfirm}
-                    onChange={(e) => setFormData({...formData, passwordConfirm: e.target.value})}
+                    onChange={(e) => setFormData({ ...formData, passwordConfirm: e.target.value })}
                     className="rounded-xl h-12"
                     required
                     minLength={8}
@@ -525,7 +524,7 @@ export default function SignupPage() {
                       id="prefecture"
                       placeholder="愛知県"
                       value={formData.prefecture}
-                      onChange={(e) => setFormData({...formData, prefecture: e.target.value})}
+                      onChange={(e) => setFormData({ ...formData, prefecture: e.target.value })}
                       className="rounded-xl h-12"
                       required
                     />
@@ -539,7 +538,7 @@ export default function SignupPage() {
                       id="city"
                       placeholder="名古屋市中区"
                       value={formData.city}
-                      onChange={(e) => setFormData({...formData, city: e.target.value})}
+                      onChange={(e) => setFormData({ ...formData, city: e.target.value })}
                       className="rounded-xl h-12"
                       required
                     />
@@ -553,7 +552,7 @@ export default function SignupPage() {
                       id="address1"
                       placeholder="栄1-2-3"
                       value={formData.address1}
-                      onChange={(e) => setFormData({...formData, address1: e.target.value})}
+                      onChange={(e) => setFormData({ ...formData, address1: e.target.value })}
                       className="rounded-xl h-12"
                       required
                     />
@@ -567,7 +566,7 @@ export default function SignupPage() {
                       id="address2"
                       placeholder="○○マンション 101号室"
                       value={formData.address2}
-                      onChange={(e) => setFormData({...formData, address2: e.target.value})}
+                      onChange={(e) => setFormData({ ...formData, address2: e.target.value })}
                       className="rounded-xl h-12"
                     />
                   </div>
@@ -586,7 +585,7 @@ export default function SignupPage() {
                     <select
                       id="selectedPrefecture"
                       value={formData.selectedPrefecture}
-                      onChange={(e) => setFormData({...formData, selectedPrefecture: e.target.value, selectedCity: '', nearestSchool: ''})}
+                      onChange={(e) => setFormData({ ...formData, selectedPrefecture: e.target.value, selectedCity: '', nearestSchool: '' })}
                       className="w-full h-12 px-3 rounded-xl border border-gray-300 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                       required
                       disabled={isLoadingPrefectures}
@@ -610,7 +609,7 @@ export default function SignupPage() {
                       <select
                         id="selectedCity"
                         value={formData.selectedCity}
-                        onChange={(e) => setFormData({...formData, selectedCity: e.target.value, nearestSchool: ''})}
+                        onChange={(e) => setFormData({ ...formData, selectedCity: e.target.value, nearestSchool: '' })}
                         className="w-full h-12 px-3 rounded-xl border border-gray-300 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                         required
                         disabled={isLoadingCities}
@@ -635,7 +634,7 @@ export default function SignupPage() {
                       <select
                         id="nearestSchool"
                         value={formData.nearestSchool}
-                        onChange={(e) => setFormData({...formData, nearestSchool: e.target.value})}
+                        onChange={(e) => setFormData({ ...formData, nearestSchool: e.target.value })}
                         className="w-full h-12 px-3 rounded-xl border border-gray-300 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                         required
                         disabled={isLoadingSchools}
@@ -697,7 +696,7 @@ export default function SignupPage() {
                     <select
                       id="referralSource"
                       value={formData.referralSource}
-                      onChange={(e) => setFormData({...formData, referralSource: e.target.value})}
+                      onChange={(e) => setFormData({ ...formData, referralSource: e.target.value })}
                       className="w-full h-12 px-3 rounded-xl border border-gray-300 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                       required
                     >
@@ -722,7 +721,7 @@ export default function SignupPage() {
                       id="expectations"
                       placeholder="自由にご記入ください"
                       value={formData.expectations}
-                      onChange={(e) => setFormData({...formData, expectations: e.target.value})}
+                      onChange={(e) => setFormData({ ...formData, expectations: e.target.value })}
                       className="rounded-xl min-h-[120px]"
                     />
                   </div>
