@@ -8,6 +8,11 @@ export interface Post {
   caption: string;
   date: string;
   imageUrl?: string;
+  user: string;
+  avatar: string;
+  timestamp: string;
+  image: string;
+  likes: number;
 }
 
 export const posts: Post[] = [
@@ -16,23 +21,43 @@ export const posts: Post[] = [
     type: '新着',
     caption: '冬期講習の受付を開始しました。お早めにお申し込みください。',
     date: '2024年12月1日',
+    user: 'OZA SYSTEM',
+    avatar: 'O',
+    timestamp: '2時間前',
+    image: '/api/placeholder/400/400',
+    likes: 24,
   },
   {
     id: 2,
     type: 'お知らせ',
     caption: '年末年始の休校日程についてのお知らせ',
     date: '2024年11月28日',
+    user: 'OZA SYSTEM',
+    avatar: 'O',
+    timestamp: '1日前',
+    image: '/api/placeholder/400/400',
+    likes: 15,
   },
   {
     id: 3,
     type: 'イベント',
     caption: '保護者説明会のご案内 - 12月15日開催',
     date: '2024年11月25日',
+    user: 'OZA SYSTEM',
+    avatar: 'O',
+    timestamp: '3日前',
+    image: '/api/placeholder/400/400',
+    likes: 42,
   },
   {
     id: 4,
     type: '新着',
     caption: '新しい英会話コースが開講します',
     date: '2024年11月20日',
+    user: 'OZA SYSTEM',
+    avatar: 'O',
+    timestamp: '1週間前',
+    image: '/api/placeholder/400/400',
+    likes: 18,
   },
 ];
