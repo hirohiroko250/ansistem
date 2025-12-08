@@ -61,9 +61,9 @@ export function GoogleMapSchoolSelector({
 }: GoogleMapSchoolSelectorProps) {
   const [mapLoaded, setMapLoaded] = useState(false);
   const [mapError, setMapError] = useState<string | null>(null);
-  const [map, setMap] = useState<google.maps.Map | null>(null);
-  const [markers, setMarkers] = useState<google.maps.Marker[]>([]);
-  const [infoWindow, setInfoWindow] = useState<google.maps.InfoWindow | null>(null);
+  const [map, setMap] = useState<any | null>(null);
+  const [markers, setMarkers] = useState<any[]>([]);
+  const [infoWindow, setInfoWindow] = useState<any | null>(null);
 
   // 校舎の中心位置を計算
   const getCenter = useCallback(() => {
@@ -128,7 +128,7 @@ export function GoogleMapSchoolSelector({
     // 既存のマーカーをクリア
     markers.forEach(marker => marker.setMap(null));
 
-    const newMarkers: google.maps.Marker[] = [];
+    const newMarkers: any[] = [];
 
     schools.forEach((school) => {
       if (!school.latitude || !school.longitude) return;
@@ -213,8 +213,8 @@ export function GoogleMapSchoolSelector({
             <Card
               key={school.id}
               className={`rounded-xl shadow-md cursor-pointer transition-all ${selectedSchoolId === school.id
-                  ? 'border-2 border-blue-500 bg-blue-50'
-                  : 'hover:shadow-lg'
+                ? 'border-2 border-blue-500 bg-blue-50'
+                : 'hover:shadow-lg'
                 }`}
               onClick={() => onSelectSchool(school.id)}
             >
@@ -283,8 +283,8 @@ export function GoogleMapSchoolSelector({
           <Card
             key={school.id}
             className={`rounded-xl shadow-sm cursor-pointer transition-all ${selectedSchoolId === school.id
-                ? 'border-2 border-blue-500'
-                : 'hover:shadow-md border border-gray-200'
+              ? 'border-2 border-blue-500'
+              : 'hover:shadow-md border border-gray-200'
               }`}
             onClick={() => {
               onSelectSchool(school.id);
