@@ -255,89 +255,87 @@ export default function ClassRegistrationPage() {
 
     // チケット購入時に校舎情報があれば、校舎選択をスキップして日付選択へ
     if (ticket.schoolId || ticket.schoolName) {
-      setSelectedSchool({
-        id: ticket.schoolId || ticket.id,
+      id: ticket.schoolId || ticket.id,
         name: ticket.schoolName,
-        school_name: ticket.schoolName,
-      } as SchoolWithCalendar);
-      // 生徒情報があれば直接日付選択へ、なければ子供選択へ
-      if (ticket.studentId) {
-        setStep('date');
-      } else {
-        setStep('child');
-      }
+          school_name: ticket.schoolName,
+      } as unknown as SchoolWithCalendar);
+    // 生徒情報があれば直接日付選択へ、なければ子供選択へ
+    if (ticket.studentId) {
+      setStep('date');
     } else {
-      // 校舎情報がない場合は子供選択へ（まれなケース）
       setStep('child');
     }
+  } else {
+    // 校舎情報がない場合は子供選択へ（まれなケース）
+    setStep('child');
+}
   };
 
-  const handleChildSelect = (child: Child) => {
-    setSelectedChild(child);
-    // 既に校舎情報がセットされていれば日付選択へ
-    if (selectedSchool) {
-      setStep('date');
-    } else if (selectedTicket?.schoolId || selectedTicket?.schoolName) {
-      setSelectedSchool({
-        id: selectedTicket.schoolId || selectedTicket.id,
-        name: selectedTicket.schoolName,
-        school_name: selectedTicket.schoolName,
-      } as SchoolWithCalendar);
-      setStep('date');
-    } else if (selectedTicket?.brandId) {
-      setStep('school');
-    } else {
-      setStep('brand');
-    }
-  };
-
-  const handleBrandSelect = (brand: typeof brands[0]) => {
-    setSelectedBrand(brand);
-    setStep('school');
-  };
-
-  const handleSchoolSelect = (school: SchoolWithCalendar) => {
-    setSelectedSchool(school);
+const handleChildSelect = (child: Child) => {
+  setSelectedChild(child);
+  // 既に校舎情報がセットされていれば日付選択へ
+  if (selectedSchool) {
     setStep('date');
+  } else if (selectedTicket?.schoolId || selectedTicket?.schoolName) {
+    id: selectedTicket.schoolId || selectedTicket.id,
+      name: selectedTicket.schoolName,
+        school_name: selectedTicket.schoolName,
+      } as unknown as SchoolWithCalendar);
+  setStep('date');
+} else if (selectedTicket?.brandId) {
+  setStep('school');
+} else {
+  setStep('brand');
+}
   };
 
-  const handleDateSelect = (date: Date | undefined) => {
-    setSelectedDate(date);
-    if (date) {
-      setStep('time');
-    }
-  };
+const handleBrandSelect = (brand: typeof brands[0]) => {
+  setSelectedBrand(brand);
+  setStep('school');
+};
 
-  const handleTimeSelect = (time: string) => {
-    setSelectedTime(time);
-  };
+const handleSchoolSelect = (school: SchoolWithCalendar) => {
+  setSelectedSchool(school);
+  setStep('date');
+};
 
-  const handleConfirm = () => {
-    alert('予約が完了しました');
-  };
-
-  const handleMonthChange = (date: Date) => {
-    setCurrentMonth(date);
-  };
-
-  const generateQRCode = () => {
-    return 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjAwIiBoZWlnaHQ9IjIwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMjAwIiBoZWlnaHQ9IjIwMCIgZmlsbD0id2hpdGUiLz48cmVjdCB4PSIyMCIgeT0iMjAiIHdpZHRoPSIyMCIgaGVpZ2h0PSIyMCIvPjxyZWN0IHg9IjYwIiB5PSIyMCIgd2lkdGg9IjIwIiBoZWlnaHQ9IjIwIi8+PHJlY3QgeD0iMTAwIiB5PSIyMCIgd2lkdGg9IjIwIiBoZWlnaHQ9IjIwIi8+PHJlY3QgeD0iMTQwIiB5PSIyMCIgd2lkdGg9IjIwIiBoZWlnaHQ9IjIwIi8+PHJlY3QgeD0iMjAiIHk9IjYwIiB3aWR0aD0iMjAiIGhlaWdodD0iMjAiLz48cmVjdCB4PSIxMDAiIHk9IjYwIiB3aWR0aD0iMjAiIGhlaWdodD0iMjAiLz48cmVjdCB4PSIxNDAiIHk9IjYwIiB3aWR0aD0iMjAiIGhlaWdodD0iMjAiLz48L3N2Zz4=';
-  };
-
-  const getBrandColor = (brandId: string) => {
-    const brand = brands.find(b => b.id === brandId);
-    return brand?.color || 'bg-gray-100 text-gray-600';
-  };
-
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-blue-50 flex items-center justify-center">
-        <div className="text-gray-600">読み込み中...</div>
-      </div>
-    );
+const handleDateSelect = (date: Date | undefined) => {
+  setSelectedDate(date);
+  if (date) {
+    setStep('time');
   }
+};
 
+const handleTimeSelect = (time: string) => {
+  setSelectedTime(time);
+};
+
+const handleConfirm = () => {
+  alert('予約が完了しました');
+};
+
+const handleMonthChange = (date: Date) => {
+  setCurrentMonth(date);
+};
+
+const generateQRCode = () => {
+  return 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjAwIiBoZWlnaHQ9IjIwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMjAwIiBoZWlnaHQ9IjIwMCIgZmlsbD0id2hpdGUiLz48cmVjdCB4PSIyMCIgeT0iMjAiIHdpZHRoPSIyMCIgaGVpZ2h0PSIyMCIvPjxyZWN0IHg9IjYwIiB5PSIyMCIgd2lkdGg9IjIwIiBoZWlnaHQ9IjIwIi8+PHJlY3QgeD0iMTAwIiB5PSIyMCIgd2lkdGg9IjIwIiBoZWlnaHQ9IjIwIi8+PHJlY3QgeD0iMTQwIiB5PSIyMCIgd2lkdGg9IjIwIiBoZWlnaHQ9IjIwIi8+PHJlY3QgeD0iMjAiIHk9IjYwIiB3aWR0aD0iMjAiIGhlaWdodD0iMjAiLz48cmVjdCB4PSIxMDAiIHk9IjYwIiB3aWR0aD0iMjAiIGhlaWdodD0iMjAiLz48cmVjdCB4PSIxNDAiIHk9IjYwIiB3aWR0aD0iMjAiIGhlaWdodD0iMjAiLz48L3N2Zz4=';
+};
+
+const getBrandColor = (brandId: string) => {
+  const brand = brands.find(b => b.id === brandId);
+  return brand?.color || 'bg-gray-100 text-gray-600';
+};
+
+if (loading) {
   return (
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-blue-50 flex items-center justify-center">
+      <div className="text-gray-600">読み込み中...</div>
+    </div>
+  );
+}
+
+return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-blue-50">
       <header className="sticky top-0 z-40 bg-white shadow-sm">
         <div className="max-w-[390px] mx-auto px-4 h-16 flex items-center">
@@ -583,11 +581,10 @@ export default function ClassRegistrationPage() {
               {selectedTicket?.schoolId && selectedTicket?.schoolName ? (
                 <Card
                   className="rounded-xl shadow-md hover:shadow-lg transition-shadow cursor-pointer border-blue-200"
-                  onClick={() => handleSchoolSelect({
                     id: selectedTicket.schoolId!,
                     name: selectedTicket.schoolName,
                     school_name: selectedTicket.schoolName,
-                  } as SchoolWithCalendar)}
+                  } as unknown as SchoolWithCalendar)}
                 >
                   <CardContent className="p-4">
                     <div className="flex items-start gap-3">
@@ -839,6 +836,6 @@ export default function ClassRegistrationPage() {
       </main>
 
       <BottomTabBar />
-    </div>
+    </div >
   );
 }
