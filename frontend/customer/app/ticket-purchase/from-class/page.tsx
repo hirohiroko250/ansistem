@@ -433,9 +433,8 @@ export default function FromClassPurchasePage() {
             {[1, 2, 3, 4, 5, 6, 7, 8].map((s) => (
               <div
                 key={s}
-                className={`h-2 flex-1 rounded-full transition-colors ${
-                  s <= step ? 'bg-green-500' : 'bg-gray-200'
-                }`}
+                className={`h-2 flex-1 rounded-full transition-colors ${s <= step ? 'bg-green-500' : 'bg-gray-200'
+                  }`}
               />
             ))}
           </div>
@@ -522,7 +521,7 @@ export default function FromClassPurchasePage() {
                 {(() => {
                   // カテゴリ別にグループ化
                   const groupedByCategory = brands.reduce((acc, brand) => {
-                    const categoryName = brand.categoryName || '未分類';
+                    const categoryName = brand.category?.categoryName || '未分類';
                     if (!acc[categoryName]) {
                       acc[categoryName] = [];
                     }
@@ -756,11 +755,9 @@ export default function FromClassPurchasePage() {
                               return (
                                 <td
                                   key={dayIdx}
-                                  className={`text-center py-3 px-2 ${
-                                    canSelect ? 'cursor-pointer hover:bg-green-50' : ''
-                                  } ${
-                                    isSelected ? 'bg-green-100' : ''
-                                  }`}
+                                  className={`text-center py-3 px-2 ${canSelect ? 'cursor-pointer hover:bg-green-50' : ''
+                                    } ${isSelected ? 'bg-green-100' : ''
+                                    }`}
                                   onClick={() => {
                                     if (canSelect) {
                                       handleTimeSlotSelect(time, dayOfWeekName);
@@ -900,10 +897,9 @@ export default function FromClassPurchasePage() {
                   return (
                     <Card
                       key={schedule.id}
-                      className={`rounded-xl shadow-sm transition-all cursor-pointer ${
-                        isSelected ? 'border-2 border-green-500 bg-green-50' :
-                        isFull ? 'opacity-50 cursor-not-allowed' : 'hover:shadow-md'
-                      }`}
+                      className={`rounded-xl shadow-sm transition-all cursor-pointer ${isSelected ? 'border-2 border-green-500 bg-green-50' :
+                          isFull ? 'opacity-50 cursor-not-allowed' : 'hover:shadow-md'
+                        }`}
                       onClick={() => !isFull && handleScheduleToggle(schedule.id)}
                     >
                       <CardContent className="p-3">
@@ -926,11 +922,10 @@ export default function FromClassPurchasePage() {
                               </p>
                               <div className="flex items-center gap-2">
                                 <Users className="h-4 w-4 text-gray-500" />
-                                <span className={`text-xs ${
-                                  isFull ? 'text-red-600 font-semibold' :
-                                  availableSeats <= 2 ? 'text-orange-600 font-semibold' :
-                                  'text-gray-600'
-                                }`}>
+                                <span className={`text-xs ${isFull ? 'text-red-600 font-semibold' :
+                                    availableSeats <= 2 ? 'text-orange-600 font-semibold' :
+                                      'text-gray-600'
+                                  }`}>
                                   {isFull ? '満席' : `残り${availableSeats}席`}
                                 </span>
                               </div>
