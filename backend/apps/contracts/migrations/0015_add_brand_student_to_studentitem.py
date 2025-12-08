@@ -8,7 +8,6 @@ class Migration(migrations.Migration):
 
     dependencies = [
         ("schools", "0008_add_brand_school"),
-        ("students", "0001_initial"),
         ("contracts", "0014_add_schedule_and_promotion_fields"),
     ]
 
@@ -24,18 +23,6 @@ class Migration(migrations.Migration):
                 to="schools.brand",
                 verbose_name="ブランド",
             ),
-        ),
-        migrations.AddField(
-            model_name="studentitem",
-            name="student",
-            field=models.ForeignKey(
-                null=True,
-                on_delete=django.db.models.deletion.PROTECT,
-                related_name="student_items",
-                to="students.student",
-                verbose_name="生徒",
-            ),
-            preserve_default=False,
         ),
         migrations.AddField(
             model_name="studentitem",
