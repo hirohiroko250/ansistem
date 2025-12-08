@@ -35,9 +35,7 @@ export function GuardianFeed() {
 
   const contractedBrands = ['イングリッシュスクール○○', 'MyLesson運営'];
 
-  const filteredPosts = showAllBrands
-    ? posts
-    : posts.filter(post => contractedBrands.includes(post.brand));
+  const filteredPosts = posts;
 
   const getAnnouncementColor = (type: string) => {
     switch (type) {
@@ -145,8 +143,8 @@ export function GuardianFeed() {
                         post.type === 'イベント'
                           ? 'bg-purple-500 text-white'
                           : post.type === 'お知らせ'
-                          ? 'bg-amber-500 text-white'
-                          : 'bg-blue-500 text-white'
+                            ? 'bg-amber-500 text-white'
+                            : 'bg-blue-500 text-white'
                       }
                     >
                       {post.type}
@@ -167,11 +165,10 @@ export function GuardianFeed() {
                       className="hover:opacity-70 transition-opacity"
                     >
                       <Heart
-                        className={`h-6 w-6 ${
-                          likedPosts.includes(post.id)
+                        className={`h-6 w-6 ${likedPosts.includes(post.id)
                             ? 'fill-red-500 text-red-500'
                             : 'text-gray-700'
-                        }`}
+                          }`}
                       />
                     </button>
                     <button
@@ -207,11 +204,10 @@ export function GuardianFeed() {
                         className="hover:scale-110 transition-transform"
                       >
                         <Star
-                          className={`h-5 w-5 ${
-                            ratings[post.id] >= star
+                          className={`h-5 w-5 ${ratings[post.id] >= star
                               ? 'fill-yellow-400 text-yellow-400'
                               : 'text-gray-300'
-                          }`}
+                            }`}
                         />
                       </button>
                     ))}
