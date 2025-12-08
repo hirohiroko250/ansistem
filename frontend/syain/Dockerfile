@@ -2,7 +2,7 @@
 FROM node:18-alpine AS deps
 WORKDIR /app
 COPY package.json package-lock.json* ./
-RUN npm ci
+RUN npm ci --legacy-peer-deps
 
 # ステージ2: ビルド
 FROM node:18-alpine AS builder
