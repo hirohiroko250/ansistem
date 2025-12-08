@@ -7,7 +7,8 @@ from .models import (
     ContactLog, ContactLogComment, Notification,
     BotConfig, BotFAQ, BotConversation,
     Announcement, AnnouncementRead,
-    FeedPost, FeedMedia, FeedLike, FeedComment, FeedCommentLike, FeedBookmark
+    FeedPost, FeedMedia, FeedLike, FeedComment, FeedCommentLike, FeedBookmark,
+    ChatLog
 )
 
 
@@ -340,3 +341,53 @@ class FeedLikeAdmin(admin.ModelAdmin):
 class FeedBookmarkAdmin(admin.ModelAdmin):
     """フィードブックマークAdmin"""
     list_display = ['post', 'user', 'guardian', 'created_at']
+
+
+@admin.register(ChatLog)
+class ChatLogAdmin(CSVImportExportMixin, admin.ModelAdmin):
+    """チャットログAdmin"""
+    list_display = [
+        'timestamp', 'brand_name', 'school_name', 'guardian_name',
+        'sender_type', 'get_content_preview'
+    ]
+    list_filter = ['sender_type', 'brand_name', 'school_name']
+    search_fields = ['content', 'guardian_name', 'school_name', 'brand_name']
+    ordering = ['-timestamp']
+    readonly_fields = ['id', 'timestamp', 'message']
+    date_hierarchy = 'timestamp'
+
+    fieldsets = (
+        ('基本情報', {
+            'fields': ('timestamp', 'sender_type', 'content')
+        }),
+        ('送信者情報', {
+            'fields': ('guardian', 'guardian_name')
+        }),
+        ('所属情報', {
+            'fields': ('brand', 'brand_name', 'school', 'school_name')
+        }),
+        ('システム情報', {
+            'fields': ('id', 'tenant_id', 'message'),
+            'classes': ('collapse',)
+        }),
+    )
+
+    def get_content_preview(self, obj):
+        return obj.content[:50] + '...' if len(obj.content) > 50 else obj.content
+    get_content_preview.short_description = 'メッセージ内容'
+
+    csv_import_fields = {}
+    csv_required_fields = []
+    csv_unique_fields = []
+    csv_export_fields = [
+        'timestamp', 'brand_name', 'school_name', 'guardian_name',
+        'sender_type', 'content'
+    ]
+    csv_export_headers = {
+        'timestamp': 'タイムスタンプ',
+        'brand_name': 'ブランド',
+        'school_name': '校舎',
+        'guardian_name': '保護者名',
+        'sender_type': '送信者タイプ',
+        'content': 'メッセージ内容',
+    }
