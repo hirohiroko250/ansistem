@@ -100,9 +100,9 @@ export default function StudentsPage() {
       setLoading(true);
       setError(null);
       const response: PaginatedResponse<StaffStudent> = await getStudents(searchParams);
-      setStudents(response.results);
+      setStudents(response.results || []);
       setPagination({
-        count: response.count,
+        count: response.count || 0,
         hasNext: !!response.next,
         hasPrev: !!response.previous,
       });
