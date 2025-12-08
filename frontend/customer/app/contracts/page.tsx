@@ -94,7 +94,7 @@ export default function ContractsPage() {
       setLoading(true);
       setError(null);
       const response: PaginatedResponse<Contract> = await getContracts(searchParams);
-      setContracts(response.results);
+      setContracts(response.results || []);
       setPagination({
         count: response.count,
         hasNext: !!response.next,
