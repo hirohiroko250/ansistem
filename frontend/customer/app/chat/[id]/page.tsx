@@ -145,6 +145,7 @@ export default function ChatConversationPage() {
     // 楽観的更新: 送信中のメッセージを仮表示
     const tempMessage: Message = {
       id: `temp-${Date.now()}`,
+      channel: channelId,
       channelId,
       senderId: currentUserId,
       senderName: 'あなた',
@@ -170,6 +171,7 @@ export default function ChatConversationPage() {
         // ボットの応答を追加
         const aiMessage: Message = {
           id: `ai-${Date.now()}`,
+          channel: AI_ASSISTANT_ID,
           channelId: AI_ASSISTANT_ID,
           senderId: 'ai',
           senderName: 'AIアシスタント',
@@ -356,10 +358,10 @@ export default function ChatConversationPage() {
                 >
                   <div
                     className={`max-w-[75%] ${isOwnMessage
-                        ? 'bg-blue-500 text-white rounded-2xl rounded-br-md'
-                        : isFromHQ
-                          ? 'bg-gray-100 text-gray-800 rounded-2xl rounded-bl-md'
-                          : 'bg-white text-gray-800 shadow-md rounded-2xl rounded-bl-md'
+                      ? 'bg-blue-500 text-white rounded-2xl rounded-br-md'
+                      : isFromHQ
+                        ? 'bg-gray-100 text-gray-800 rounded-2xl rounded-bl-md'
+                        : 'bg-white text-gray-800 shadow-md rounded-2xl rounded-bl-md'
                       } px-4 py-3 ${isOwnMessage ? 'cursor-pointer select-none' : ''}`}
                     onTouchStart={() => handleTouchStart(message.id, isOwnMessage)}
                     onTouchEnd={handleTouchEnd}
