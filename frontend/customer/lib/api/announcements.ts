@@ -47,12 +47,7 @@ interface FeedPostResponse {
  */
 export async function getAnnouncements(limit: number = 10): Promise<Announcement[]> {
   try {
-    const response = await api.get<AnnouncementResponse>('/communications/announcements/', {
-      params: {
-        status: 'SENT',
-        page_size: limit,
-      },
-    });
+    const response = await api.get<AnnouncementResponse>(`/communications/announcements/?status=SENT&page_size=${limit}`);
     return response?.results || [];
   } catch (error) {
     console.error('Failed to fetch announcements:', error);
@@ -65,11 +60,7 @@ export async function getAnnouncements(limit: number = 10): Promise<Announcement
  */
 export async function getFeedPosts(limit: number = 10): Promise<FeedPost[]> {
   try {
-    const response = await api.get<FeedPostResponse>('/communications/feed/posts/', {
-      params: {
-        page_size: limit,
-      },
-    });
+    const response = await api.get<FeedPostResponse>(`/communications/feed/posts/?page_size=${limit}`);
     return response?.results || [];
   } catch (error) {
     console.error('Failed to fetch feed posts:', error);
