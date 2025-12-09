@@ -15,7 +15,7 @@ import { format, getDay, addMonths, startOfMonth, endOfMonth, differenceInDays, 
 import { ja } from 'date-fns/locale';
 import { cn } from '@/lib/utils';
 import { getChildren } from '@/lib/api/students';
-import { getBrandCategories, getBrandSchools, getLessonCalendar, type BrandCategory, type CategoryBrand, type BrandSchool, type LessonCalendarDay } from '@/lib/api/schools';
+import { getBrandCategories, getBrandSchools, getLessonCalendar, getClassSchedules, type BrandCategory, type CategoryBrand, type BrandSchool, type LessonCalendarDay, type ClassScheduleResponse, type TimeSlotSchedule, type ClassScheduleItem } from '@/lib/api/schools';
 import { previewPricing, confirmPricing } from '@/lib/api/pricing';
 import type { Child, ApiError, PricingPreviewResponse } from '@/lib/api/types';
 
@@ -71,16 +71,15 @@ const sortChildrenByGrade = (children: Child[]): Child[] => {
   return [...children].sort((a, b) => getGradeOrder(a.grade) - getGradeOrder(b.grade));
 };
 
-// 仮のスケジュールデータ型
-type ClassSchedule = {
-  id: number;
-  schoolId: string;
+// 選択したスケジュールを保持する型
+type SelectedScheduleInfo = {
+  id: string;
   dayOfWeek: string;
   startTime: string;
   endTime: string;
-  instructor: string;
-  maxSeats: number;
-  currentSeats: number;
+  className: string;
+  capacity: number;
+  reservedSeats: number;
 };
 
 export default function FromClassPurchasePage() {
@@ -93,7 +92,8 @@ export default function FromClassPurchasePage() {
   const [selectedTime, setSelectedTime] = useState<string | null>(null);
   const [selectedDayOfWeek, setSelectedDayOfWeek] = useState<string | null>(null);
   const [startDate, setStartDate] = useState<Date>();
-  const [selectedSchedules, setSelectedSchedules] = useState<number[]>([]);
+  const [selectedSchedules, setSelectedSchedules] = useState<string[]>([]);
+  const [selectedScheduleInfo, setSelectedScheduleInfo] = useState<SelectedScheduleInfo[]>([]);
   const [additionalTicketCount, setAdditionalTicketCount] = useState(0);
   const [agreedToTerms, setAgreedToTerms] = useState(false);
 
@@ -110,8 +110,10 @@ export default function FromClassPurchasePage() {
   const [isLoadingSchools, setIsLoadingSchools] = useState(false);
   const [schoolsError, setSchoolsError] = useState<string | null>(null);
 
-  // スケジュール（仮データ - 後でAPIから取得するように変更可能）
-  const [classSchedules, setClassSchedules] = useState<ClassSchedule[]>([]);
+  // 開講時間割（APIから取得）
+  const [classScheduleData, setClassScheduleData] = useState<ClassScheduleResponse | null>(null);
+  const [isLoadingSchedules, setIsLoadingSchedules] = useState(false);
+  const [schedulesError, setSchedulesError] = useState<string | null>(null);
 
   // 開講カレンダー
   const [lessonCalendar, setLessonCalendar] = useState<LessonCalendarDay[]>([]);
@@ -184,23 +186,30 @@ export default function FromClassPurchasePage() {
     fetchSchools();
   }, [selectedBrand]);
 
-  // 校舎選択時にスケジュールを生成（仮データ）
+  // 校舎選択時に開講時間割を取得（APIから）
   useEffect(() => {
     if (!selectedSchoolId) return;
 
-    // TODO: 実際のAPIからスケジュールを取得する
-    // 今は仮データを生成
-    const mockSchedules: ClassSchedule[] = [
-      { id: 1, schoolId: selectedSchoolId, dayOfWeek: '月曜日', startTime: '15:00', endTime: '16:00', instructor: '山田先生', maxSeats: 10, currentSeats: 3 },
-      { id: 2, schoolId: selectedSchoolId, dayOfWeek: '月曜日', startTime: '16:00', endTime: '17:00', instructor: '佐藤先生', maxSeats: 10, currentSeats: 8 },
-      { id: 3, schoolId: selectedSchoolId, dayOfWeek: '火曜日', startTime: '15:00', endTime: '16:00', instructor: '鈴木先生', maxSeats: 8, currentSeats: 2 },
-      { id: 4, schoolId: selectedSchoolId, dayOfWeek: '水曜日', startTime: '17:00', endTime: '18:00', instructor: '田中先生', maxSeats: 10, currentSeats: 10 },
-      { id: 5, schoolId: selectedSchoolId, dayOfWeek: '木曜日', startTime: '16:00', endTime: '17:00', instructor: '高橋先生', maxSeats: 10, currentSeats: 5 },
-      { id: 6, schoolId: selectedSchoolId, dayOfWeek: '金曜日', startTime: '15:00', endTime: '16:00', instructor: '山田先生', maxSeats: 10, currentSeats: 1 },
-      { id: 7, schoolId: selectedSchoolId, dayOfWeek: '土曜日', startTime: '10:00', endTime: '11:00', instructor: '佐藤先生', maxSeats: 12, currentSeats: 6 },
-    ];
-    setClassSchedules(mockSchedules);
-  }, [selectedSchoolId]);
+    const fetchClassSchedules = async () => {
+      setIsLoadingSchedules(true);
+      setSchedulesError(null);
+      try {
+        const data = await getClassSchedules(
+          selectedSchoolId,
+          selectedBrand?.id,
+          selectedCategory?.id
+        );
+        setClassScheduleData(data);
+      } catch (err) {
+        const apiError = err as ApiError;
+        setSchedulesError(apiError.message || '開講時間割の取得に失敗しました');
+        setClassScheduleData(null);
+      } finally {
+        setIsLoadingSchedules(false);
+      }
+    };
+    fetchClassSchedules();
+  }, [selectedSchoolId, selectedBrand?.id, selectedCategory?.id]);
 
   // 校舎選択時に開講カレンダーを取得
   useEffect(() => {
@@ -260,11 +269,22 @@ export default function FromClassPurchasePage() {
     setStep(5);
   };
 
-  const handleScheduleToggle = (scheduleId: number) => {
-    if (selectedSchedules.includes(scheduleId)) {
-      setSelectedSchedules(selectedSchedules.filter(id => id !== scheduleId));
+  const handleScheduleToggle = (schedule: ClassScheduleItem) => {
+    if (selectedSchedules.includes(schedule.id)) {
+      setSelectedSchedules(selectedSchedules.filter(id => id !== schedule.id));
+      setSelectedScheduleInfo(selectedScheduleInfo.filter(s => s.id !== schedule.id));
     } else {
-      setSelectedSchedules([...selectedSchedules, scheduleId]);
+      setSelectedSchedules([...selectedSchedules, schedule.id]);
+      const dayNames: Record<string, string> = { '月': '月曜日', '火': '火曜日', '水': '水曜日', '木': '木曜日', '金': '金曜日', '土': '土曜日', '日': '日曜日' };
+      setSelectedScheduleInfo([...selectedScheduleInfo, {
+        id: schedule.id,
+        dayOfWeek: selectedDayOfWeek || '',
+        startTime: schedule.startTime,
+        endTime: schedule.endTime,
+        className: schedule.className,
+        capacity: schedule.capacity,
+        reservedSeats: schedule.reservedSeats,
+      }]);
     }
   };
 
@@ -341,22 +361,20 @@ export default function FromClassPurchasePage() {
   };
 
   const selectedSchool = schools.find((s) => s.id === selectedSchoolId);
-  const availableSchedules = classSchedules.filter(s => s.schoolId === selectedSchoolId);
 
-  const filteredSchedulesByTimeAndDay = availableSchedules.filter(
-    s => s.dayOfWeek === selectedDayOfWeek && s.startTime === selectedTime
-  );
+  // 選択した曜日・時間のスケジュールを取得
+  const getSchedulesForTimeAndDay = (): ClassScheduleItem[] => {
+    if (!classScheduleData || !selectedTime || !selectedDayOfWeek) return [];
+    const dayShort = selectedDayOfWeek.replace('曜日', '');
+    const timeSlot = classScheduleData.timeSlots.find(ts => ts.time === selectedTime);
+    if (!timeSlot) return [];
+    return timeSlot.days[dayShort]?.schedules || [];
+  };
 
-  const daysWithClasses = new Set(
-    availableSchedules.map(schedule => schedule.dayOfWeek)
-  );
-
-  const selectedScheduleObjects = selectedSchedules.map(id =>
-    availableSchedules.find(s => s.id === id)
-  ).filter(Boolean) as ClassSchedule[];
+  const filteredSchedulesByTimeAndDay = getSchedulesForTimeAndDay();
 
   const pricePerClass = 6000;
-  const regularPrice = selectedScheduleObjects.length * pricePerClass;
+  const regularPrice = selectedScheduleInfo.length * pricePerClass;
 
   const calculateAdditionalInfo = () => {
     if (!startDate) return { needed: false, tickets: 0, price: 0, currentDay: 0, lessonDates: [] };
@@ -607,28 +625,7 @@ export default function FromClassPurchasePage() {
         )}
 
         {step === 4 && (() => {
-          const today = new Date();
-          const weekStart = startOfWeek(today, { weekStartsOn: 1 });
-          const weekDays = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
-
-          const dayLabels = ['月', '火', '水', '木', '金', '土', '日'];
-          const timeSlots = ['10:00', '11:00', '14:00', '15:00', '16:00', '17:00', '18:00', '19:00'];
-
-          const getAvailabilityForDateTime = (date: Date, time: string) => {
-            if (date < today) return 'past';
-            const dayOfWeek = dayMapping[getDay(date)];
-            const schedulesForDay = availableSchedules.filter(s => s.dayOfWeek === dayOfWeek && s.startTime === time);
-
-            if (schedulesForDay.length === 0) return 'none';
-
-            const totalSeats = schedulesForDay.reduce((sum, s) => sum + s.maxSeats, 0);
-            const takenSeats = schedulesForDay.reduce((sum, s) => sum + s.currentSeats, 0);
-            const availableSeats = totalSeats - takenSeats;
-
-            if (availableSeats === 0) return 'full';
-            if (availableSeats <= 2) return 'few';
-            return 'available';
-          };
+          const dayLabels = classScheduleData?.dayLabels || ['月', '火', '水', '木', '金', '土', '日'];
 
           const getStatusIcon = (status: string) => {
             switch (status) {
@@ -640,8 +637,6 @@ export default function FromClassPurchasePage() {
                 return <XIcon className="h-5 w-5 text-red-600" />;
               case 'none':
                 return <Minus className="h-5 w-5 text-gray-300" />;
-              case 'past':
-                return <div className="h-5 w-5" />;
               default:
                 return null;
             }
@@ -683,6 +678,22 @@ export default function FromClassPurchasePage() {
                 </div>
               </div>
 
+              {isLoadingSchedules ? (
+                <div className="flex flex-col items-center justify-center py-12">
+                  <Loader2 className="h-8 w-8 animate-spin text-green-500 mb-3" />
+                  <p className="text-sm text-gray-600">開講時間割を読み込み中...</p>
+                </div>
+              ) : schedulesError ? (
+                <div className="flex items-center gap-2 p-4 rounded-lg bg-red-50 border border-red-200 mb-4">
+                  <AlertCircle className="h-5 w-5 text-red-600 shrink-0" />
+                  <p className="text-sm text-red-800">{schedulesError}</p>
+                </div>
+              ) : !classScheduleData || classScheduleData.timeSlots.length === 0 ? (
+                <div className="text-center py-12">
+                  <AlertCircle className="h-12 w-12 text-gray-400 mx-auto mb-3" />
+                  <p className="text-gray-500">この校舎には現在開講中のクラスがありません</p>
+                </div>
+              ) : (
               <Card className="rounded-xl shadow-md overflow-hidden">
                 <CardContent className="p-0">
                   <div className="overflow-x-auto">
@@ -698,17 +709,17 @@ export default function FromClassPurchasePage() {
                         </tr>
                       </thead>
                       <tbody>
-                        {timeSlots.map((time, timeIdx) => (
+                        {classScheduleData.timeSlots.map((timeSlot, timeIdx) => (
                           <tr key={timeIdx} className="border-b border-gray-200 hover:bg-gray-50">
                             <td className="text-xs font-semibold py-3 px-2 bg-gray-50 sticky left-0 z-10">
-                              {time}
+                              {timeSlot.time}
                             </td>
                             {dayLabels.map((label, dayIdx) => {
-                              const day = weekDays[dayIdx];
-                              const status = getAvailabilityForDateTime(day, time);
-                              const canSelect = status !== 'past' && status !== 'none' && status !== 'full';
-                              const dayOfWeekName = dayMapping[getDay(day)];
-                              const isSelected = selectedTime === time && selectedDayOfWeek === dayOfWeekName;
+                              const dayData = timeSlot.days[label];
+                              const status = dayData?.status || 'none';
+                              const canSelect = status !== 'none' && status !== 'full';
+                              const dayOfWeekName = label + '曜日';
+                              const isSelected = selectedTime === timeSlot.time && selectedDayOfWeek === dayOfWeekName;
 
                               return (
                                 <td
@@ -718,7 +729,7 @@ export default function FromClassPurchasePage() {
                                     }`}
                                   onClick={() => {
                                     if (canSelect) {
-                                      handleTimeSlotSelect(time, dayOfWeekName);
+                                      handleTimeSlotSelect(timeSlot.time, dayOfWeekName);
                                     }
                                   }}
                                 >
@@ -733,6 +744,7 @@ export default function FromClassPurchasePage() {
                   </div>
                 </CardContent>
               </Card>
+              )}
             </div>
           );
         })()}
@@ -752,14 +764,14 @@ export default function FromClassPurchasePage() {
               </Card>
             </div>
 
-            {selectedSchedules.length > 0 && (
+            {selectedScheduleInfo.length > 0 && (
               <Card className="rounded-xl shadow-sm bg-green-50 border-green-200 mb-4">
                 <CardContent className="p-3">
                   <p className="text-xs text-gray-600 mb-2">選択中のクラス</p>
                   <div className="space-y-1">
-                    {selectedScheduleObjects.map(schedule => (
+                    {selectedScheduleInfo.map(schedule => (
                       <p key={schedule.id} className="text-sm font-semibold text-gray-800">
-                        {schedule.dayOfWeek} {schedule.startTime}-{schedule.endTime}
+                        {schedule.dayOfWeek} {schedule.startTime}-{schedule.endTime} ({schedule.className})
                       </p>
                     ))}
                   </div>
@@ -849,8 +861,8 @@ export default function FromClassPurchasePage() {
               <div className="space-y-2">
                 {filteredSchedulesByTimeAndDay.map(schedule => {
                   const isSelected = selectedSchedules.includes(schedule.id);
-                  const isFull = schedule.currentSeats >= schedule.maxSeats;
-                  const availableSeats = schedule.maxSeats - schedule.currentSeats;
+                  const isFull = schedule.availableSeats <= 0;
+                  const availableSeats = schedule.availableSeats;
 
                   return (
                     <Card
@@ -858,7 +870,7 @@ export default function FromClassPurchasePage() {
                       className={`rounded-xl shadow-sm transition-all cursor-pointer ${isSelected ? 'border-2 border-green-500 bg-green-50' :
                           isFull ? 'opacity-50 cursor-not-allowed' : 'hover:shadow-md'
                         }`}
-                      onClick={() => !isFull && handleScheduleToggle(schedule.id)}
+                      onClick={() => !isFull && handleScheduleToggle(schedule)}
                     >
                       <CardContent className="p-3">
                         <div className="flex items-start justify-between">
@@ -870,14 +882,21 @@ export default function FromClassPurchasePage() {
                             />
                             <div className="flex-1">
                               <div className="flex items-center gap-2 mb-1">
-                                <Clock className="h-4 w-4 text-gray-600" />
                                 <span className="font-semibold text-gray-800">
+                                  {schedule.className}
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-2 mb-1">
+                                <Clock className="h-4 w-4 text-gray-600" />
+                                <span className="text-sm text-gray-700">
                                   {schedule.startTime} - {schedule.endTime}
                                 </span>
                               </div>
-                              <p className="text-sm text-gray-600 mb-1">
-                                講師: {schedule.instructor}
-                              </p>
+                              {schedule.displayCourseName && (
+                                <p className="text-xs text-gray-500 mb-1">
+                                  {schedule.displayCourseName}
+                                </p>
+                              )}
                               <div className="flex items-center gap-2">
                                 <Users className="h-4 w-4 text-gray-500" />
                                 <span className={`text-xs ${isFull ? 'text-red-600 font-semibold' :
@@ -1154,13 +1173,13 @@ export default function FromClassPurchasePage() {
                 <div>
                   <p className="text-sm text-gray-600 mb-2">選択したクラス</p>
                   <div className="space-y-2">
-                    {selectedScheduleObjects.map(schedule => (
+                    {selectedScheduleInfo.map(schedule => (
                       <div key={schedule.id} className="bg-gray-50 rounded-lg p-3">
                         <p className="font-semibold text-gray-800">
-                          {schedule.dayOfWeek} {schedule.startTime}-{schedule.endTime}
+                          {schedule.className}
                         </p>
                         <p className="text-sm text-gray-600">
-                          講師: {schedule.instructor}
+                          {schedule.dayOfWeek} {schedule.startTime}-{schedule.endTime}
                         </p>
                       </div>
                     ))}

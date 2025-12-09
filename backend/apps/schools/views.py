@@ -12,7 +12,7 @@ from django.utils import timezone
 
 from apps.core.permissions import IsTenantUser, IsTenantAdmin
 from apps.core.csv_utils import CSVMixin
-from .models import Brand, BrandCategory, School, Grade, Subject, Classroom, TimeSlot, SchoolSchedule, SchoolCourse, SchoolClosure, BrandSchool, LessonCalendar
+from .models import Brand, BrandCategory, School, Grade, Subject, Classroom, TimeSlot, SchoolSchedule, SchoolCourse, SchoolClosure, BrandSchool, LessonCalendar, ClassSchedule
 from .serializers import (
     BrandListSerializer, BrandDetailSerializer, BrandCreateUpdateSerializer,
     BrandCategorySerializer, PublicBrandCategorySerializer,
@@ -1398,3 +1398,128 @@ class PublicTrialBookingView(APIView):
             'taskId': str(task.id),
             'message': '体験予約が完了しました'
         }, status=status.HTTP_201_CREATED)
+
+
+class PublicClassScheduleView(APIView):
+    """開講時間割API（認証不要・保護者向け）
+    
+    校舎・ブランドごとの開講時間割を曜日・時限でグループ化して返す
+    クラス選択画面やクラス登録画面で使用
+    """
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        """
+        指定校舎・ブランドの開講時間割を返す
+        ?school_id=xxx&brand_id=xxx
+        または
+        ?school_id=xxx&brand_category_id=xxx（ブランドカテゴリで絞り込み）
+        """
+        school_id = request.query_params.get('school_id')
+        brand_id = request.query_params.get('brand_id')
+        brand_category_id = request.query_params.get('brand_category_id')
+
+        if not school_id:
+            return Response(
+                {'error': 'school_id is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # ClassScheduleから開講時間割を取得
+        queryset = ClassSchedule.objects.filter(
+            school_id=school_id,
+            is_active=True,
+            deleted_at__isnull=True
+        ).select_related('brand', 'brand_category', 'school', 'room')
+
+        if brand_id:
+            queryset = queryset.filter(brand_id=brand_id)
+        if brand_category_id:
+            queryset = queryset.filter(brand_category_id=brand_category_id)
+
+        # 曜日名マッピング
+        day_names = {1: '月曜日', 2: '火曜日', 3: '水曜日', 4: '木曜日', 5: '金曜日', 6: '土曜日', 7: '日曜日'}
+        day_short_names = {1: '月', 2: '火', 3: '水', 4: '木', 5: '金', 6: '土', 7: '日'}
+
+        # 時間帯ごとにグループ化
+        schedules_by_time = {}
+        for sched in queryset.order_by('day_of_week', 'period', 'start_time'):
+            start_hour = sched.start_time.strftime('%H:00') if sched.start_time else '00:00'
+            
+            if start_hour not in schedules_by_time:
+                schedules_by_time[start_hour] = {day: [] for day in range(1, 8)}
+            
+            schedule_data = {
+                'id': str(sched.id),
+                'scheduleCode': sched.schedule_code,
+                'className': sched.class_name,
+                'classType': sched.class_type,
+                'displayCourseName': sched.display_course_name,
+                'displayPairName': sched.display_pair_name,
+                'displayDescription': sched.display_description,
+                'period': sched.period,
+                'startTime': sched.start_time.strftime('%H:%M') if sched.start_time else None,
+                'endTime': sched.end_time.strftime('%H:%M') if sched.end_time else None,
+                'durationMinutes': sched.duration_minutes,
+                'capacity': sched.capacity,
+                'trialCapacity': sched.trial_capacity,
+                'reservedSeats': sched.reserved_seats,
+                'availableSeats': max(0, sched.capacity - sched.reserved_seats),
+                'transferGroup': sched.transfer_group,
+                'calendarPattern': sched.calendar_pattern,
+                'approvalType': sched.approval_type,
+                'roomName': sched.room.classroom_name if sched.room else sched.room_name,
+                'brandId': str(sched.brand.id) if sched.brand else None,
+                'brandName': sched.brand.brand_name if sched.brand else None,
+                'brandCategoryId': str(sched.brand_category.id) if sched.brand_category else None,
+                'brandCategoryName': sched.brand_category.category_name if sched.brand_category else None,
+                'ticketName': sched.ticket_name,
+                'ticketId': sched.ticket_id,
+            }
+            schedules_by_time[start_hour][sched.day_of_week].append(schedule_data)
+
+        # レスポンス形式に変換
+        time_slots_response = []
+        for time_key in sorted(schedules_by_time.keys()):
+            day_schedules = schedules_by_time[time_key]
+            # 曜日ごとの状況を計算
+            days_availability = {}
+            for day_num in range(1, 8):
+                schedules_for_day = day_schedules[day_num]
+                if not schedules_for_day:
+                    days_availability[day_short_names[day_num]] = {
+                        'status': 'none',  # 開講なし
+                        'schedules': []
+                    }
+                else:
+                    total_capacity = sum(s['capacity'] for s in schedules_for_day)
+                    total_reserved = sum(s['reservedSeats'] for s in schedules_for_day)
+                    available = total_capacity - total_reserved
+                    
+                    if available <= 0:
+                        slot_status = 'full'  # 満席
+                    elif available <= 2:
+                        slot_status = 'few'  # 残りわずか
+                    else:
+                        slot_status = 'available'  # 空席あり
+                    
+                    days_availability[day_short_names[day_num]] = {
+                        'status': slot_status,
+                        'totalCapacity': total_capacity,
+                        'totalReserved': total_reserved,
+                        'availableSeats': available,
+                        'schedules': schedules_for_day
+                    }
+            
+            time_slots_response.append({
+                'time': time_key,
+                'days': days_availability
+            })
+
+        return Response({
+            'schoolId': school_id,
+            'brandId': brand_id,
+            'brandCategoryId': brand_category_id,
+            'timeSlots': time_slots_response,
+            'dayLabels': ['月', '火', '水', '木', '金', '土', '日']
+        })

@@ -169,3 +169,88 @@ export async function getLessonCalendar(
     { skipAuth: true }
   );
 }
+
+/**
+ * 開講時間割のスケジュール詳細
+ */
+export interface ClassScheduleItem {
+  id: string;
+  scheduleCode: string;
+  className: string;
+  classType: string;
+  displayCourseName: string;
+  displayPairName: string;
+  displayDescription: string;
+  period: number;
+  startTime: string;
+  endTime: string;
+  durationMinutes: number;
+  capacity: number;
+  trialCapacity: number;
+  reservedSeats: number;
+  availableSeats: number;
+  transferGroup: string;
+  calendarPattern: string;
+  approvalType: number;
+  roomName: string;
+  brandId: string | null;
+  brandName: string | null;
+  brandCategoryId: string | null;
+  brandCategoryName: string | null;
+  ticketName: string;
+  ticketId: string;
+}
+
+/**
+ * 曜日ごとの開講状況
+ */
+export interface DayAvailability {
+  status: 'none' | 'available' | 'few' | 'full';
+  totalCapacity?: number;
+  totalReserved?: number;
+  availableSeats?: number;
+  schedules: ClassScheduleItem[];
+}
+
+/**
+ * 時間帯ごとの開講情報
+ */
+export interface TimeSlotSchedule {
+  time: string;
+  days: {
+    [key: string]: DayAvailability;  // '月', '火', '水', '木', '金', '土', '日'
+  };
+}
+
+/**
+ * 開講時間割レスポンス
+ */
+export interface ClassScheduleResponse {
+  schoolId: string;
+  brandId: string | null;
+  brandCategoryId: string | null;
+  timeSlots: TimeSlotSchedule[];
+  dayLabels: string[];
+}
+
+/**
+ * 開講時間割を取得
+ * 認証不要
+ * @param schoolId - 校舎ID
+ * @param brandId - ブランドID（オプション）
+ * @param brandCategoryId - ブランドカテゴリID（オプション）
+ */
+export async function getClassSchedules(
+  schoolId: string,
+  brandId?: string,
+  brandCategoryId?: string
+): Promise<ClassScheduleResponse> {
+  const params = new URLSearchParams({ school_id: schoolId });
+  if (brandId) params.append('brand_id', brandId);
+  if (brandCategoryId) params.append('brand_category_id', brandCategoryId);
+
+  return api.get<ClassScheduleResponse>(
+    `/schools/public/class-schedules/?${params.toString()}`,
+    { skipAuth: true }
+  );
+}
