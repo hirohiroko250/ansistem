@@ -519,14 +519,14 @@ export default function FromClassPurchasePage() {
             {/* カテゴリ選択済みでブランド選択が必要な場合 */}
             {selectedCategory && selectedCategory.brands.length > 1 && !selectedBrand ? (
               <>
-                <h2 className="text-lg font-semibold text-gray-800 mb-4">{selectedCategory.category_name}のタイプを選択</h2>
+                <h2 className="text-lg font-semibold text-gray-800 mb-4">{selectedCategory.categoryName}のタイプを選択</h2>
                 <div className="space-y-3">
                   {selectedCategory.brands.map((brand) => {
                     const style = getBrandStyle(brand.brandCode);
                     const Icon = style.icon;
                     // ブランド名からカテゴリ名を除いた短い表示名を作成
                     const displayName = brand.brandName
-                      .replace(selectedCategory.category_name, '')
+                      .replace(selectedCategory.categoryName, '')
                       .replace(/^[_\s]+/, '')
                       .trim() || brand.brandName;
                     return (
@@ -587,7 +587,7 @@ export default function FromClassPurchasePage() {
                               <Icon className="h-7 w-7" />
                             </div>
                             <div>
-                              <span className="text-lg font-semibold text-gray-800">{category.category_name}</span>
+                              <span className="text-lg font-semibold text-gray-800">{category.categoryName}</span>
                               {category.brands.length > 1 && (
                                 <p className="text-xs text-gray-500">{category.brands.length}種類から選択</p>
                               )}

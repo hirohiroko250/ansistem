@@ -75,12 +75,12 @@ export interface CategoryBrand {
  */
 export interface BrandCategory {
   id: string;
-  category_code: string;
-  category_name: string;
-  category_name_short: string;
-  logo_url: string;
-  color_primary: string;
-  sort_order: number;
+  categoryCode: string;
+  categoryName: string;
+  categoryNameShort: string;
+  logoUrl: string;
+  colorPrimary: string;
+  sortOrder: number;
   brands: CategoryBrand[];
 }
 
