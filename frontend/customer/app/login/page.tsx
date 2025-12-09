@@ -5,7 +5,8 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { AlertCircle, GraduationCap, Loader2, Phone, Lock } from 'lucide-react';
+import { AlertCircle, Loader2, Phone, Lock } from 'lucide-react';
+import Image from 'next/image';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { login } from '@/lib/api/auth';
@@ -59,11 +60,14 @@ export default function LoginPage() {
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-blue-50 flex items-center justify-center px-4">
       <div className="w-full max-w-[390px]">
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-blue-500 mb-4">
-            <GraduationCap className="h-10 w-10 text-white" />
-          </div>
-          <h1 className="text-3xl font-bold text-gray-800 mb-2">MyLesson</h1>
-          <p className="text-gray-600">習い事チケット管理アプリ</p>
+          <Image
+            src="/oza-logo.svg"
+            alt="OZA"
+            width={120}
+            height={120}
+            className="mx-auto mb-4"
+            priority
+          />
         </div>
 
         <Card className="rounded-2xl shadow-lg">
@@ -148,7 +152,7 @@ export default function LoginPage() {
         </Card>
 
         <p className="text-center text-xs text-gray-500 mt-6">
-          © 2025 MyLesson. All rights reserved.
+          © 2025 OZA. All rights reserved.
         </p>
       </div>
     </div>

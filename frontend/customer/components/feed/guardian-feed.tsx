@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { posts } from '@/lib/feed-data';
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import Image from 'next/image';
 
 type AnnouncementType = {
   id: number;
@@ -33,7 +34,7 @@ export function GuardianFeed() {
   const [showAllBrands, setShowAllBrands] = useState(false);
   const [ratings, setRatings] = useState<{ [key: number]: number }>({});
 
-  const contractedBrands = ['イングリッシュスクール○○', 'MyLesson運営'];
+  const contractedBrands = ['イングリッシュスクール○○', 'OZA運営'];
 
   const filteredPosts = posts;
 
@@ -83,6 +84,14 @@ export function GuardianFeed() {
     <>
       <header className="sticky top-0 z-40 bg-white shadow-sm">
         <div className="max-w-[390px] mx-auto px-4 h-16 flex items-center justify-between">
+          <Image
+            src="/oza-logo-header.svg"
+            alt="OZA"
+            width={100}
+            height={36}
+            className="h-9 w-auto"
+            priority
+          />
           <Button
             variant={showAllBrands ? 'default' : 'outline'}
             size="sm"
@@ -92,7 +101,6 @@ export function GuardianFeed() {
             <Filter className="h-4 w-4 mr-1" />
             {showAllBrands ? '全て表示中' : '契約ブランドのみ'}
           </Button>
-          <h1 className="text-2xl font-bold text-blue-600">Feed</h1>
         </div>
       </header>
 

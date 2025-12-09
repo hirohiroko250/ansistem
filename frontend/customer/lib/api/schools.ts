@@ -30,10 +30,11 @@ export async function getSchoolsByArea(city: string): Promise<PublicSchool[]> {
 
 /**
  * 都道府県一覧を取得
- * 認証不要
+ * 愛知県・岐阜県のみ（固定値）
  */
 export async function getPrefectures(): Promise<string[]> {
-  return api.get<string[]>('/schools/public/prefectures/', { skipAuth: true });
+  // 愛知県・岐阜県のみ対象
+  return Promise.resolve(['愛知県', '岐阜県']);
 }
 
 /**

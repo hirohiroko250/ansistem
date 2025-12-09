@@ -135,12 +135,12 @@ services:
       context: ./frontend/customer
       dockerfile: Dockerfile
       args:
-        - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://162.43.33.37:8000}
+        - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://162.43.33.37:8000/api/v1}
     container_name: oza_frontend_customer
     ports:
       - "3000:3000"
     environment:
-      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://162.43.33.37:8000}
+      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://162.43.33.37:8000/api/v1}
     depends_on:
       - backend
     networks:
@@ -152,12 +152,12 @@ services:
       context: ./frontend/syain
       dockerfile: Dockerfile
       args:
-        - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://162.43.33.37:8000}
+        - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://162.43.33.37:8000/api/v1}
     container_name: oza_frontend_syain
     ports:
       - "3001:3000"
     environment:
-      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://162.43.33.37:8000}
+      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://162.43.33.37:8000/api/v1}
     depends_on:
       - backend
     networks:

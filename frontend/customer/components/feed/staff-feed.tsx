@@ -17,6 +17,7 @@ import {
   Bell,
   ChevronRight
 } from 'lucide-react';
+import Image from 'next/image';
 
 interface TodayLesson {
   id: string;
@@ -94,7 +95,14 @@ export function StaffFeed() {
     <>
       <header className="sticky top-0 z-40 bg-white/90 backdrop-blur-sm border-b border-gray-200">
         <div className="max-w-[420px] mx-auto px-4 h-16 flex items-center justify-between">
-          <h1 className="text-2xl font-bold text-gray-900">フィード</h1>
+          <Image
+            src="/oza-logo-header.svg"
+            alt="OZA"
+            width={100}
+            height={36}
+            className="h-9 w-auto"
+            priority
+          />
           <div className="flex items-center gap-2">
             <Button variant="ghost" size="icon" className="relative">
               <Bell className="h-5 w-5" />

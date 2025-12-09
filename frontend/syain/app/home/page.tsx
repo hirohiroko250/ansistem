@@ -11,6 +11,7 @@ import { BottomNav } from '@/components/bottom-nav';
 import { Clock, MapPin, Users, MessageCircle, CheckSquare, LogIn, LogOut } from 'lucide-react';
 import { format } from 'date-fns';
 import { ja } from 'date-fns/locale';
+import Image from 'next/image';
 
 interface TodayClass {
   id: string;
@@ -116,9 +117,16 @@ export default function HomePage() {
     <div className="min-h-screen bg-gradient-to-b from-blue-50 to-blue-100 pb-20">
       <div className="max-w-[390px] mx-auto">
         <div className="bg-white/80 backdrop-blur-sm border-b border-gray-200 sticky top-0 z-10">
-          <div className="p-4">
-            <h1 className="text-2xl font-bold text-gray-900">ホーム</h1>
-            <p className="text-sm text-gray-600 mt-1">
+          <div className="p-4 flex items-center justify-between">
+            <Image
+              src="/oza-logo-header.svg"
+              alt="OZA"
+              width={100}
+              height={36}
+              className="h-9 w-auto"
+              priority
+            />
+            <p className="text-sm text-gray-600">
               {format(new Date(), 'yyyy年MM月dd日 (E)', { locale: ja })}
             </p>
           </div>

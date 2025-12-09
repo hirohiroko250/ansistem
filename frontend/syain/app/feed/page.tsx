@@ -16,6 +16,7 @@ import { BottomNav } from '@/components/bottom-nav';
 import { Heart, MessageCircle, Bookmark, Plus, Image as ImageIcon, Sparkles } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { ja } from 'date-fns/locale';
+import Image from 'next/image';
 
 interface Post {
   id: string;
@@ -147,7 +148,14 @@ export default function FeedPage() {
       <div className="max-w-[420px] mx-auto">
         <div className="bg-white/90 backdrop-blur-sm border-b border-gray-200 sticky top-0 z-10">
           <div className="p-4 flex items-center justify-between">
-            <h1 className="text-2xl font-bold text-gray-900">フィード</h1>
+            <Image
+              src="/oza-logo-header.svg"
+              alt="OZA"
+              width={100}
+              height={36}
+              className="h-9 w-auto"
+              priority
+            />
             <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
               <DialogTrigger asChild>
                 <Button size="sm" className="rounded-full">
