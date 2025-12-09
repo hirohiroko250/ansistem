@@ -58,6 +58,45 @@ export async function getPublicSchools(params?: {
 }
 
 /**
+ * ブランドカテゴリ内のブランド
+ */
+export interface CategoryBrand {
+  id: string;
+  brandCode: string;
+  brandName: string;
+  brandNameShort: string;
+  brandType: string;
+  logoUrl: string;
+  colorPrimary: string;
+}
+
+/**
+ * ブランドカテゴリ
+ */
+export interface BrandCategory {
+  id: string;
+  category_code: string;
+  category_name: string;
+  category_name_short: string;
+  logo_url: string;
+  color_primary: string;
+  sort_order: number;
+  brands: CategoryBrand[];
+}
+
+/**
+ * ブランドカテゴリ一覧を取得
+ * 認証不要
+ */
+export async function getBrandCategories(): Promise<BrandCategory[]> {
+  const response = await api.get<{ data: BrandCategory[]; count: number }>(
+    `/schools/public/brand-categories/`,
+    { skipAuth: true }
+  );
+  return response.data || [];
+}
+
+/**
  * ブランドの開講校舎一覧（緯度・経度付き）
  */
 export interface BrandSchool {

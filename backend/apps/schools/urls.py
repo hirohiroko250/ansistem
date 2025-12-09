@@ -7,7 +7,7 @@ from .views import (
     BrandViewSet, SchoolViewSet, GradeViewSet, SubjectViewSet, ClassroomViewSet,
     PublicSchoolListView, PublicPrefectureListView, PublicAreaListView, PublicSchoolsByAreaView,
     TimeSlotViewSet, SchoolScheduleViewSet, SchoolCourseViewSet, SchoolClosureViewSet,
-    PublicBrandSchoolsView, PublicLessonCalendarView, PublicTrialScheduleView,
+    PublicBrandCategoriesView, PublicBrandSchoolsView, PublicLessonCalendarView, PublicTrialScheduleView,
     PublicTrialAvailabilityView, PublicTrialBookingView,
 )
 
@@ -30,6 +30,7 @@ urlpatterns = [
     path('public/prefectures/', PublicPrefectureListView.as_view(), name='public-prefecture-list'),
     path('public/areas/', PublicAreaListView.as_view(), name='public-area-list'),
     path('public/schools-by-area/', PublicSchoolsByAreaView.as_view(), name='public-schools-by-area'),
+    path('public/brand-categories/', PublicBrandCategoriesView.as_view(), name='public-brand-categories'),
     path('public/brands/<str:brand_id>/schools/', PublicBrandSchoolsView.as_view(), name='public-brand-schools'),
     path('public/lesson-calendar/', PublicLessonCalendarView.as_view(), name='public-lesson-calendar'),
     path('public/trial-schedule/', PublicTrialScheduleView.as_view(), name='public-trial-schedule'),

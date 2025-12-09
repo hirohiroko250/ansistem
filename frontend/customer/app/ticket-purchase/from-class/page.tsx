@@ -15,10 +15,9 @@ import { format, getDay, addMonths, startOfMonth, endOfMonth, differenceInDays, 
 import { ja } from 'date-fns/locale';
 import { cn } from '@/lib/utils';
 import { getChildren } from '@/lib/api/students';
-import { getPublicBrands } from '@/lib/api/courses';
-import { getBrandSchools, getLessonCalendar, type BrandSchool, type LessonCalendarDay } from '@/lib/api/schools';
+import { getBrandCategories, getBrandSchools, getLessonCalendar, type BrandCategory, type CategoryBrand, type BrandSchool, type LessonCalendarDay } from '@/lib/api/schools';
 import { previewPricing, confirmPricing } from '@/lib/api/pricing';
-import type { Child, PublicBrand, ApiError, PricingPreviewResponse } from '@/lib/api/types';
+import type { Child, ApiError, PricingPreviewResponse } from '@/lib/api/types';
 
 const dayMapping: Record<number, string> = {
   0: '日曜日',
@@ -88,7 +87,8 @@ export default function FromClassPurchasePage() {
   const router = useRouter();
   const [step, setStep] = useState(1);
   const [selectedChild, setSelectedChild] = useState<Child | null>(null);
-  const [selectedBrand, setSelectedBrand] = useState<PublicBrand | null>(null);
+  const [selectedCategory, setSelectedCategory] = useState<BrandCategory | null>(null);
+  const [selectedBrand, setSelectedBrand] = useState<CategoryBrand | null>(null);
   const [selectedSchoolId, setSelectedSchoolId] = useState<string | null>(null);
   const [selectedTime, setSelectedTime] = useState<string | null>(null);
   const [selectedDayOfWeek, setSelectedDayOfWeek] = useState<string | null>(null);
@@ -102,9 +102,9 @@ export default function FromClassPurchasePage() {
   const [isLoadingChildren, setIsLoadingChildren] = useState(true);
   const [childrenError, setChildrenError] = useState<string | null>(null);
 
-  const [brands, setBrands] = useState<PublicBrand[]>([]);
-  const [isLoadingBrands, setIsLoadingBrands] = useState(true);
-  const [brandsError, setBrandsError] = useState<string | null>(null);
+  const [categories, setCategories] = useState<BrandCategory[]>([]);
+  const [isLoadingCategories, setIsLoadingCategories] = useState(true);
+  const [categoriesError, setCategoriesError] = useState<string | null>(null);
 
   const [schools, setSchools] = useState<BrandSchool[]>([]);
   const [isLoadingSchools, setIsLoadingSchools] = useState(false);
@@ -146,22 +146,22 @@ export default function FromClassPurchasePage() {
     fetchChildren();
   }, [router]);
 
-  // ブランド一覧を取得
+  // ブランドカテゴリ一覧を取得
   useEffect(() => {
-    const fetchBrands = async () => {
-      setIsLoadingBrands(true);
-      setBrandsError(null);
+    const fetchCategories = async () => {
+      setIsLoadingCategories(true);
+      setCategoriesError(null);
       try {
-        const data = await getPublicBrands();
-        setBrands(data);
+        const data = await getBrandCategories();
+        setCategories(data);
       } catch (err) {
         const apiError = err as ApiError;
-        setBrandsError(apiError.message || 'ブランド情報の取得に失敗しました');
+        setCategoriesError(apiError.message || 'ブランド情報の取得に失敗しました');
       } finally {
-        setIsLoadingBrands(false);
+        setIsLoadingCategories(false);
       }
     };
-    fetchBrands();
+    fetchCategories();
   }, []);
 
   // ブランド選択時に校舎を取得
@@ -229,7 +229,19 @@ export default function FromClassPurchasePage() {
     setStep(2);
   };
 
-  const handleBrandSelect = (brand: PublicBrand) => {
+  const handleCategorySelect = (category: BrandCategory) => {
+    setSelectedCategory(category);
+    // カテゴリにブランドが1つしかない場合は自動選択
+    if (category.brands.length === 1) {
+      setSelectedBrand(category.brands[0]);
+      setStep(3);
+    } else {
+      setSelectedBrand(null);
+      // ブランド選択画面を表示（step 2.5として扱う）
+    }
+  };
+
+  const handleBrandSelect = (brand: CategoryBrand) => {
     setSelectedBrand(brand);
     setSelectedSchoolId(null);
     setStep(3);
@@ -503,89 +515,90 @@ export default function FromClassPurchasePage() {
                 </CardContent>
               </Card>
             </div>
-            <h2 className="text-lg font-semibold text-gray-800 mb-4">ブランドを選択</h2>
 
-            {isLoadingBrands ? (
-              <div className="flex flex-col items-center justify-center py-12">
-                <Loader2 className="h-8 w-8 animate-spin text-green-500 mb-3" />
-                <p className="text-sm text-gray-600">ブランドを読み込み中...</p>
-              </div>
-            ) : brandsError ? (
-              <div className="flex items-center gap-2 p-4 rounded-lg bg-red-50 border border-red-200 mb-4">
-                <AlertCircle className="h-5 w-5 text-red-600 shrink-0" />
-                <p className="text-sm text-red-800">{brandsError}</p>
-              </div>
+            {/* カテゴリ選択済みでブランド選択が必要な場合 */}
+            {selectedCategory && selectedCategory.brands.length > 1 && !selectedBrand ? (
+              <>
+                <h2 className="text-lg font-semibold text-gray-800 mb-4">{selectedCategory.category_name}のタイプを選択</h2>
+                <div className="space-y-3">
+                  {selectedCategory.brands.map((brand) => {
+                    const style = getBrandStyle(brand.brandCode);
+                    const Icon = style.icon;
+                    // ブランド名からカテゴリ名を除いた短い表示名を作成
+                    const displayName = brand.brandName
+                      .replace(selectedCategory.category_name, '')
+                      .replace(/^[_\s]+/, '')
+                      .trim() || brand.brandName;
+                    return (
+                      <Card
+                        key={brand.id}
+                        className="rounded-xl shadow-md hover:shadow-lg transition-shadow cursor-pointer"
+                        onClick={() => handleBrandSelect(brand)}
+                      >
+                        <CardContent className="p-4 flex items-center">
+                          <div className={`w-14 h-14 rounded-full ${style.color} flex items-center justify-center mr-4`}>
+                            <Icon className="h-7 w-7" />
+                          </div>
+                          <span className="text-lg font-semibold text-gray-800">{displayName}</span>
+                        </CardContent>
+                      </Card>
+                    );
+                  })}
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setSelectedCategory(null)}
+                  className="mt-4 -ml-2"
+                >
+                  <ChevronLeft className="h-4 w-4 mr-1" />
+                  カテゴリ選択に戻る
+                </Button>
+              </>
             ) : (
-              <div className="space-y-6">
-                {/* カテゴリ別にブランドをグループ化（英語のみ外国人/日本人で分かれている） */}
-                {(() => {
-                  // カテゴリ別にグループ化
-                  const groupedByCategory = brands.reduce((acc, brand) => {
-                    const categoryName = brand.category?.categoryName || '未分類';
-                    if (!acc[categoryName]) {
-                      acc[categoryName] = [];
-                    }
-                    acc[categoryName].push(brand);
-                    return acc;
-                  }, {} as Record<string, PublicBrand[]>);
+              <>
+                <h2 className="text-lg font-semibold text-gray-800 mb-4">ブランドを選択</h2>
 
-                  return Object.entries(groupedByCategory).map(([categoryName, categoryBrands]) => {
-                    // カテゴリ内に1つしかブランドがなければグループ化しない（英語以外）
-                    if (categoryBrands.length === 1) {
-                      const brand = categoryBrands[0];
-                      const style = getBrandStyle(brand.brandCode);
+                {isLoadingCategories ? (
+                  <div className="flex flex-col items-center justify-center py-12">
+                    <Loader2 className="h-8 w-8 animate-spin text-green-500 mb-3" />
+                    <p className="text-sm text-gray-600">ブランドを読み込み中...</p>
+                  </div>
+                ) : categoriesError ? (
+                  <div className="flex items-center gap-2 p-4 rounded-lg bg-red-50 border border-red-200 mb-4">
+                    <AlertCircle className="h-5 w-5 text-red-600 shrink-0" />
+                    <p className="text-sm text-red-800">{categoriesError}</p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {categories.map((category) => {
+                      // カテゴリ内の最初のブランドのコードでスタイルを決定
+                      const firstBrandCode = category.brands[0]?.brandCode || '';
+                      const style = getBrandStyle(firstBrandCode);
                       const Icon = style.icon;
                       return (
                         <Card
-                          key={brand.id}
+                          key={category.id}
                           className="rounded-xl shadow-md hover:shadow-lg transition-shadow cursor-pointer"
-                          onClick={() => handleBrandSelect(brand)}
+                          onClick={() => handleCategorySelect(category)}
                         >
                           <CardContent className="p-4 flex items-center">
                             <div className={`w-14 h-14 rounded-full ${style.color} flex items-center justify-center mr-4`}>
                               <Icon className="h-7 w-7" />
                             </div>
-                            <span className="text-lg font-semibold text-gray-800">{categoryName}</span>
+                            <div>
+                              <span className="text-lg font-semibold text-gray-800">{category.category_name}</span>
+                              {category.brands.length > 1 && (
+                                <p className="text-xs text-gray-500">{category.brands.length}種類から選択</p>
+                              )}
+                            </div>
                           </CardContent>
                         </Card>
                       );
-                    }
-
-                    // 複数ブランドがあるカテゴリ（英語など）はグループ化して表示
-                    return (
-                      <div key={categoryName}>
-                        {/* カテゴリヘッダー */}
-                        <h3 className="text-base font-bold text-gray-700 mb-3 px-1">{categoryName}</h3>
-                        <div className="space-y-3">
-                          {categoryBrands.map((brand) => {
-                            const style = getBrandStyle(brand.brandCode);
-                            const Icon = style.icon;
-                            // ブランド名からカテゴリ名を除いた短い表示名を作成
-                            const displayName = brand.brandName
-                              .replace(categoryName, '')
-                              .replace(/^[_\s]+/, '')
-                              .trim() || brand.brandName;
-                            return (
-                              <Card
-                                key={brand.id}
-                                className="rounded-xl shadow-md hover:shadow-lg transition-shadow cursor-pointer"
-                                onClick={() => handleBrandSelect(brand)}
-                              >
-                                <CardContent className="p-4 flex items-center">
-                                  <div className={`w-14 h-14 rounded-full ${style.color} flex items-center justify-center mr-4`}>
-                                    <Icon className="h-7 w-7" />
-                                  </div>
-                                  <span className="text-lg font-semibold text-gray-800">{displayName}</span>
-                                </CardContent>
-                              </Card>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    );
-                  });
-                })()}
-              </div>
+                    })}
+                  </div>
+                )}
+              </>
             )}
           </div>
         )}

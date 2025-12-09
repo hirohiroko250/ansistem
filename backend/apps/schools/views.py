@@ -12,9 +12,10 @@ from django.utils import timezone
 
 from apps.core.permissions import IsTenantUser, IsTenantAdmin
 from apps.core.csv_utils import CSVMixin
-from .models import Brand, School, Grade, Subject, Classroom, TimeSlot, SchoolSchedule, SchoolCourse, SchoolClosure, BrandSchool, LessonCalendar
+from .models import Brand, BrandCategory, School, Grade, Subject, Classroom, TimeSlot, SchoolSchedule, SchoolCourse, SchoolClosure, BrandSchool, LessonCalendar
 from .serializers import (
     BrandListSerializer, BrandDetailSerializer, BrandCreateUpdateSerializer,
+    BrandCategorySerializer, PublicBrandCategorySerializer,
     SchoolListSerializer, SchoolDetailSerializer, SchoolCreateUpdateSerializer,
     GradeSerializer, SubjectSerializer,
     ClassroomListSerializer, ClassroomDetailSerializer,
@@ -949,6 +950,25 @@ class SchoolClosureViewSet(CSVMixin, viewsets.ModelViewSet):
             'brand': brand.brand_name,
             'date': date_str,
             'time_slot': time_slot.slot_name if time_slot else None
+        })
+
+
+class PublicBrandCategoriesView(APIView):
+    """公開ブランドカテゴリ一覧API（認証不要）"""
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        """
+        ブランドカテゴリ一覧を返す（各カテゴリにブランドが含まれる）
+        """
+        categories = BrandCategory.objects.filter(
+            is_active=True
+        ).order_by('sort_order', 'category_code')
+
+        serializer = PublicBrandCategorySerializer(categories, many=True)
+        return Response({
+            'data': serializer.data,
+            'count': len(serializer.data)
         })
 
 

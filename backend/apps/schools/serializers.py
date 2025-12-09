@@ -2,7 +2,69 @@
 Schools Serializers
 """
 from rest_framework import serializers
-from .models import Brand, School, Grade, Subject, Classroom, TimeSlot, SchoolSchedule, SchoolCourse, SchoolClosure
+from .models import Brand, BrandCategory, School, Grade, Subject, Classroom, TimeSlot, SchoolSchedule, SchoolCourse, SchoolClosure
+
+
+# ========================================
+# BrandCategory（ブランドカテゴリ）
+# ========================================
+class BrandCategorySerializer(serializers.ModelSerializer):
+    """ブランドカテゴリ"""
+    brands = serializers.SerializerMethodField()
+
+    class Meta:
+        model = BrandCategory
+        fields = [
+            'id', 'category_code', 'category_name', 'category_name_short',
+            'description', 'logo_url', 'color_primary', 'color_secondary',
+            'sort_order', 'is_active', 'brands'
+        ]
+
+    def get_brands(self, obj):
+        """カテゴリに属するブランド一覧"""
+        brands = obj.brands.filter(is_active=True, deleted_at__isnull=True).order_by('sort_order')
+        return [
+            {
+                'id': str(brand.id),
+                'brandCode': brand.brand_code,
+                'brandName': brand.brand_name,
+                'brandNameShort': brand.brand_name_short,
+                'brandType': brand.brand_type,
+                'logoUrl': brand.logo_url,
+                'colorPrimary': brand.color_primary,
+                'colorSecondary': brand.color_secondary,
+                'sortOrder': brand.sort_order,
+            }
+            for brand in brands
+        ]
+
+
+class PublicBrandCategorySerializer(serializers.ModelSerializer):
+    """公開ブランドカテゴリ（認証不要）"""
+    brands = serializers.SerializerMethodField()
+
+    class Meta:
+        model = BrandCategory
+        fields = [
+            'id', 'category_code', 'category_name', 'category_name_short',
+            'logo_url', 'color_primary', 'sort_order', 'brands'
+        ]
+
+    def get_brands(self, obj):
+        """カテゴリに属するブランド一覧"""
+        brands = obj.brands.filter(is_active=True, deleted_at__isnull=True).order_by('sort_order')
+        return [
+            {
+                'id': str(brand.id),
+                'brandCode': brand.brand_code,
+                'brandName': brand.brand_name,
+                'brandNameShort': brand.brand_name_short,
+                'brandType': brand.brand_type,
+                'logoUrl': brand.logo_url,
+                'colorPrimary': brand.color_primary,
+            }
+            for brand in brands
+        ]
 
 
 class BrandListSerializer(serializers.ModelSerializer):
