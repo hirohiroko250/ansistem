@@ -18,6 +18,12 @@ urlpatterns = [
     # API v1
     path('api/v1/', include('api.v1.urls')),
 
+    # Legacy paths (without /api/v1/ prefix) for backward compatibility
+    # フロントエンドの環境変数が /api/v1 を含まない場合のフォールバック
+    # namespace を省略してルーティングのみを提供
+    path('schools/', include(('apps.schools.urls', 'schools_legacy'))),
+    path('auth/', include(('apps.authentication.urls', 'auth_legacy'))),
+
     # API Documentation
     path('api/schema/', SpectacularAPIView.as_view(), name='schema'),
     path('api/docs/', SpectacularSwaggerView.as_view(url_name='schema'), name='swagger-ui'),
