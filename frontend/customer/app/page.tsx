@@ -7,6 +7,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { BottomTabBar } from '@/components/bottom-tab-bar';
 import Link from 'next/link';
+import Image from 'next/image';
 import { getLatestNews, type NewsItem } from '@/lib/api/announcements';
 import { posts as fallbackPosts } from '@/lib/feed-data';
 import { isAuthenticated } from '@/lib/api/auth';
@@ -84,7 +85,14 @@ export default function Home() {
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-blue-50">
       <header className="sticky top-0 z-40 bg-white shadow-sm">
         <div className="max-w-[390px] mx-auto px-4 h-16 flex items-center justify-between">
-          <h1 className="text-2xl font-bold text-blue-600">MyLesson</h1>
+          <Image
+            src="/oza-logo-header.svg"
+            alt="OZA"
+            width={120}
+            height={40}
+            className="h-10 w-auto"
+            priority
+          />
           <button className="p-2 rounded-full hover:bg-gray-100 transition-colors relative">
             <Bell className="h-6 w-6 text-gray-700" />
             <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full"></span>
