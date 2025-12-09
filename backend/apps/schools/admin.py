@@ -4,7 +4,7 @@ from apps.core.csv_utils import CSVImporter
 from apps.tenants.models import Tenant
 from .models import (
     Brand, BrandCategory, School, Grade, Subject, Classroom, SchoolYear, GradeSchoolYear, BrandSchool,
-    TimeSlot, LessonCalendar
+    TimeSlot, LessonCalendar, ClassSchedule
 )
 
 
@@ -754,4 +754,151 @@ class LessonCalendarAdmin(CSVImportExportMixin, admin.ModelAdmin):
         'auto_send_notice': '自動お知らせ送信',
         'rejection_reason': '拒否理由',
         'holiday_name': '祝日名',
+    }
+
+
+# =============================================================================
+# T14c: 開講時間割
+# =============================================================================
+@admin.register(ClassSchedule)
+class ClassScheduleAdmin(CSVImportExportMixin, admin.ModelAdmin):
+    """開講時間割Admin（T14c_開講時間割）
+
+    クラス登録・振替のベースとなるマスタ
+    """
+    list_display = [
+        'schedule_code', 'school', 'brand_category', 'brand',
+        'get_day_of_week_display', 'period', 'start_time', 'class_name',
+        'capacity', 'reserved_seats', 'is_active'
+    ]
+    list_filter = [
+        'is_active', 'brand_category', 'brand', 'school',
+        'day_of_week', 'approval_type'
+    ]
+    search_fields = [
+        'schedule_code', 'class_name', 'class_type',
+        'ticket_name', 'transfer_group', 'calendar_pattern'
+    ]
+    ordering = ['school', 'brand_category', 'brand', 'day_of_week', 'period']
+    autocomplete_fields = ['brand', 'brand_category', 'school', 'room']
+    date_hierarchy = 'class_start_date'
+
+    fieldsets = (
+        ('基本情報', {
+            'fields': (
+                'schedule_code',
+                ('school', 'room', 'room_name'),
+                ('brand_category', 'brand'),
+            )
+        }),
+        ('曜日・時間', {
+            'fields': (
+                ('day_of_week', 'period'),
+                ('start_time', 'end_time', 'duration_minutes'),
+                'break_time',
+            )
+        }),
+        ('クラス情報', {
+            'fields': (
+                'class_name', 'class_type',
+                'display_course_name', 'display_pair_name',
+                'display_description',
+            )
+        }),
+        ('チケット・振替', {
+            'fields': (
+                ('ticket_name', 'ticket_id'),
+                ('transfer_group', 'schedule_group'),
+                'calendar_pattern',
+            )
+        }),
+        ('定員・承認', {
+            'fields': (
+                ('capacity', 'trial_capacity', 'reserved_seats'),
+                ('pause_seat_fee', 'approval_type'),
+            )
+        }),
+        ('期間', {
+            'fields': (
+                'display_start_date',
+                ('class_start_date', 'class_end_date'),
+            )
+        }),
+        ('ステータス', {
+            'fields': ('is_active', 'tenant_id')
+        }),
+    )
+
+    @admin.display(description='曜日')
+    def get_day_of_week_display(self, obj):
+        return obj.get_day_of_week_display()
+
+    # CSV Import設定（Excel T14_開講時間割準拠）
+    csv_import_fields = {
+        '時間割コード': 'schedule_code',
+        '校舎名': 'school__school_name',
+        'ブランド名': 'brand__brand_name',
+        '曜日': 'day_of_week',
+        '時限': 'period',
+        '開始時間': 'start_time',
+        '授業時間': 'duration_minutes',
+        '終了時間': 'end_time',
+        'クラス名': 'class_name',
+        'クラス種名': 'class_type',
+        '保護者用コース名': 'display_course_name',
+        '保護者用ペア名': 'display_pair_name',
+        '保護者用説明': 'display_description',
+        'チケット名': 'ticket_name',
+        'チケットID': 'ticket_id',
+        '振替グループ': 'transfer_group',
+        '時間割グループ': 'schedule_group',
+        '定員': 'capacity',
+        '体験人数': 'trial_capacity',
+        '休会時座席料金': 'pause_seat_fee',
+        'カレンダーパターン': 'calendar_pattern',
+        '承認種別': 'approval_type',
+        '教室名': 'room_name',
+        '保護者表示開始日': 'display_start_date',
+        'クラス開始日': 'class_start_date',
+        'クラス終了日': 'class_end_date',
+        '有効': 'is_active',
+    }
+    csv_required_fields = ['時間割コード', 'クラス名']
+    csv_unique_fields = ['schedule_code']
+    csv_export_fields = [
+        'schedule_code', 'school.school_name', 'brand.brand_name',
+        'day_of_week', 'period', 'start_time', 'duration_minutes', 'end_time',
+        'class_name', 'class_type', 'display_course_name', 'display_pair_name',
+        'ticket_name', 'ticket_id', 'transfer_group', 'schedule_group',
+        'capacity', 'trial_capacity', 'pause_seat_fee', 'calendar_pattern',
+        'approval_type', 'room_name', 'display_start_date', 'class_start_date',
+        'class_end_date', 'is_active'
+    ]
+    csv_export_headers = {
+        'schedule_code': '時間割コード',
+        'school.school_name': '校舎名',
+        'brand.brand_name': 'ブランド名',
+        'day_of_week': '曜日',
+        'period': '時限',
+        'start_time': '開始時間',
+        'duration_minutes': '授業時間',
+        'end_time': '終了時間',
+        'class_name': 'クラス名',
+        'class_type': 'クラス種名',
+        'display_course_name': '保護者用コース名',
+        'display_pair_name': '保護者用ペア名',
+        'ticket_name': 'チケット名',
+        'ticket_id': 'チケットID',
+        'transfer_group': '振替グループ',
+        'schedule_group': '時間割グループ',
+        'capacity': '定員',
+        'trial_capacity': '体験人数',
+        'pause_seat_fee': '休会時座席料金',
+        'calendar_pattern': 'カレンダーパターン',
+        'approval_type': '承認種別',
+        'room_name': '教室名',
+        'display_start_date': '保護者表示開始日',
+        'class_start_date': 'クラス開始日',
+        'class_end_date': 'クラス終了日',
+        'is_active': '有効',
     }
