@@ -575,17 +575,21 @@ class TimeSlotAdmin(CSVImportExportMixin, admin.ModelAdmin):
         '時間枠名': 'slot_name',
         '開始時間': 'start_time',
         '終了時間': 'end_time',
+        '時間（分）': 'duration_minutes',
         '並び順': 'sort_order',
+        '有効': 'is_active',
     }
     csv_required_fields = ['時間枠コード', '時間枠名', '開始時間', '終了時間']
     csv_unique_fields = ['slot_code']
-    csv_export_fields = ['slot_code', 'slot_name', 'start_time', 'end_time', 'sort_order']
+    csv_export_fields = ['slot_code', 'slot_name', 'start_time', 'end_time', 'duration_minutes', 'sort_order', 'is_active']
     csv_export_headers = {
         'slot_code': '時間枠コード',
         'slot_name': '時間枠名',
         'start_time': '開始時間',
         'end_time': '終了時間',
+        'duration_minutes': '時間（分）',
         'sort_order': '並び順',
+        'is_active': '有効',
     }
 
 
