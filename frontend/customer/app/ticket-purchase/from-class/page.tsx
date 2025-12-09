@@ -231,18 +231,11 @@ export default function FromClassPurchasePage() {
 
   const handleCategorySelect = (category: BrandCategory) => {
     setSelectedCategory(category);
-    // カテゴリにブランドが1つしかない場合は自動選択
-    if (category.brands.length === 1) {
+    // カテゴリ選択後は直接校舎選択へ（ブランドは校舎選択後に絞り込む）
+    // 最初のブランドを仮選択して校舎一覧を取得
+    if (category.brands.length > 0) {
       setSelectedBrand(category.brands[0]);
-      setStep(3);
-    } else {
-      setSelectedBrand(null);
-      // ブランド選択画面を表示（step 2.5として扱う）
     }
-  };
-
-  const handleBrandSelect = (brand: CategoryBrand) => {
-    setSelectedBrand(brand);
     setSelectedSchoolId(null);
     setStep(3);
   };
@@ -516,89 +509,41 @@ export default function FromClassPurchasePage() {
               </Card>
             </div>
 
-            {/* カテゴリ選択済みでブランド選択が必要な場合 */}
-            {selectedCategory && selectedCategory.brands.length > 1 && !selectedBrand ? (
-              <>
-                <h2 className="text-lg font-semibold text-gray-800 mb-4">{selectedCategory.categoryName}のタイプを選択</h2>
-                <div className="space-y-3">
-                  {selectedCategory.brands.map((brand) => {
-                    const style = getBrandStyle(brand.brandCode);
-                    const Icon = style.icon;
-                    // ブランド名からカテゴリ名を除いた短い表示名を作成
-                    const displayName = brand.brandName
-                      .replace(selectedCategory.categoryName, '')
-                      .replace(/^[_\s]+/, '')
-                      .trim() || brand.brandName;
-                    return (
-                      <Card
-                        key={brand.id}
-                        className="rounded-xl shadow-md hover:shadow-lg transition-shadow cursor-pointer"
-                        onClick={() => handleBrandSelect(brand)}
-                      >
-                        <CardContent className="p-4 flex items-center">
-                          <div className={`w-14 h-14 rounded-full ${style.color} flex items-center justify-center mr-4`}>
-                            <Icon className="h-7 w-7" />
-                          </div>
-                          <span className="text-lg font-semibold text-gray-800">{displayName}</span>
-                        </CardContent>
-                      </Card>
-                    );
-                  })}
-                </div>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setSelectedCategory(null)}
-                  className="mt-4 -ml-2"
-                >
-                  <ChevronLeft className="h-4 w-4 mr-1" />
-                  カテゴリ選択に戻る
-                </Button>
-              </>
-            ) : (
-              <>
-                <h2 className="text-lg font-semibold text-gray-800 mb-4">ブランドを選択</h2>
+            <h2 className="text-lg font-semibold text-gray-800 mb-4">カテゴリを選択</h2>
 
-                {isLoadingCategories ? (
-                  <div className="flex flex-col items-center justify-center py-12">
-                    <Loader2 className="h-8 w-8 animate-spin text-green-500 mb-3" />
-                    <p className="text-sm text-gray-600">ブランドを読み込み中...</p>
-                  </div>
-                ) : categoriesError ? (
-                  <div className="flex items-center gap-2 p-4 rounded-lg bg-red-50 border border-red-200 mb-4">
-                    <AlertCircle className="h-5 w-5 text-red-600 shrink-0" />
-                    <p className="text-sm text-red-800">{categoriesError}</p>
-                  </div>
-                ) : (
-                  <div className="space-y-3">
-                    {categories.map((category) => {
-                      // カテゴリ内の最初のブランドのコードでスタイルを決定
-                      const firstBrandCode = category.brands[0]?.brandCode || '';
-                      const style = getBrandStyle(firstBrandCode);
-                      const Icon = style.icon;
-                      return (
-                        <Card
-                          key={category.id}
-                          className="rounded-xl shadow-md hover:shadow-lg transition-shadow cursor-pointer"
-                          onClick={() => handleCategorySelect(category)}
-                        >
-                          <CardContent className="p-4 flex items-center">
-                            <div className={`w-14 h-14 rounded-full ${style.color} flex items-center justify-center mr-4`}>
-                              <Icon className="h-7 w-7" />
-                            </div>
-                            <div>
-                              <span className="text-lg font-semibold text-gray-800">{category.categoryName}</span>
-                              {category.brands.length > 1 && (
-                                <p className="text-xs text-gray-500">{category.brands.length}種類から選択</p>
-                              )}
-                            </div>
-                          </CardContent>
-                        </Card>
-                      );
-                    })}
-                  </div>
-                )}
-              </>
+            {isLoadingCategories ? (
+              <div className="flex flex-col items-center justify-center py-12">
+                <Loader2 className="h-8 w-8 animate-spin text-green-500 mb-3" />
+                <p className="text-sm text-gray-600">カテゴリを読み込み中...</p>
+              </div>
+            ) : categoriesError ? (
+              <div className="flex items-center gap-2 p-4 rounded-lg bg-red-50 border border-red-200 mb-4">
+                <AlertCircle className="h-5 w-5 text-red-600 shrink-0" />
+                <p className="text-sm text-red-800">{categoriesError}</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {categories.map((category) => {
+                  // カテゴリ内の最初のブランドのコードでスタイルを決定
+                  const firstBrandCode = category.brands[0]?.brandCode || '';
+                  const style = getBrandStyle(firstBrandCode);
+                  const Icon = style.icon;
+                  return (
+                    <Card
+                      key={category.id}
+                      className="rounded-xl shadow-md hover:shadow-lg transition-shadow cursor-pointer"
+                      onClick={() => handleCategorySelect(category)}
+                    >
+                      <CardContent className="p-4 flex items-center">
+                        <div className={`w-14 h-14 rounded-full ${style.color} flex items-center justify-center mr-4`}>
+                          <Icon className="h-7 w-7" />
+                        </div>
+                        <span className="text-lg font-semibold text-gray-800">{category.categoryName}</span>
+                      </CardContent>
+                    </Card>
+                  );
+                })}
+              </div>
             )}
           </div>
         )}
@@ -609,7 +554,7 @@ export default function FromClassPurchasePage() {
               <Card className="rounded-xl shadow-sm bg-green-50 border-green-200">
                 <CardContent className="p-3">
                   <p className="text-xs text-gray-600 mb-1">選択中</p>
-                  <p className="font-semibold text-gray-800">{selectedChild?.fullName} → {selectedBrand?.brandName}</p>
+                  <p className="font-semibold text-gray-800">{selectedChild?.fullName} → {selectedCategory?.categoryName}</p>
                 </CardContent>
               </Card>
             </div>
