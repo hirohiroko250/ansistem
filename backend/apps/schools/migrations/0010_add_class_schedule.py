@@ -51,7 +51,8 @@ class Migration(migrations.Migration):
                 ("brand_category", models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name="class_schedules", to="schools.brandcategory", verbose_name="ブランドカテゴリ")),
                 ("room", models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name="class_schedules", to="schools.classroom", verbose_name="教室")),
                 ("school", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name="class_schedules", to="schools.school", verbose_name="校舎")),
-                ("tenant_id", models.CharField(db_index=True, max_length=50, verbose_name="テナントID")),
+                ("tenant_id", models.UUIDField(db_index=True, verbose_name="テナントID")),
+                ("tenant_ref", models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name="schools_classschedule_set", to="tenants.tenant", verbose_name="テナント")),
             ],
             options={
                 "verbose_name": "T14c_開講時間割",
