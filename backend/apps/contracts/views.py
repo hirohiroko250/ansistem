@@ -568,7 +568,7 @@ class ContractViewSet(CSVMixin, viewsets.ModelViewSet):
 
         return Response(stats)
 
-    @action(detail=False, methods=['get'], url_path='my-contracts')
+    @action(detail=False, methods=['get'], url_path='my-contracts', permission_classes=[IsAuthenticated])
     def my_contracts(self, request):
         """顧客用：ログインユーザーの子どもの契約一覧
 
@@ -607,7 +607,7 @@ class ContractViewSet(CSVMixin, viewsets.ModelViewSet):
             'contracts': MyContractSerializer(contracts, many=True).data
         })
 
-    @action(detail=True, methods=['post'], url_path='change-class')
+    @action(detail=True, methods=['post'], url_path='change-class', permission_classes=[IsAuthenticated])
     def change_class(self, request, pk=None):
         """クラス変更（曜日・時間変更）
 
@@ -672,7 +672,7 @@ class ContractViewSet(CSVMixin, viewsets.ModelViewSet):
             'effective_date': effective_date
         })
 
-    @action(detail=True, methods=['post'], url_path='change-school')
+    @action(detail=True, methods=['post'], url_path='change-school', permission_classes=[IsAuthenticated])
     def change_school(self, request, pk=None):
         """校舎変更
 
@@ -727,7 +727,7 @@ class ContractViewSet(CSVMixin, viewsets.ModelViewSet):
             'effective_date': effective_date
         })
 
-    @action(detail=True, methods=['post'], url_path='request-suspension')
+    @action(detail=True, methods=['post'], url_path='request-suspension', permission_classes=[IsAuthenticated])
     def request_suspension(self, request, pk=None):
         """休会申請
 
@@ -790,7 +790,7 @@ class ContractViewSet(CSVMixin, viewsets.ModelViewSet):
             'keep_seat': keep_seat
         })
 
-    @action(detail=True, methods=['post'], url_path='request-cancellation')
+    @action(detail=True, methods=['post'], url_path='request-cancellation', permission_classes=[IsAuthenticated])
     def request_cancellation(self, request, pk=None):
         """退会申請
 

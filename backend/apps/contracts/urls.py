@@ -17,7 +17,6 @@ from .views import (
 app_name = 'contracts'
 
 router = DefaultRouter()
-router.register('', ContractViewSet, basename='contract')
 router.register('products', ProductViewSet, basename='product')
 router.register('discounts', DiscountViewSet, basename='discount')
 router.register('courses', CourseViewSet, basename='course')
@@ -27,6 +26,8 @@ router.register('certifications', CertificationViewSet, basename='certification'
 router.register('student-items', StudentItemViewSet, basename='student-item')
 router.register('seminar-enrollments', SeminarEnrollmentViewSet, basename='seminar-enrollment')
 router.register('certification-enrollments', CertificationEnrollmentViewSet, basename='certification-enrollment')
+# ContractViewSetは最後に登録（空のベースパスなので他のルートより後に）
+router.register('', ContractViewSet, basename='contract')
 
 urlpatterns = [
     # 公開API（認証不要）
