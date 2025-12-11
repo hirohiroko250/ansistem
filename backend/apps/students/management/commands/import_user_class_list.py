@@ -5,6 +5,7 @@ Usage:
     python manage.py import_user_class_list '/path/to/UserClassList.xlsx'
     python manage.py import_user_class_list '/path/to/UserClassList.xlsx' --dry-run
 """
+import re
 import pandas as pd
 from datetime import datetime
 from django.core.management.base import BaseCommand
@@ -172,18 +173,30 @@ class Command(BaseCommand):
                     brand = None
 
                     if school_name_raw:
-                        # 校舎名から校舎を検索（部分一致）
+                        # 校舎名から校舎を検索
                         # "尾張旭校Owariasahi" → "尾張旭校" にマッチ
-                        school_name_jp = school_name_raw.split('校')[0] + '校' if '校' in school_name_raw else school_name_raw
-                        school = School.objects.filter(tenant_id=tenant_id, school_name__icontains=school_name_jp.replace('校', '')).first()
+                        # ローマ字部分を除去（日本語の後ろのアルファベットを削除）
+                        school_name_jp = re.sub(r'[A-Za-z]+$', '', school_name_raw).strip()
+
+                        # まず完全一致
+                        school = School.objects.filter(tenant_id=tenant_id, school_name=school_name_jp).first()
                         if not school:
-                            # 完全一致も試す
-                            school = School.objects.filter(tenant_id=tenant_id, school_name=school_name_jp).first()
+                            # 部分一致（「校」の前の文字列で検索）
+                            if '校' in school_name_jp:
+                                base_name = school_name_jp.split('校')[0]
+                                school = School.objects.filter(tenant_id=tenant_id, school_name__startswith=base_name).first()
                         if not school:
-                            self.stdout.write(self.style.WARNING(f'行{idx+2}: 校舎 {school_name_raw} が見つかりません'))
+                            # さらに部分一致
+                            school = School.objects.filter(tenant_id=tenant_id, school_name__icontains=school_name_jp.replace('校', '')).first()
+                        if not school:
+                            self.stdout.write(self.style.WARNING(f'行{idx+2}: 校舎 {school_name_raw} → {school_name_jp} が見つかりません'))
 
                     if brand_name_raw:
-                        brand = Brand.objects.filter(tenant_id=tenant_id, brand_name__icontains=brand_name_raw).first()
+                        # 完全一致を最初に試す
+                        brand = Brand.objects.filter(tenant_id=tenant_id, brand_name=brand_name_raw).first()
+                        if not brand:
+                            # 部分一致
+                            brand = Brand.objects.filter(tenant_id=tenant_id, brand_name__icontains=brand_name_raw).first()
                         if not brand:
                             self.stdout.write(self.style.WARNING(f'行{idx+2}: ブランド {brand_name_raw} が見つかりません'))
 
