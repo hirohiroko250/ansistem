@@ -117,30 +117,36 @@ export function MapSchoolSelector({
           const schoolsWithLocation = schools.filter(s => s.latitude && s.longitude);
 
           schoolsWithLocation.forEach((school) => {
-            // カスタムマーカー要素を作成（星型SVG）
+            // カスタムマーカー要素を作成（丸いピン型）
             const el = document.createElement('div');
             el.className = 'map-marker';
-            el.style.width = '32px';
-            el.style.height = '32px';
+            el.style.width = '28px';
+            el.style.height = '28px';
             el.style.cursor = 'pointer';
-            el.style.filter = 'drop-shadow(0 2px 4px rgba(0,0,0,0.3))';
+            el.style.filter = 'drop-shadow(0 2px 3px rgba(0,0,0,0.2))';
+            el.style.transition = 'filter 0.2s ease, transform 0.2s ease';
+            el.style.transformOrigin = 'center center';
             el.dataset.schoolId = school.id;
 
-            // 星型SVGを設定
-            const starColor = school.id === selectedSchoolId ? '#3B82F6' : '#F59E0B';
+            // 丸いピン型SVGを設定（柔らかいデザイン）
+            const isSelected = school.id === selectedSchoolId;
+            const pinColor = isSelected ? '#3B82F6' : '#10B981';  // 選択時: 青, 通常: 緑
+            const innerColor = isSelected ? '#60A5FA' : '#34D399';  // 内側の色（少し明るく）
             el.innerHTML = `
-              <svg viewBox="0 0 24 24" fill="${starColor}" stroke="white" stroke-width="1.5" style="width: 100%; height: 100%;">
-                <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
+              <svg viewBox="0 0 24 24" style="width: 100%; height: 100%;">
+                <circle cx="12" cy="12" r="10" fill="${pinColor}" opacity="0.9"/>
+                <circle cx="12" cy="12" r="6" fill="${innerColor}" opacity="0.8"/>
+                <circle cx="12" cy="12" r="3" fill="white" opacity="0.9"/>
               </svg>
             `;
 
-            // hover時のスタイル変更
+            // hover時のスタイル変更（transformOriginを指定しているのでずれない）
             el.addEventListener('mouseenter', () => {
-              el.style.filter = 'drop-shadow(0 4px 8px rgba(0,0,0,0.4))';
-              el.style.transform = 'scale(1.1)';
+              el.style.filter = 'drop-shadow(0 3px 6px rgba(0,0,0,0.3))';
+              el.style.transform = 'scale(1.15)';
             });
             el.addEventListener('mouseleave', () => {
-              el.style.filter = 'drop-shadow(0 2px 4px rgba(0,0,0,0.3))';
+              el.style.filter = 'drop-shadow(0 2px 3px rgba(0,0,0,0.2))';
               el.style.transform = 'scale(1)';
             });
 
@@ -215,10 +221,12 @@ export function MapSchoolSelector({
     markersRef.current.forEach(({ element, schoolId }) => {
       if (element) {
         const isSelected = schoolId === selectedSchoolId;
-        const starColor = isSelected ? '#3B82F6' : '#F59E0B';
-        const svg = element.querySelector('svg');
-        if (svg) {
-          svg.setAttribute('fill', starColor);
+        const pinColor = isSelected ? '#3B82F6' : '#10B981';
+        const innerColor = isSelected ? '#60A5FA' : '#34D399';
+        const circles = element.querySelectorAll('circle');
+        if (circles.length >= 2) {
+          circles[0].setAttribute('fill', pinColor);  // 外側の円
+          circles[1].setAttribute('fill', innerColor);  // 中間の円
         }
       }
     });
