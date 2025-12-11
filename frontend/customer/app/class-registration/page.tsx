@@ -18,6 +18,7 @@ import {
   requestCancellation,
   type MyContract,
   type MyStudent,
+  type MyTicket,
 } from '@/lib/api/contracts';
 import { getClassSchedules, getBrandSchools, type ClassScheduleResponse, type ClassScheduleItem, type BrandSchool } from '@/lib/api/schools';
 import { MapSchoolSelector } from '@/components/map-school-selector';
@@ -350,18 +351,18 @@ export default function ClassRegistrationPage() {
           </Card>
         )}
 
-        {/* 契約一覧 */}
+        {/* 契約一覧（チケットベース） */}
         {mode === 'list' && (
           <section>
-            <h2 className="text-lg font-semibold text-gray-800 mb-4">受講中のコース</h2>
+            <h2 className="text-lg font-semibold text-gray-800 mb-4">保有チケット・受講中のクラス</h2>
 
             {contracts.length === 0 ? (
               <Card className="rounded-xl shadow-md bg-gray-50 border-gray-200">
                 <CardContent className="p-6 text-center">
                   <CalendarIcon className="h-12 w-12 text-gray-400 mx-auto mb-3" />
-                  <p className="text-gray-600">受講中のコースがありません</p>
+                  <p className="text-gray-600">保有中のチケットがありません</p>
                   <Link href="/ticket-purchase">
-                    <Button className="mt-4">コースを探す</Button>
+                    <Button className="mt-4">チケットを購入する</Button>
                   </Link>
                 </CardContent>
               </Card>
@@ -381,6 +382,17 @@ export default function ClassRegistrationPage() {
                         </div>
                         {getStatusBadge(contract.status)}
                       </div>
+
+                      {/* チケット情報（メイン） */}
+                      {contract.ticket && (
+                        <div className="bg-gradient-to-r from-blue-50 to-blue-100 rounded-lg p-3 mb-3">
+                          <p className="text-xs text-blue-600 font-medium mb-1">チケット</p>
+                          <p className="font-bold text-gray-800">{contract.ticket.ticketName}</p>
+                          {contract.ticket.durationMinutes && (
+                            <p className="text-sm text-gray-600">{contract.ticket.durationMinutes}分</p>
+                          )}
+                        </div>
+                      )}
 
                       <div className="space-y-2">
                         <div className="flex items-center gap-2 text-sm text-gray-600">
@@ -422,6 +434,25 @@ export default function ClassRegistrationPage() {
             <Card className="rounded-xl shadow-md mb-6">
               <CardContent className="p-4">
                 <div className="space-y-4">
+                  {/* チケット情報（メイン） */}
+                  {selectedContract.ticket && (
+                    <div className="bg-gradient-to-r from-blue-100 to-blue-200 rounded-lg p-4">
+                      <p className="text-xs text-blue-700 font-medium mb-1">保有チケット</p>
+                      <p className="text-lg font-bold text-gray-800">{selectedContract.ticket.ticketName}</p>
+                      {selectedContract.ticket.durationMinutes && (
+                        <p className="text-sm text-gray-600 mt-1">レッスン時間: {selectedContract.ticket.durationMinutes}分</p>
+                      )}
+                    </div>
+                  )}
+
+                  <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
+                    <Building2 className="h-5 w-5 text-blue-600" />
+                    <div>
+                      <p className="text-xs text-gray-500">ブランド</p>
+                      <p className="font-semibold text-gray-800">{selectedContract.brand.brandName}</p>
+                    </div>
+                  </div>
+
                   <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
                     <MapPin className="h-5 w-5 text-blue-600" />
                     <div>
@@ -433,7 +464,7 @@ export default function ClassRegistrationPage() {
                   <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
                     <CalendarIcon className="h-5 w-5 text-blue-600" />
                     <div>
-                      <p className="text-xs text-gray-500">クラス</p>
+                      <p className="text-xs text-gray-500">コース</p>
                       <p className="font-semibold text-gray-800">{selectedContract.course?.courseName || '-'}</p>
                       {selectedContract.dayOfWeek !== undefined && selectedContract.startTime && (
                         <p className="text-sm text-gray-600">

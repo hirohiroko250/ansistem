@@ -425,6 +425,16 @@ class MyStudentItemCourseSerializer(serializers.Serializer):
     courseName = serializers.CharField(source='course_name')
 
 
+class MyStudentItemTicketSerializer(serializers.Serializer):
+    """顧客用チケットシリアライザー（StudentItem用）"""
+    id = serializers.UUIDField()
+    ticketCode = serializers.CharField(source='ticket_code')
+    ticketName = serializers.CharField(source='ticket_name')
+    ticketType = serializers.CharField(source='ticket_type', allow_null=True)
+    ticketCategory = serializers.CharField(source='ticket_category', allow_null=True)
+    durationMinutes = serializers.IntegerField(source='duration_minutes', allow_null=True)
+
+
 class MyStudentItemSerializer(serializers.ModelSerializer):
     """顧客用受講コースシリアライザー（保護者向け、StudentItemベース）
 
@@ -438,6 +448,7 @@ class MyStudentItemSerializer(serializers.ModelSerializer):
     school = MyStudentItemSchoolSerializer(read_only=True)
     brand = MyStudentItemBrandSerializer(read_only=True)
     course = MyStudentItemCourseSerializer(read_only=True, allow_null=True)
+    ticket = serializers.SerializerMethodField()  # コースに紐づくチケット
     status = serializers.SerializerMethodField()
     contractDate = serializers.DateField(source='start_date', allow_null=True)
     startDate = serializers.DateField(source='start_date', allow_null=True)
@@ -450,7 +461,7 @@ class MyStudentItemSerializer(serializers.ModelSerializer):
     class Meta:
         model = StudentItem
         fields = [
-            'id', 'contractNo', 'student', 'school', 'brand', 'course',
+            'id', 'contractNo', 'student', 'school', 'brand', 'course', 'ticket',
             'status', 'contractDate', 'startDate', 'endDate',
             'monthlyTotal', 'dayOfWeek', 'startTime', 'endTime'
         ]
@@ -458,6 +469,20 @@ class MyStudentItemSerializer(serializers.ModelSerializer):
     def get_contractNo(self, obj):
         # StudentItemのIDをcontractNoとして使用
         return str(obj.id)[:8].upper()
+
+    def get_ticket(self, obj):
+        """コースに紐づくチケットを取得"""
+        if not obj.course:
+            return None
+        # CourseTicketからチケットを取得
+        from .models import CourseTicket
+        course_ticket = CourseTicket.objects.filter(
+            course=obj.course,
+            deleted_at__isnull=True
+        ).select_related('ticket').first()
+        if course_ticket and course_ticket.ticket:
+            return MyStudentItemTicketSerializer(course_ticket.ticket).data
+        return None
 
     def get_status(self, obj):
         # StudentItemにはステータスがないので、常にactiveを返す

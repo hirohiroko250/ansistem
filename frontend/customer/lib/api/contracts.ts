@@ -202,6 +202,18 @@ export async function getContractPayments(
 // =====================================================
 
 /**
+ * 顧客用チケット型
+ */
+export interface MyTicket {
+  id: string;
+  ticketCode: string;
+  ticketName: string;
+  ticketType?: string;
+  ticketCategory?: string;
+  durationMinutes?: number;
+}
+
+/**
  * 顧客用契約型（拡張）
  */
 export interface MyContract {
@@ -228,6 +240,7 @@ export interface MyContract {
     courseCode: string;
     courseName: string;
   };
+  ticket?: MyTicket;  // コースに紐づくチケット
   status: 'active' | 'paused' | 'cancelled';
   contractDate: string;
   startDate: string;
