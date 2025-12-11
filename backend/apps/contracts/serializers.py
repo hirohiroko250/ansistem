@@ -391,6 +391,65 @@ class MyContractSerializer(serializers.ModelSerializer):
 
 
 # =============================================================================
+# 顧客用受講コースシリアライザー (MyStudentItem - StudentItemベース)
+# =============================================================================
+class MyStudentItemStudentSerializer(serializers.Serializer):
+    """顧客用生徒シリアライザー（StudentItem用）"""
+    id = serializers.UUIDField()
+    studentNo = serializers.CharField(source='student_no')
+    fullName = serializers.SerializerMethodField()
+    grade = serializers.CharField(source='grade.grade_name', allow_null=True)
+
+    def get_fullName(self, obj):
+        return f"{obj.last_name} {obj.first_name}"
+
+
+class MyStudentItemSchoolSerializer(serializers.Serializer):
+    """顧客用校舎シリアライザー（StudentItem用）"""
+    id = serializers.UUIDField()
+    schoolCode = serializers.CharField(source='school_code')
+    schoolName = serializers.CharField(source='school_name')
+
+
+class MyStudentItemBrandSerializer(serializers.Serializer):
+    """顧客用ブランドシリアライザー（StudentItem用）"""
+    id = serializers.UUIDField()
+    brandCode = serializers.CharField(source='brand_code')
+    brandName = serializers.CharField(source='brand_name')
+
+
+class MyStudentItemCourseSerializer(serializers.Serializer):
+    """顧客用コースシリアライザー（StudentItem用）"""
+    id = serializers.UUIDField()
+    courseCode = serializers.CharField(source='course_code')
+    courseName = serializers.CharField(source='course_name')
+
+
+class MyStudentItemSerializer(serializers.ModelSerializer):
+    """顧客用受講コースシリアライザー（保護者向け、StudentItemベース）
+
+    生徒の受講中コース情報を返す。
+    StudentItemをベースにして、student, school, brand, courseをネストで返す。
+    """
+    student = MyStudentItemStudentSerializer(read_only=True)
+    school = MyStudentItemSchoolSerializer(read_only=True)
+    brand = MyStudentItemBrandSerializer(read_only=True)
+    course = MyStudentItemCourseSerializer(read_only=True, allow_null=True)
+    startDate = serializers.DateField(source='start_date', allow_null=True)
+    billingMonth = serializers.CharField(source='billing_month', allow_null=True)
+    unitPrice = serializers.DecimalField(source='unit_price', max_digits=10, decimal_places=0, allow_null=True)
+    finalPrice = serializers.DecimalField(source='final_price', max_digits=10, decimal_places=0, allow_null=True)
+
+    class Meta:
+        model = StudentItem
+        fields = [
+            'id', 'student', 'school', 'brand', 'course',
+            'startDate', 'billingMonth', 'quantity',
+            'unitPrice', 'finalPrice', 'notes'
+        ]
+
+
+# =============================================================================
 # 講習申込 (SeminarEnrollment)
 # =============================================================================
 class SeminarEnrollmentListSerializer(serializers.ModelSerializer):

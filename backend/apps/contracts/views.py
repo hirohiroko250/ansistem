@@ -26,7 +26,7 @@ from .serializers import (
     CertificationListSerializer, CertificationDetailSerializer,
     StudentItemSerializer,
     ContractListSerializer, ContractDetailSerializer, ContractCreateSerializer,
-    MyContractSerializer,
+    MyContractSerializer, MyStudentItemSerializer,
     SeminarEnrollmentListSerializer, SeminarEnrollmentDetailSerializer,
     CertificationEnrollmentListSerializer, CertificationEnrollmentDetailSerializer,
 )
@@ -570,9 +570,10 @@ class ContractViewSet(CSVMixin, viewsets.ModelViewSet):
 
     @action(detail=False, methods=['get'], url_path='my-contracts', permission_classes=[IsAuthenticated])
     def my_contracts(self, request):
-        """顧客用：ログインユーザーの子どもの契約一覧
+        """顧客用：ログインユーザーの子どもの受講コース一覧
 
-        保護者としてログインしている場合、その保護者に紐づく生徒の有効な契約を返す
+        保護者としてログインしている場合、その保護者に紐づく生徒の受講中コース（StudentItem）を返す
+        ContractモデルではなくStudentItemモデルをベースにデータを取得
         """
         from apps.students.models import Student, Guardian
 
@@ -585,26 +586,38 @@ class ContractViewSet(CSVMixin, viewsets.ModelViewSet):
         except Guardian.DoesNotExist:
             return Response({'contracts': [], 'students': []})
 
-        # 保護者に紐づく生徒を取得
-        students = Student.objects.filter(
-            guardian=guardian,
+        # 保護者に紐づく生徒を取得（children経由）
+        students = guardian.children.filter(
             tenant_id=tenant_id,
             deleted_at__isnull=True
         )
 
-        # 生徒の有効な契約を取得
-        contracts = Contract.objects.filter(
+        # 生徒のStudentItem（受講コース）を取得
+        # courseがNULLでないものを受講コースとみなす
+        student_items = StudentItem.objects.filter(
             student__in=students,
             tenant_id=tenant_id,
             deleted_at__isnull=True,
-            status=Contract.Status.ACTIVE
-        ).select_related('student', 'student__grade', 'school', 'brand', 'course')
+            course__isnull=False  # コースが紐づいているもののみ
+        ).select_related(
+            'student', 'student__grade',
+            'school', 'brand', 'course'
+        ).order_by('student__last_name', 'student__first_name', 'course__course_name')
+
+        # 重複を排除（同じ生徒・コース・校舎の組み合わせは1つにまとめる）
+        seen = set()
+        unique_items = []
+        for item in student_items:
+            key = (item.student_id, item.course_id, item.school_id)
+            if key not in seen:
+                seen.add(key)
+                unique_items.append(item)
 
         from apps.students.serializers import StudentListSerializer
 
         return Response({
             'students': StudentListSerializer(students, many=True).data,
-            'contracts': MyContractSerializer(contracts, many=True).data
+            'contracts': MyStudentItemSerializer(unique_items, many=True).data
         })
 
     @action(detail=True, methods=['post'], url_path='change-class', permission_classes=[IsAuthenticated])
