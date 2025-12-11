@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Loader2, Check } from 'lucide-react';
 import type { BrandSchool } from '@/lib/api/schools';
@@ -25,8 +25,14 @@ export function MapSchoolSelector({
   const [mapLoaded, setMapLoaded] = useState(false);
   const [mapError, setMapError] = useState(false);
 
+  // onSelectSchoolをrefで保持（useEffect内で最新の関数を使用するため）
+  const onSelectSchoolRef = useRef(onSelectSchool);
+  useEffect(() => {
+    onSelectSchoolRef.current = onSelectSchool;
+  }, [onSelectSchool]);
+
   // 校舎の境界を計算
-  const getBounds = () => {
+  const getBounds = useCallback(() => {
     const schoolsWithLocation = schools.filter(s => s.latitude && s.longitude);
     if (schoolsWithLocation.length === 0) {
       // デフォルト: 愛知県・岐阜県あたり
@@ -52,7 +58,7 @@ export function MapSchoolSelector({
       sw: [minLng - lngPadding, minLat - latPadding] as [number, number],
       ne: [maxLng + lngPadding, maxLat + latPadding] as [number, number],
     };
-  };
+  }, [schools]);
 
   // MapLibre GL JSを動的に読み込み
   useEffect(() => {
@@ -144,7 +150,8 @@ export function MapSchoolSelector({
               el.style.filter = 'drop-shadow(0 1px 2px rgba(0,0,0,0.15))';
             });
 
-            // ポップアップ
+            // ポップアップ（ボタンは別のIDで管理）
+            const buttonId = `select-school-${school.id}`;
             const popup = new maplibregl.Popup({ offset: 25, closeButton: true })
               .setHTML(`
                 <div style="min-width: 180px; padding: 4px;">
@@ -152,7 +159,7 @@ export function MapSchoolSelector({
                   <p style="font-size: 12px; color: #666; margin-bottom: 8px;">${school.address}</p>
                   ${school.phone ? `<p style="font-size: 11px; color: #888;">TEL: ${school.phone}</p>` : ''}
                   <button
-                    onclick="window.selectSchool('${school.id}')"
+                    id="${buttonId}"
                     style="
                       margin-top: 8px;
                       width: 100%;
@@ -170,6 +177,22 @@ export function MapSchoolSelector({
                 </div>
               `);
 
+            // ポップアップが開いた時にボタンにイベントリスナーを追加
+            popup.on('open', () => {
+              setTimeout(() => {
+                const btn = document.getElementById(buttonId);
+                if (btn) {
+                  btn.onclick = (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    // refから最新の関数を呼び出す
+                    onSelectSchoolRef.current(school.id);
+                    popup.remove();
+                  };
+                }
+              }, 0);
+            });
+
             const marker = new maplibregl.Marker({
               element: el,
               anchor: 'center'
@@ -177,10 +200,6 @@ export function MapSchoolSelector({
               .setLngLat([school.longitude!, school.latitude!])
               .setPopup(popup)
               .addTo(mapInstance);
-
-            el.addEventListener('click', () => {
-              onSelectSchool(school.id);
-            });
 
             markersRef.current.push({ marker, schoolId: school.id, element: el });
           });
@@ -193,11 +212,6 @@ export function MapSchoolSelector({
       }
     };
 
-    // グローバル関数を設定（ポップアップから呼び出し用）
-    (window as any).selectSchool = (schoolId: string) => {
-      onSelectSchool(schoolId);
-    };
-
     initMap();
 
     return () => {
@@ -206,9 +220,8 @@ export function MapSchoolSelector({
         mapInstance.remove();
       }
       markersRef.current = [];
-      delete (window as any).selectSchool;
     };
-  }, [schools]);
+  }, [schools, getBounds]);
 
   // 選択された校舎が変わったらマーカーの色を更新
   useEffect(() => {

@@ -498,6 +498,7 @@ export default function FromTicketPurchasePage() {
   };
 
   const handleSchoolSelect = async (schoolId: string) => {
+    console.log('[handleSchoolSelect] 呼ばれた schoolId:', schoolId, 'current step:', step);
     setSelectedSchoolId(schoolId);
 
     // 選択した校舎に対応するブランドをセット
@@ -509,7 +510,7 @@ export default function FromTicketPurchasePage() {
       }
     }
 
-    // 校舎で開講しているチケットを取得して次のステップへ
+    // 校舎で開講しているチケットを取得
     try {
       const ticketData = await getTicketsBySchool(schoolId);
       setSchoolTicketIds(ticketData.ticketIds);
@@ -517,7 +518,12 @@ export default function FromTicketPurchasePage() {
       console.error('チケット取得エラー:', err);
       setSchoolTicketIds([]);
     }
-    setStep(4); // コースタイプ選択へ自動遷移
+    // 校舎選択後は確認表示し、「次へ」ボタンで遷移
+  };
+
+  // 校舎確認後に次のステップへ進む
+  const handleConfirmSchool = () => {
+    setStep(4); // コースタイプ選択へ
   };
 
   const handleCourseTypeSelect = (type: 'single' | 'pack') => {
@@ -822,12 +828,36 @@ export default function FromTicketPurchasePage() {
                 </p>
               </div>
             ) : (
-              <MapSchoolSelector
-                schools={schools}
-                selectedSchoolId={selectedSchoolId}
-                onSelectSchool={handleSchoolSelect}
-                isLoading={isLoadingSchools}
-              />
+              <>
+                <MapSchoolSelector
+                  schools={schools}
+                  selectedSchoolId={selectedSchoolId}
+                  onSelectSchool={handleSchoolSelect}
+                  isLoading={isLoadingSchools}
+                />
+
+                {/* 選択した校舎の確認と次へボタン */}
+                {selectedSchool && (
+                  <div className="mt-4 space-y-4">
+                    <Card className="rounded-xl shadow-sm bg-blue-50 border-blue-200">
+                      <CardContent className="p-4">
+                        <p className="text-xs text-gray-600 mb-1">選択した校舎</p>
+                        <h3 className="font-bold text-gray-800">{selectedSchool.name}</h3>
+                        <p className="text-sm text-gray-600 mt-1">{selectedSchool.address}</p>
+                        {selectedSchool.phone && (
+                          <p className="text-xs text-gray-500 mt-1">TEL: {selectedSchool.phone}</p>
+                        )}
+                      </CardContent>
+                    </Card>
+                    <Button
+                      onClick={handleConfirmSchool}
+                      className="w-full h-14 rounded-full bg-blue-600 hover:bg-blue-700 text-white font-semibold text-lg"
+                    >
+                      次へ
+                    </Button>
+                  </div>
+                )}
+              </>
             )}
 
           </div>

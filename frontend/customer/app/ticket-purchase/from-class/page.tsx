@@ -272,8 +272,12 @@ export default function FromClassPurchasePage() {
 
   const handleSchoolSelect = (schoolId: string) => {
     setSelectedSchoolId(schoolId);
-    // 校舎選択後、自動的に次のステップへ
-    setStep(4);
+    // 校舎選択後は確認表示し、「次へ」ボタンで遷移
+  };
+
+  // 校舎確認後に次のステップへ進む
+  const handleConfirmSchool = () => {
+    setStep(4); // 曜日・時間帯選択へ
   };
 
   const handleBackToStep = (targetStep: number) => {
@@ -605,12 +609,36 @@ export default function FromClassPurchasePage() {
                 <p className="text-sm text-red-800">{schoolsError}</p>
               </div>
             ) : (
-              <MapSchoolSelector
-                schools={schools}
-                selectedSchoolId={selectedSchoolId}
-                onSelectSchool={handleSchoolSelect}
-                isLoading={isLoadingSchools}
-              />
+              <>
+                <MapSchoolSelector
+                  schools={schools}
+                  selectedSchoolId={selectedSchoolId}
+                  onSelectSchool={handleSchoolSelect}
+                  isLoading={isLoadingSchools}
+                />
+
+                {/* 選択した校舎の確認と次へボタン */}
+                {selectedSchool && (
+                  <div className="mt-4 space-y-4">
+                    <Card className="rounded-xl shadow-sm bg-green-50 border-green-200">
+                      <CardContent className="p-4">
+                        <p className="text-xs text-gray-600 mb-1">選択した校舎</p>
+                        <h3 className="font-bold text-gray-800">{selectedSchool.name}</h3>
+                        <p className="text-sm text-gray-600 mt-1">{selectedSchool.address}</p>
+                        {selectedSchool.phone && (
+                          <p className="text-xs text-gray-500 mt-1">TEL: {selectedSchool.phone}</p>
+                        )}
+                      </CardContent>
+                    </Card>
+                    <Button
+                      onClick={handleConfirmSchool}
+                      className="w-full h-14 rounded-full bg-blue-600 hover:bg-blue-700 text-white font-semibold text-lg"
+                    >
+                      次へ
+                    </Button>
+                  </div>
+                )}
+              </>
             )}
 
           </div>
