@@ -272,8 +272,13 @@ export default function FromTicketPurchasePage() {
 
         const uniqueSchools = Array.from(schoolMap.values());
 
-        // 校舎名でソート
-        uniqueSchools.sort((a, b) => a.name.localeCompare(b.name, 'ja'));
+        // sortOrderでソート（sortOrderがなければ校舎名でソート）
+        uniqueSchools.sort((a, b) => {
+          const orderA = a.sortOrder ?? 9999;
+          const orderB = b.sortOrder ?? 9999;
+          if (orderA !== orderB) return orderA - orderB;
+          return a.name.localeCompare(b.name, 'ja');
+        });
 
         setSchools(uniqueSchools);
         setSchoolBrandMap(newSchoolBrandMap);
