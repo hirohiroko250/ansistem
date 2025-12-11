@@ -272,12 +272,8 @@ export default function FromClassPurchasePage() {
 
   const handleSchoolSelect = (schoolId: string) => {
     setSelectedSchoolId(schoolId);
-  };
-
-  const handleSchoolConfirm = () => {
-    if (selectedSchoolId) {
-      setStep(4);
-    }
+    // 校舎選択後、自動的に次のステップへ
+    setStep(4);
   };
 
   const handleBackToStep = (targetStep: number) => {
@@ -617,31 +613,6 @@ export default function FromClassPurchasePage() {
               />
             )}
 
-            {selectedSchoolId && selectedSchool && (
-              <Card className="rounded-xl shadow-md mb-4 border-green-200 bg-green-50 mt-4">
-                <CardContent className="p-4">
-                  <div className="flex items-start gap-3">
-                    <div className="w-10 h-10 rounded-full flex items-center justify-center shrink-0 bg-green-500">
-                      <MapPin className="h-5 w-5 text-white" />
-                    </div>
-                    <div className="flex-1">
-                      <p className="text-xs text-green-700 mb-1">選択中の校舎</p>
-                      <p className="font-semibold text-gray-800">{selectedSchool.name}</p>
-                      <p className="text-xs text-gray-500 mt-1">{selectedSchool.address}</p>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-
-            {selectedSchoolId && (
-              <Button
-                onClick={handleSchoolConfirm}
-                className="w-full h-14 rounded-full bg-green-600 hover:bg-green-700 text-white font-semibold text-lg"
-              >
-                この校舎で次へ
-              </Button>
-            )}
           </div>
         )}
 

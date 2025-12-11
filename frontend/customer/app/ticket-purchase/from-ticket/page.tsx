@@ -497,8 +497,27 @@ export default function FromTicketPurchasePage() {
     setStep(4);
   };
 
-  const handleSchoolSelect = (schoolId: string) => {
+  const handleSchoolSelect = async (schoolId: string) => {
     setSelectedSchoolId(schoolId);
+
+    // 選択した校舎に対応するブランドをセット
+    const brandIdForSchool = schoolBrandMap.get(schoolId);
+    if (brandIdForSchool) {
+      const brand = brands.find(b => b.id === brandIdForSchool);
+      if (brand) {
+        setSelectedBrand(brand);
+      }
+    }
+
+    // 校舎で開講しているチケットを取得して次のステップへ
+    try {
+      const ticketData = await getTicketsBySchool(schoolId);
+      setSchoolTicketIds(ticketData.ticketIds);
+    } catch (err) {
+      console.error('チケット取得エラー:', err);
+      setSchoolTicketIds([]);
+    }
+    setStep(4); // コースタイプ選択へ自動遷移
   };
 
   const handleCourseTypeSelect = (type: 'single' | 'pack') => {
@@ -811,33 +830,6 @@ export default function FromTicketPurchasePage() {
               />
             )}
 
-            {selectedSchoolId && (
-              <Button
-                onClick={async () => {
-                  // 選択した校舎に対応するブランドをセット
-                  const brandIdForSchool = schoolBrandMap.get(selectedSchoolId);
-                  if (brandIdForSchool) {
-                    const brand = brands.find(b => b.id === brandIdForSchool);
-                    if (brand) {
-                      setSelectedBrand(brand);
-                    }
-                  }
-
-                  // 校舎で開講しているチケットを取得
-                  try {
-                    const ticketData = await getTicketsBySchool(selectedSchoolId);
-                    setSchoolTicketIds(ticketData.ticketIds);
-                  } catch (err) {
-                    console.error('チケット取得エラー:', err);
-                    setSchoolTicketIds([]);
-                  }
-                  setStep(4); // コースタイプ選択へ
-                }}
-                className="w-full h-14 rounded-full bg-blue-600 hover:bg-blue-700 text-white font-semibold text-lg mt-4"
-              >
-                次へ
-              </Button>
-            )}
           </div>
         )}
 
