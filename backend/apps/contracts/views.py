@@ -592,23 +592,26 @@ class ContractViewSet(CSVMixin, viewsets.ModelViewSet):
             deleted_at__isnull=True
         )
 
-        # 生徒のStudentItem（受講コース）を取得
-        # courseがNULLでないものを受講コースとみなす
+        # 生徒のStudentItem（受講コース/チケット）を取得
+        # courseまたはticket_idが紐づいているものを対象とする
+        from django.db.models import Q
         student_items = StudentItem.objects.filter(
             student__in=students,
             tenant_id=tenant_id,
-            deleted_at__isnull=True,
-            course__isnull=False  # コースが紐づいているもののみ
+            deleted_at__isnull=True
+        ).filter(
+            Q(course__isnull=False) | Q(ticket_id__isnull=False)  # コースかチケットが紐づいているもの
         ).select_related(
             'student', 'student__grade',
             'school', 'brand', 'course'
-        ).order_by('student__last_name', 'student__first_name', 'course__course_name')
+        ).order_by('student__last_name', 'student__first_name', '-created_at')
 
-        # 重複を排除（同じ生徒・コース・校舎の組み合わせは1つにまとめる）
+        # 重複を排除（同じ生徒・コース・校舎・チケットの組み合わせは1つにまとめる）
         seen = set()
         unique_items = []
         for item in student_items:
-            key = (item.student_id, item.course_id, item.school_id)
+            # ticket_idがある場合はそれも含めてユニーク判定
+            key = (item.student_id, item.course_id, item.school_id, item.ticket_id)
             if key not in seen:
                 seen.add(key)
                 unique_items.append(item)

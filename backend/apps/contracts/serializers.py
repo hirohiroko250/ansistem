@@ -471,17 +471,33 @@ class MyStudentItemSerializer(serializers.ModelSerializer):
         return str(obj.id)[:8].upper()
 
     def get_ticket(self, obj):
-        """コースに紐づくチケットを取得"""
-        if not obj.course:
-            return None
-        # CourseTicketからチケットを取得
-        from .models import CourseTicket
-        course_ticket = CourseTicket.objects.filter(
-            course=obj.course,
-            deleted_at__isnull=True
-        ).select_related('ticket').first()
-        if course_ticket and course_ticket.ticket:
-            return MyStudentItemTicketSerializer(course_ticket.ticket).data
+        """コースまたはStudentItemに紐づくチケットを取得"""
+        # StudentItemに直接ticket_idがある場合はそれを使用
+        if obj.ticket_id:
+            from .models import Ticket
+            try:
+                ticket = Ticket.objects.get(ticket_code=obj.ticket_id, deleted_at__isnull=True)
+                return MyStudentItemTicketSerializer(ticket).data
+            except Ticket.DoesNotExist:
+                # Ticketマスターに登録がない場合は、ticket_idから情報を生成
+                return {
+                    'id': obj.ticket_id,
+                    'ticketCode': obj.ticket_id,
+                    'ticketName': obj.ticket_name or obj.ticket_id,
+                    'ticketType': None,
+                    'ticketCategory': None,
+                    'durationMinutes': obj.duration_minutes,
+                }
+
+        # コースがある場合はCourseTicketから取得
+        if obj.course:
+            from .models import CourseTicket
+            course_ticket = CourseTicket.objects.filter(
+                course=obj.course,
+                deleted_at__isnull=True
+            ).select_related('ticket').first()
+            if course_ticket and course_ticket.ticket:
+                return MyStudentItemTicketSerializer(course_ticket.ticket).data
         return None
 
     def get_status(self, obj):
