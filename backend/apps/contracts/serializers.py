@@ -430,23 +430,55 @@ class MyStudentItemSerializer(serializers.ModelSerializer):
 
     生徒の受講中コース情報を返す。
     StudentItemをベースにして、student, school, brand, courseをネストで返す。
+    フロントエンドのMyContract型に合わせたフィールド名で返す。
     """
+    # MyContract型互換フィールド（フロントエンド型に合わせる）
+    contractNo = serializers.SerializerMethodField()
     student = MyStudentItemStudentSerializer(read_only=True)
     school = MyStudentItemSchoolSerializer(read_only=True)
     brand = MyStudentItemBrandSerializer(read_only=True)
     course = MyStudentItemCourseSerializer(read_only=True, allow_null=True)
+    status = serializers.SerializerMethodField()
+    contractDate = serializers.DateField(source='start_date', allow_null=True)
     startDate = serializers.DateField(source='start_date', allow_null=True)
-    billingMonth = serializers.CharField(source='billing_month', allow_null=True)
-    unitPrice = serializers.DecimalField(source='unit_price', max_digits=10, decimal_places=0, allow_null=True)
-    finalPrice = serializers.DecimalField(source='final_price', max_digits=10, decimal_places=0, allow_null=True)
+    endDate = serializers.SerializerMethodField()
+    monthlyTotal = serializers.DecimalField(source='final_price', max_digits=10, decimal_places=0, allow_null=True, default=0)
+    dayOfWeek = serializers.SerializerMethodField()
+    startTime = serializers.SerializerMethodField()
+    endTime = serializers.SerializerMethodField()
 
     class Meta:
         model = StudentItem
         fields = [
-            'id', 'student', 'school', 'brand', 'course',
-            'startDate', 'billingMonth', 'quantity',
-            'unitPrice', 'finalPrice', 'notes'
+            'id', 'contractNo', 'student', 'school', 'brand', 'course',
+            'status', 'contractDate', 'startDate', 'endDate',
+            'monthlyTotal', 'dayOfWeek', 'startTime', 'endTime'
         ]
+
+    def get_contractNo(self, obj):
+        # StudentItemのIDをcontractNoとして使用
+        return str(obj.id)[:8].upper()
+
+    def get_status(self, obj):
+        # StudentItemにはステータスがないので、常にactiveを返す
+        return 'active'
+
+    def get_endDate(self, obj):
+        # StudentItemにはend_dateがないのでNone
+        return None
+
+    def get_dayOfWeek(self, obj):
+        # StudentItemにはday_of_weekがないのでNone
+        # 将来的にはLessonScheduleから取得することもできる
+        return None
+
+    def get_startTime(self, obj):
+        # StudentItemにはstart_timeがないのでNone
+        return None
+
+    def get_endTime(self, obj):
+        # StudentItemにはend_timeがないのでNone
+        return None
 
 
 # =============================================================================
