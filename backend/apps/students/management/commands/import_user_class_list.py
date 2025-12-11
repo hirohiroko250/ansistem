@@ -261,21 +261,21 @@ class Command(BaseCommand):
                     stats['errors'].append(f'行{idx+2}: {str(e)}')
                     self.stdout.write(self.style.ERROR(f'行{idx+2}: {str(e)}'))
 
+            # 結果表示
+            self.stdout.write(self.style.SUCCESS(f'\n===== インポート結果 ====='))
+            self.stdout.write(f'保護者作成: {stats["guardians_created"]}')
+            self.stdout.write(f'保護者更新: {stats["guardians_updated"]}')
+            self.stdout.write(f'生徒作成: {stats["students_created"]}')
+            self.stdout.write(f'生徒更新: {stats["students_updated"]}')
+            self.stdout.write(f'生徒所属作成: {stats["student_schools_created"]}')
+
+            if stats['errors']:
+                self.stdout.write(self.style.WARNING(f'\nエラー件数: {len(stats["errors"])}'))
+                for error in stats['errors'][:10]:
+                    self.stdout.write(self.style.WARNING(f'  - {error}'))
+                if len(stats['errors']) > 10:
+                    self.stdout.write(self.style.WARNING(f'  ... 他 {len(stats["errors"]) - 10} 件'))
+
             if dry_run:
-                self.stdout.write(self.style.WARNING('DRY RUN - ロールバックします'))
+                self.stdout.write(self.style.WARNING('\nDRY RUN - ロールバックします'))
                 raise Exception('Dry run - rolling back')
-
-        # 結果表示
-        self.stdout.write(self.style.SUCCESS(f'\n===== インポート結果 ====='))
-        self.stdout.write(f'保護者作成: {stats["guardians_created"]}')
-        self.stdout.write(f'保護者更新: {stats["guardians_updated"]}')
-        self.stdout.write(f'生徒作成: {stats["students_created"]}')
-        self.stdout.write(f'生徒更新: {stats["students_updated"]}')
-        self.stdout.write(f'生徒所属作成: {stats["student_schools_created"]}')
-
-        if stats['errors']:
-            self.stdout.write(self.style.WARNING(f'\nエラー件数: {len(stats["errors"])}'))
-            for error in stats['errors'][:10]:
-                self.stdout.write(self.style.WARNING(f'  - {error}'))
-            if len(stats['errors']) > 10:
-                self.stdout.write(self.style.WARNING(f'  ... 他 {len(stats["errors"]) - 10} 件'))
