@@ -1414,10 +1414,13 @@ class PublicClassScheduleView(APIView):
         ?school_id=xxx&brand_id=xxx
         または
         ?school_id=xxx&brand_category_id=xxx（ブランドカテゴリで絞り込み）
+        または
+        ?school_id=xxx&ticket_id=xxx（チケットIDで絞り込み）
         """
         school_id = request.query_params.get('school_id')
         brand_id = request.query_params.get('brand_id')
         brand_category_id = request.query_params.get('brand_category_id')
+        ticket_id = request.query_params.get('ticket_id')
 
         if not school_id:
             return Response(
@@ -1436,6 +1439,8 @@ class PublicClassScheduleView(APIView):
             queryset = queryset.filter(brand_id=brand_id)
         if brand_category_id:
             queryset = queryset.filter(brand_category_id=brand_category_id)
+        if ticket_id:
+            queryset = queryset.filter(ticket_id=ticket_id)
 
         # 曜日名マッピング
         day_names = {1: '月曜日', 2: '火曜日', 3: '水曜日', 4: '木曜日', 5: '金曜日', 6: '土曜日', 7: '日曜日'}
@@ -1522,4 +1527,99 @@ class PublicClassScheduleView(APIView):
             'brandCategoryId': brand_category_id,
             'timeSlots': time_slots_response,
             'dayLabels': ['月', '火', '水', '木', '金', '土', '日']
+        })
+
+
+class PublicSchoolsByTicketView(APIView):
+    """チケットが開講している校舎一覧API（認証不要）
+
+    特定のチケットIDに対して、開講時間割が存在する校舎の一覧を返す
+    """
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        """
+        ?ticket_id=Ti10000063 でチケットIDを指定
+        ?brand_id=xxx でブランドフィルタリング（オプション）
+        """
+        ticket_id = request.query_params.get('ticket_id')
+        brand_id = request.query_params.get('brand_id')
+
+        if not ticket_id:
+            return Response(
+                {'error': 'ticket_id is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # ClassScheduleから該当チケットが開講している校舎を取得
+        queryset = ClassSchedule.objects.filter(
+            ticket_id=ticket_id,
+            is_active=True,
+            deleted_at__isnull=True
+        ).select_related('school')
+
+        if brand_id:
+            queryset = queryset.filter(brand_id=brand_id)
+
+        # 校舎のユニーク取得
+        school_ids = queryset.values_list('school_id', flat=True).distinct()
+        schools = School.objects.filter(id__in=school_ids, deleted_at__isnull=True).order_by('school_name')
+
+        result = []
+        for school in schools:
+            # 住所を結合
+            address_parts = [
+                school.prefecture or '',
+                school.city or '',
+                school.address1 or '',
+                school.address2 or '',
+                school.address3 or ''
+            ]
+            full_address = ''.join(part for part in address_parts if part)
+
+            result.append({
+                'id': str(school.id),
+                'name': school.school_name,
+                'code': school.school_code,
+                'address': full_address,
+                'phone': school.phone or '',
+                'latitude': float(school.latitude) if school.latitude else None,
+                'longitude': float(school.longitude) if school.longitude else None,
+            })
+
+        return Response(result)
+
+
+class PublicTicketsBySchoolView(APIView):
+    """校舎で開講しているチケット一覧API（認証不要）
+
+    特定の校舎IDに対して、開講時間割が存在するチケットIDの一覧を返す
+    """
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        """
+        ?school_id=xxx で校舎IDを指定
+        """
+        school_id = request.query_params.get('school_id')
+
+        if not school_id:
+            return Response(
+                {'error': 'school_id is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # ClassScheduleから該当校舎で開講しているチケットを取得
+        ticket_ids = ClassSchedule.objects.filter(
+            school_id=school_id,
+            is_active=True,
+            deleted_at__isnull=True
+        ).values_list('ticket_id', flat=True).distinct()
+
+        # ticket_id形式（Ti10000063）からコード部分を抽出してリストで返す
+        result = list(set(ticket_ids))
+
+        return Response({
+            'schoolId': school_id,
+            'ticketIds': result
         })

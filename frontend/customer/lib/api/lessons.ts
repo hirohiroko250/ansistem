@@ -60,8 +60,51 @@ export async function getScheduleDetail(scheduleId: string): Promise<LessonSched
 }
 
 /**
+ * 生徒カレンダーレスポンス型
+ */
+export interface StudentCalendarResponse {
+  studentId: string;
+  studentName: string;
+  dateFrom: string;
+  dateTo: string;
+  events: StudentCalendarEvent[];
+}
+
+/**
+ * 生徒カレンダーイベント型
+ */
+export interface StudentCalendarEvent {
+  id: string;
+  classScheduleId: string;
+  title: string;
+  start: string;
+  end: string;
+  date: string;
+  dayOfWeek: number;
+  period: number;
+  type: 'lesson' | 'closed' | 'native';
+  lessonType: string;
+  isClosed: boolean;
+  isNativeDay: boolean;
+  holidayName: string;
+  noticeMessage: string;
+  schoolId: string;
+  schoolName: string;
+  brandId: string | null;
+  brandName: string;
+  brandCategoryName: string;
+  roomName: string;
+  className: string;
+  displayCourseName: string;
+  displayPairName: string;
+  transferGroup: string;
+  calendarPattern: string;
+}
+
+/**
  * カレンダー表示用のイベントデータを取得
- * 指定期間の授業をカレンダー形式で取得
+ * 開講時間割（ClassSchedule）と年間カレンダー（LessonCalendar）を組み合わせて
+ * 生徒のカレンダーイベントを生成
  *
  * @param studentId - 生徒ID
  * @param dateFrom - 開始日（YYYY-MM-DD）
@@ -74,13 +117,52 @@ export async function getCalendarEvents(
   dateTo: string
 ): Promise<CalendarEvent[]> {
   const query = new URLSearchParams({
-    student: studentId,
+    student_id: studentId,
     date_from: dateFrom,
     date_to: dateTo,
-    format: 'calendar',
   });
 
-  return api.get<CalendarEvent[]>(`/lessons/schedules/?${query.toString()}`);
+  const response = await api.get<StudentCalendarResponse>(`/lessons/student-calendar/?${query.toString()}`);
+
+  // StudentCalendarEvent を CalendarEvent に変換
+  return response.events.map(event => ({
+    id: event.id,
+    title: event.title,
+    start: event.start,
+    end: event.end,
+    type: event.type,
+    status: event.isClosed ? 'closed' : 'scheduled',
+    resourceId: event.schoolId,
+    classScheduleId: event.classScheduleId,
+    // 追加情報
+    isNativeDay: event.isNativeDay,
+    holidayName: event.holidayName,
+    noticeMessage: event.noticeMessage,
+    brandName: event.brandName,
+    className: event.className,
+  }));
+}
+
+/**
+ * 生徒カレンダーを直接取得（詳細情報付き）
+ *
+ * @param studentId - 生徒ID
+ * @param year - 年
+ * @param month - 月
+ * @returns カレンダーレスポンス
+ */
+export async function getStudentCalendar(
+  studentId: string,
+  year: number,
+  month: number
+): Promise<StudentCalendarResponse> {
+  const query = new URLSearchParams({
+    student_id: studentId,
+    year: year.toString(),
+    month: month.toString(),
+  });
+
+  return api.get<StudentCalendarResponse>(`/lessons/student-calendar/?${query.toString()}`);
 }
 
 // ============================================
@@ -581,5 +663,48 @@ export async function submitClassDailyReport(
 ): Promise<DailyReport> {
   return api.post<DailyReport>(`/lessons/classes/${classId}/report/`, {
     report_content: reportContent,
+  });
+}
+
+// ============================================
+// カレンダー欠席登録（保護者向け）
+// ============================================
+
+/**
+ * 欠席登録リクエスト型
+ */
+export interface MarkAbsenceRequest {
+  studentId: string;
+  lessonDate: string;  // YYYY-MM-DD
+  classScheduleId: string;
+  reason?: string;
+}
+
+/**
+ * 欠席登録レスポンス型
+ */
+export interface MarkAbsenceResponse {
+  success: boolean;
+  message: string;
+  attendanceId?: string;
+  transferTicketCreated: boolean;
+  absenceDate: string;
+}
+
+/**
+ * カレンダーから欠席登録
+ * 欠席登録と同時に振替チケットを自動追加
+ *
+ * @param data - 欠席登録データ
+ * @returns 欠席登録結果
+ */
+export async function markAbsenceFromCalendar(
+  data: MarkAbsenceRequest
+): Promise<MarkAbsenceResponse> {
+  return api.post<MarkAbsenceResponse>('/lessons/mark-absence/', {
+    student_id: data.studentId,
+    lesson_date: data.lessonDate,
+    class_schedule_id: data.classScheduleId,
+    reason: data.reason,
   });
 }

@@ -24,7 +24,7 @@ export const posts: Post[] = [
     user: 'OZA SYSTEM',
     avatar: 'O',
     timestamp: '2時間前',
-    image: '/api/placeholder/400/400',
+    image: '',
     likes: 24,
   },
   {
@@ -35,7 +35,7 @@ export const posts: Post[] = [
     user: 'OZA SYSTEM',
     avatar: 'O',
     timestamp: '1日前',
-    image: '/api/placeholder/400/400',
+    image: '',
     likes: 15,
   },
   {
@@ -46,7 +46,7 @@ export const posts: Post[] = [
     user: 'OZA SYSTEM',
     avatar: 'O',
     timestamp: '3日前',
-    image: '/api/placeholder/400/400',
+    image: '',
     likes: 42,
   },
   {
@@ -57,7 +57,7 @@ export const posts: Post[] = [
     user: 'OZA SYSTEM',
     avatar: 'O',
     timestamp: '1週間前',
-    image: '/api/placeholder/400/400',
+    image: '',
     likes: 18,
   },
 ];

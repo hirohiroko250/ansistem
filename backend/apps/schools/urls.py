@@ -8,7 +8,8 @@ from .views import (
     PublicSchoolListView, PublicPrefectureListView, PublicAreaListView, PublicSchoolsByAreaView,
     TimeSlotViewSet, SchoolScheduleViewSet, SchoolCourseViewSet, SchoolClosureViewSet,
     PublicBrandCategoriesView, PublicBrandSchoolsView, PublicLessonCalendarView, PublicTrialScheduleView,
-    PublicTrialAvailabilityView, PublicTrialBookingView, PublicClassScheduleView,
+    PublicTrialAvailabilityView, PublicTrialBookingView, PublicClassScheduleView, PublicSchoolsByTicketView,
+    PublicTicketsBySchoolView,
 )
 
 app_name = 'schools'
@@ -37,6 +38,8 @@ urlpatterns = [
     path('public/trial-availability/', PublicTrialAvailabilityView.as_view(), name='public-trial-availability'),
     path('public/trial-booking/', PublicTrialBookingView.as_view(), name='public-trial-booking'),
     path('public/class-schedules/', PublicClassScheduleView.as_view(), name='public-class-schedules'),
+    path('public/schools-by-ticket/', PublicSchoolsByTicketView.as_view(), name='public-schools-by-ticket'),
+    path('public/tickets-by-school/', PublicTicketsBySchoolView.as_view(), name='public-tickets-by-school'),
     # 認証必要API
     path('', include(router.urls)),
 ]

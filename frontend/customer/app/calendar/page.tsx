@@ -13,7 +13,7 @@ import { format, startOfMonth, endOfMonth, addMonths, subMonths, getDate, getDay
 import { ja } from 'date-fns/locale';
 import { getChildren, getStudentItems } from '@/lib/api/students';
 import { getChildTicketBalance } from '@/lib/api/students';
-import { getCalendarEvents, markAbsent, requestMakeup, getMakeupAvailableDates } from '@/lib/api/lessons';
+import { getCalendarEvents, markAbsent, requestMakeup, getMakeupAvailableDates, markAbsenceFromCalendar } from '@/lib/api/lessons';
 import { getLessonCalendar, type LessonCalendarDay } from '@/lib/api/schools';
 import type { Child, CalendarEvent, TicketBalance, MakeupAvailableDate, ApiError } from '@/lib/api/types';
 
@@ -28,6 +28,8 @@ type DisplayEvent = {
   school: string;
   scheduleId: string;
   courseId?: string;
+  classScheduleId?: string;  // 欠席登録用
+  brandName?: string;
 };
 
 export default function CalendarPage() {
@@ -131,6 +133,8 @@ export default function CalendarPage() {
           school: event.resourceId || '',
           scheduleId: event.id,
           courseId: event.resourceId,
+          classScheduleId: event.classScheduleId,
+          brandName: event.brandName,
         };
       });
 
@@ -225,16 +229,26 @@ export default function CalendarPage() {
     setSelectedEvent(event);
   };
 
-  // 欠席登録
+  // 欠席登録（振替チケット自動発行）
   const handleMarkAbsent = async () => {
     if (!selectedEvent || !selectedChild) return;
+
+    // classScheduleIdがない場合は欠席登録できない
+    if (!selectedEvent.classScheduleId) {
+      setAbsentError('この授業は欠席登録に対応していません');
+      return;
+    }
 
     setIsSubmittingAbsent(true);
     setAbsentError(null);
 
     try {
-      await markAbsent(selectedEvent.scheduleId, {
-        absenceReason: '保護者からの欠席連絡',
+      // 新しいAPIを使用（振替チケットも自動発行）
+      const result = await markAbsenceFromCalendar({
+        studentId: selectedChild.id,
+        lessonDate: format(parseISO(selectedEvent.fullDate), 'yyyy-MM-dd'),
+        classScheduleId: selectedEvent.classScheduleId,
+        reason: '保護者からの欠席連絡',
       });
 
       setSelectedEvent(null);
@@ -242,6 +256,8 @@ export default function CalendarPage() {
 
       // イベントを再取得
       await fetchEvents();
+      // チケット残高も再取得
+      await fetchTicketBalance();
     } catch (err) {
       const apiError = err as ApiError;
       setAbsentError(apiError.message || '欠席登録に失敗しました');
@@ -568,7 +584,12 @@ export default function CalendarPage() {
                       <div className="text-xs text-gray-500">{format(currentDate, 'M月', { locale: ja })}</div>
                     </div>
                     <div className="flex-1">
-                      <h4 className="font-semibold text-gray-800">{event.title}</h4>
+                      <div className="flex items-center gap-2">
+                        <h4 className="font-semibold text-gray-800">{event.title}</h4>
+                        {event.brandName && (
+                          <Badge className="bg-blue-100 text-blue-700 text-xs px-1.5 py-0.5">{event.brandName}</Badge>
+                        )}
+                      </div>
                       <p className="text-sm text-gray-600">{event.time}</p>
                       <p className="text-xs text-gray-500">{event.school}</p>
                     </div>
@@ -597,7 +618,12 @@ export default function CalendarPage() {
               </div>
               <div>
                 <p className="text-sm text-gray-600 mb-1">授業名</p>
-                <p className="font-semibold text-gray-800">{selectedEvent.title}</p>
+                <div className="flex items-center gap-2">
+                  <p className="font-semibold text-gray-800">{selectedEvent.title}</p>
+                  {selectedEvent.brandName && (
+                    <Badge className="bg-blue-100 text-blue-700 text-xs">{selectedEvent.brandName}</Badge>
+                  )}
+                </div>
               </div>
               <div>
                 <p className="text-sm text-gray-600 mb-1">教室</p>
@@ -655,13 +681,21 @@ export default function CalendarPage() {
         <DialogContent className="max-w-[340px] rounded-2xl">
           <DialogHeader>
             <div className="flex items-center gap-2">
-              <AlertCircle className="h-5 w-5 text-orange-600" />
+              <AlertCircle className="h-5 w-5 text-green-600" />
               <DialogTitle>欠席登録完了</DialogTitle>
             </div>
           </DialogHeader>
-          <DialogDescription>
-            欠席登録が完了しました。振替授業をご希望の場合は、カレンダーから振替申請を行ってください。
-          </DialogDescription>
+          <div className="space-y-3">
+            <p className="text-sm text-gray-700">
+              欠席登録が完了しました。
+            </p>
+            <div className="flex items-center gap-2 p-3 rounded-lg bg-blue-50 border border-blue-200">
+              <RefreshCw className="h-5 w-5 text-blue-600 shrink-0" />
+              <p className="text-sm text-blue-800">
+                振替チケット1枚が発行されました。チケット画面から確認できます。
+              </p>
+            </div>
+          </div>
           <Button
             className="w-full rounded-xl bg-blue-600 hover:bg-blue-700"
             onClick={() => setShowAbsentDialog(false)}

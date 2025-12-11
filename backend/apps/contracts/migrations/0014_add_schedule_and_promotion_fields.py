@@ -7,7 +7,7 @@ import django.db.models.deletion
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("schools", "0009_add_lesson_calendar_csv_fields"),
+        ("schools", "0012_add_ticket_models"),
         ("contracts", "0013_add_tenant_ref"),
     ]
 

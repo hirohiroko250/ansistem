@@ -196,3 +196,213 @@ export async function getContractPayments(
 ): Promise<ContractPayment[]> {
   return api.get<ContractPayment[]>(`/contracts/${contractId}/payments/`);
 }
+
+// =====================================================
+// 顧客用API（保護者向け）
+// =====================================================
+
+/**
+ * 顧客用契約型（拡張）
+ */
+export interface MyContract {
+  id: string;
+  contractNo: string;
+  student: {
+    id: string;
+    studentNo: string;
+    fullName: string;
+    grade?: string;
+  };
+  school: {
+    id: string;
+    schoolCode: string;
+    schoolName: string;
+  };
+  brand: {
+    id: string;
+    brandCode: string;
+    brandName: string;
+  };
+  course?: {
+    id: string;
+    courseCode: string;
+    courseName: string;
+  };
+  status: 'active' | 'paused' | 'cancelled';
+  contractDate: string;
+  startDate: string;
+  endDate?: string;
+  monthlyTotal: number;
+  dayOfWeek?: number;  // 0=日, 1=月, ..., 6=土
+  startTime?: string;
+  endTime?: string;
+}
+
+/**
+ * 顧客用生徒型
+ */
+export interface MyStudent {
+  id: string;
+  studentNo: string;
+  fullName: string;
+  firstName?: string;
+  lastName?: string;
+  grade?: string;
+  birthDate?: string;
+}
+
+/**
+ * 顧客用契約一覧レスポンス
+ */
+export interface MyContractsResponse {
+  students: MyStudent[];
+  contracts: MyContract[];
+}
+
+/**
+ * 顧客用：自分の子どもの契約一覧取得
+ */
+export async function getMyContracts(): Promise<MyContractsResponse> {
+  return api.get<MyContractsResponse>('/contracts/my-contracts/');
+}
+
+/**
+ * クラス変更リクエスト
+ */
+export interface ChangeClassRequest {
+  newDayOfWeek: number;
+  newStartTime: string;
+  newClassScheduleId: string;
+  effectiveDate?: string;
+}
+
+/**
+ * クラス変更レスポンス
+ */
+export interface ChangeClassResponse {
+  success: boolean;
+  message: string;
+  contract: MyContract;
+  effectiveDate: string;
+}
+
+/**
+ * クラス変更（曜日・時間変更）
+ */
+export async function changeClass(
+  contractId: string,
+  data: ChangeClassRequest
+): Promise<ChangeClassResponse> {
+  return api.post<ChangeClassResponse>(`/contracts/${contractId}/change-class/`, {
+    new_day_of_week: data.newDayOfWeek,
+    new_start_time: data.newStartTime,
+    new_class_schedule_id: data.newClassScheduleId,
+    effective_date: data.effectiveDate,
+  });
+}
+
+/**
+ * 校舎変更リクエスト
+ */
+export interface ChangeSchoolRequest {
+  newSchoolId: string;
+  newDayOfWeek: number;
+  newStartTime: string;
+  newClassScheduleId?: string;
+  effectiveDate?: string;
+}
+
+/**
+ * 校舎変更レスポンス
+ */
+export interface ChangeSchoolResponse {
+  success: boolean;
+  message: string;
+  contract: MyContract;
+  effectiveDate: string;
+}
+
+/**
+ * 校舎変更
+ */
+export async function changeSchool(
+  contractId: string,
+  data: ChangeSchoolRequest
+): Promise<ChangeSchoolResponse> {
+  return api.post<ChangeSchoolResponse>(`/contracts/${contractId}/change-school/`, {
+    new_school_id: data.newSchoolId,
+    new_day_of_week: data.newDayOfWeek,
+    new_start_time: data.newStartTime,
+    new_class_schedule_id: data.newClassScheduleId,
+    effective_date: data.effectiveDate,
+  });
+}
+
+/**
+ * 休会申請リクエスト
+ */
+export interface RequestSuspensionRequest {
+  suspendFrom: string;
+  suspendUntil?: string;
+  keepSeat: boolean;
+  reason?: string;
+}
+
+/**
+ * 休会申請レスポンス
+ */
+export interface RequestSuspensionResponse {
+  success: boolean;
+  message: string;
+  requestId: string;
+  suspendFrom: string;
+  suspendUntil?: string;
+  keepSeat: boolean;
+}
+
+/**
+ * 休会申請
+ */
+export async function requestSuspension(
+  contractId: string,
+  data: RequestSuspensionRequest
+): Promise<RequestSuspensionResponse> {
+  return api.post<RequestSuspensionResponse>(`/contracts/${contractId}/request-suspension/`, {
+    suspend_from: data.suspendFrom,
+    suspend_until: data.suspendUntil,
+    keep_seat: data.keepSeat,
+    reason: data.reason,
+  });
+}
+
+/**
+ * 退会申請リクエスト
+ */
+export interface RequestCancellationRequest {
+  cancelDate: string;
+  reason?: string;
+}
+
+/**
+ * 退会申請レスポンス
+ */
+export interface RequestCancellationResponse {
+  success: boolean;
+  message: string;
+  requestId: string;
+  cancelDate: string;
+  refundAmount?: string;
+}
+
+/**
+ * 退会申請
+ */
+export async function requestCancellation(
+  contractId: string,
+  data: RequestCancellationRequest
+): Promise<RequestCancellationResponse> {
+  return api.post<RequestCancellationResponse>(`/contracts/${contractId}/request-cancellation/`, {
+    cancel_date: data.cancelDate,
+    reason: data.reason,
+  });
+}

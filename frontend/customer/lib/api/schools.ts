@@ -243,14 +243,49 @@ export interface ClassScheduleResponse {
 export async function getClassSchedules(
   schoolId: string,
   brandId?: string,
-  brandCategoryId?: string
+  brandCategoryId?: string,
+  ticketId?: string
 ): Promise<ClassScheduleResponse> {
   const params = new URLSearchParams({ school_id: schoolId });
   if (brandId) params.append('brand_id', brandId);
   if (brandCategoryId) params.append('brand_category_id', brandCategoryId);
+  if (ticketId) params.append('ticket_id', ticketId);
 
   return api.get<ClassScheduleResponse>(
     `/schools/public/class-schedules/?${params.toString()}`,
+    { skipAuth: true }
+  );
+}
+
+/**
+ * チケットが開講している校舎一覧を取得
+ * @param ticketId - チケットID（例: Ti10000063）
+ * @param brandId - ブランドID（オプション）
+ */
+export async function getSchoolsByTicket(
+  ticketId: string,
+  brandId?: string
+): Promise<BrandSchool[]> {
+  const params = new URLSearchParams({ ticket_id: ticketId });
+  if (brandId) params.append('brand_id', brandId);
+
+  return api.get<BrandSchool[]>(
+    `/schools/public/schools-by-ticket/?${params.toString()}`,
+    { skipAuth: true }
+  );
+}
+
+/**
+ * 校舎で開講しているチケット一覧を取得
+ * @param schoolId - 校舎ID
+ */
+export async function getTicketsBySchool(
+  schoolId: string
+): Promise<{ schoolId: string; ticketIds: string[] }> {
+  const params = new URLSearchParams({ school_id: schoolId });
+
+  return api.get<{ schoolId: string; ticketIds: string[] }>(
+    `/schools/public/tickets-by-school/?${params.toString()}`,
     { skipAuth: true }
   );
 }

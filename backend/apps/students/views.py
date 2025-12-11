@@ -298,6 +298,88 @@ class StudentViewSet(CSVMixin, viewsets.ModelViewSet):
 
         return Response(result)
 
+    @action(detail=True, methods=['get'])
+    def tickets(self, request, pk=None):
+        """生徒のチケット残高を取得"""
+        from apps.contracts.models import StudentItem
+        from decimal import Decimal
+
+        student = self.get_object()
+
+        # チケット系のアイテム（item_type='ticket'）を集計
+        items = StudentItem.objects.filter(
+            student=student,
+            deleted_at__isnull=True
+        ).select_related('product', 'product__brand')
+
+        # ブランドごとにチケット残高を集計
+        ticket_balances = {}
+        total_tickets = Decimal('0')
+
+        for item in items:
+            if item.product and item.product.item_type == 'ticket':
+                brand_name = item.product.brand.brand_name if item.product.brand else '未分類'
+                if brand_name not in ticket_balances:
+                    ticket_balances[brand_name] = {
+                        'brandName': brand_name,
+                        'totalTickets': Decimal('0'),
+                        'usedTickets': Decimal('0'),
+                        'remainingTickets': Decimal('0'),
+                    }
+                # 購入チケット数を加算（quantityがチケット枚数）
+                ticket_balances[brand_name]['totalTickets'] += item.quantity
+                ticket_balances[brand_name]['remainingTickets'] += item.quantity
+                total_tickets += item.quantity
+
+        # 辞書をリストに変換
+        balances_list = list(ticket_balances.values())
+        for balance in balances_list:
+            balance['totalTickets'] = int(balance['totalTickets'])
+            balance['usedTickets'] = int(balance['usedTickets'])
+            balance['remainingTickets'] = int(balance['remainingTickets'])
+
+        return Response({
+            'studentId': str(student.id),
+            'studentName': f'{student.last_name}{student.first_name}',
+            'totalTickets': int(total_tickets),
+            'usedTickets': 0,
+            'remainingTickets': int(total_tickets),
+            'balancesByBrand': balances_list,
+        })
+
+    @action(detail=True, methods=['get'], url_path='tickets/history')
+    def tickets_history(self, request, pk=None):
+        """生徒のチケット履歴を取得"""
+        from apps.contracts.models import StudentItem
+
+        student = self.get_object()
+
+        # チケット系のアイテム（item_type='ticket'）を取得
+        items = StudentItem.objects.filter(
+            student=student,
+            deleted_at__isnull=True
+        ).select_related('product', 'product__brand').order_by('-created_at')
+
+        # フィルタリング
+        brand_id = request.query_params.get('brand_id')
+        if brand_id:
+            items = items.filter(product__brand_id=brand_id)
+
+        history = []
+        for item in items:
+            if item.product and item.product.item_type == 'ticket':
+                history.append({
+                    'id': str(item.id),
+                    'date': item.created_at.isoformat() if item.created_at else None,
+                    'type': 'purchase',
+                    'description': f'{item.product.product_name} 購入',
+                    'amount': item.quantity,
+                    'brandName': item.product.brand.brand_name if item.product.brand else '',
+                    'billingMonth': item.billing_month,
+                })
+
+        return Response(history)
+
     @action(detail=False, methods=['get'])
     def all_items(self, request):
         """保護者の全子どもの購入アイテム一覧を取得"""

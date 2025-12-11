@@ -1,338 +1,315 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { ChevronLeft, User, Ticket, Calendar as CalendarIcon, MapPin, QrCode, Clock, Globe, Users } from 'lucide-react';
+import { ChevronLeft, ChevronRight, User, Calendar as CalendarIcon, MapPin, Clock, Building2, RefreshCw, LogOut, PauseCircle, AlertCircle, Loader2, CheckCircle, Circle, Triangle, X as XIcon, Minus } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Calendar } from '@/components/ui/calendar';
 import { BottomTabBar } from '@/components/bottom-tab-bar';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { format } from 'date-fns';
 import { ja } from 'date-fns/locale';
-import { getChildren, type PurchasedItem, getAllStudentItems } from '@/lib/api/students';
-import { getBrandSchools, getLessonCalendar, type BrandSchool, type LessonCalendarDay } from '@/lib/api/schools';
-import type { Child } from '@/lib/api/types';
-import { brands } from '@/lib/ticket-data';
+import {
+  getMyContracts,
+  changeClass,
+  changeSchool,
+  requestSuspension,
+  requestCancellation,
+  type MyContract,
+  type MyStudent,
+} from '@/lib/api/contracts';
+import { getClassSchedules, getBrandSchools, type ClassScheduleResponse, type ClassScheduleItem, type BrandSchool } from '@/lib/api/schools';
+import { MapSchoolSelector } from '@/components/map-school-selector';
+import { isAuthenticated } from '@/lib/api/auth';
 
-type TicketInfo = {
-  id: string;
-  type: 'course' | 'transfer' | 'event';
-  brandId: string;
-  brandName: string;
-  schoolId?: string;
-  schoolName: string;
-  studentId?: string;
-  studentName?: string;
-  courseName?: string;
-  count: number;
-  expiryDate: string;
-  status: 'active' | 'expiring';
-  eventName?: string;
-};
+const DAY_LABELS = ['日', '月', '火', '水', '木', '金', '土'];
 
-type SchoolWithCalendar = BrandSchool & {
-  calendarDays?: LessonCalendarDay[];
-};
+type ActionMode = 'list' | 'detail' | 'change-class' | 'change-school' | 'change-school-class' | 'suspend' | 'cancel' | 'confirm';
 
 export default function ClassRegistrationPage() {
-  const [step, setStep] = useState<'ticket' | 'child' | 'brand' | 'school' | 'date' | 'time' | 'qr'>('ticket');
-  const [selectedTicket, setSelectedTicket] = useState<TicketInfo | null>(null);
-  const [selectedChild, setSelectedChild] = useState<Child | null>(null);
-  const [selectedBrand, setSelectedBrand] = useState<typeof brands[0] | null>(null);
-  const [selectedSchool, setSelectedSchool] = useState<SchoolWithCalendar | null>(null);
-  const [selectedTime, setSelectedTime] = useState<string>('');
-  const [selectedDate, setSelectedDate] = useState<Date>();
-  const [currentMonth, setCurrentMonth] = useState<Date>(new Date());
+  const router = useRouter();
+  const [mode, setMode] = useState<ActionMode>('list');
+  const [selectedContract, setSelectedContract] = useState<MyContract | null>(null);
 
   // API data
-  const [children, setChildren] = useState<Child[]>([]);
-  const [tickets, setTickets] = useState<TicketInfo[]>([]);
-  const [schools, setSchools] = useState<SchoolWithCalendar[]>([]);
-  const [calendarData, setCalendarData] = useState<LessonCalendarDay[]>([]);
+  const [students, setStudents] = useState<MyStudent[]>([]);
+  const [contracts, setContracts] = useState<MyContract[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [processing, setProcessing] = useState(false);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
-  // Load children and tickets on mount
+  // クラス変更用
+  const [classSchedules, setClassSchedules] = useState<ClassScheduleResponse | null>(null);
+  const [loadingSchedules, setLoadingSchedules] = useState(false);
+  const [selectedSchedule, setSelectedSchedule] = useState<{
+    dayOfWeek: number;
+    startTime: string;
+    scheduleId: string;
+  } | null>(null);
+
+  // 校舎変更用
+  const [availableSchools, setAvailableSchools] = useState<BrandSchool[]>([]);
+  const [loadingSchools, setLoadingSchools] = useState(false);
+  const [selectedNewSchool, setSelectedNewSchool] = useState<BrandSchool | null>(null);
+  const [newSchoolSchedules, setNewSchoolSchedules] = useState<ClassScheduleResponse | null>(null);
+  const [selectedNewSchedule, setSelectedNewSchedule] = useState<{
+    dayOfWeek: number;
+    startTime: string;
+    scheduleId: string;
+  } | null>(null);
+
+  // 休会申請用
+  const [suspendFrom, setSuspendFrom] = useState<string>('');
+  const [suspendUntil, setSuspendUntil] = useState<string>('');
+  const [keepSeat, setKeepSeat] = useState<boolean>(false);
+  const [suspendReason, setSuspendReason] = useState<string>('');
+
+  // 退会申請用
+  const [cancelDate, setCancelDate] = useState<string>('');
+  const [cancelReason, setCancelReason] = useState<string>('');
+
+  // 認証チェック
   useEffect(() => {
-    async function loadData() {
-      try {
-        setLoading(true);
-        setError(null);
-
-        // Get children
-        const childrenData = await getChildren();
-        setChildren(childrenData);
-
-        // Get purchase items (tickets come from tuition type products)
-        const items = await getAllStudentItems();
-
-        // Transform purchase items into tickets
-        // tuition type = チケットとして表示
-        const ticketData: TicketInfo[] = items
-          .filter((item: PurchasedItem) => item.productType === 'tuition')
-          .map((item: PurchasedItem) => {
-            // 有効期限を計算（請求月の翌月末）
-            let expiryDate = '';
-            if (item.billingMonth) {
-              const [year, month] = item.billingMonth.split('-').map(Number);
-              const nextMonth = month === 12 ? 1 : month + 1;
-              const nextYear = month === 12 ? year + 1 : year;
-              const lastDay = new Date(nextYear, nextMonth, 0).getDate();
-              expiryDate = `${nextYear}-${String(nextMonth).padStart(2, '0')}-${lastDay}`;
-            }
-
-            // 表示名を決定（優先順: コース名 > ブランド名 > 商品名）
-            const displayName = item.courseName || item.brandName || item.productName || 'コース';
-            const brandDisplay = item.brandName || item.productName?.split(' ')[0] || 'コース';
-
-            return {
-              id: item.id,
-              type: 'course' as const,
-              brandId: item.brandId || '',
-              brandName: brandDisplay,
-              schoolId: item.schoolId,
-              schoolName: item.schoolName || displayName,
-              studentId: item.studentId,
-              studentName: item.studentName,
-              courseName: item.courseName || '',
-              count: item.quantity,
-              expiryDate,
-              status: 'active' as const,
-            };
-          });
-
-        setTickets(ticketData);
-      } catch (err) {
-        console.error('Failed to load data:', err);
-        setError('データの読み込みに失敗しました');
-      } finally {
-        setLoading(false);
-      }
+    if (!isAuthenticated()) {
+      router.push('/login');
     }
+  }, [router]);
 
-    loadData();
+  // Load data on mount
+  const loadData = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const response = await getMyContracts();
+      setStudents(response.students || []);
+      setContracts(response.contracts || []);
+    } catch (err) {
+      console.error('Failed to load data:', err);
+      setError('データの読み込みに失敗しました');
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
-  // Load schools when brand is selected
   useEffect(() => {
-    async function loadSchools() {
-      if (!selectedBrand) return;
+    loadData();
+  }, [loadData]);
 
-      try {
-        const schoolsData = await getBrandSchools(selectedBrand.id);
-        setSchools(schoolsData);
-      } catch (err) {
-        console.error('Failed to load schools:', err);
-      }
+  // 開講時間割取得（クラス変更用）
+  const fetchClassSchedules = useCallback(async (contract: MyContract) => {
+    try {
+      setLoadingSchedules(true);
+      const response = await getClassSchedules(contract.school.id, contract.brand.id);
+      setClassSchedules(response);
+    } catch (err) {
+      console.error('Failed to fetch class schedules:', err);
+      setError('開講時間割の取得に失敗しました');
+    } finally {
+      setLoadingSchedules(false);
     }
+  }, []);
 
-    loadSchools();
-  }, [selectedBrand]);
+  // 校舎一覧取得（校舎変更用）
+  const fetchAvailableSchools = useCallback(async (contract: MyContract) => {
+    try {
+      setLoadingSchools(true);
+      const schools = await getBrandSchools(contract.brand.id);
+      const filteredSchools = schools.filter(s => s.id !== contract.school.id);
+      setAvailableSchools(filteredSchools);
+    } catch (err) {
+      console.error('Failed to fetch schools:', err);
+      setError('校舎情報の取得に失敗しました');
+    } finally {
+      setLoadingSchools(false);
+    }
+  }, []);
 
-  // Load calendar when school is selected
-  const loadCalendar = useCallback(async (month: Date) => {
-    if (!selectedSchool || !selectedBrand) return;
+  // 新しい校舎の時間割を取得
+  const fetchNewSchoolSchedules = useCallback(async (schoolId: string, brandId: string) => {
+    try {
+      setLoadingSchedules(true);
+      const response = await getClassSchedules(schoolId, brandId);
+      setNewSchoolSchedules(response);
+    } catch (err) {
+      console.error('Failed to fetch new school schedules:', err);
+      setError('開講時間割の取得に失敗しました');
+    } finally {
+      setLoadingSchedules(false);
+    }
+  }, []);
+
+  const handleContractSelect = (contract: MyContract) => {
+    setSelectedContract(contract);
+    setMode('detail');
+  };
+
+  const handleAction = async (action: 'change-class' | 'change-school' | 'suspend' | 'cancel') => {
+    if (!selectedContract) return;
+
+    if (action === 'change-class') {
+      await fetchClassSchedules(selectedContract);
+      setSelectedSchedule(null);
+      setMode('change-class');
+    } else if (action === 'change-school') {
+      await fetchAvailableSchools(selectedContract);
+      setSelectedNewSchool(null);
+      setSelectedNewSchedule(null);
+      setMode('change-school');
+    } else if (action === 'suspend') {
+      setSuspendFrom('');
+      setSuspendUntil('');
+      setKeepSeat(false);
+      setSuspendReason('');
+      setMode('suspend');
+    } else if (action === 'cancel') {
+      setCancelDate('');
+      setCancelReason('');
+      setMode('cancel');
+    }
+  };
+
+  // 校舎選択時
+  const handleSelectNewSchool = async (schoolId: string) => {
+    const school = availableSchools.find(s => s.id === schoolId);
+    if (school && selectedContract) {
+      setSelectedNewSchool(school);
+      setSelectedNewSchedule(null);
+      await fetchNewSchoolSchedules(school.id, selectedContract.brand.id);
+      setMode('change-school-class');
+    }
+  };
+
+  // クラス変更確定
+  const handleConfirmClassChange = async () => {
+    if (!selectedContract || !selectedSchedule) return;
+
+    setProcessing(true);
+    setError(null);
 
     try {
-      const year = month.getFullYear();
-      const monthNum = month.getMonth() + 1;
-      const calendar = await getLessonCalendar(
-        selectedBrand.id,
-        selectedSchool.id,
-        year,
-        monthNum
-      );
-      setCalendarData(calendar.calendar);
+      const response = await changeClass(selectedContract.id, {
+        newDayOfWeek: selectedSchedule.dayOfWeek,
+        newStartTime: selectedSchedule.startTime,
+        newClassScheduleId: selectedSchedule.scheduleId,
+      });
+      setSuccessMessage(response.message);
+      setMode('confirm');
     } catch (err) {
-      console.error('Failed to load calendar:', err);
-      // If API fails, generate empty calendar
-      setCalendarData([]);
-    }
-  }, [selectedSchool, selectedBrand]);
-
-  useEffect(() => {
-    if (selectedSchool && selectedBrand) {
-      loadCalendar(currentMonth);
-    }
-  }, [selectedSchool, selectedBrand, currentMonth, loadCalendar]);
-
-  const courseTickets = tickets.filter(t => t.type === 'course');
-  const transferTickets = tickets.filter(t => t.type === 'transfer');
-  const eventTickets = tickets.filter(t => t.type === 'event');
-
-  const getCalendarDayInfo = (date: Date): LessonCalendarDay | undefined => {
-    const dateStr = format(date, 'yyyy-MM-dd');
-    return calendarData.find(d => d.date === dateStr);
-  };
-
-  const isDateAvailable = (date: Date): boolean => {
-    const dayInfo = getCalendarDayInfo(date);
-    return dayInfo?.isOpen ?? false;
-  };
-
-  const getDayModifiers = (date: Date) => {
-    const dayInfo = getCalendarDayInfo(date);
-    if (!dayInfo) return {};
-
-    return {
-      isNativeDay: dayInfo.isNativeDay,
-      isJapaneseOnly: dayInfo.isJapaneseOnly,
-      isClosed: !dayInfo.isOpen,
-    };
-  };
-
-  // 選択した日付から有効期限までに必要なチケット数を計算
-  const calculateRequiredTickets = useCallback((startDate: Date): { required: number; available: number; additional: number; lessonDates: string[] } => {
-    if (!selectedTicket || !calendarData.length) {
-      return { required: 0, available: 0, additional: 0, lessonDates: [] };
-    }
-
-    const available = selectedTicket.count;
-    const expiryDate = selectedTicket.expiryDate ? new Date(selectedTicket.expiryDate) : null;
-    const startDateStr = format(startDate, 'yyyy-MM-dd');
-
-    // 開始日から有効期限（または月末）までの開講日を数える
-    const lessonDates: string[] = [];
-    for (const day of calendarData) {
-      if (!day.isOpen) continue;
-
-      // 開始日以降
-      if (day.date >= startDateStr) {
-        // 有効期限がある場合はそれまで、なければ月末まで
-        if (!expiryDate || day.date <= format(expiryDate, 'yyyy-MM-dd')) {
-          lessonDates.push(day.date);
-        }
-      }
-    }
-
-    const required = lessonDates.length;
-    const additional = Math.max(0, required - available);
-
-    return { required, available, additional, lessonDates };
-  }, [selectedTicket, calendarData]);
-
-  // Time slots (would come from API in production)
-  const timeSlots = ['15:00-16:00', '16:00-17:00', '17:00-18:00', '18:00-19:00'];
-
-  const handleTicketSelect = async (ticket: TicketInfo) => {
-    setSelectedTicket(ticket);
-
-    if (ticket.type === 'event') {
-      setStep('qr');
-      return;
-    }
-
-    // チケットから生徒情報を設定（購入時の生徒情報）
-    if (ticket.studentId && ticket.studentName) {
-      // childrenから該当する生徒を検索、なければチケットの情報で仮作成
-      const child = children.find(c => c.id === ticket.studentId);
-      if (child) {
-        setSelectedChild(child);
-      } else {
-        setSelectedChild({
-          id: ticket.studentId,
-          fullName: ticket.studentName,
-          studentNumber: '',
-        } as Child);
-      }
-    }
-
-    // チケットからブランド情報を設定
-    if (ticket.brandId) {
-      const brand = brands.find(b => b.id === ticket.brandId);
-      if (brand) {
-        setSelectedBrand(brand);
-      } else {
-        setSelectedBrand({
-          id: ticket.brandId,
-          name: ticket.brandName,
-          icon: User,
-          color: 'bg-blue-500',
-        });
-      }
-    }
-
-    // チケット購入時に校舎情報があれば、校舎選択をスキップして日付選択へ
-    if (ticket.schoolId || ticket.schoolName) {
-      setSelectedSchool({
-        id: ticket.schoolId || ticket.id,
-        name: ticket.schoolName,
-        school_name: ticket.schoolName,
-      } as unknown as SchoolWithCalendar);
-      // 生徒情報があれば直接日付選択へ、なければ子供選択へ
-      if (ticket.studentId) {
-        setStep('date');
-      } else {
-        setStep('child');
-      }
-    } else {
-      // 校舎情報がない場合は子供選択へ（まれなケース）
-      setStep('child');
+      console.error('Failed to change class:', err);
+      setError('クラス変更に失敗しました');
+    } finally {
+      setProcessing(false);
     }
   };
 
-  const handleChildSelect = (child: Child) => {
-    setSelectedChild(child);
-    // 既に校舎情報がセットされていれば日付選択へ
-    if (selectedSchool) {
-      setStep('date');
-    } else if (selectedTicket?.schoolId || selectedTicket?.schoolName) {
-      setSelectedSchool({
-        id: selectedTicket.schoolId || selectedTicket.id,
-        name: selectedTicket.schoolName,
-        school_name: selectedTicket.schoolName,
-      } as unknown as SchoolWithCalendar);
-      setStep('date');
-    } else if (selectedTicket?.brandId) {
-      setStep('school');
-    } else {
-      setStep('brand');
+  // 校舎変更確定
+  const handleConfirmSchoolChange = async () => {
+    if (!selectedContract || !selectedNewSchool || !selectedNewSchedule) return;
+
+    setProcessing(true);
+    setError(null);
+
+    try {
+      const response = await changeSchool(selectedContract.id, {
+        newSchoolId: selectedNewSchool.id,
+        newDayOfWeek: selectedNewSchedule.dayOfWeek,
+        newStartTime: selectedNewSchedule.startTime,
+        newClassScheduleId: selectedNewSchedule.scheduleId,
+      });
+      setSuccessMessage(response.message);
+      setMode('confirm');
+    } catch (err) {
+      console.error('Failed to change school:', err);
+      setError('校舎変更に失敗しました');
+    } finally {
+      setProcessing(false);
     }
   };
 
-  const handleBrandSelect = (brand: typeof brands[0]) => {
-    setSelectedBrand(brand);
-    setStep('school');
-  };
+  // 休会申請確定
+  const handleConfirmSuspension = async () => {
+    if (!selectedContract || !suspendFrom) return;
 
-  const handleSchoolSelect = (school: SchoolWithCalendar) => {
-    setSelectedSchool(school);
-    setStep('date');
-  };
+    setProcessing(true);
+    setError(null);
 
-  const handleDateSelect = (date: Date | undefined) => {
-    setSelectedDate(date);
-    if (date) {
-      setStep('time');
+    try {
+      const response = await requestSuspension(selectedContract.id, {
+        suspendFrom,
+        suspendUntil: suspendUntil || undefined,
+        keepSeat,
+        reason: suspendReason,
+      });
+      setSuccessMessage(response.message);
+      setMode('confirm');
+    } catch (err) {
+      console.error('Failed to request suspension:', err);
+      setError('休会申請に失敗しました');
+    } finally {
+      setProcessing(false);
     }
   };
 
-  const handleTimeSelect = (time: string) => {
-    setSelectedTime(time);
+  // 退会申請確定
+  const handleConfirmCancellation = async () => {
+    if (!selectedContract || !cancelDate) return;
+
+    setProcessing(true);
+    setError(null);
+
+    try {
+      const response = await requestCancellation(selectedContract.id, {
+        cancelDate,
+        reason: cancelReason,
+      });
+      setSuccessMessage(response.message);
+      setMode('confirm');
+    } catch (err) {
+      console.error('Failed to request cancellation:', err);
+      setError('退会申請に失敗しました');
+    } finally {
+      setProcessing(false);
+    }
   };
 
-  const handleConfirm = () => {
-    alert('予約が完了しました');
+  const handleBack = () => {
+    if (mode === 'confirm') {
+      setMode('list');
+      setSelectedContract(null);
+      loadData();
+    } else if (mode === 'change-school-class') {
+      setMode('change-school');
+      setSelectedNewSchedule(null);
+    } else if (['change-class', 'change-school', 'suspend', 'cancel'].includes(mode)) {
+      setMode('detail');
+    } else if (mode === 'detail') {
+      setMode('list');
+      setSelectedContract(null);
+    }
   };
 
-  const handleMonthChange = (date: Date) => {
-    setCurrentMonth(date);
-  };
-
-  const generateQRCode = () => {
-    return 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjAwIiBoZWlnaHQ9IjIwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMjAwIiBoZWlnaHQ9IjIwMCIgZmlsbD0id2hpdGUiLz48cmVjdCB4PSIyMCIgeT0iMjAiIHdpZHRoPSIyMCIgaGVpZ2h0PSIyMCIvPjxyZWN0IHg9IjYwIiB5PSIyMCIgd2lkdGg9IjIwIiBoZWlnaHQ9IjIwIi8+PHJlY3QgeD0iMTAwIiB5PSIyMCIgd2lkdGg9IjIwIiBoZWlnaHQ9IjIwIi8+PHJlY3QgeD0iMTQwIiB5PSIyMCIgd2lkdGg9IjIwIiBoZWlnaHQ9IjIwIi8+PHJlY3QgeD0iMjAiIHk9IjYwIiB3aWR0aD0iMjAiIGhlaWdodD0iMjAiLz48cmVjdCB4PSIxMDAiIHk9IjYwIiB3aWR0aD0iMjAiIGhlaWdodD0iMjAiLz48cmVjdCB4PSIxNDAiIHk9IjYwIiB3aWR0aD0iMjAiIGhlaWdodD0iMjAiLz48L3N2Zz4=';
-  };
-
-  const getBrandColor = (brandId: string) => {
-    const brand = brands.find(b => b.id === brandId);
-    return brand?.color || 'bg-gray-100 text-gray-600';
+  const getStatusBadge = (status: MyContract['status']) => {
+    switch (status) {
+      case 'active':
+        return <Badge className="bg-green-500 text-white">受講中</Badge>;
+      case 'paused':
+        return <Badge className="bg-gray-500 text-white">休会中</Badge>;
+      case 'cancelled':
+        return <Badge className="bg-red-500 text-white">退会済</Badge>;
+      default:
+        return null;
+    }
   };
 
   if (loading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-blue-50 flex items-center justify-center">
-        <div className="text-gray-600">読み込み中...</div>
+        <div className="flex flex-col items-center gap-3">
+          <Loader2 className="h-8 w-8 animate-spin text-blue-500" />
+          <p className="text-gray-600">読み込み中...</p>
+        </div>
       </div>
     );
   }
@@ -341,504 +318,837 @@ export default function ClassRegistrationPage() {
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-blue-50">
       <header className="sticky top-0 z-40 bg-white shadow-sm">
         <div className="max-w-[390px] mx-auto px-4 h-16 flex items-center">
-          <Link href="/" className="mr-3">
-            <ChevronLeft className="h-6 w-6 text-gray-700" />
-          </Link>
-          <h1 className="text-xl font-bold text-gray-800">クラス予約</h1>
+          {mode !== 'list' ? (
+            <button onClick={handleBack} className="mr-3">
+              <ChevronLeft className="h-6 w-6 text-gray-700" />
+            </button>
+          ) : (
+            <Link href="/" className="mr-3">
+              <ChevronLeft className="h-6 w-6 text-gray-700" />
+            </Link>
+          )}
+          <h1 className="text-xl font-bold text-gray-800">クラス管理</h1>
         </div>
       </header>
 
       <main className="max-w-[390px] mx-auto px-4 py-6 pb-24">
         {error && (
           <Card className="rounded-xl shadow-md bg-red-50 border-red-200 mb-4">
-            <CardContent className="p-4">
+            <CardContent className="p-4 flex items-center gap-3">
+              <AlertCircle className="h-5 w-5 text-red-600 shrink-0" />
               <p className="text-red-600 text-sm">{error}</p>
             </CardContent>
           </Card>
         )}
 
-        {step === 'ticket' && (
-          <section>
-            <h2 className="text-lg font-semibold text-gray-800 mb-4">チケットを選択</h2>
+        {successMessage && mode !== 'confirm' && (
+          <Card className="rounded-xl shadow-md bg-green-50 border-green-200 mb-4">
+            <CardContent className="p-4 flex items-center gap-3">
+              <CheckCircle className="h-5 w-5 text-green-600 shrink-0" />
+              <p className="text-green-600 text-sm">{successMessage}</p>
+            </CardContent>
+          </Card>
+        )}
 
-            {courseTickets.length === 0 && transferTickets.length === 0 && eventTickets.length === 0 ? (
+        {/* 契約一覧 */}
+        {mode === 'list' && (
+          <section>
+            <h2 className="text-lg font-semibold text-gray-800 mb-4">受講中のコース</h2>
+
+            {contracts.length === 0 ? (
               <Card className="rounded-xl shadow-md bg-gray-50 border-gray-200">
                 <CardContent className="p-6 text-center">
-                  <Ticket className="h-12 w-12 text-gray-400 mx-auto mb-3" />
-                  <p className="text-gray-600">利用可能なチケットがありません</p>
-                  <p className="text-sm text-gray-500 mt-2">コースを購入するとチケットが付与されます</p>
+                  <CalendarIcon className="h-12 w-12 text-gray-400 mx-auto mb-3" />
+                  <p className="text-gray-600">受講中のコースがありません</p>
+                  <Link href="/ticket-purchase">
+                    <Button className="mt-4">コースを探す</Button>
+                  </Link>
                 </CardContent>
               </Card>
             ) : (
-              <>
-                {courseTickets.length > 0 && (
-                  <div className="mb-6">
-                    <h3 className="text-md font-semibold text-gray-700 mb-3">コースチケット</h3>
-                    <div className="space-y-3">
-                      {courseTickets.map((ticket) => (
-                        <Card
-                          key={ticket.id}
-                          className="rounded-xl shadow-md hover:shadow-lg transition-shadow cursor-pointer"
-                          onClick={() => handleTicketSelect(ticket)}
-                        >
-                          <CardContent className="p-4">
-                            <div className="flex items-start justify-between mb-2">
-                              <div className="flex-1">
-                                <div className="flex items-center gap-2 mb-1">
-                                  <Badge className={getBrandColor(ticket.brandId)}>
-                                    {ticket.brandName}
-                                  </Badge>
-                                </div>
-                                <h3 className="font-semibold text-gray-800">{ticket.schoolName}</h3>
-                              </div>
-                              <div className="text-right">
-                                <div className="flex items-center gap-1 text-blue-600">
-                                  <Ticket className="h-5 w-5" />
-                                  <span className="text-2xl font-bold">{ticket.count}</span>
-                                </div>
-                                <p className="text-xs text-gray-500">枚</p>
-                              </div>
-                            </div>
-                            {ticket.expiryDate && (
-                              <p className="text-sm text-gray-600">有効期限: {ticket.expiryDate}</p>
-                            )}
-                          </CardContent>
-                        </Card>
-                      ))}
-                    </div>
-                  </div>
-                )}
+              <div className="space-y-4">
+                {contracts.map((contract) => (
+                  <Card
+                    key={contract.id}
+                    className="rounded-xl shadow-md hover:shadow-lg transition-shadow cursor-pointer"
+                    onClick={() => handleContractSelect(contract)}
+                  >
+                    <CardContent className="p-4">
+                      <div className="flex items-start justify-between mb-3">
+                        <div className="flex items-center gap-2">
+                          <User className="h-5 w-5 text-blue-600" />
+                          <span className="font-semibold text-gray-800">{contract.student.fullName}</span>
+                        </div>
+                        {getStatusBadge(contract.status)}
+                      </div>
 
-                {transferTickets.length > 0 && (
-                  <div className="mb-6">
-                    <h3 className="text-md font-semibold text-gray-700 mb-3">振替チケット</h3>
-                    <div className="space-y-3">
-                      {transferTickets.map((ticket) => (
-                        <Card
-                          key={ticket.id}
-                          className="rounded-xl shadow-md hover:shadow-lg transition-shadow cursor-pointer border-amber-200"
-                          onClick={() => handleTicketSelect(ticket)}
-                        >
-                          <CardContent className="p-4">
-                            <div className="flex items-start justify-between mb-2">
-                              <div className="flex-1">
-                                <Badge className="bg-amber-500 text-white text-xs mb-1">
-                                  {ticket.brandName}
-                                </Badge>
-                                <h3 className="font-semibold text-gray-800">{ticket.schoolName}</h3>
-                              </div>
-                              <div className="text-right">
-                                <div className="flex items-center gap-1 text-amber-600">
-                                  <Ticket className="h-5 w-5" />
-                                  <span className="text-2xl font-bold">{ticket.count}</span>
-                                </div>
-                                <p className="text-xs text-gray-500">枚</p>
-                              </div>
-                            </div>
-                            {ticket.expiryDate && (
-                              <p className="text-sm text-gray-600">有効期限: {ticket.expiryDate}</p>
-                            )}
-                          </CardContent>
-                        </Card>
-                      ))}
-                    </div>
-                  </div>
-                )}
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-2 text-sm text-gray-600">
+                          <Building2 className="h-4 w-4" />
+                          <span>{contract.brand.brandName}</span>
+                        </div>
+                        <div className="flex items-center gap-2 text-sm text-gray-600">
+                          <MapPin className="h-4 w-4" />
+                          <span>{contract.school.schoolName}</span>
+                        </div>
+                        {contract.course && (
+                          <div className="flex items-center gap-2 text-sm text-gray-600">
+                            <CalendarIcon className="h-4 w-4" />
+                            <span>{contract.course.courseName}</span>
+                          </div>
+                        )}
+                        {contract.dayOfWeek !== undefined && contract.startTime && (
+                          <div className="flex items-center gap-2 text-sm text-gray-600">
+                            <Clock className="h-4 w-4" />
+                            <span>{DAY_LABELS[contract.dayOfWeek]}曜日 {contract.startTime?.slice(0, 5)}〜{contract.endTime?.slice(0, 5)}</span>
+                          </div>
+                        )}
+                      </div>
 
-                {eventTickets.length > 0 && (
-                  <div className="mb-6">
-                    <h3 className="text-md font-semibold text-gray-700 mb-3">イベントチケット</h3>
-                    <div className="space-y-3">
-                      {eventTickets.map((ticket) => (
-                        <Card
-                          key={ticket.id}
-                          className="rounded-xl shadow-md hover:shadow-lg transition-shadow cursor-pointer border-purple-200"
-                          onClick={() => handleTicketSelect(ticket)}
-                        >
-                          <CardContent className="p-4">
-                            <div className="flex items-start justify-between mb-2">
-                              <div className="flex-1">
-                                <Badge className="bg-purple-500 text-white text-xs mb-1">
-                                  {ticket.brandName}
-                                </Badge>
-                                <h3 className="font-semibold text-gray-800">{ticket.eventName}</h3>
-                              </div>
-                              <div className="text-right">
-                                <div className="flex items-center gap-1 text-purple-600">
-                                  <Ticket className="h-5 w-5" />
-                                  <span className="text-2xl font-bold">{ticket.count}</span>
-                                </div>
-                                <p className="text-xs text-gray-500">枚</p>
-                              </div>
-                            </div>
-                            {ticket.expiryDate && (
-                              <p className="text-sm text-gray-600">有効期限: {ticket.expiryDate}</p>
-                            )}
-                          </CardContent>
-                        </Card>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </>
+                      <div className="flex items-center justify-end mt-3">
+                        <ChevronRight className="h-5 w-5 text-gray-400" />
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
             )}
           </section>
         )}
 
-        {step === 'child' && (
+        {/* 契約詳細 */}
+        {mode === 'detail' && selectedContract && (
           <section>
-            <Button variant="ghost" className="mb-4" onClick={() => setStep('ticket')}>
-              <ChevronLeft className="h-4 w-4 mr-2" />
-              戻る
-            </Button>
-
-            <Card className="rounded-xl shadow-md bg-blue-50 border-blue-200 mb-6">
-              <CardContent className="p-4">
-                <div className="flex items-center gap-3">
-                  <Ticket className="h-5 w-5 text-blue-600" />
-                  <div>
-                    <p className="text-sm text-gray-600">選択中のチケット</p>
-                    <p className="font-semibold text-gray-800">{selectedTicket?.brandName} - {selectedTicket?.schoolName}</p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            <h2 className="text-lg font-semibold text-gray-800 mb-4">お子様を選択</h2>
-            <div className="space-y-3">
-              {children.map((child) => (
-                <Card
-                  key={child.id}
-                  className="rounded-xl shadow-md hover:shadow-lg transition-shadow cursor-pointer"
-                  onClick={() => handleChildSelect(child)}
-                >
-                  <CardContent className="p-4 flex items-center gap-4">
-                    <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center">
-                      <User className="h-6 w-6 text-blue-600" />
-                    </div>
-                    <div className="flex-1">
-                      <h3 className="font-semibold text-gray-800">{child.studentNumber} {child.fullName}</h3>
-                      <p className="text-sm text-gray-600">{child.grade || ''}</p>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          </section>
-        )}
-
-        {step === 'brand' && (
-          <section>
-            <Button variant="ghost" className="mb-4" onClick={() => setStep('child')}>
-              <ChevronLeft className="h-4 w-4 mr-2" />
-              戻る
-            </Button>
-
-            <Card className="rounded-xl shadow-md bg-blue-50 border-blue-200 mb-6">
-              <CardContent className="p-4 space-y-2">
-                <div className="flex items-center gap-2">
-                  <User className="h-4 w-4 text-blue-600" />
-                  <p className="text-sm text-gray-800">{selectedChild?.studentNumber} {selectedChild?.fullName}</p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Ticket className="h-4 w-4 text-blue-600" />
-                  <p className="text-sm text-gray-800">{selectedTicket?.type === 'course' ? 'コース' : '振替'}チケット</p>
-                </div>
-              </CardContent>
-            </Card>
-
-            <h2 className="text-lg font-semibold text-gray-800 mb-4">ブランドを選択</h2>
-            <div className="space-y-3">
-              {brands.map((brand) => {
-                const Icon = brand.icon;
-                return (
-                  <Card
-                    key={brand.id}
-                    className="rounded-xl shadow-md hover:shadow-lg transition-shadow cursor-pointer"
-                    onClick={() => handleBrandSelect(brand)}
-                  >
-                    <CardContent className="p-4 flex items-center gap-4">
-                      <div className={`w-10 h-10 rounded-full flex items-center justify-center ${brand.color}`}>
-                        <Icon className="h-5 w-5" />
-                      </div>
-                      <h3 className="font-semibold text-gray-800">{brand.name}</h3>
-                    </CardContent>
-                  </Card>
-                );
-              })}
-            </div>
-          </section>
-        )}
-
-        {step === 'school' && (
-          <section>
-            <Button variant="ghost" className="mb-4" onClick={() => setStep('brand')}>
-              <ChevronLeft className="h-4 w-4 mr-2" />
-              戻る
-            </Button>
-
-            <h2 className="text-lg font-semibold text-gray-800 mb-4">教室を選択</h2>
-            <div className="space-y-3">
-              {/* チケットに校舎情報がある場合はそれを表示 */}
-              {selectedTicket?.schoolId && selectedTicket?.schoolName ? (
-                <Card
-                  className="rounded-xl shadow-md hover:shadow-lg transition-shadow cursor-pointer border-blue-200"
-                  onClick={() => handleSchoolSelect({
-                    id: selectedTicket.schoolId!,
-                    name: selectedTicket.schoolName,
-                    school_name: selectedTicket.schoolName,
-                  } as unknown as SchoolWithCalendar)}
-                >
-                  <CardContent className="p-4">
-                    <div className="flex items-start gap-3">
-                      <MapPin className="h-5 w-5 text-blue-600 mt-0.5" />
-                      <div>
-                        <Badge className="bg-blue-100 text-blue-700 text-xs mb-1">ご契約の校舎</Badge>
-                        <h3 className="font-semibold text-gray-800 mb-1">{selectedTicket.schoolName}</h3>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              ) : schools.length === 0 ? (
-                <Card className="rounded-xl shadow-md bg-gray-50">
-                  <CardContent className="p-6 text-center">
-                    <MapPin className="h-12 w-12 text-gray-400 mx-auto mb-3" />
-                    <p className="text-gray-600">校舎が見つかりません</p>
-                  </CardContent>
-                </Card>
-              ) : (
-                schools.map((school) => (
-                  <Card
-                    key={school.id}
-                    className="rounded-xl shadow-md hover:shadow-lg transition-shadow cursor-pointer"
-                    onClick={() => handleSchoolSelect(school)}
-                  >
-                    <CardContent className="p-4">
-                      <div className="flex items-start gap-3">
-                        <MapPin className="h-5 w-5 text-blue-600 mt-0.5" />
-                        <div>
-                          <h3 className="font-semibold text-gray-800 mb-1">{school.name}</h3>
-                          <p className="text-sm text-gray-600">{school.address}</p>
-                          {school.phone && (
-                            <p className="text-sm text-gray-500 mt-1">{school.phone}</p>
-                          )}
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))
-              )}
-            </div>
-          </section>
-        )}
-
-        {step === 'date' && (
-          <section>
-            <Button variant="ghost" className="mb-4" onClick={() => setStep('school')}>
-              <ChevronLeft className="h-4 w-4 mr-2" />
-              戻る
-            </Button>
-
-            <Card className="rounded-xl shadow-md bg-blue-50 border-blue-200 mb-6">
-              <CardContent className="p-4 space-y-2">
-                <p className="text-sm"><span className="font-semibold">お子様:</span> {selectedChild?.studentNumber} {selectedChild?.fullName}</p>
-                <p className="text-sm"><span className="font-semibold">教室:</span> {selectedSchool?.name}</p>
-              </CardContent>
-            </Card>
-
-            <h2 className="text-lg font-semibold text-gray-800 mb-4">日付を選択</h2>
-
-            {/* Legend */}
-            <Card className="rounded-xl shadow-md mb-4">
-              <CardContent className="p-3">
-                <div className="flex items-center justify-center gap-4 text-sm">
-                  <div className="flex items-center gap-1">
-                    <div className="w-4 h-4 rounded-full bg-orange-500"></div>
-                    <span className="flex items-center gap-1">
-                      <Globe className="h-3 w-3" /> 外国人講師
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <div className="w-4 h-4 rounded-full bg-blue-500"></div>
-                    <span className="flex items-center gap-1">
-                      <Users className="h-3 w-3" /> 日本人講師
-                    </span>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
             <Card className="rounded-xl shadow-md mb-6">
               <CardContent className="p-4">
-                <div className="flex justify-center">
-                  <Calendar
-                    mode="single"
-                    selected={selectedDate}
-                    onSelect={handleDateSelect}
-                    onMonthChange={handleMonthChange}
-                    disabled={(date) => date < new Date() || !isDateAvailable(date)}
-                    className="rounded-md border"
-                    modifiers={{
-                      nativeDay: (date) => getCalendarDayInfo(date)?.isNativeDay ?? false,
-                      japaneseOnly: (date) => getCalendarDayInfo(date)?.isJapaneseOnly ?? false,
-                    }}
-                    modifiersStyles={{
-                      nativeDay: {
-                        backgroundColor: '#fed7aa',
-                        borderRadius: '50%',
-                      },
-                      japaneseOnly: {
-                        backgroundColor: '#bfdbfe',
-                        borderRadius: '50%',
-                      },
-                    }}
+                <div className="space-y-4">
+                  <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
+                    <MapPin className="h-5 w-5 text-blue-600" />
+                    <div>
+                      <p className="text-xs text-gray-500">校舎</p>
+                      <p className="font-semibold text-gray-800">{selectedContract.school.schoolName}</p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
+                    <CalendarIcon className="h-5 w-5 text-blue-600" />
+                    <div>
+                      <p className="text-xs text-gray-500">クラス</p>
+                      <p className="font-semibold text-gray-800">{selectedContract.course?.courseName || '-'}</p>
+                      {selectedContract.dayOfWeek !== undefined && selectedContract.startTime && (
+                        <p className="text-sm text-gray-600">
+                          {DAY_LABELS[selectedContract.dayOfWeek]}曜日 {selectedContract.startTime?.slice(0, 5)}〜{selectedContract.endTime?.slice(0, 5)}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+
+                  {selectedContract.startDate && (
+                    <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
+                      <Clock className="h-5 w-5 text-blue-600" />
+                      <div>
+                        <p className="text-xs text-gray-500">受講開始日</p>
+                        <p className="font-semibold text-gray-800">
+                          {format(new Date(selectedContract.startDate), 'yyyy年MM月dd日', { locale: ja })}
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+
+            <h3 className="text-md font-semibold text-gray-700 mb-3">変更・手続き</h3>
+            <div className="space-y-3">
+              <Card
+                className="rounded-xl shadow-md hover:shadow-lg transition-shadow cursor-pointer"
+                onClick={() => handleAction('change-class')}
+              >
+                <CardContent className="p-4 flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
+                      <RefreshCw className="h-5 w-5 text-blue-600" />
+                    </div>
+                    <div>
+                      <p className="font-semibold text-gray-800">クラス変更</p>
+                      <p className="text-xs text-gray-500">曜日・時間帯を変更</p>
+                    </div>
+                  </div>
+                  <ChevronRight className="h-5 w-5 text-gray-400" />
+                </CardContent>
+              </Card>
+
+              <Card
+                className="rounded-xl shadow-md hover:shadow-lg transition-shadow cursor-pointer"
+                onClick={() => handleAction('change-school')}
+              >
+                <CardContent className="p-4 flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 bg-green-100 rounded-full flex items-center justify-center">
+                      <MapPin className="h-5 w-5 text-green-600" />
+                    </div>
+                    <div>
+                      <p className="font-semibold text-gray-800">校舎変更</p>
+                      <p className="text-xs text-gray-500">通う校舎を変更</p>
+                    </div>
+                  </div>
+                  <ChevronRight className="h-5 w-5 text-gray-400" />
+                </CardContent>
+              </Card>
+
+              <Card
+                className="rounded-xl shadow-md hover:shadow-lg transition-shadow cursor-pointer"
+                onClick={() => handleAction('suspend')}
+              >
+                <CardContent className="p-4 flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 bg-yellow-100 rounded-full flex items-center justify-center">
+                      <PauseCircle className="h-5 w-5 text-yellow-600" />
+                    </div>
+                    <div>
+                      <p className="font-semibold text-gray-800">休会</p>
+                      <p className="text-xs text-gray-500">一時的に休会する</p>
+                    </div>
+                  </div>
+                  <ChevronRight className="h-5 w-5 text-gray-400" />
+                </CardContent>
+              </Card>
+
+              <Card
+                className="rounded-xl shadow-md hover:shadow-lg transition-shadow cursor-pointer border-red-100"
+                onClick={() => handleAction('cancel')}
+              >
+                <CardContent className="p-4 flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 bg-red-100 rounded-full flex items-center justify-center">
+                      <LogOut className="h-5 w-5 text-red-600" />
+                    </div>
+                    <div>
+                      <p className="font-semibold text-red-700">退会</p>
+                      <p className="text-xs text-gray-500">コースを退会する</p>
+                    </div>
+                  </div>
+                  <ChevronRight className="h-5 w-5 text-gray-400" />
+                </CardContent>
+              </Card>
+            </div>
+          </section>
+        )}
+
+        {/* クラス変更 */}
+        {mode === 'change-class' && selectedContract && (() => {
+          const dayLabels = classSchedules?.dayLabels || ['月', '火', '水', '木', '金', '土', '日'];
+
+          const getStatusIcon = (status: string) => {
+            switch (status) {
+              case 'available':
+                return <Circle className="h-5 w-5 text-green-600 fill-green-600" />;
+              case 'few':
+                return <Triangle className="h-5 w-5 text-orange-500 fill-orange-500" />;
+              case 'full':
+                return <XIcon className="h-5 w-5 text-red-600" />;
+              case 'none':
+                return <Minus className="h-5 w-5 text-gray-300" />;
+              default:
+                return null;
+            }
+          };
+
+          const handleTimeSlotSelect = (time: string, dayLabel: string) => {
+            const timeSlot = classSchedules?.timeSlots.find(ts => ts.time === time);
+            if (!timeSlot) return;
+            const dayData = timeSlot.days[dayLabel];
+            if (!dayData || dayData.status === 'none' || dayData.status === 'full' || dayData.schedules.length === 0) return;
+
+            const schedule = dayData.schedules[0];
+            // 月=1, 火=2... の形式で曜日番号を計算
+            const dayIdx = dayLabels.indexOf(dayLabel);
+            const dayOfWeekNum = dayIdx === dayLabels.length - 1 ? 0 : dayIdx + 1; // 日曜=0, 月曜=1...
+
+            setSelectedSchedule({
+              dayOfWeek: dayOfWeekNum,
+              startTime: schedule.startTime,
+              scheduleId: schedule.id,
+            });
+          };
+
+          return (
+          <section className="space-y-4">
+            <div className="bg-blue-100 rounded-lg p-3 mb-4">
+              <p className="text-sm text-blue-800">
+                <span className="font-semibold">クラス変更</span>
+              </p>
+              <p className="text-xs text-blue-700 mt-1">
+                現在: {selectedContract.school.schoolName} / {selectedContract.dayOfWeek !== undefined && selectedContract.dayOfWeek !== null ? `${DAY_LABELS[selectedContract.dayOfWeek]}曜日 ${selectedContract.startTime?.slice(0, 5) || ''}` : '未設定'}
+              </p>
+            </div>
+
+            <h2 className="text-lg font-semibold text-gray-800">新しい曜日・時間を選択</h2>
+
+            {/* 凡例 */}
+            <div className="flex items-center justify-center gap-4 text-sm mb-2">
+              <div className="flex items-center gap-1">
+                <Circle className="h-4 w-4 text-green-600 fill-green-600" />
+                <span>空きあり</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <Triangle className="h-4 w-4 text-orange-500 fill-orange-500" />
+                <span>残りわずか</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <XIcon className="h-4 w-4 text-red-600" />
+                <span>満席</span>
+              </div>
+            </div>
+
+            {loadingSchedules ? (
+              <div className="flex flex-col items-center justify-center py-12">
+                <Loader2 className="h-8 w-8 animate-spin text-blue-500 mb-3" />
+                <p className="text-sm text-gray-600">開講時間割を読み込み中...</p>
+              </div>
+            ) : classSchedules && classSchedules.timeSlots.length > 0 ? (
+              <Card className="rounded-xl shadow-md overflow-hidden">
+                <CardContent className="p-0">
+                  <div className="overflow-x-auto">
+                    <table className="w-full">
+                      <thead>
+                        <tr className="bg-gradient-to-r from-blue-600 to-blue-700 text-white">
+                          <th className="text-xs font-semibold py-3 px-2 text-left sticky left-0 bg-blue-600 z-10">時間</th>
+                          {dayLabels.map((label, idx) => (
+                            <th key={idx} className="text-xs font-semibold py-3 px-2 text-center min-w-[50px]">
+                              {label}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {classSchedules.timeSlots.map((timeSlot, timeIdx) => (
+                          <tr key={timeIdx} className="border-b border-gray-200 hover:bg-gray-50">
+                            <td className="text-xs font-semibold py-3 px-2 bg-gray-50 sticky left-0 z-10">
+                              {timeSlot.time}
+                            </td>
+                            {dayLabels.map((label, dayIdx) => {
+                              const dayData = timeSlot.days[label];
+                              const status = dayData?.status || 'none';
+                              const canSelect = status !== 'none' && status !== 'full';
+                              // 選択中の判定
+                              const dayOfWeekNum = dayIdx === dayLabels.length - 1 ? 0 : dayIdx + 1;
+                              const isSelected = selectedSchedule?.dayOfWeek === dayOfWeekNum &&
+                                                 selectedSchedule?.startTime?.slice(0, 5) === timeSlot.time;
+                              // 現在の曜日・時間の判定
+                              const isCurrent = selectedContract.dayOfWeek === dayOfWeekNum &&
+                                                selectedContract.startTime?.slice(0, 5) === timeSlot.time;
+
+                              return (
+                                <td
+                                  key={dayIdx}
+                                  className={`text-center py-3 px-2 ${canSelect ? 'cursor-pointer hover:bg-blue-50' : ''
+                                    } ${isSelected ? 'bg-blue-100 ring-2 ring-blue-500 ring-inset' : ''
+                                    } ${isCurrent ? 'bg-green-100' : ''
+                                    }`}
+                                  onClick={() => {
+                                    if (canSelect) {
+                                      handleTimeSlotSelect(timeSlot.time, label);
+                                    }
+                                  }}
+                                >
+                                  <div className="flex flex-col items-center">
+                                    {getStatusIcon(status)}
+                                    {isCurrent && <span className="text-[10px] text-green-700 mt-0.5">現在</span>}
+                                  </div>
+                                </td>
+                              );
+                            })}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </CardContent>
+              </Card>
+            ) : (
+              <Card>
+                <CardContent className="p-6 text-center">
+                  <CalendarIcon className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+                  <p className="text-gray-500">開講時間割がありません</p>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* 選択中の情報 */}
+            {selectedSchedule && (
+              <Card className="rounded-xl shadow-sm bg-blue-50 border-blue-200">
+                <CardContent className="p-3">
+                  <p className="text-xs text-gray-600 mb-1">変更後のクラス</p>
+                  <p className="font-semibold text-gray-800">
+                    {DAY_LABELS[selectedSchedule.dayOfWeek]}曜日 {selectedSchedule.startTime.slice(0, 5)}〜
+                  </p>
+                </CardContent>
+              </Card>
+            )}
+
+            {selectedSchedule && (
+              <div className="mt-4">
+                <Button
+                  className="w-full bg-blue-600 hover:bg-blue-700"
+                  onClick={handleConfirmClassChange}
+                  disabled={processing}
+                >
+                  {processing ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      処理中...
+                    </>
+                  ) : (
+                    'クラス変更を確定する'
+                  )}
+                </Button>
+                <p className="text-xs text-gray-500 text-center mt-2">
+                  ※ 変更は翌週から適用されます
+                </p>
+              </div>
+            )}
+          </section>
+          );
+        })()}
+
+        {/* 校舎変更 - 校舎選択 */}
+        {mode === 'change-school' && selectedContract && (
+          <section className="space-y-4">
+            <div className="bg-purple-100 rounded-lg p-3 mb-4">
+              <p className="text-sm text-purple-800">
+                <span className="font-semibold">校舎変更</span> - 校舎選択
+              </p>
+              <p className="text-xs text-purple-700 mt-1">
+                現在: {selectedContract.school.schoolName}
+              </p>
+            </div>
+
+            <h2 className="text-lg font-semibold text-gray-800">新しい校舎を選択</h2>
+
+            {loadingSchools ? (
+              <div className="flex justify-center py-8">
+                <Loader2 className="h-8 w-8 animate-spin text-purple-500" />
+              </div>
+            ) : availableSchools.length > 0 ? (
+              <>
+                <MapSchoolSelector
+                  schools={availableSchools}
+                  selectedSchoolId={selectedNewSchool?.id || null}
+                  onSelectSchool={handleSelectNewSchool}
+                />
+                <div className="mt-4 space-y-2">
+                  <h3 className="text-sm font-semibold text-gray-700">校舎一覧</h3>
+                  {availableSchools.map((school) => (
+                    <Card
+                      key={school.id}
+                      className={`cursor-pointer transition-all ${
+                        selectedNewSchool?.id === school.id
+                          ? 'border-2 border-purple-500 bg-purple-50'
+                          : 'hover:shadow-md'
+                      }`}
+                      onClick={() => handleSelectNewSchool(school.id)}
+                    >
+                      <CardContent className="p-3">
+                        <div className="flex justify-between items-center">
+                          <div>
+                            <h4 className="font-semibold text-gray-900">{school.name}</h4>
+                            <p className="text-xs text-gray-500">{school.address}</p>
+                          </div>
+                          {selectedNewSchool?.id === school.id && (
+                            <CheckCircle className="w-5 h-5 text-purple-500" />
+                          )}
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              </>
+            ) : (
+              <Card>
+                <CardContent className="p-6 text-center">
+                  <MapPin className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+                  <p className="text-gray-500">他に開講校舎がありません</p>
+                </CardContent>
+              </Card>
+            )}
+          </section>
+        )}
+
+        {/* 校舎変更 - クラス選択 */}
+        {mode === 'change-school-class' && selectedContract && selectedNewSchool && (() => {
+          const dayLabels = newSchoolSchedules?.dayLabels || ['月', '火', '水', '木', '金', '土', '日'];
+
+          const getStatusIcon = (status: string) => {
+            switch (status) {
+              case 'available':
+                return <Circle className="h-5 w-5 text-green-600 fill-green-600" />;
+              case 'few':
+                return <Triangle className="h-5 w-5 text-orange-500 fill-orange-500" />;
+              case 'full':
+                return <XIcon className="h-5 w-5 text-red-600" />;
+              case 'none':
+                return <Minus className="h-5 w-5 text-gray-300" />;
+              default:
+                return null;
+            }
+          };
+
+          const handleTimeSlotSelect = (time: string, dayLabel: string) => {
+            const timeSlot = newSchoolSchedules?.timeSlots.find(ts => ts.time === time);
+            if (!timeSlot) return;
+            const dayData = timeSlot.days[dayLabel];
+            if (!dayData || dayData.status === 'none' || dayData.status === 'full' || dayData.schedules.length === 0) return;
+
+            const schedule = dayData.schedules[0];
+            const dayIdx = dayLabels.indexOf(dayLabel);
+            const dayOfWeekNum = dayIdx === dayLabels.length - 1 ? 0 : dayIdx + 1;
+
+            setSelectedNewSchedule({
+              dayOfWeek: dayOfWeekNum,
+              startTime: schedule.startTime,
+              scheduleId: schedule.id,
+            });
+          };
+
+          return (
+          <section className="space-y-4">
+            <div className="bg-purple-100 rounded-lg p-3 mb-4">
+              <p className="text-sm text-purple-800">
+                <span className="font-semibold">校舎変更</span> - クラス選択
+              </p>
+              <p className="text-xs text-purple-700 mt-1">
+                {selectedContract.school.schoolName} → {selectedNewSchool.name}
+              </p>
+            </div>
+
+            <h2 className="text-lg font-semibold text-gray-800">{selectedNewSchool.name}のクラスを選択</h2>
+
+            {/* 凡例 */}
+            <div className="flex items-center justify-center gap-4 text-sm mb-2">
+              <div className="flex items-center gap-1">
+                <Circle className="h-4 w-4 text-green-600 fill-green-600" />
+                <span>空きあり</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <Triangle className="h-4 w-4 text-orange-500 fill-orange-500" />
+                <span>残りわずか</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <XIcon className="h-4 w-4 text-red-600" />
+                <span>満席</span>
+              </div>
+            </div>
+
+            {loadingSchedules ? (
+              <div className="flex flex-col items-center justify-center py-12">
+                <Loader2 className="h-8 w-8 animate-spin text-purple-500 mb-3" />
+                <p className="text-sm text-gray-600">開講時間割を読み込み中...</p>
+              </div>
+            ) : newSchoolSchedules && newSchoolSchedules.timeSlots.length > 0 ? (
+              <Card className="rounded-xl shadow-md overflow-hidden">
+                <CardContent className="p-0">
+                  <div className="overflow-x-auto">
+                    <table className="w-full">
+                      <thead>
+                        <tr className="bg-gradient-to-r from-purple-600 to-purple-700 text-white">
+                          <th className="text-xs font-semibold py-3 px-2 text-left sticky left-0 bg-purple-600 z-10">時間</th>
+                          {dayLabels.map((label, idx) => (
+                            <th key={idx} className="text-xs font-semibold py-3 px-2 text-center min-w-[50px]">
+                              {label}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {newSchoolSchedules.timeSlots.map((timeSlot, timeIdx) => (
+                          <tr key={timeIdx} className="border-b border-gray-200 hover:bg-gray-50">
+                            <td className="text-xs font-semibold py-3 px-2 bg-gray-50 sticky left-0 z-10">
+                              {timeSlot.time}
+                            </td>
+                            {dayLabels.map((label, dayIdx) => {
+                              const dayData = timeSlot.days[label];
+                              const status = dayData?.status || 'none';
+                              const canSelect = status !== 'none' && status !== 'full';
+                              const dayOfWeekNum = dayIdx === dayLabels.length - 1 ? 0 : dayIdx + 1;
+                              const isSelected = selectedNewSchedule?.dayOfWeek === dayOfWeekNum &&
+                                                 selectedNewSchedule?.startTime?.slice(0, 5) === timeSlot.time;
+
+                              return (
+                                <td
+                                  key={dayIdx}
+                                  className={`text-center py-3 px-2 ${canSelect ? 'cursor-pointer hover:bg-purple-50' : ''
+                                    } ${isSelected ? 'bg-purple-100 ring-2 ring-purple-500 ring-inset' : ''
+                                    }`}
+                                  onClick={() => {
+                                    if (canSelect) {
+                                      handleTimeSlotSelect(timeSlot.time, label);
+                                    }
+                                  }}
+                                >
+                                  {getStatusIcon(status)}
+                                </td>
+                              );
+                            })}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </CardContent>
+              </Card>
+            ) : (
+              <Card>
+                <CardContent className="p-6 text-center">
+                  <CalendarIcon className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+                  <p className="text-gray-500">この校舎では開講していません</p>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* 選択中の情報 */}
+            {selectedNewSchedule && (
+              <Card className="rounded-xl shadow-sm bg-purple-50 border-purple-200">
+                <CardContent className="p-3">
+                  <p className="text-xs text-gray-600 mb-1">変更後のクラス</p>
+                  <p className="font-semibold text-gray-800">
+                    {selectedNewSchool.name} / {DAY_LABELS[selectedNewSchedule.dayOfWeek]}曜日 {selectedNewSchedule.startTime.slice(0, 5)}〜
+                  </p>
+                </CardContent>
+              </Card>
+            )}
+
+            {selectedNewSchedule && (
+              <div className="mt-4">
+                <Button
+                  className="w-full bg-purple-600 hover:bg-purple-700"
+                  onClick={handleConfirmSchoolChange}
+                  disabled={processing}
+                >
+                  {processing ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      処理中...
+                    </>
+                  ) : (
+                    '校舎変更を確定する'
+                  )}
+                </Button>
+                <p className="text-xs text-gray-500 text-center mt-2">
+                  ※ 変更は翌週から適用されます
+                </p>
+              </div>
+            )}
+          </section>
+          );
+        })()}
+
+        {/* 休会申請 */}
+        {mode === 'suspend' && selectedContract && (
+          <section className="space-y-4">
+            <div className="bg-orange-100 rounded-lg p-3 mb-4">
+              <p className="text-sm text-orange-800">
+                <span className="font-semibold">休会申請</span>
+              </p>
+              <p className="text-xs text-orange-700 mt-1">
+                {selectedContract.brand.brandName} / {selectedContract.school.schoolName}
+              </p>
+            </div>
+
+            <Card className="rounded-xl shadow-md">
+              <CardContent className="p-4 space-y-4">
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">
+                    休会開始日 <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="date"
+                    value={suspendFrom}
+                    onChange={(e) => setSuspendFrom(e.target.value)}
+                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                    min={new Date().toISOString().split('T')[0]}
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">
+                    休会終了日（任意）
+                  </label>
+                  <input
+                    type="date"
+                    value={suspendUntil}
+                    onChange={(e) => setSuspendUntil(e.target.value)}
+                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                    min={suspendFrom || new Date().toISOString().split('T')[0]}
+                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    未入力の場合、再開時期未定となります
+                  </p>
+                </div>
+
+                <div className="bg-orange-50 p-4 rounded-lg">
+                  <label className="flex items-start gap-3 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={keepSeat}
+                      onChange={(e) => setKeepSeat(e.target.checked)}
+                      className="mt-1 h-5 w-5 rounded border-gray-300 text-orange-500 focus:ring-orange-500"
+                    />
+                    <div>
+                      <span className="font-semibold text-gray-800">席を残す</span>
+                      <p className="text-sm text-gray-600 mt-1">
+                        休会中も座席を確保し、再開時に同じクラスに戻れます
+                      </p>
+                      <p className="text-sm text-orange-600 font-semibold mt-1">
+                        ※ 座席保持料：月額800円
+                      </p>
+                    </div>
+                  </label>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">
+                    休会理由（任意）
+                  </label>
+                  <textarea
+                    value={suspendReason}
+                    onChange={(e) => setSuspendReason(e.target.value)}
+                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                    rows={3}
+                    placeholder="例：習い事の都合、学校行事など"
                   />
                 </div>
               </CardContent>
             </Card>
 
-            {selectedDate && (
-              <Card className="rounded-xl shadow-md bg-amber-50 border-amber-200">
-                <CardContent className="p-4">
-                  <p className="text-sm text-gray-700 font-semibold mb-2">
-                    {format(selectedDate, 'yyyy年MM月dd日(E)', { locale: ja })}
-                  </p>
-                  {(() => {
-                    const dayInfo = getCalendarDayInfo(selectedDate);
-                    if (dayInfo) {
-                      return (
-                        <div className="flex items-center gap-2">
-                          {dayInfo.isNativeDay ? (
-                            <>
-                              <Globe className="h-4 w-4 text-orange-600" />
-                              <span className="text-sm text-orange-700">外国人講師の日</span>
-                            </>
-                          ) : dayInfo.isJapaneseOnly ? (
-                            <>
-                              <Users className="h-4 w-4 text-blue-600" />
-                              <span className="text-sm text-blue-700">日本人講師の日</span>
-                            </>
-                          ) : null}
-                          {dayInfo.displayLabel && (
-                            <Badge variant="outline" className="ml-2">{dayInfo.displayLabel}</Badge>
-                          )}
-                        </div>
-                      );
-                    }
-                    return null;
-                  })()}
-                </CardContent>
-              </Card>
+            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
+              <div className="flex gap-2">
+                <AlertCircle className="w-5 h-5 text-yellow-600 flex-shrink-0" />
+                <div className="text-sm text-yellow-800">
+                  <p className="font-semibold">ご注意</p>
+                  <p>休会申請はスタッフの承認後に確定します。</p>
+                </div>
+              </div>
+            </div>
+
+            {suspendFrom && (
+              <Button
+                className="w-full bg-orange-500 hover:bg-orange-600"
+                onClick={handleConfirmSuspension}
+                disabled={processing}
+              >
+                {processing ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    処理中...
+                  </>
+                ) : (
+                  '休会を申請する'
+                )}
+              </Button>
             )}
           </section>
         )}
 
-        {step === 'time' && (
-          <section>
-            <Button variant="ghost" className="mb-4" onClick={() => setStep('date')}>
-              <ChevronLeft className="h-4 w-4 mr-2" />
-              戻る
-            </Button>
+        {/* 退会申請 */}
+        {mode === 'cancel' && selectedContract && (
+          <section className="space-y-4">
+            <div className="bg-red-100 rounded-lg p-3 mb-4">
+              <p className="text-sm text-red-800">
+                <span className="font-semibold">退会申請</span>
+              </p>
+              <p className="text-xs text-red-700 mt-1">
+                {selectedContract.brand.brandName} / {selectedContract.school.schoolName}
+              </p>
+            </div>
 
-            <Card className="rounded-xl shadow-md bg-blue-50 border-blue-200 mb-6">
-              <CardContent className="p-4 space-y-2">
-                <p className="text-sm"><span className="font-semibold">お子様:</span> {selectedChild?.studentNumber} {selectedChild?.fullName}</p>
-                <p className="text-sm"><span className="font-semibold">教室:</span> {selectedSchool?.name}</p>
-                <p className="text-sm"><span className="font-semibold">日付:</span> {selectedDate ? format(selectedDate, 'yyyy年MM月dd日(E)', { locale: ja }) : ''}</p>
-                {(() => {
-                  const dayInfo = selectedDate ? getCalendarDayInfo(selectedDate) : null;
-                  if (dayInfo) {
-                    return (
-                      <p className="text-sm">
-                        <span className="font-semibold">タイプ:</span>{' '}
-                        {dayInfo.isNativeDay ? '外国人講師の日' : dayInfo.isJapaneseOnly ? '日本人講師の日' : ''}
-                      </p>
-                    );
-                  }
-                  return null;
-                })()}
+            <Card className="rounded-xl shadow-md">
+              <CardContent className="p-4 space-y-4">
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">
+                    退会日 <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="date"
+                    value={cancelDate}
+                    onChange={(e) => setCancelDate(e.target.value)}
+                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
+                    min={new Date().toISOString().split('T')[0]}
+                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    当月退会の場合、日割り計算で相殺される場合があります
+                  </p>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">
+                    退会理由（任意）
+                  </label>
+                  <textarea
+                    value={cancelReason}
+                    onChange={(e) => setCancelReason(e.target.value)}
+                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
+                    rows={3}
+                    placeholder="差し支えなければ、退会理由をお聞かせください"
+                  />
+                </div>
               </CardContent>
             </Card>
 
-            <h2 className="text-lg font-semibold text-gray-800 mb-4">時間帯を選択</h2>
-            <div className="space-y-3">
-              {timeSlots.map((time, index) => (
-                <Card
-                  key={index}
-                  className={`rounded-xl shadow-md hover:shadow-lg transition-shadow cursor-pointer ${selectedTime === time ? 'border-blue-500 border-2 bg-blue-50' : ''
-                    }`}
-                  onClick={() => handleTimeSelect(time)}
-                >
-                  <CardContent className="p-4 flex items-center gap-3">
-                    <Clock className={`h-5 w-5 ${selectedTime === time ? 'text-blue-600' : 'text-gray-600'}`} />
-                    <h3 className={`font-semibold ${selectedTime === time ? 'text-blue-600' : 'text-gray-800'}`}>
-                      {time}
-                    </h3>
-                  </CardContent>
-                </Card>
-              ))}
+            <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+              <div className="flex gap-2">
+                <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0" />
+                <div className="text-sm text-red-800">
+                  <p className="font-semibold">ご注意</p>
+                  <ul className="list-disc list-inside mt-1 space-y-1">
+                    <li>退会申請はスタッフの承認後に確定します</li>
+                    <li>退会後の再入会には入会金が必要になる場合があります</li>
+                    <li>未使用のチケットは退会日まで使用可能です</li>
+                  </ul>
+                </div>
+              </div>
             </div>
 
-            <Button
-              onClick={handleConfirm}
-              className="w-full h-14 rounded-full bg-blue-600 hover:bg-blue-700 text-white font-semibold text-lg mt-6"
-              disabled={!selectedTime}
-            >
-              予約を確定する
-            </Button>
+            {cancelDate && (
+              <Button
+                className="w-full bg-red-500 hover:bg-red-600"
+                onClick={handleConfirmCancellation}
+                disabled={processing}
+              >
+                {processing ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    処理中...
+                  </>
+                ) : (
+                  '退会を申請する'
+                )}
+              </Button>
+            )}
           </section>
         )}
 
-        {step === 'qr' && (
+        {/* 完了画面 */}
+        {mode === 'confirm' && (
           <section>
-            <Button variant="ghost" className="mb-4" onClick={() => setStep('ticket')}>
-              <ChevronLeft className="h-4 w-4 mr-2" />
-              戻る
+            <Card className="rounded-xl shadow-md border-green-200 bg-green-50">
+              <CardContent className="p-6 text-center">
+                <CheckCircle className="w-16 h-16 text-green-500 mx-auto mb-4" />
+                <h2 className="text-xl font-bold text-green-800 mb-2">申請完了</h2>
+                <p className="text-green-700">{successMessage}</p>
+              </CardContent>
+            </Card>
+            <Button
+              className="w-full mt-4"
+              onClick={() => router.push('/feed')}
+            >
+              ホームに戻る
             </Button>
-
-            <div className="text-center">
-              <Card className="rounded-xl shadow-md bg-purple-50 border-purple-200 mb-6">
-                <CardContent className="p-6">
-                  <div className="flex items-center justify-center gap-3 mb-4">
-                    <QrCode className="h-6 w-6 text-purple-600" />
-                    <h2 className="text-xl font-bold text-gray-800">イベントチケット</h2>
-                  </div>
-                  <p className="text-sm text-gray-600 mb-2">{selectedTicket?.eventName}</p>
-                  <Badge className="bg-purple-500 text-white">
-                    残り{selectedTicket?.count}枚
-                  </Badge>
-                </CardContent>
-              </Card>
-
-              <Card className="rounded-xl shadow-md mb-6">
-                <CardContent className="p-8">
-                  <div className="bg-white p-4 rounded-xl inline-block">
-                    <img
-                      src={generateQRCode()}
-                      alt="QR Code"
-                      className="w-48 h-48 mx-auto"
-                    />
-                  </div>
-                  <p className="text-sm text-gray-600 mt-4">
-                    このQRコードを会場で提示してください
-                  </p>
-                </CardContent>
-              </Card>
-
-              <Card className="rounded-xl shadow-md bg-blue-50 border-blue-200">
-                <CardContent className="p-4">
-                  <p className="text-sm text-gray-700">
-                    ※ QRコードは画面を明るくしてご提示ください<br />
-                    ※ 1回の使用で1枚消費されます
-                  </p>
-                </CardContent>
-              </Card>
-            </div>
           </section>
         )}
       </main>
 
       <BottomTabBar />
-    </div >
+    </div>
   );
 }

@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
-import { Loader2, CheckCircle } from 'lucide-react';
+import { Loader2, Check } from 'lucide-react';
 import type { BrandSchool } from '@/lib/api/schools';
 
 interface MapSchoolSelectorProps {
@@ -24,8 +24,6 @@ export function MapSchoolSelector({
   const markersRef = useRef<any[]>([]);
   const [mapLoaded, setMapLoaded] = useState(false);
   const [mapError, setMapError] = useState(false);
-
-  const selectedSchool = schools.find(s => s.id === selectedSchoolId);
 
   // 校舎の境界を計算
   const getBounds = () => {
@@ -119,26 +117,31 @@ export function MapSchoolSelector({
           const schoolsWithLocation = schools.filter(s => s.latitude && s.longitude);
 
           schoolsWithLocation.forEach((school) => {
-            // カスタムマーカー要素を作成
+            // カスタムマーカー要素を作成（星型SVG）
             const el = document.createElement('div');
             el.className = 'map-marker';
-            el.style.width = '28px';
-            el.style.height = '28px';
-            el.style.backgroundColor = school.id === selectedSchoolId ? '#3B82F6' : '#EF4444';
-            el.style.border = '3px solid white';
-            el.style.borderRadius = '50%';
+            el.style.width = '32px';
+            el.style.height = '32px';
             el.style.cursor = 'pointer';
-            el.style.boxShadow = '0 2px 6px rgba(0,0,0,0.3)';
+            el.style.filter = 'drop-shadow(0 2px 4px rgba(0,0,0,0.3))';
             el.dataset.schoolId = school.id;
 
-            // hover時のスタイル変更（transformは位置ずれの原因になるので使わない）
+            // 星型SVGを設定
+            const starColor = school.id === selectedSchoolId ? '#3B82F6' : '#F59E0B';
+            el.innerHTML = `
+              <svg viewBox="0 0 24 24" fill="${starColor}" stroke="white" stroke-width="1.5" style="width: 100%; height: 100%;">
+                <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
+              </svg>
+            `;
+
+            // hover時のスタイル変更
             el.addEventListener('mouseenter', () => {
-              el.style.boxShadow = '0 4px 12px rgba(0,0,0,0.4)';
-              el.style.borderWidth = '4px';
+              el.style.filter = 'drop-shadow(0 4px 8px rgba(0,0,0,0.4))';
+              el.style.transform = 'scale(1.1)';
             });
             el.addEventListener('mouseleave', () => {
-              el.style.boxShadow = '0 2px 6px rgba(0,0,0,0.3)';
-              el.style.borderWidth = '3px';
+              el.style.filter = 'drop-shadow(0 2px 4px rgba(0,0,0,0.3))';
+              el.style.transform = 'scale(1)';
             });
 
             // ポップアップ
@@ -212,12 +215,16 @@ export function MapSchoolSelector({
     markersRef.current.forEach(({ element, schoolId }) => {
       if (element) {
         const isSelected = schoolId === selectedSchoolId;
-        element.style.backgroundColor = isSelected ? '#3B82F6' : '#EF4444';
-        // transform は使わない（位置がずれる原因）
+        const starColor = isSelected ? '#3B82F6' : '#F59E0B';
+        const svg = element.querySelector('svg');
+        if (svg) {
+          svg.setAttribute('fill', starColor);
+        }
       }
     });
 
     // 選択された校舎にパンする
+    const selectedSchool = schools.find(s => s.id === selectedSchoolId);
     if (selectedSchool && mapRef.current && selectedSchool.latitude && selectedSchool.longitude) {
       mapRef.current.flyTo({
         center: [selectedSchool.longitude, selectedSchool.latitude],
@@ -225,7 +232,7 @@ export function MapSchoolSelector({
         duration: 800,
       });
     }
-  }, [selectedSchoolId, selectedSchool]);
+  }, [selectedSchoolId, schools]);
 
   // ローディング中
   if (isLoading) {
@@ -262,8 +269,8 @@ export function MapSchoolSelector({
             <CardContent className="p-4">
               <div className="flex items-start gap-3">
                 {selectedSchoolId === school.id && (
-                  <div className="w-6 h-6 bg-green-100 rounded-full flex items-center justify-center flex-shrink-0">
-                    <CheckCircle className="h-4 w-4 text-green-600" />
+                  <div className="w-6 h-6 bg-green-500 rounded-full flex items-center justify-center flex-shrink-0">
+                    <Check className="h-4 w-4 text-white" />
                   </div>
                 )}
                 <div className="flex-1">
@@ -301,27 +308,6 @@ export function MapSchoolSelector({
           )}
         </div>
       </Card>
-
-      {/* 選択中の校舎 */}
-      {selectedSchool && (
-        <Card className="rounded-xl shadow-md border-2 border-green-500 bg-green-50">
-          <CardContent className="p-4">
-            <div className="flex items-start gap-3">
-              <div className="w-10 h-10 bg-green-100 rounded-full flex items-center justify-center flex-shrink-0">
-                <CheckCircle className="h-5 w-5 text-green-600" />
-              </div>
-              <div className="flex-1">
-                <p className="text-xs text-green-600 mb-1">選択中の校舎</p>
-                <h3 className="font-bold text-gray-800">{selectedSchool.name}</h3>
-                <p className="text-sm text-gray-600">{selectedSchool.address}</p>
-                {selectedSchool.phone && (
-                  <p className="text-xs text-gray-500 mt-1">TEL: {selectedSchool.phone}</p>
-                )}
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      )}
     </div>
   );
 }

@@ -12,13 +12,15 @@ import { useRouter } from 'next/navigation';
 import {
   login as apiLogin,
   logout as apiLogout,
-  getProfile,
-  getAccessToken,
-} from '@/lib/api';
-import type { Profile, LoginRequest, ApiError } from '@/lib/api';
+  getMe,
+  isAuthenticated as checkAuth,
+  getUserFromToken,
+} from '@/lib/api/auth';
+import type { Profile, LoginResponse } from '@/lib/api/auth';
+import type { ApiError } from '@/lib/api/client';
 
 interface AuthContextType {
-  user: Profile | null;
+  user: Profile | LoginResponse['user'] | null;
   loading: boolean;
   isAuthenticated: boolean;
   signIn: (email: string, password: string) => Promise<{ error: string | null }>;
@@ -36,25 +38,34 @@ const AuthContext = createContext<AuthContextType>({
 });
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<Profile | null>(null);
+  const [user, setUser] = useState<Profile | LoginResponse['user'] | null>(null);
   const [loading, setLoading] = useState(true);
   const router = useRouter();
 
   // 初期化時にユーザー情報を取得
   useEffect(() => {
     const initAuth = async () => {
-      const token = getAccessToken();
-      if (token) {
+      if (checkAuth()) {
         try {
-          const profile = await getProfile();
-          // 社員・講師のみアクセス可能 (バックエンドはcamelCase + 大文字で返す)
-          const userType = ((profile as any).userType || profile.user_type || '').toUpperCase();
-          if (userType === 'STAFF' || userType === 'INSTRUCTOR' || userType === 'TEACHER') {
-            setUser(profile);
-          } else {
-            // 権限がない場合はログアウト
-            await apiLogout();
-            setUser(null);
+          // まずトークンからユーザー情報を取得（高速）
+          const tokenUser = getUserFromToken();
+          if (tokenUser) {
+            // 社員・管理者のみアクセス可能
+            const userType = tokenUser.userType?.toUpperCase();
+            if (userType === 'STAFF' || userType === 'ADMIN' || userType === 'INSTRUCTOR' || userType === 'TEACHER') {
+              setUser(tokenUser);
+              // バックグラウンドで詳細情報を取得
+              try {
+                const profile = await getMe();
+                setUser(profile);
+              } catch {
+                // 詳細取得に失敗してもトークン情報は使う
+              }
+            } else {
+              // 権限がない場合はログアウト
+              await apiLogout();
+              setUser(null);
+            }
           }
         } catch {
           setUser(null);
@@ -69,11 +80,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signIn = useCallback(async (email: string, password: string) => {
     try {
       const response = await apiLogin({ email, password });
-      // 社員・講師のみアクセス可能 (バックエンドはcamelCase + 大文字で返す)
-      const userType = ((response.user as any).userType || response.user.user_type || '').toUpperCase();
-      if (userType !== 'STAFF' && userType !== 'INSTRUCTOR' && userType !== 'TEACHER') {
+      // 社員・管理者のみアクセス可能
+      const userType = response.user.userType?.toUpperCase();
+      if (userType !== 'STAFF' && userType !== 'ADMIN' && userType !== 'INSTRUCTOR' && userType !== 'TEACHER') {
         await apiLogout();
-        return { error: 'このアカウントでは講師業務システムにアクセスできません' };
+        return { error: 'このアカウントでは社員システムにアクセスできません' };
       }
       setUser(response.user);
       return { error: null };
@@ -91,7 +102,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const refreshUser = useCallback(async () => {
     try {
-      const profile = await getProfile();
+      const profile = await getMe();
       setUser(profile);
     } catch {
       setUser(null);

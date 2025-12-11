@@ -585,6 +585,12 @@ export interface CalendarEvent {
   status: string;
   color?: string;
   resourceId?: string;
+  classScheduleId?: string;
+  brandName?: string;
+  className?: string;
+  isNativeDay?: boolean;
+  holidayName?: string;
+  noticeMessage?: string;
 }
 
 // スケジュール取得パラメータ
@@ -673,6 +679,9 @@ export interface PublicCourse {
   schoolName?: string;
   gradeName?: string;
   items?: PublicCourseItem[];
+  ticketId?: string;
+  ticketCode?: string;
+  ticketName?: string;
 }
 
 export interface PublicPackCourse {
@@ -680,6 +689,14 @@ export interface PublicPackCourse {
   courseName: string;
   courseCode: string;
   coursePrice: number;
+}
+
+export interface PublicPackTicket {
+  ticketId: string;
+  ticketName: string;
+  ticketCode: string;
+  quantity: number;
+  perWeek: number;
 }
 
 export interface PublicPack {
@@ -697,4 +714,5 @@ export interface PublicPack {
   schoolName?: string;
   gradeName?: string;
   courses?: PublicPackCourse[];
+  tickets?: PublicPackTicket[];
 }

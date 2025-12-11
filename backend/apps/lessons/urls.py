@@ -10,6 +10,8 @@ from .views import (
     MakeupLessonViewSet,
     LessonRecordViewSet,
     GroupLessonEnrollmentViewSet,
+    StudentCalendarView,
+    MarkAbsenceView,
 )
 
 app_name = 'lessons'
@@ -23,5 +25,9 @@ router.register('records', LessonRecordViewSet, basename='record')
 router.register('enrollments', GroupLessonEnrollmentViewSet, basename='enrollment')
 
 urlpatterns = [
+    # 生徒カレンダー（開講時間割 + 年間カレンダー）
+    path('student-calendar/', StudentCalendarView.as_view(), name='student-calendar'),
+    # 欠席登録（カレンダーから）
+    path('mark-absence/', MarkAbsenceView.as_view(), name='mark-absence'),
     path('', include(router.urls)),
 ]

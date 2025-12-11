@@ -29,12 +29,54 @@ class Product(TenantModel):
     """
 
     class ItemType(models.TextChoices):
+        # 基本料金
         TUITION = 'tuition', '授業料'
         MONTHLY_FEE = 'monthly_fee', '月会費'
         FACILITY = 'facility', '設備費'
         TEXTBOOK = 'textbook', '教材費'
         EXPENSE = 'expense', '諸経費'
         ENROLLMENT = 'enrollment', '入会金'
+        # 入会時料金
+        ENROLLMENT_TUITION = 'enrollment_tuition', '入会時授業料'
+        ENROLLMENT_MONTHLY_FEE = 'enrollment_monthly_fee', '入会時月会費'
+        ENROLLMENT_FACILITY = 'enrollment_facility', '入会時設備費'
+        ENROLLMENT_TEXTBOOK = 'enrollment_textbook', '入会時教材費'
+        ENROLLMENT_EXPENSE = 'enrollment_expense', '入会時諸経費'
+        ENROLLMENT_MANAGEMENT = 'enrollment_management', '入会時総合指導管理費'
+        # 講習・テスト
+        SEMINAR = 'seminar', '講習会'
+        SEMINAR_SPRING = 'seminar_spring', '春期講習会'
+        SEMINAR_SUMMER = 'seminar_summer', '夏期講習会'
+        SEMINAR_WINTER = 'seminar_winter', '冬期講習会'
+        REQUIRED_SEMINAR = 'required_seminar', '必須講習会'
+        REQUIRED_COURSE = 'required_course', '必須講座'
+        TEST_PREP = 'test_prep', 'テスト対策費'
+        REQUIRED_TEST_PREP = 'required_test_prep', '必須テスト対策費'
+        MOCK_EXAM = 'mock_exam', '模試代'
+        REQUIRED_MOCK_EXAM = 'required_mock_exam', '必須模試代'
+        EXAM_PREP = 'exam_prep', '入試対策費'
+        REQUIRED_EXAM_PREP = 'required_exam_prep', '必須入試対策費'
+        # 検定
+        CERTIFICATION_FEE_1 = 'certification_fee_1', '検定料1'
+        CERTIFICATION_FEE_2 = 'certification_fee_2', '検定料2'
+        CERTIFICATION_FEE_3 = 'certification_fee_3', '検定料3'
+        CERTIFICATION_FEE_4 = 'certification_fee_4', '検定料4'
+        # 追加授業
+        EXTRA_TUITION = 'extra_tuition', '追加授業料'
+        INSTRUCTOR_FEE = 'instructor_fee', '講師指名料'
+        # 備品・グッズ
+        BAG = 'bag', 'バッグ'
+        ABACUS = 'abacus', 'そろばん本体代'
+        # 保育・学童
+        SNACK = 'snack', 'おやつ'
+        LUNCH = 'lunch', 'お弁当'
+        CHILDCARE_TICKET = 'childcare_ticket', '保育回数券'
+        CUSTODY = 'custody', '預り料'
+        TRANSPORTATION = 'transportation', '送迎費'
+        # 管理費
+        MANAGEMENT = 'management', '総合指導管理費'
+        RENT = 'rent', '家賃'
+        # その他
         OTHER = 'other', 'その他'
 
     class TaxType(models.TextChoices):
@@ -50,7 +92,7 @@ class Product(TenantModel):
     # 商品種別
     item_type = models.CharField(
         '商品種別',
-        max_length=20,
+        max_length=30,
         choices=ItemType.choices,
         default=ItemType.TUITION
     )
@@ -98,6 +140,21 @@ class Product(TenantModel):
         help_text='チェックすると契約から12ヶ月間は無料、13ヶ月目から料金発生'
     )
 
+    # 入会時授業料計算（月途中入会時の追加チケット計算用）
+    is_enrollment_tuition = models.BooleanField(
+        '入会時授業料',
+        default=False,
+        help_text='チェックすると入会日に基づいて追加チケット数を自動計算（フロント側）'
+    )
+    per_ticket_price = models.DecimalField(
+        '1チケット単価',
+        max_digits=10,
+        decimal_places=0,
+        null=True,
+        blank=True,
+        help_text='入会時授業料の場合、1チケットあたりの単価'
+    )
+
     # マイル・割引
     mile = models.DecimalField('マイル', max_digits=10, decimal_places=0, default=0)
     discount_max = models.DecimalField('割引Max', max_digits=10, decimal_places=0, default=0)
@@ -130,6 +187,41 @@ class Product(TenantModel):
         if price_record:
             return price_record.get_billing_price(billing_month)
         return self.base_price
+
+    def calculate_enrollment_tuition(self, enrollment_date, lessons_per_week=1):
+        """入会日に基づいて入会時授業料を計算
+
+        月途中入会の場合、残り週数 × 週あたりレッスン数 × 単価 で計算
+
+        Args:
+            enrollment_date: 入会日（date）
+            lessons_per_week: 週あたりのレッスン回数
+
+        Returns:
+            (追加チケット数, 金額) のタプル
+        """
+        import calendar
+        from datetime import date
+
+        if not self.is_enrollment_tuition or not self.per_ticket_price:
+            return (0, Decimal('0'))
+
+        # 入会日が月初なら追加チケットなし
+        if enrollment_date.day == 1:
+            return (0, Decimal('0'))
+
+        # その月の残り週数を計算（簡易版：残り日数 / 7）
+        _, days_in_month = calendar.monthrange(enrollment_date.year, enrollment_date.month)
+        remaining_days = days_in_month - enrollment_date.day + 1
+        remaining_weeks = max(0, (remaining_days + 6) // 7)  # 切り上げ
+
+        # 追加チケット数を計算
+        additional_tickets = remaining_weeks * lessons_per_week
+
+        # 金額を計算
+        amount = Decimal(additional_tickets) * self.per_ticket_price
+
+        return (additional_tickets, amount)
 
 
 # =============================================================================
@@ -641,6 +733,203 @@ class Certification(TenantModel):
 
 
 # =============================================================================
+# T07: チケット (Ticket)
+# =============================================================================
+class Ticket(TenantModel):
+    """T07: チケットマスタ
+
+    チケット情報を管理（T7_チケット情報.csvに対応）
+    チケットID（Ch10000001等）でコースと紐づく
+    """
+
+    class TicketType(models.TextChoices):
+        LESSON = '1', '1：授業'
+        SEMINAR = '5', '5：講習会'
+        MOCK_EXAM = '6', '6：模試'
+        TEST_PREP = '7', '7:テスト対策'
+        HOME_STUDY = '8', '8：自宅受講'
+        OTHER = '0', 'その他'
+
+    class TicketCategory(models.TextChoices):
+        REGULAR = '1', '通常'
+        MAKEUP = '2', '振替'
+        CARRYOVER = '3', '年マタギ'
+        OTHER = '0', 'その他'
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    ticket_code = models.CharField(
+        'チケットコード',
+        max_length=20,
+        help_text='T10000001形式（Tプレフィックス）'
+    )
+    ticket_name = models.CharField('チケット名', max_length=200)
+
+    # チケット種類
+    ticket_type = models.CharField(
+        'チケット種類',
+        max_length=10,
+        choices=TicketType.choices,
+        default=TicketType.LESSON
+    )
+    ticket_category = models.CharField(
+        'チケット区別',
+        max_length=10,
+        choices=TicketCategory.choices,
+        default=TicketCategory.REGULAR
+    )
+
+    # 振替関連
+    transfer_day = models.IntegerField(
+        '振替曜日',
+        null=True, blank=True,
+        help_text='0=日, 1=月, 2=火, 3=水, 4=木, 5=金, 6=土'
+    )
+    transfer_group = models.CharField('振替Group', max_length=50, blank=True)
+    consumption_symbol = models.CharField('消化記号', max_length=10, blank=True)
+
+    # 年間/週と枚数
+    annual_weekly = models.IntegerField(
+        '年間/週',
+        default=42,
+        help_text='年間授業回数'
+    )
+    max_per_lesson = models.IntegerField(
+        'Max値',
+        default=1,
+        help_text='1回あたりの消費チケット数'
+    )
+    total_tickets = models.IntegerField(
+        'チケット枚数',
+        default=42,
+        help_text='年間合計チケット数'
+    )
+
+    # フラグ
+    calendar_flag = models.IntegerField('カレンダーフラグ', default=2)
+    year_carryover = models.BooleanField(
+        '年マタギ利用',
+        default=False,
+        help_text='年度をまたいで利用可能か'
+    )
+    expiry_date = models.DateField('有効期限', null=True, blank=True)
+
+    # 関連
+    brand = models.ForeignKey(
+        'schools.Brand',
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='tickets',
+        verbose_name='ブランド'
+    )
+
+    description = models.TextField('説明', blank=True)
+    sort_order = models.IntegerField('表示順', default=0)
+    is_active = models.BooleanField('有効', default=True)
+
+    class Meta:
+        db_table = 't07_tickets'
+        verbose_name = 'T07_チケット'
+        verbose_name_plural = 'T07_チケット'
+        ordering = ['ticket_code']
+        unique_together = ['tenant_id', 'ticket_code']
+
+    def __str__(self):
+        return f"{self.ticket_name} ({self.ticket_code})"
+
+
+# =============================================================================
+# T08b: コース→チケット紐づけ (CourseTicket)
+# =============================================================================
+class CourseTicket(TenantModel):
+    """T08b: コースチケット構成
+
+    コースに紐づくチケットを定義
+    T8_契約とチケット情報.xlsxに対応
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+
+    course = models.ForeignKey(
+        'Course',
+        on_delete=models.CASCADE,
+        related_name='course_tickets',
+        verbose_name='コース'
+    )
+    ticket = models.ForeignKey(
+        Ticket,
+        on_delete=models.CASCADE,
+        related_name='in_courses',
+        verbose_name='チケット'
+    )
+
+    # チケット付与数
+    quantity = models.IntegerField(
+        '付与枚数',
+        default=1,
+        help_text='年間付与されるチケット枚数'
+    )
+    per_week = models.IntegerField(
+        '週あたり',
+        default=1,
+        help_text='週あたりの授業回数'
+    )
+
+    sort_order = models.IntegerField('表示順', default=0)
+    is_active = models.BooleanField('有効', default=True)
+
+    class Meta:
+        db_table = 't08b_course_tickets'
+        verbose_name = 'T08b_コースチケット'
+        verbose_name_plural = 'T08b_コースチケット'
+        ordering = ['course', 'sort_order']
+        unique_together = ['course', 'ticket']
+
+    def __str__(self):
+        return f"{self.course.course_name} ← {self.ticket.ticket_name}"
+
+
+# =============================================================================
+# T09b: パック→チケット紐づけ (PackTicket)
+# =============================================================================
+class PackTicket(TenantModel):
+    """T09b: パックチケット構成
+
+    パックに直接紐づくチケットを定義
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+
+    pack = models.ForeignKey(
+        'Pack',
+        on_delete=models.CASCADE,
+        related_name='pack_tickets',
+        verbose_name='パック'
+    )
+    ticket = models.ForeignKey(
+        Ticket,
+        on_delete=models.CASCADE,
+        related_name='in_packs',
+        verbose_name='チケット'
+    )
+
+    quantity = models.IntegerField('付与枚数', default=1)
+    per_week = models.IntegerField('週あたり', default=1)
+
+    sort_order = models.IntegerField('表示順', default=0)
+    is_active = models.BooleanField('有効', default=True)
+
+    class Meta:
+        db_table = 't09b_pack_tickets'
+        verbose_name = 'T09b_パックチケット'
+        verbose_name_plural = 'T09b_パックチケット'
+        ordering = ['pack', 'sort_order']
+        unique_together = ['pack', 'ticket']
+
+    def __str__(self):
+        return f"{self.pack.pack_name} ← {self.ticket.ticket_name}"
+
+
+# =============================================================================
 # T09: パック (Pack) - 複数コースのセット
 # =============================================================================
 class Pack(TenantModel):
@@ -1136,3 +1425,116 @@ class CertificationEnrollment(TenantModel):
 
     def __str__(self):
         return f"{self.student} - {self.certification}"
+
+
+# =============================================================================
+# 契約変更申請 (ContractChangeRequest)
+# =============================================================================
+class ContractChangeRequest(TenantModel):
+    """契約変更申請
+
+    休会申請・退会申請を保護者が行うためのモデル
+    """
+
+    class RequestType(models.TextChoices):
+        CLASS_CHANGE = 'class_change', 'クラス変更'
+        SCHOOL_CHANGE = 'school_change', '校舎変更'
+        SUSPENSION = 'suspension', '休会申請'
+        CANCELLATION = 'cancellation', '退会申請'
+
+    class Status(models.TextChoices):
+        PENDING = 'pending', '申請中'
+        APPROVED = 'approved', '承認済'
+        REJECTED = 'rejected', '却下'
+        CANCELLED = 'cancelled', '取消'
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+
+    contract = models.ForeignKey(
+        Contract,
+        on_delete=models.CASCADE,
+        related_name='change_requests',
+        verbose_name='契約'
+    )
+
+    request_type = models.CharField(
+        '申請種別',
+        max_length=20,
+        choices=RequestType.choices
+    )
+
+    status = models.CharField(
+        'ステータス',
+        max_length=20,
+        choices=Status.choices,
+        default=Status.PENDING
+    )
+
+    # クラス/校舎変更用
+    new_school = models.ForeignKey(
+        'schools.School',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='change_requests',
+        verbose_name='新校舎'
+    )
+    new_day_of_week = models.IntegerField('新曜日', null=True, blank=True)
+    new_start_time = models.TimeField('新開始時間', null=True, blank=True)
+    new_class_schedule = models.ForeignKey(
+        'schools.ClassSchedule',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='change_requests',
+        verbose_name='新クラススケジュール'
+    )
+    effective_date = models.DateField('適用日', null=True, blank=True)
+
+    # 休会用
+    suspend_from = models.DateField('休会開始日', null=True, blank=True)
+    suspend_until = models.DateField('休会終了日', null=True, blank=True)
+    keep_seat = models.BooleanField('座席保持', default=False)
+
+    # 退会用
+    cancel_date = models.DateField('退会日', null=True, blank=True)
+    refund_amount = models.DecimalField(
+        '相殺金額',
+        max_digits=10,
+        decimal_places=0,
+        null=True,
+        blank=True
+    )
+
+    reason = models.TextField('理由', blank=True)
+
+    # 申請者情報
+    requested_by = models.ForeignKey(
+        'users.User',
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name='contract_change_requests',
+        verbose_name='申請者'
+    )
+    requested_at = models.DateTimeField('申請日時', auto_now_add=True)
+
+    # 処理者情報
+    processed_by = models.ForeignKey(
+        'users.User',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='processed_contract_requests',
+        verbose_name='処理者'
+    )
+    processed_at = models.DateTimeField('処理日時', null=True, blank=True)
+    process_notes = models.TextField('処理メモ', blank=True)
+
+    class Meta:
+        db_table = 'contract_change_requests'
+        verbose_name = '契約変更申請'
+        verbose_name_plural = '契約変更申請'
+        ordering = ['-requested_at']
+
+    def __str__(self):
+        return f"{self.contract} - {self.get_request_type_display()} ({self.get_status_display()})"

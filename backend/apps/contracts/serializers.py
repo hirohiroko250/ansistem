@@ -335,6 +335,62 @@ class ContractCreateSerializer(serializers.ModelSerializer):
 
 
 # =============================================================================
+# 顧客用契約シリアライザー (MyContract)
+# =============================================================================
+class MyContractStudentSerializer(serializers.Serializer):
+    """顧客用生徒シリアライザー"""
+    id = serializers.UUIDField()
+    studentNo = serializers.CharField(source='student_no')
+    fullName = serializers.CharField(source='full_name')
+    grade = serializers.CharField(source='grade.grade_name', allow_null=True)
+
+
+class MyContractSchoolSerializer(serializers.Serializer):
+    """顧客用校舎シリアライザー"""
+    id = serializers.UUIDField()
+    schoolCode = serializers.CharField(source='school_code')
+    schoolName = serializers.CharField(source='school_name')
+
+
+class MyContractBrandSerializer(serializers.Serializer):
+    """顧客用ブランドシリアライザー"""
+    id = serializers.UUIDField()
+    brandCode = serializers.CharField(source='brand_code')
+    brandName = serializers.CharField(source='brand_name')
+
+
+class MyContractCourseSerializer(serializers.Serializer):
+    """顧客用コースシリアライザー"""
+    id = serializers.UUIDField()
+    courseCode = serializers.CharField(source='course_code')
+    courseName = serializers.CharField(source='course_name')
+
+
+class MyContractSerializer(serializers.ModelSerializer):
+    """顧客用契約シリアライザー（保護者向け）"""
+    contractNo = serializers.CharField(source='contract_no')
+    student = MyContractStudentSerializer(read_only=True)
+    school = MyContractSchoolSerializer(read_only=True)
+    brand = MyContractBrandSerializer(read_only=True)
+    course = MyContractCourseSerializer(read_only=True, allow_null=True)
+    contractDate = serializers.DateField(source='contract_date')
+    startDate = serializers.DateField(source='start_date')
+    endDate = serializers.DateField(source='end_date', allow_null=True)
+    monthlyTotal = serializers.DecimalField(source='monthly_total', max_digits=10, decimal_places=0)
+    dayOfWeek = serializers.IntegerField(source='day_of_week', allow_null=True)
+    startTime = serializers.TimeField(source='start_time', allow_null=True)
+    endTime = serializers.TimeField(source='end_time', allow_null=True)
+
+    class Meta:
+        model = Contract
+        fields = [
+            'id', 'contractNo', 'student', 'school', 'brand', 'course',
+            'status', 'contractDate', 'startDate', 'endDate',
+            'monthlyTotal', 'dayOfWeek', 'startTime', 'endTime'
+        ]
+
+
+# =============================================================================
 # 講習申込 (SeminarEnrollment)
 # =============================================================================
 class SeminarEnrollmentListSerializer(serializers.ModelSerializer):
@@ -468,12 +524,38 @@ class PublicCourseSerializer(serializers.Serializer):
     # コースに含まれる商品
     items = PublicCourseItemSerializer(source='course_items', many=True, read_only=True)
 
+    # チケット情報（開講時間割のフィルタ用）
+    ticketId = serializers.SerializerMethodField()
+    ticketCode = serializers.SerializerMethodField()
+    ticketName = serializers.SerializerMethodField()
+
     def get_price(self, obj):
         return obj.get_price()
 
     def get_isMonthly(self, obj):
         # コース価格が設定されていれば月額コースとみなす
         return obj.course_price is not None
+
+    def get_ticketId(self, obj):
+        # コースに紐づく最初のチケットのIDを返す
+        course_ticket = obj.course_tickets.first() if hasattr(obj, 'course_tickets') else None
+        if course_ticket and course_ticket.ticket:
+            return str(course_ticket.ticket.id)
+        return None
+
+    def get_ticketCode(self, obj):
+        # コースに紐づく最初のチケットのコードを返す
+        course_ticket = obj.course_tickets.first() if hasattr(obj, 'course_tickets') else None
+        if course_ticket and course_ticket.ticket:
+            return course_ticket.ticket.ticket_code
+        return None
+
+    def get_ticketName(self, obj):
+        # コースに紐づく最初のチケット名を返す
+        course_ticket = obj.course_tickets.first() if hasattr(obj, 'course_tickets') else None
+        if course_ticket and course_ticket.ticket:
+            return course_ticket.ticket.ticket_name
+        return None
 
 
 class PublicPackCourseSerializer(serializers.Serializer):
@@ -485,6 +567,15 @@ class PublicPackCourseSerializer(serializers.Serializer):
 
     def get_coursePrice(self, obj):
         return obj.course.get_price()
+
+
+class PublicPackTicketSerializer(serializers.Serializer):
+    """公開パックチケットシリアライザ"""
+    ticketId = serializers.UUIDField(source='ticket.id')
+    ticketName = serializers.CharField(source='ticket.ticket_name')
+    ticketCode = serializers.CharField(source='ticket.ticket_code')
+    quantity = serializers.IntegerField()
+    perWeek = serializers.IntegerField(source='per_week')
 
 
 class PublicPackSerializer(serializers.Serializer):
@@ -511,6 +602,9 @@ class PublicPackSerializer(serializers.Serializer):
 
     # 含まれるコース
     courses = PublicPackCourseSerializer(source='pack_courses', many=True, read_only=True)
+
+    # 含まれるチケット（クラス選択用）
+    tickets = PublicPackTicketSerializer(source='pack_tickets', many=True, read_only=True)
 
     def get_price(self, obj):
         return obj.get_price()

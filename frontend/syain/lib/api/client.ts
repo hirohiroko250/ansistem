@@ -1,13 +1,14 @@
 /**
  * Django REST API Client
- * JWT認証を使用したAPIクライアント
+ * JWT認証 + テナント対応 APIクライアント（社員向け）
  */
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1';
 
 // トークン管理
-const TOKEN_KEY = 'access_token';
-const REFRESH_TOKEN_KEY = 'refresh_token';
+const TOKEN_KEY = 'staff_access_token';
+const REFRESH_TOKEN_KEY = 'staff_refresh_token';
+const TENANT_ID_KEY = 'staff_tenant_id';
 
 export interface TokenPair {
   access: string;
@@ -20,7 +21,10 @@ export interface ApiError {
   errors?: Record<string, string[]>;
 }
 
-// トークン取得・保存
+// ============================================
+// トークン管理
+// ============================================
+
 export const getAccessToken = (): string | null => {
   if (typeof window === 'undefined') return null;
   return localStorage.getItem(TOKEN_KEY);
@@ -31,10 +35,20 @@ export const getRefreshToken = (): string | null => {
   return localStorage.getItem(REFRESH_TOKEN_KEY);
 };
 
+export const getTenantId = (): string | null => {
+  if (typeof window === 'undefined') return null;
+  return localStorage.getItem(TENANT_ID_KEY);
+};
+
 export const setTokens = (tokens: TokenPair): void => {
   if (typeof window === 'undefined') return;
   localStorage.setItem(TOKEN_KEY, tokens.access);
   localStorage.setItem(REFRESH_TOKEN_KEY, tokens.refresh);
+};
+
+export const setTenantId = (tenantId: string): void => {
+  if (typeof window === 'undefined') return;
+  localStorage.setItem(TENANT_ID_KEY, tenantId);
 };
 
 export const clearTokens = (): void => {
@@ -43,68 +57,108 @@ export const clearTokens = (): void => {
   localStorage.removeItem(REFRESH_TOKEN_KEY);
 };
 
+export const clearAll = (): void => {
+  if (typeof window === 'undefined') return;
+  localStorage.removeItem(TOKEN_KEY);
+  localStorage.removeItem(REFRESH_TOKEN_KEY);
+  localStorage.removeItem(TENANT_ID_KEY);
+};
+
+// ============================================
 // トークンリフレッシュ
+// ============================================
+
+let isRefreshing = false;
+let refreshPromise: Promise<string | null> | null = null;
+
 export const refreshAccessToken = async (): Promise<string | null> => {
+  // 同時に複数のリフレッシュリクエストを防ぐ
+  if (isRefreshing && refreshPromise) {
+    return refreshPromise;
+  }
+
   const refreshToken = getRefreshToken();
   if (!refreshToken) return null;
 
-  try {
-    const response = await fetch(`${API_BASE_URL}/auth/refresh/`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ refresh: refreshToken }),
-    });
+  isRefreshing = true;
+  refreshPromise = (async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/auth/refresh/`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ refresh: refreshToken }),
+      });
 
-    if (!response.ok) {
+      if (!response.ok) {
+        clearTokens();
+        return null;
+      }
+
+      const data = await response.json();
+      localStorage.setItem(TOKEN_KEY, data.access);
+      return data.access;
+    } catch {
       clearTokens();
       return null;
+    } finally {
+      isRefreshing = false;
+      refreshPromise = null;
     }
+  })();
 
-    const data = await response.json();
-    localStorage.setItem(TOKEN_KEY, data.access);
-    return data.access;
+  return refreshPromise;
+};
+
+// ============================================
+// JWT デコード（有効期限チェック用）
+// ============================================
+
+const isTokenExpired = (token: string, bufferSeconds = 60): boolean => {
+  try {
+    const payload = JSON.parse(atob(token.split('.')[1]));
+    const exp = payload.exp * 1000;
+    return Date.now() >= exp - bufferSeconds * 1000;
   } catch {
-    clearTokens();
-    return null;
+    return true;
   }
 };
 
-// API リクエスト関数
+// ============================================
+// API リクエスト
+// ============================================
+
 interface RequestOptions extends Omit<RequestInit, 'body'> {
   body?: unknown;
   skipAuth?: boolean;
+  tenantId?: string;
 }
 
 export async function apiRequest<T>(
   endpoint: string,
   options: RequestOptions = {}
 ): Promise<T> {
-  const { body, skipAuth = false, ...fetchOptions } = options;
+  const { body, skipAuth = false, tenantId, ...fetchOptions } = options;
 
   const headers: HeadersInit = {
     'Content-Type': 'application/json',
     ...(fetchOptions.headers || {}),
   };
 
+  // テナントID を追加
+  const tenant = tenantId || getTenantId();
+  if (tenant) {
+    (headers as Record<string, string>)['X-Tenant-ID'] = tenant;
+  }
+
   // 認証トークンを追加
   if (!skipAuth) {
     let token = getAccessToken();
 
     // トークンが期限切れの場合はリフレッシュを試みる
-    if (token) {
-      try {
-        const payload = JSON.parse(atob(token.split('.')[1]));
-        const exp = payload.exp * 1000;
-        if (Date.now() >= exp - 60000) {
-          // 1分前にリフレッシュ
-          token = await refreshAccessToken();
-        }
-      } catch {
-        // トークンのパースに失敗した場合はリフレッシュを試みる
-        token = await refreshAccessToken();
-      }
+    if (token && isTokenExpired(token)) {
+      token = await refreshAccessToken();
     }
 
     if (token) {
@@ -139,7 +193,20 @@ export async function apiRequest<T>(
         return {} as T;
       }
 
-      return retryResponse.json();
+      const retryData = await retryResponse.json();
+
+      // バックエンドが success: false を返した場合はエラーとして扱う
+      if (retryData && typeof retryData === 'object' && 'success' in retryData && retryData.success === false) {
+        const error = retryData.error || {};
+        throw {
+          message: error.message || 'APIエラーが発生しました',
+          status: retryResponse.status,
+          errors: error.details,
+          code: error.code,
+        } as ApiError & { code?: string };
+      }
+
+      return retryData as T;
     } else {
       // リフレッシュ失敗 - ログアウト状態
       clearTokens();
@@ -158,7 +225,20 @@ export async function apiRequest<T>(
     return {} as T;
   }
 
-  return response.json();
+  const data = await response.json();
+
+  // バックエンドが success: false を返した場合はエラーとして扱う
+  if (data && typeof data === 'object' && 'success' in data && data.success === false) {
+    const error = data.error || {};
+    throw {
+      message: error.message || 'APIエラーが発生しました',
+      status: response.status,
+      errors: error.details,
+      code: error.code,
+    } as ApiError & { code?: string };
+  }
+
+  return data as T;
 }
 
 async function createApiError(response: Response): Promise<ApiError> {
@@ -167,14 +247,21 @@ async function createApiError(response: Response): Promise<ApiError> {
 
   try {
     const data = await response.json();
-    if (data.detail) {
+    // バックエンドの統一エラーフォーマット {success: false, error: {code, message, details}} を処理
+    if (data.error && typeof data.error === 'object') {
+      message = data.error.message || message;
+      errors = data.error.details;
+    } else if (data.detail) {
       message = data.detail;
-    } else if (data.error) {
+    } else if (typeof data.error === 'string') {
       message = data.error;
     } else if (data.message) {
       message = data.message;
     }
-    errors = data.errors || data;
+    // errorsがオブジェクトでない場合は設定しない
+    if (!errors || typeof errors !== 'object') {
+      errors = data.errors;
+    }
   } catch {
     message = response.statusText || message;
   }
@@ -186,7 +273,10 @@ async function createApiError(response: Response): Promise<ApiError> {
   };
 }
 
+// ============================================
 // HTTP メソッドのショートカット
+// ============================================
+
 export const api = {
   get: <T>(endpoint: string, options?: Omit<RequestOptions, 'method' | 'body'>) =>
     apiRequest<T>(endpoint, { ...options, method: 'GET' }),

@@ -26,6 +26,7 @@ from .serializers import (
     CertificationListSerializer, CertificationDetailSerializer,
     StudentItemSerializer,
     ContractListSerializer, ContractDetailSerializer, ContractCreateSerializer,
+    MyContractSerializer,
     SeminarEnrollmentListSerializer, SeminarEnrollmentDetailSerializer,
     CertificationEnrollmentListSerializer, CertificationEnrollmentDetailSerializer,
 )
@@ -567,6 +568,300 @@ class ContractViewSet(CSVMixin, viewsets.ModelViewSet):
 
         return Response(stats)
 
+    @action(detail=False, methods=['get'], url_path='my-contracts')
+    def my_contracts(self, request):
+        """顧客用：ログインユーザーの子どもの契約一覧
+
+        保護者としてログインしている場合、その保護者に紐づく生徒の有効な契約を返す
+        """
+        from apps.students.models import Student, Guardian
+
+        user = request.user
+        tenant_id = getattr(request, 'tenant_id', None)
+
+        # ユーザーに紐づく保護者を取得
+        try:
+            guardian = Guardian.objects.get(user=user, tenant_id=tenant_id, deleted_at__isnull=True)
+        except Guardian.DoesNotExist:
+            return Response({'contracts': [], 'students': []})
+
+        # 保護者に紐づく生徒を取得
+        students = Student.objects.filter(
+            guardian=guardian,
+            tenant_id=tenant_id,
+            deleted_at__isnull=True
+        )
+
+        # 生徒の有効な契約を取得
+        contracts = Contract.objects.filter(
+            student__in=students,
+            tenant_id=tenant_id,
+            deleted_at__isnull=True,
+            status=Contract.Status.ACTIVE
+        ).select_related('student', 'student__grade', 'school', 'brand', 'course')
+
+        from apps.students.serializers import StudentListSerializer
+
+        return Response({
+            'students': StudentListSerializer(students, many=True).data,
+            'contracts': MyContractSerializer(contracts, many=True).data
+        })
+
+    @action(detail=True, methods=['post'], url_path='change-class')
+    def change_class(self, request, pk=None):
+        """クラス変更（曜日・時間変更）
+
+        翌週から適用。空席があれば即時OK
+        """
+        from apps.schools.models import ClassSchedule
+        from datetime import timedelta
+
+        contract = self.get_object()
+
+        # リクエストデータ
+        new_day_of_week = request.data.get('new_day_of_week')
+        new_start_time = request.data.get('new_start_time')
+        new_class_schedule_id = request.data.get('new_class_schedule_id')
+
+        if not all([new_day_of_week is not None, new_start_time, new_class_schedule_id]):
+            return Response(
+                {'error': '曜日、開始時間、クラススケジュールIDは必須です'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # クラススケジュールを取得して検証
+        try:
+            class_schedule = ClassSchedule.objects.get(
+                id=new_class_schedule_id,
+                tenant_id=request.tenant_id,
+                deleted_at__isnull=True
+            )
+        except ClassSchedule.DoesNotExist:
+            return Response(
+                {'error': '指定されたクラススケジュールが見つかりません'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        # 同じ校舎・ブランドかチェック
+        if class_schedule.school_id != contract.school_id:
+            return Response(
+                {'error': '校舎が異なります。校舎変更は別のAPIをご利用ください'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # TODO: 空席確認のロジック（将来実装）
+        # 今は常にOKとする
+
+        # 翌週の開始日を計算
+        today = timezone.now().date()
+        days_until_next_week = 7 - today.weekday()  # 次の月曜日まで
+        next_monday = today + timedelta(days=days_until_next_week)
+        effective_date = request.data.get('effective_date', next_monday.isoformat())
+
+        # 契約を更新
+        contract.day_of_week = int(new_day_of_week)
+        contract.start_time = new_start_time
+        if hasattr(class_schedule, 'end_time'):
+            contract.end_time = class_schedule.end_time
+        contract.save()
+
+        return Response({
+            'success': True,
+            'message': f'{effective_date}からクラスが変更されます',
+            'contract': ContractDetailSerializer(contract).data,
+            'effective_date': effective_date
+        })
+
+    @action(detail=True, methods=['post'], url_path='change-school')
+    def change_school(self, request, pk=None):
+        """校舎変更
+
+        翌週から適用
+        """
+        from apps.schools.models import School, ClassSchedule
+        from datetime import timedelta
+
+        contract = self.get_object()
+
+        # リクエストデータ
+        new_school_id = request.data.get('new_school_id')
+        new_day_of_week = request.data.get('new_day_of_week')
+        new_start_time = request.data.get('new_start_time')
+        new_class_schedule_id = request.data.get('new_class_schedule_id')
+
+        if not all([new_school_id, new_day_of_week is not None, new_start_time]):
+            return Response(
+                {'error': '校舎ID、曜日、開始時間は必須です'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # 校舎を取得して検証
+        try:
+            new_school = School.objects.get(
+                id=new_school_id,
+                tenant_id=request.tenant_id,
+                deleted_at__isnull=True
+            )
+        except School.DoesNotExist:
+            return Response(
+                {'error': '指定された校舎が見つかりません'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        # 翌週の開始日を計算
+        today = timezone.now().date()
+        days_until_next_week = 7 - today.weekday()
+        next_monday = today + timedelta(days=days_until_next_week)
+        effective_date = request.data.get('effective_date', next_monday.isoformat())
+
+        # 契約を更新
+        contract.school = new_school
+        contract.day_of_week = int(new_day_of_week)
+        contract.start_time = new_start_time
+        contract.save()
+
+        return Response({
+            'success': True,
+            'message': f'{effective_date}から校舎が{new_school.school_name}に変更されます',
+            'contract': ContractDetailSerializer(contract).data,
+            'effective_date': effective_date
+        })
+
+    @action(detail=True, methods=['post'], url_path='request-suspension')
+    def request_suspension(self, request, pk=None):
+        """休会申請
+
+        保護者からの休会申請を受け付ける
+        """
+        from .models import ContractChangeRequest
+        from datetime import datetime
+
+        contract = self.get_object()
+
+        # リクエストデータ
+        suspend_from = request.data.get('suspend_from')
+        suspend_until = request.data.get('suspend_until')
+        keep_seat = request.data.get('keep_seat', False)
+        reason = request.data.get('reason', '')
+
+        if not suspend_from:
+            return Response(
+                {'error': '休会開始日は必須です'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # 既存の申請中をチェック
+        existing = ContractChangeRequest.objects.filter(
+            tenant_id=request.tenant_id,
+            contract=contract,
+            request_type=ContractChangeRequest.RequestType.SUSPENSION,
+            status=ContractChangeRequest.Status.PENDING
+        ).exists()
+
+        if existing:
+            return Response(
+                {'error': 'すでに申請中の休会申請があります'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # 申請を作成
+        change_request = ContractChangeRequest.objects.create(
+            tenant_id=request.tenant_id,
+            contract=contract,
+            request_type=ContractChangeRequest.RequestType.SUSPENSION,
+            status=ContractChangeRequest.Status.PENDING,
+            suspend_from=suspend_from,
+            suspend_until=suspend_until if suspend_until else None,
+            keep_seat=keep_seat,
+            reason=reason,
+            requested_by=request.user
+        )
+
+        seat_fee_message = ''
+        if keep_seat:
+            seat_fee_message = '座席保持料（月額800円）が発生します。'
+
+        return Response({
+            'success': True,
+            'message': f'休会申請を受け付けました。{seat_fee_message}スタッフの承認後に確定します。',
+            'request_id': str(change_request.id),
+            'suspend_from': suspend_from,
+            'suspend_until': suspend_until,
+            'keep_seat': keep_seat
+        })
+
+    @action(detail=True, methods=['post'], url_path='request-cancellation')
+    def request_cancellation(self, request, pk=None):
+        """退会申請
+
+        保護者からの退会申請を受け付ける
+        """
+        from .models import ContractChangeRequest
+        from datetime import datetime, date
+        from decimal import Decimal
+
+        contract = self.get_object()
+
+        # リクエストデータ
+        cancel_date = request.data.get('cancel_date')
+        reason = request.data.get('reason', '')
+
+        if not cancel_date:
+            return Response(
+                {'error': '退会日は必須です'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # 既存の申請中をチェック
+        existing = ContractChangeRequest.objects.filter(
+            tenant_id=request.tenant_id,
+            contract=contract,
+            request_type=ContractChangeRequest.RequestType.CANCELLATION,
+            status=ContractChangeRequest.Status.PENDING
+        ).exists()
+
+        if existing:
+            return Response(
+                {'error': 'すでに申請中の退会申請があります'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # 相殺金額を計算（当月退会の場合）
+        cancel_date_obj = datetime.strptime(cancel_date, '%Y-%m-%d').date()
+        today = date.today()
+        refund_amount = None
+
+        if cancel_date_obj.year == today.year and cancel_date_obj.month == today.month:
+            # 当月退会の場合、日割り計算の目安を表示
+            days_in_month = 30
+            remaining_days = days_in_month - cancel_date_obj.day
+            monthly_fee = contract.monthly_fee or Decimal('0')
+            refund_amount = (monthly_fee / days_in_month * remaining_days).quantize(Decimal('1'))
+
+        # 申請を作成
+        change_request = ContractChangeRequest.objects.create(
+            tenant_id=request.tenant_id,
+            contract=contract,
+            request_type=ContractChangeRequest.RequestType.CANCELLATION,
+            status=ContractChangeRequest.Status.PENDING,
+            cancel_date=cancel_date,
+            refund_amount=refund_amount,
+            reason=reason,
+            requested_by=request.user
+        )
+
+        refund_message = ''
+        if refund_amount:
+            refund_message = f'相殺金額（目安）: {refund_amount:,}円'
+
+        return Response({
+            'success': True,
+            'message': f'退会申請を受け付けました。{refund_message}スタッフの承認後に確定します。',
+            'request_id': str(change_request.id),
+            'cancel_date': cancel_date,
+            'refund_amount': str(refund_amount) if refund_amount else None
+        })
+
     @action(detail=False, methods=['get'])
     def export(self, request):
         return self.export_csv(request)
@@ -754,7 +1049,7 @@ class PublicCourseListView(APIView):
         queryset = Course.objects.filter(
             is_active=True,
             deleted_at__isnull=True
-        ).select_related('brand', 'school', 'grade').prefetch_related('course_items__product')
+        ).select_related('brand', 'school', 'grade').prefetch_related('course_items__product', 'course_tickets__ticket')
 
         # ブランドでフィルタリング（UUIDまたはブランドコード）
         brand_id = request.query_params.get('brand_id')
@@ -800,7 +1095,7 @@ class PublicCourseDetailView(APIView):
         try:
             course = Course.objects.select_related(
                 'brand', 'school', 'grade'
-            ).prefetch_related('course_items__product').get(
+            ).prefetch_related('course_items__product', 'course_tickets__ticket').get(
                 id=pk,
                 is_active=True,
                 deleted_at__isnull=True
@@ -826,7 +1121,7 @@ class PublicPackListView(APIView):
         queryset = Pack.objects.filter(
             is_active=True,
             deleted_at__isnull=True
-        ).select_related('brand', 'school', 'grade').prefetch_related('pack_courses__course')
+        ).select_related('brand', 'school', 'grade').prefetch_related('pack_courses__course', 'pack_tickets__ticket')
 
         # ブランドでフィルタリング（UUIDまたはブランドコード）
         brand_id = request.query_params.get('brand_id')
@@ -871,7 +1166,7 @@ class PublicPackDetailView(APIView):
         try:
             pack = Pack.objects.select_related(
                 'brand', 'school', 'grade'
-            ).prefetch_related('pack_courses__course').get(
+            ).prefetch_related('pack_courses__course', 'pack_tickets__ticket').get(
                 id=pk,
                 is_active=True,
                 deleted_at__isnull=True

@@ -54,3 +54,8 @@ ALLOWED_HOSTS = ['*']
 
 # CORS - Allow all origins in development
 CORS_ALLOW_ALL_ORIGINS = True
+# Override CORS_ALLOWED_ORIGINS from base.py (must be empty when CORS_ALLOW_ALL_ORIGINS is True)
+CORS_ALLOWED_ORIGINS = []
+
+# Add simple CORS middleware as fallback (put it first in MIDDLEWARE)
+MIDDLEWARE.insert(0, 'config.cors_middleware.SimpleCORSMiddleware')

@@ -187,6 +187,17 @@ class BrandSchoolInline(admin.TabularInline):
     autocomplete_fields = ['school']
     fields = ['school', 'is_main', 'sort_order', 'is_active']
 
+    def save_new_objects(self, commit=True):
+        """新規オブジェクト保存時にtenant_idを親から継承"""
+        saved_instances = super().save_new_objects(commit=False)
+        for instance in saved_instances:
+            if hasattr(self, 'parent_instance') and self.parent_instance:
+                instance.tenant_id = self.parent_instance.tenant_id
+                instance.tenant_ref_id = self.parent_instance.tenant_ref_id
+            if commit:
+                instance.save()
+        return saved_instances
+
 
 class BrandInline(admin.TabularInline):
     """ブランドカテゴリに属するブランドのインライン編集"""
@@ -267,6 +278,18 @@ class BrandAdmin(CSVImportExportMixin, admin.ModelAdmin):
     @admin.display(description='開講校舎数')
     def get_school_count(self, obj):
         return obj.brand_schools.filter(is_active=True).count()
+
+    def save_formset(self, request, form, formset, change):
+        """インラインフォームセット保存時にtenant_idを親から継承"""
+        instances = formset.save(commit=False)
+        for instance in instances:
+            # 親オブジェクト（Brand）からtenant_idを継承
+            if hasattr(instance, 'tenant_id') and form.instance.tenant_id:
+                instance.tenant_id = form.instance.tenant_id
+            if hasattr(instance, 'tenant_ref_id') and form.instance.tenant_ref_id:
+                instance.tenant_ref_id = form.instance.tenant_ref_id
+            instance.save()
+        formset.save_m2m()
 
     # CSV Import設定
     csv_import_fields = {

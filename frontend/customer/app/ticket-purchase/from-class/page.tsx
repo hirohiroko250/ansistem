@@ -166,16 +166,37 @@ export default function FromClassPurchasePage() {
     fetchCategories();
   }, []);
 
-  // ブランド選択時に校舎を取得
+  // カテゴリ選択時に校舎を取得（カテゴリ内の全ブランドの校舎を取得）
   useEffect(() => {
-    if (!selectedBrand) return;
+    if (!selectedCategory) return;
 
     const fetchSchools = async () => {
       setIsLoadingSchools(true);
       setSchoolsError(null);
       try {
-        const data = await getBrandSchools(selectedBrand.id);
-        setSchools(data);
+        // カテゴリ内の全ブランドの校舎を取得して結合
+        const categoryBrands = selectedCategory.brands || [];
+        if (categoryBrands.length === 0) {
+          setSchools([]);
+          return;
+        }
+
+        const allSchoolsPromises = categoryBrands.map(brand => getBrandSchools(brand.id));
+        const allSchoolsArrays = await Promise.all(allSchoolsPromises);
+
+        // 校舎を結合し、IDで重複を除去
+        const schoolMap = new Map<string, BrandSchool>();
+        allSchoolsArrays.flat().forEach(school => {
+          if (!schoolMap.has(school.id)) {
+            schoolMap.set(school.id, school);
+          }
+        });
+        const uniqueSchools = Array.from(schoolMap.values());
+
+        // 校舎名でソート
+        uniqueSchools.sort((a, b) => a.name.localeCompare(b.name, 'ja'));
+
+        setSchools(uniqueSchools);
       } catch (err) {
         const apiError = err as ApiError;
         setSchoolsError(apiError.message || '校舎情報の取得に失敗しました');
@@ -184,7 +205,7 @@ export default function FromClassPurchasePage() {
       }
     };
     fetchSchools();
-  }, [selectedBrand]);
+  }, [selectedCategory]);
 
   // 校舎選択時に開講時間割を取得（APIから）
   useEffect(() => {

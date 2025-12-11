@@ -929,33 +929,47 @@ class SchoolClosure(TenantModel):
 class LessonCalendar(TenantModel):
     """T13: 開講カレンダー（日別の開講情報を管理）
 
-    Excelカレンダーの構造:
-    - カレンダーID: ブランド+校舎+タイプを識別（例: 1001_SKAEC_A）
-    - 日付: 各行が特定の日付
-    - 開講日: Y = 開講、それ以外 = 休講
-    - 消化チケット券種: A = 外国人講師あり、B = 日本人のみ
+    テナント単位で管理（全校舎共通）
+    カレンダーコードでパターンを識別:
+    - 1001_SKAEC_A: Aパターン（外国人講師あり）
+    - 1002_SKAEC_B: Bパターン（日本人講師のみ）
+    - 1003_AEC_P: Pパターン（ペアクラス等）
+    - Int_24: インターナショナル
     """
 
     class LessonType(models.TextChoices):
         TYPE_A = 'A', 'Aパターン（外国人講師あり）'
         TYPE_B = 'B', 'Bパターン（日本人講師のみ）'
+        TYPE_P = 'P', 'Pパターン（ペア）'
+        TYPE_Y = 'Y', 'Yパターン（インター）'
         CLOSED = 'closed', '休講'
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
 
-    # カレンダー識別
-    calendar_code = models.CharField('カレンダーコード', max_length=50)
+    # カレンダー識別（テナント単位、校舎は不要）
+    calendar_code = models.CharField(
+        'カレンダーコード',
+        max_length=50,
+        db_index=True,
+        help_text='例: 1001_SKAEC_A, 1003_AEC_P, Int_24'
+    )
+    # ブランドは参照用（オプション）
     brand = models.ForeignKey(
         Brand,
-        on_delete=models.CASCADE,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
         related_name='lesson_calendars',
         verbose_name='ブランド'
     )
+    # 校舎は不要（テナント全体で共通）だが後方互換性のため残す
     school = models.ForeignKey(
         School,
-        on_delete=models.CASCADE,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
         related_name='lesson_calendars',
-        verbose_name='校舎'
+        verbose_name='校舎（後方互換用）'
     )
 
     # 日付情報
@@ -1010,11 +1024,12 @@ class LessonCalendar(TenantModel):
         db_table = 't13_lesson_calendars'
         verbose_name = 'T13_開講カレンダー'
         verbose_name_plural = 'T13_開講カレンダー'
-        ordering = ['lesson_date', 'brand', 'school']
-        unique_together = ['tenant_id', 'brand', 'school', 'lesson_date']
+        ordering = ['calendar_code', 'lesson_date']
+        # カレンダーコード + 日付でユニーク（テナント単位）
+        unique_together = ['tenant_id', 'calendar_code', 'lesson_date']
 
     def __str__(self):
-        return f"{self.lesson_date} {self.brand.brand_name} {self.school.school_name} {self.lesson_type}"
+        return f"{self.calendar_code} {self.lesson_date} {self.lesson_type}"
 
     @property
     def is_native_day(self):
