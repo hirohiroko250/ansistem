@@ -174,12 +174,13 @@ export interface PricingPreviewRequest {
   packId?: string;
   additionalTickets?: number;
   promoCode?: string;
+  startDate?: string;  // 入会時授業料計算用（YYYY-MM-DD形式）
 }
 
 export interface PricingItem {
   productId: string;
   productName: string;
-  productType: 'tuition' | 'material' | 'misc';
+  productType: 'tuition' | 'material' | 'misc' | 'enrollment_tuition';
   unitPrice: number;
   quantity: number;
   subtotal: number;
@@ -187,6 +188,8 @@ export interface PricingItem {
   taxAmount: number;
   discountAmount: number;
   total: number;
+  tickets?: number;  // 入会時授業料の場合、チケット枚数
+  isEnrollmentTuition?: boolean;  // 入会時授業料フラグ
 }
 
 export interface PricingDiscount {
@@ -217,6 +220,7 @@ export interface PricingPreviewResponse {
     firstMonth: number;
     subsequentMonths: number;
   };
+  enrollmentTuition?: PricingItem;  // 入会時授業料情報（月途中入会時のみ）
 }
 
 export interface PricingCalculateRequest {

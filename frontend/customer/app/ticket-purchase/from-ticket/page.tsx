@@ -1029,7 +1029,26 @@ export default function FromTicketPurchasePage() {
                 <Calendar
                   mode="single"
                   selected={startDate}
-                  onSelect={setStartDate}
+                  onSelect={async (date) => {
+                    setStartDate(date);
+                    // 開始日が選択されたら料金プレビューを再取得（入会時授業料を含む）
+                    if (date && selectedCourse && selectedChild) {
+                      setIsLoadingPricing(true);
+                      try {
+                        const preview = await previewPricing({
+                          studentId: selectedChild.id,
+                          productIds: [selectedCourse.id],
+                          courseId: selectedCourse.id,
+                          startDate: format(date, 'yyyy-MM-dd'),
+                        });
+                        setPricingPreview(preview);
+                      } catch (err) {
+                        console.error('料金プレビュー取得エラー:', err);
+                      } finally {
+                        setIsLoadingPricing(false);
+                      }
+                    }
+                  }}
                   disabled={(date) => date < new Date()}
                   locale={ja}
                   className="rounded-md"
@@ -1051,7 +1070,34 @@ export default function FromTicketPurchasePage() {
               </div>
             )}
 
-            {startDate && (
+            {/* 入会時授業料の表示（月途中入会の場合） */}
+            {startDate && pricingPreview?.enrollmentTuition && (
+              <Card className="rounded-xl shadow-md mb-4 border-orange-200 bg-orange-50">
+                <CardContent className="p-4">
+                  <h3 className="font-semibold text-orange-800 mb-2">入会時授業料（当月分）</h3>
+                  <p className="text-sm text-gray-700">
+                    {pricingPreview.enrollmentTuition.productName}
+                  </p>
+                  <p className="text-sm text-gray-600 mt-1">
+                    月途中入会のため、追加チケット{pricingPreview.enrollmentTuition.tickets}回分が必要です。
+                  </p>
+                  <p className="text-lg font-bold text-orange-600 mt-2">
+                    ¥{pricingPreview.enrollmentTuition.total.toLocaleString()}
+                    <span className="text-xs text-gray-500 ml-1">(税込)</span>
+                  </p>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* 料金読み込み中 */}
+            {isLoadingPricing && (
+              <div className="flex items-center justify-center py-4">
+                <Loader2 className="h-5 w-5 animate-spin text-blue-500 mr-2" />
+                <span className="text-sm text-gray-600">料金計算中...</span>
+              </div>
+            )}
+
+            {startDate && !isLoadingPricing && (
               <Button
                 onClick={() => {
                   // 月額コースまたはパック（チケットあり）の場合は購入前にクラス選択
@@ -1500,6 +1546,24 @@ export default function FromTicketPurchasePage() {
                         {selectedClass.startTime} - {selectedClass.endTime}
                       </p>
                       <p className="text-xs text-gray-500">{selectedClass.school.name}</p>
+                    </div>
+                  </div>
+                )}
+
+                {/* 入会時授業料（月途中入会の場合） */}
+                {pricingPreview?.enrollmentTuition && (
+                  <div className="border-t pt-4">
+                    <p className="text-sm text-gray-600 mb-1">入会時授業料（当月分）</p>
+                    <div className="bg-orange-50 rounded-lg p-3">
+                      <p className="font-semibold text-gray-800">
+                        {pricingPreview.enrollmentTuition.productName}
+                      </p>
+                      <p className="text-sm text-gray-600">
+                        追加チケット{pricingPreview.enrollmentTuition.tickets}回分
+                      </p>
+                      <p className="text-orange-600 font-semibold mt-1">
+                        ¥{pricingPreview.enrollmentTuition.total.toLocaleString()}
+                      </p>
                     </div>
                   </div>
                 )}
