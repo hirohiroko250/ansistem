@@ -206,6 +206,14 @@ export interface PricingMile {
   remainingMile: number;
 }
 
+// マイル情報（プレビュー時に返される）
+export interface MileInfo {
+  balance: number;           // 現在の残高
+  canUse: boolean;           // 使用可能か（コース契約2つ以上必要）
+  maxDiscount: number;       // 最大割引額
+  reason?: string | null;    // 使用不可の場合の理由
+}
+
 export interface PricingPreviewResponse {
   items: PricingItem[];
   subtotal: number;
@@ -213,6 +221,7 @@ export interface PricingPreviewResponse {
   discounts: PricingDiscount[];
   discountTotal: number;
   mile?: PricingMile;
+  mileInfo?: MileInfo;  // マイル残高・使用可否情報
   companyContribution: number;
   schoolContribution: number;
   grandTotal: number;
@@ -237,16 +246,29 @@ export interface PricingCalculateResponse {
   total: number;
 }
 
+// スケジュール情報（チケット購入時に選択したクラスの曜日・時間）
+export interface SelectedSchedule {
+  id: string;
+  dayOfWeek: string;  // 曜日名（例: "月曜日"）
+  startTime: string;  // 開始時間（例: "16:00"）
+  endTime: string;    // 終了時間（例: "17:00"）
+  className?: string; // クラス名
+}
+
 export interface PricingConfirmRequest {
   previewId: string;
   paymentMethod: 'credit_card' | 'bank_transfer' | 'convenience_store';
   useMile?: number;
+  milesToUse?: number;  // 使用するマイル数
   studentId?: string;
   courseId?: string;
   // 購入時に選択した情報
   brandId?: string;
   schoolId?: string;
   startDate?: string;  // YYYY-MM-DD形式
+  // 選択したスケジュール情報（曜日・時間帯）
+  schedules?: SelectedSchedule[];
+  ticketId?: string;  // 選択したチケットID
 }
 
 export interface PricingConfirmResponse {
@@ -254,6 +276,8 @@ export interface PricingConfirmResponse {
   status: 'pending' | 'completed' | 'failed';
   paymentUrl?: string;
   message: string;
+  mileDiscount?: number;  // マイル割引額
+  milesUsed?: number;     // 使用したマイル数
 }
 
 // ============================================
@@ -592,7 +616,10 @@ export interface CalendarEvent {
   classScheduleId?: string;
   brandName?: string;
   className?: string;
+  schoolName?: string;
   isNativeDay?: boolean;
+  isAbsent?: boolean;  // 欠席フラグ
+  absenceTicketId?: string;  // 欠席チケットID
   holidayName?: string;
   noticeMessage?: string;
 }
@@ -693,6 +720,10 @@ export interface PublicPackCourse {
   courseName: string;
   courseCode: string;
   coursePrice: number;
+  // コースに紐付くチケット情報
+  ticketId?: string;
+  ticketCode?: string;
+  ticketName?: string;
 }
 
 export interface PublicPackTicket {
@@ -719,4 +750,87 @@ export interface PublicPack {
   gradeName?: string;
   courses?: PublicPackCourse[];
   tickets?: PublicPackTicket[];
+}
+
+// ============================================
+// 休会・退会申請関連
+// ============================================
+
+export type SuspensionReason = 'travel' | 'illness' | 'exam' | 'schedule' | 'financial' | 'other';
+export type WithdrawalReason = 'moving' | 'school_change' | 'graduation' | 'schedule' | 'financial' | 'satisfaction' | 'other_school' | 'other';
+export type RequestStatus = 'pending' | 'approved' | 'rejected' | 'cancelled';
+export type SuspensionStatus = RequestStatus | 'resumed';
+
+export interface SuspensionRequest {
+  id: string;
+  studentId: string;
+  studentName?: string;
+  studentNo?: string;
+  brandId: string;
+  brandName?: string;
+  schoolId: string;
+  schoolName?: string;
+  suspendFrom: string;
+  suspendUntil?: string;
+  keepSeat: boolean;
+  monthlyFeeDuringSuspension?: number;
+  reason: SuspensionReason;
+  reasonDetail?: string;
+  status: SuspensionStatus;
+  requestedAt: string;
+  requestedByName?: string;
+  processedAt?: string;
+  processedByName?: string;
+  processNotes?: string;
+  resumedAt?: string;
+  resumedByName?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SuspensionRequestCreate {
+  student: string;
+  brand?: string;
+  school?: string;
+  suspendFrom: string;
+  suspendUntil?: string;
+  keepSeat?: boolean;
+  reason: SuspensionReason;
+  reasonDetail?: string;
+}
+
+export interface WithdrawalRequest {
+  id: string;
+  studentId: string;
+  studentName?: string;
+  studentNo?: string;
+  brandId: string;
+  brandName?: string;
+  schoolId: string;
+  schoolName?: string;
+  withdrawalDate: string;
+  lastLessonDate?: string;
+  reason: WithdrawalReason;
+  reasonDetail?: string;
+  refundAmount?: number;
+  refundCalculated: boolean;
+  remainingTickets?: number;
+  status: RequestStatus;
+  requestedAt: string;
+  requestedByName?: string;
+  processedAt?: string;
+  processedByName?: string;
+  processNotes?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface WithdrawalRequestCreate {
+  student: string;
+  brand?: string;
+  school?: string;
+  withdrawalDate: string;
+  lastLessonDate?: string;
+  reason: WithdrawalReason;
+  reasonDetail?: string;
 }

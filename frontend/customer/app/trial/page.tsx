@@ -23,6 +23,7 @@ type Child = {
   studentId: string;
   name: string;
   age: number;
+  birthDate?: string;  // 学年フィルター用
 };
 
 // 生年月日から年齢を計算
@@ -45,6 +46,7 @@ function convertApiChild(apiChild: ApiChild): Child {
     studentId: apiChild.studentNumber || '',
     name: apiChild.fullName || `${apiChild.lastName}${apiChild.firstName}`,
     age: calculateAge(apiChild.birthDate),
+    birthDate: apiChild.birthDate,  // 学年フィルター用に生年月日を保持
   };
 }
 
@@ -89,6 +91,18 @@ type DaySchedule = {
   times: ScheduleTime[];
 };
 
+type DailyAvailability = {
+  date: string;
+  dayOfWeek: number;
+  isOpen: boolean;
+  totalCapacity: number;
+  bookedCount: number;
+  availableCount: number;
+  isAvailable: boolean;
+  reason?: string;
+};
+
+
 
 // ブランドカラー設定
 const brandColors: Record<string, string> = {
@@ -113,6 +127,7 @@ export default function TrialPage() {
   const [selectedTime, setSelectedTime] = useState<ScheduleTime | null>(null);
   const [selectedAvailability, setSelectedAvailability] = useState<AvailabilitySlot | null>(null);
 
+
   // API データ
   const [children, setChildren] = useState<Child[]>([]);
   const [childrenLoading, setChildrenLoading] = useState(true);
@@ -129,10 +144,15 @@ export default function TrialPage() {
   const [availabilityLoading, setAvailabilityLoading] = useState(false);
   const [isClosed, setIsClosed] = useState(false);
 
+  // 月間空き状況
+  const [monthlyAvailability, setMonthlyAvailability] = useState<Record<string, DailyAvailability>>({});
+  const [currentMonth, setCurrentMonth] = useState<Date>(new Date());
+
   // 予約状態
   const [bookingLoading, setBookingLoading] = useState(false);
   const [bookingError, setBookingError] = useState<string | null>(null);
   const [bookingSuccess, setBookingSuccess] = useState(false);
+
 
   // 子供一覧取得
   useEffect(() => {
@@ -199,15 +219,17 @@ export default function TrialPage() {
     fetchSchools();
   }, [selectedBrand]);
 
-  // スケジュール取得（校舎選択時）
+  // スケジュール取得（校舎選択時）- 学年フィルター対応
   useEffect(() => {
     if (!selectedSchoolId || !selectedBrand) return;
 
     const fetchSchedules = async () => {
       setLoading(true);
       try {
+        // birth_dateパラメータを追加して学年フィルターを適用
+        const birthDateParam = selectedChild?.birthDate ? `&birth_date=${selectedChild.birthDate}` : '';
         const res = await fetch(
-          `${API_BASE_URL}/schools/public/trial-schedule/?school_id=${selectedSchoolId}&brand_id=${selectedBrand.id}`
+          `${API_BASE_URL}/schools/public/trial-schedule/?school_id=${selectedSchoolId}&brand_id=${selectedBrand.id}${birthDateParam}`
         );
         const data = await res.json();
         if (data.schedule) {
@@ -220,7 +242,33 @@ export default function TrialPage() {
       }
     };
     fetchSchedules();
-  }, [selectedSchoolId, selectedBrand]);
+  }, [selectedSchoolId, selectedBrand, selectedChild?.birthDate]);
+
+  // 月間空き状況取得
+  useEffect(() => {
+    if (!selectedSchoolId || !selectedBrand || step !== 'date') return;
+
+    const fetchMonthlyAvailability = async () => {
+      try {
+        const year = currentMonth.getFullYear();
+        const month = currentMonth.getMonth() + 1;
+        const res = await fetch(
+          `${API_BASE_URL}/schools/public/trial-monthly-availability/?school_id=${selectedSchoolId}&brand_id=${selectedBrand.id}&year=${year}&month=${month}`
+        );
+        const data = await res.json();
+        if (data.days) {
+          const availabilityMap: Record<string, DailyAvailability> = {};
+          data.days.forEach((day: DailyAvailability) => {
+            availabilityMap[day.date] = day;
+          });
+          setMonthlyAvailability(availabilityMap);
+        }
+      } catch (error) {
+        console.error('Failed to fetch monthly availability:', error);
+      }
+    };
+    fetchMonthlyAvailability();
+  }, [selectedSchoolId, selectedBrand, currentMonth, step]);
 
   // 選択中の校舎を取得
   const selectedSchool = schools.find(s => s.id === selectedSchoolId);
@@ -235,7 +283,13 @@ export default function TrialPage() {
     if (!date || schedules.length === 0) return [];
     const dayOfWeek = getDayOfWeek(date);
     const scheduleForDay = schedules.find((s) => s.day === dayOfWeek);
-    return scheduleForDay ? scheduleForDay.times : [];
+    if (!scheduleForDay) return [];
+    // 時間順にソート（例: "10:00-11:00" → 10:00でソート）
+    return [...scheduleForDay.times].sort((a, b) => {
+      const timeA = a.time.split('-')[0].trim();
+      const timeB = b.time.split('-')[0].trim();
+      return timeA.localeCompare(timeB);
+    });
   };
 
   const handleChildSelect = (child: Child) => {
@@ -350,6 +404,13 @@ export default function TrialPage() {
       <main className="max-w-[390px] mx-auto px-4 py-6 pb-24">
         {step === 'child' && (
           <section>
+            <Link href="/">
+              <Button variant="ghost" className="mb-4">
+                <ChevronLeft className="h-4 w-4 mr-2" />
+                戻る
+              </Button>
+            </Link>
+
             <Card className="rounded-xl shadow-md bg-yellow-50 border-yellow-200 mb-6">
               <CardContent className="p-4">
                 <div className="flex items-center gap-3">
@@ -383,7 +444,7 @@ export default function TrialPage() {
                   </Link>
                 </div>
               ) : (
-                children.map((child) => (
+                [...children].sort((a, b) => b.age - a.age).map((child) => (
                   <Card
                     key={child.id}
                     className="rounded-xl shadow-md hover:shadow-lg transition-shadow cursor-pointer"
@@ -546,6 +607,7 @@ export default function TrialPage() {
                   mode="single"
                   selected={selectedDate}
                   onSelect={handleDateSelect}
+                  onMonthChange={(month) => setCurrentMonth(month)}
                   disabled={(date) => {
                     const today = new Date();
                     today.setHours(0, 0, 0, 0);
@@ -553,9 +615,62 @@ export default function TrialPage() {
                   }}
                   locale={ja}
                   className="rounded-md"
+                  modifiers={{
+                    hasAvailability: (date) => {
+                      const dateStr = format(date, 'yyyy-MM-dd');
+                      const dayInfo = monthlyAvailability[dateStr];
+                      return dayInfo?.isAvailable === true;
+                    },
+                    full: (date) => {
+                      const dateStr = format(date, 'yyyy-MM-dd');
+                      const dayInfo = monthlyAvailability[dateStr];
+                      return dayInfo?.isOpen === true && dayInfo?.availableCount === 0;
+                    },
+                    hasBookings: (date) => {
+                      const dateStr = format(date, 'yyyy-MM-dd');
+                      const dayInfo = monthlyAvailability[dateStr];
+                      return (dayInfo?.bookedCount ?? 0) > 0;
+                    },
+                  }}
+                  modifiersClassNames={{
+                    hasAvailability: 'bg-green-100 hover:bg-green-200',
+                    full: 'bg-red-100 hover:bg-red-200',
+                    hasBookings: 'font-bold',
+                  }}
+                  components={{
+                    DayContent: ({ date }) => {
+                      const dateStr = format(date, 'yyyy-MM-dd');
+                      const dayInfo = monthlyAvailability[dateStr];
+                      const bookedCount = dayInfo?.bookedCount ?? 0;
+                      const availableCount = dayInfo?.availableCount ?? 0;
+                      const isOpen = dayInfo?.isOpen ?? false;
+
+                      return (
+                        <div className="flex flex-col items-center">
+                          <span>{date.getDate()}</span>
+                          {isOpen && (bookedCount > 0 || availableCount > 0) && (
+                            <span className={`text-[10px] leading-none ${availableCount === 0 ? 'text-red-600' : 'text-green-600'}`}>
+                              {bookedCount > 0 ? `${bookedCount}人` : `残${availableCount}`}
+                            </span>
+                          )}
+                        </div>
+                      );
+                    },
+                  }}
                 />
               </CardContent>
             </Card>
+
+            <div className="mt-4 flex items-center gap-4 text-sm text-gray-600">
+              <div className="flex items-center gap-2">
+                <div className="w-4 h-4 bg-green-100 rounded"></div>
+                <span>空きあり</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="w-4 h-4 bg-red-100 rounded"></div>
+                <span>満席</span>
+              </div>
+            </div>
           </section>
         )}
 

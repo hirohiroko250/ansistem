@@ -7,8 +7,9 @@ from .views import (
     ProductViewSet, DiscountViewSet, CourseViewSet,
     PackViewSet,
     SeminarViewSet, CertificationViewSet,
-    ContractViewSet, StudentItemViewSet,
+    ContractViewSet, StudentItemViewSet, StudentDiscountViewSet,
     SeminarEnrollmentViewSet, CertificationEnrollmentViewSet,
+    OperationHistoryViewSet,
     # 公開API
     PublicBrandListView, PublicCourseListView, PublicCourseDetailView,
     PublicPackListView, PublicPackDetailView,
@@ -24,8 +25,10 @@ router.register('packs', PackViewSet, basename='pack')
 router.register('seminars', SeminarViewSet, basename='seminar')
 router.register('certifications', CertificationViewSet, basename='certification')
 router.register('student-items', StudentItemViewSet, basename='student-item')
+router.register('student-discounts', StudentDiscountViewSet, basename='student-discount')
 router.register('seminar-enrollments', SeminarEnrollmentViewSet, basename='seminar-enrollment')
 router.register('certification-enrollments', CertificationEnrollmentViewSet, basename='certification-enrollment')
+router.register('operation-history', OperationHistoryViewSet, basename='operation-history')
 # ContractViewSetは最後に登録（空のベースパスなので他のルートより後に）
 router.register('', ContractViewSet, basename='contract')
 

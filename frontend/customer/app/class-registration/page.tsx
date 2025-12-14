@@ -26,6 +26,21 @@ import { isAuthenticated } from '@/lib/api/auth';
 
 const DAY_LABELS = ['日', '月', '火', '水', '木', '金', '土'];
 
+// 月末日のリストを生成（6ヶ月分）
+const getEndOfMonthOptions = (): { value: string; label: string }[] => {
+  const options: { value: string; label: string }[] = [];
+  const today = new Date();
+
+  for (let i = 0; i < 6; i++) {
+    const date = new Date(today.getFullYear(), today.getMonth() + i + 1, 0); // 月末日
+    const value = date.toISOString().split('T')[0];
+    const label = `${date.getFullYear()}年${date.getMonth() + 1}月${date.getDate()}日`;
+    options.push({ value, label });
+  }
+
+  return options;
+};
+
 type ActionMode = 'list' | 'detail' | 'change-class' | 'change-school' | 'change-school-class' | 'suspend' | 'cancel' | 'confirm';
 
 export default function ClassRegistrationPage() {
@@ -102,7 +117,15 @@ export default function ClassRegistrationPage() {
   const fetchClassSchedules = useCallback(async (contract: MyContract) => {
     try {
       setLoadingSchedules(true);
-      const response = await getClassSchedules(contract.school.id, contract.brand.id);
+      // チケットコードがある場合はチケットでフィルタリング
+      // ticketCodeはTi10000063などの形式でClassScheduleのticket_idと一致
+      const ticketId = contract.ticket?.ticketCode;
+      const response = await getClassSchedules(
+        contract.school.id,
+        contract.brand.id,
+        undefined,  // brandCategoryId
+        ticketId    // ticketId（実際はticketCode）
+      );
       setClassSchedules(response);
     } catch (err) {
       console.error('Failed to fetch class schedules:', err);
@@ -128,10 +151,15 @@ export default function ClassRegistrationPage() {
   }, []);
 
   // 新しい校舎の時間割を取得
-  const fetchNewSchoolSchedules = useCallback(async (schoolId: string, brandId: string) => {
+  const fetchNewSchoolSchedules = useCallback(async (schoolId: string, brandId: string, ticketId?: string) => {
     try {
       setLoadingSchedules(true);
-      const response = await getClassSchedules(schoolId, brandId);
+      const response = await getClassSchedules(
+        schoolId,
+        brandId,
+        undefined,  // brandCategoryId
+        ticketId    // ticketId
+      );
       setNewSchoolSchedules(response);
     } catch (err) {
       console.error('Failed to fetch new school schedules:', err);
@@ -177,7 +205,9 @@ export default function ClassRegistrationPage() {
     if (school && selectedContract) {
       setSelectedNewSchool(school);
       setSelectedNewSchedule(null);
-      await fetchNewSchoolSchedules(school.id, selectedContract.brand.id);
+      // チケットコードがある場合はチケットでフィルタリング
+      const ticketId = selectedContract.ticket?.ticketCode;
+      await fetchNewSchoolSchedules(school.id, selectedContract.brand.id, ticketId);
       setMode('change-school-class');
     }
   };
@@ -329,6 +359,7 @@ export default function ClassRegistrationPage() {
             </Link>
           )}
           <h1 className="text-xl font-bold text-gray-800">クラス管理</h1>
+          {/* 注: URLはclass-registrationだがタイトルはクラス管理 */}
         </div>
       </header>
 
@@ -351,18 +382,18 @@ export default function ClassRegistrationPage() {
           </Card>
         )}
 
-        {/* 契約一覧（チケットベース） */}
+        {/* 受講中クラス一覧 */}
         {mode === 'list' && (
           <section>
-            <h2 className="text-lg font-semibold text-gray-800 mb-4">保有チケット・受講中のクラス</h2>
+            <h2 className="text-lg font-semibold text-gray-800 mb-4">受講中のクラス</h2>
 
             {contracts.length === 0 ? (
               <Card className="rounded-xl shadow-md bg-gray-50 border-gray-200">
                 <CardContent className="p-6 text-center">
                   <CalendarIcon className="h-12 w-12 text-gray-400 mx-auto mb-3" />
-                  <p className="text-gray-600">保有中のチケットがありません</p>
+                  <p className="text-gray-600">受講中のクラスがありません</p>
                   <Link href="/ticket-purchase">
-                    <Button className="mt-4">チケットを購入する</Button>
+                    <Button className="mt-4">コースを探す</Button>
                   </Link>
                 </CardContent>
               </Card>
@@ -383,32 +414,22 @@ export default function ClassRegistrationPage() {
                         {getStatusBadge(contract.status)}
                       </div>
 
-                      {/* チケット情報（メイン） */}
-                      {contract.ticket && (
-                        <div className="bg-gradient-to-r from-blue-50 to-blue-100 rounded-lg p-3 mb-3">
-                          <p className="text-xs text-blue-600 font-medium mb-1">チケット</p>
-                          <p className="font-bold text-gray-800">{contract.ticket.ticketName}</p>
-                          {contract.ticket.durationMinutes && (
-                            <p className="text-sm text-gray-600">{contract.ticket.durationMinutes}分</p>
-                          )}
-                        </div>
-                      )}
+                      {/* コース/ブランド情報（メイン） */}
+                      <div className="bg-gradient-to-r from-blue-50 to-blue-100 rounded-lg p-3 mb-3">
+                        <p className="text-xs text-blue-600 font-medium mb-1">{contract.brand.brandName}</p>
+                        <p className="font-bold text-gray-800">
+                          {contract.course?.courseName || contract.ticket?.ticketName || '未設定'}
+                        </p>
+                        {contract.ticket?.durationMinutes && (
+                          <p className="text-sm text-gray-600">{contract.ticket.durationMinutes}分レッスン</p>
+                        )}
+                      </div>
 
                       <div className="space-y-2">
-                        <div className="flex items-center gap-2 text-sm text-gray-600">
-                          <Building2 className="h-4 w-4" />
-                          <span>{contract.brand.brandName}</span>
-                        </div>
                         <div className="flex items-center gap-2 text-sm text-gray-600">
                           <MapPin className="h-4 w-4" />
                           <span>{contract.school.schoolName}</span>
                         </div>
-                        {contract.course && (
-                          <div className="flex items-center gap-2 text-sm text-gray-600">
-                            <CalendarIcon className="h-4 w-4" />
-                            <span>{contract.course.courseName}</span>
-                          </div>
-                        )}
                         {contract.dayOfWeek !== undefined && contract.startTime && (
                           <div className="flex items-center gap-2 text-sm text-gray-600">
                             <Clock className="h-4 w-4" />
@@ -428,22 +449,32 @@ export default function ClassRegistrationPage() {
           </section>
         )}
 
-        {/* 契約詳細 */}
+        {/* クラス詳細 */}
         {mode === 'detail' && selectedContract && (
           <section>
             <Card className="rounded-xl shadow-md mb-6">
               <CardContent className="p-4">
                 <div className="space-y-4">
-                  {/* チケット情報（メイン） */}
-                  {selectedContract.ticket && (
-                    <div className="bg-gradient-to-r from-blue-100 to-blue-200 rounded-lg p-4">
-                      <p className="text-xs text-blue-700 font-medium mb-1">保有チケット</p>
-                      <p className="text-lg font-bold text-gray-800">{selectedContract.ticket.ticketName}</p>
-                      {selectedContract.ticket.durationMinutes && (
-                        <p className="text-sm text-gray-600 mt-1">レッスン時間: {selectedContract.ticket.durationMinutes}分</p>
-                      )}
+                  {/* 生徒情報 */}
+                  <div className="flex items-center gap-3 p-3 bg-gray-100 rounded-lg">
+                    <User className="h-5 w-5 text-blue-600" />
+                    <div>
+                      <p className="text-xs text-gray-500">生徒</p>
+                      <p className="font-semibold text-gray-800">{selectedContract.student.fullName}</p>
                     </div>
-                  )}
+                    {getStatusBadge(selectedContract.status)}
+                  </div>
+
+                  {/* コース情報（メイン） */}
+                  <div className="bg-gradient-to-r from-blue-100 to-blue-200 rounded-lg p-4">
+                    <p className="text-xs text-blue-700 font-medium mb-1">受講中のコース</p>
+                    <p className="text-lg font-bold text-gray-800">
+                      {selectedContract.course?.courseName || selectedContract.ticket?.ticketName || '未設定'}
+                    </p>
+                    {selectedContract.ticket?.durationMinutes && (
+                      <p className="text-sm text-gray-600 mt-1">レッスン時間: {selectedContract.ticket.durationMinutes}分</p>
+                    )}
+                  </div>
 
                   <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
                     <Building2 className="h-5 w-5 text-blue-600" />
@@ -461,18 +492,17 @@ export default function ClassRegistrationPage() {
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
-                    <CalendarIcon className="h-5 w-5 text-blue-600" />
-                    <div>
-                      <p className="text-xs text-gray-500">コース</p>
-                      <p className="font-semibold text-gray-800">{selectedContract.course?.courseName || '-'}</p>
-                      {selectedContract.dayOfWeek !== undefined && selectedContract.startTime && (
-                        <p className="text-sm text-gray-600">
+                  {selectedContract.dayOfWeek !== undefined && selectedContract.startTime && (
+                    <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
+                      <CalendarIcon className="h-5 w-5 text-blue-600" />
+                      <div>
+                        <p className="text-xs text-gray-500">クラス・時間</p>
+                        <p className="font-semibold text-gray-800">
                           {DAY_LABELS[selectedContract.dayOfWeek]}曜日 {selectedContract.startTime?.slice(0, 5)}〜{selectedContract.endTime?.slice(0, 5)}
                         </p>
-                      )}
+                      </div>
                     </div>
-                  </div>
+                  )}
 
                   {selectedContract.startDate && (
                     <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
@@ -653,7 +683,7 @@ export default function ClassRegistrationPage() {
                         </tr>
                       </thead>
                       <tbody>
-                        {classSchedules.timeSlots.map((timeSlot, timeIdx) => (
+                        {[...classSchedules.timeSlots].sort((a, b) => a.time.localeCompare(b.time)).map((timeSlot, timeIdx) => (
                           <tr key={timeIdx} className="border-b border-gray-200 hover:bg-gray-50">
                             <td className="text-xs font-semibold py-3 px-2 bg-gray-50 sticky left-0 z-10">
                               {timeSlot.time}
@@ -990,30 +1020,45 @@ export default function ClassRegistrationPage() {
               <CardContent className="p-4 space-y-4">
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-2">
-                    休会開始日 <span className="text-red-500">*</span>
+                    休会開始月（月末） <span className="text-red-500">*</span>
                   </label>
-                  <input
-                    type="date"
+                  <select
                     value={suspendFrom}
                     onChange={(e) => setSuspendFrom(e.target.value)}
                     className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
-                    min={new Date().toISOString().split('T')[0]}
-                  />
+                  >
+                    <option value="">選択してください</option>
+                    {getEndOfMonthOptions().map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-xs text-gray-500 mt-1">
+                    休会は月末からの開始となります
+                  </p>
                 </div>
 
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-2">
-                    休会終了日（任意）
+                    休会終了月（月末・任意）
                   </label>
-                  <input
-                    type="date"
+                  <select
                     value={suspendUntil}
                     onChange={(e) => setSuspendUntil(e.target.value)}
                     className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
-                    min={suspendFrom || new Date().toISOString().split('T')[0]}
-                  />
+                  >
+                    <option value="">未定</option>
+                    {getEndOfMonthOptions()
+                      .filter((option) => !suspendFrom || option.value > suspendFrom)
+                      .map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                  </select>
                   <p className="text-xs text-gray-500 mt-1">
-                    未入力の場合、再開時期未定となります
+                    未選択の場合、再開時期未定となります
                   </p>
                 </div>
 
@@ -1097,17 +1142,22 @@ export default function ClassRegistrationPage() {
               <CardContent className="p-4 space-y-4">
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-2">
-                    退会日 <span className="text-red-500">*</span>
+                    退会日（月末） <span className="text-red-500">*</span>
                   </label>
-                  <input
-                    type="date"
+                  <select
                     value={cancelDate}
                     onChange={(e) => setCancelDate(e.target.value)}
                     className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
-                    min={new Date().toISOString().split('T')[0]}
-                  />
+                  >
+                    <option value="">選択してください</option>
+                    {getEndOfMonthOptions().map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
                   <p className="text-xs text-gray-500 mt-1">
-                    当月退会の場合、日割り計算で相殺される場合があります
+                    退会は月末付けとなります
                   </p>
                 </div>
 

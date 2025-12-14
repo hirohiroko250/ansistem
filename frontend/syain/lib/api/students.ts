@@ -17,7 +17,9 @@ export interface StudentSearchParams {
   search?: string;
   status?: string;
   grade?: string;
+  brandId?: string;
   schoolId?: string;
+  brandCategoryId?: string;  // 会社（ブランドカテゴリ）
   ordering?: string;
 }
 
@@ -34,7 +36,9 @@ export async function getStudents(
   if (params?.search) queryParams.append('search', params.search);
   if (params?.status) queryParams.append('status', params.status);
   if (params?.grade) queryParams.append('grade', params.grade);
+  if (params?.brandId) queryParams.append('brand_id', params.brandId);
   if (params?.schoolId) queryParams.append('school_id', params.schoolId);
+  if (params?.brandCategoryId) queryParams.append('brand_category_id', params.brandCategoryId);
   if (params?.ordering) queryParams.append('ordering', params.ordering);
 
   const query = queryParams.toString();

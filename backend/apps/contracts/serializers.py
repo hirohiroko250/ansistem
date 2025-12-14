@@ -6,7 +6,7 @@ from .models import (
     Product, Discount, Course, CourseItem,
     Pack, PackCourse,
     Seminar, Certification, CourseRequiredSeminar,
-    Contract, StudentItem, SeminarEnrollment, CertificationEnrollment
+    Contract, StudentItem, StudentDiscount, SeminarEnrollment, CertificationEnrollment
 )
 
 
@@ -260,52 +260,377 @@ class CertificationDetailSerializer(serializers.ModelSerializer):
 
 
 # =============================================================================
+# 割引 (StudentDiscount)
+# =============================================================================
+class StudentDiscountSerializer(serializers.ModelSerializer):
+    """生徒割引シリアライザー"""
+    brand_name = serializers.CharField(source='brand.brand_name', read_only=True, allow_null=True)
+    product_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = StudentDiscount
+        fields = [
+            'id', 'discount_name', 'amount', 'discount_unit',
+            'student_item_id', 'product_name',  # 明細単位の割引対応
+            'brand', 'brand_name',
+            'start_date', 'end_date', 'is_recurring', 'is_active'
+        ]
+        read_only_fields = ['id']
+
+    def get_product_name(self, obj):
+        """関連する明細の商品名を取得"""
+        if obj.student_item_id and obj.student_item:
+            return obj.student_item.product.product_name if obj.student_item.product else None
+        return None
+
+
+# =============================================================================
 # 生徒商品/請求明細 (StudentItem)
 # =============================================================================
 class StudentItemSerializer(serializers.ModelSerializer):
     """生徒商品（請求明細）"""
-    student_name = serializers.CharField(source='student.full_name', read_only=True)
-    product_name = serializers.CharField(source='product.product_name', read_only=True)
+    student_name = serializers.SerializerMethodField()
+    student_no = serializers.SerializerMethodField()
+    product_name = serializers.SerializerMethodField()
+    product_code = serializers.SerializerMethodField()
+    brand_name = serializers.SerializerMethodField()
+    school_name = serializers.SerializerMethodField()
+    course_name = serializers.SerializerMethodField()
 
     class Meta:
         model = StudentItem
         fields = [
-            'id', 'student', 'student_name', 'contract',
-            'product', 'product_name',
+            'id', 'old_id',
+            'student', 'student_name', 'student_no',
+            'contract',
+            'product', 'product_name', 'product_code',
+            'brand', 'brand_name',
+            'school', 'school_name',
+            'course', 'course_name',
+            'start_date', 'day_of_week', 'start_time', 'end_time',
             'billing_month', 'quantity', 'unit_price',
-            'discount_amount', 'final_price', 'notes'
+            'discount_amount', 'final_price', 'notes',
+            'created_at', 'updated_at'
         ]
-        read_only_fields = ['id']
+        read_only_fields = ['id', 'created_at', 'updated_at']
+
+    def get_student_name(self, obj):
+        if obj.student:
+            return obj.student.full_name or f"{obj.student.last_name}{obj.student.first_name}"
+        return None
+
+    def get_student_no(self, obj):
+        return obj.student.student_no if obj.student else None
+
+    def get_product_name(self, obj):
+        return obj.product.product_name if obj.product else None
+
+    def get_product_code(self, obj):
+        return obj.product.product_code if obj.product else None
+
+    def get_brand_name(self, obj):
+        return obj.brand.brand_name if obj.brand else None
+
+    def get_school_name(self, obj):
+        return obj.school.school_name if obj.school else None
+
+    def get_course_name(self, obj):
+        return obj.course.course_name if obj.course else None
+
+
+class StudentDiscountSerializer(serializers.ModelSerializer):
+    """生徒割引"""
+    student_name = serializers.SerializerMethodField()
+    student_no = serializers.SerializerMethodField()
+    guardian_name = serializers.SerializerMethodField()
+    brand_name = serializers.SerializerMethodField()
+    discount_unit_display = serializers.CharField(source='get_discount_unit_display', read_only=True)
+    end_condition_display = serializers.CharField(source='get_end_condition_display', read_only=True)
+
+    class Meta:
+        model = StudentDiscount
+        fields = [
+            'id', 'old_id',
+            'student', 'student_name', 'student_no',
+            'guardian', 'guardian_name',
+            'contract', 'student_item',
+            'brand', 'brand_name',
+            'discount_name', 'amount', 'discount_unit', 'discount_unit_display',
+            'start_date', 'end_date',
+            'is_recurring', 'is_auto', 'end_condition', 'end_condition_display',
+            'is_active', 'notes',
+            'created_at', 'updated_at'
+        ]
+        read_only_fields = ['id', 'created_at', 'updated_at']
+
+    def get_student_name(self, obj):
+        if obj.student:
+            return obj.student.full_name or f"{obj.student.last_name}{obj.student.first_name}"
+        return None
+
+    def get_student_no(self, obj):
+        return obj.student.student_no if obj.student else None
+
+    def get_guardian_name(self, obj):
+        if obj.guardian:
+            return obj.guardian.full_name or f"{obj.guardian.last_name}{obj.guardian.first_name}"
+        return None
+
+    def get_brand_name(self, obj):
+        return obj.brand.brand_name if obj.brand else None
 
 
 # =============================================================================
 # 契約 (Contract)
 # =============================================================================
-class ContractListSerializer(serializers.ModelSerializer):
-    """契約一覧"""
-    student_name = serializers.CharField(source='student.full_name', read_only=True)
-    school_name = serializers.CharField(source='school.school_name', read_only=True)
-    course_name = serializers.CharField(source='course.course_name', read_only=True)
+class ContractSimpleListSerializer(serializers.ModelSerializer):
+    """契約一覧（高速版）- N+1問題を回避するためシンプルなフィールドのみ"""
+    student_name = serializers.SerializerMethodField()
+    school_name = serializers.CharField(source='school.school_name', read_only=True, allow_null=True)
+    brand_name = serializers.CharField(source='brand.brand_name', read_only=True, allow_null=True)
+    course_name = serializers.CharField(source='course.course_name', read_only=True, allow_null=True)
 
     class Meta:
         model = Contract
         fields = [
             'id', 'contract_no', 'student', 'student_name',
-            'school', 'school_name', 'brand',
+            'school', 'school_name', 'brand', 'brand_name',
             'course', 'course_name',
             'contract_date', 'start_date', 'end_date',
-            'status', 'monthly_total'
+            'status', 'monthly_total',
+            'discount_applied', 'discount_type',
+            'day_of_week', 'start_time', 'end_time',
+            'created_at', 'updated_at',
         ]
 
+    def get_student_name(self, obj):
+        if obj.student:
+            return obj.student.full_name or f"{obj.student.last_name}{obj.student.first_name}"
+        return None
 
-class ContractDetailSerializer(serializers.ModelSerializer):
-    """契約詳細"""
-    student_name = serializers.CharField(source='student.full_name', read_only=True)
+
+class ContractListSerializer(serializers.ModelSerializer):
+    """契約一覧（詳細版）"""
+    student_name = serializers.SerializerMethodField()
+    school_name = serializers.SerializerMethodField()  # StudentItemからフォールバック
+    brand_name = serializers.SerializerMethodField()
+    course_name = serializers.SerializerMethodField()
+    student_items = serializers.SerializerMethodField()
+    monthly_total = serializers.SerializerMethodField()
+    discounts = serializers.SerializerMethodField()
+    discount_total = serializers.SerializerMethodField()
+    discount_max = serializers.SerializerMethodField()
+    # スケジュール（StudentItemからフォールバック）
+    day_of_week = serializers.SerializerMethodField()
+    start_time = serializers.SerializerMethodField()
+    end_time = serializers.SerializerMethodField()
+
+    def get_student_name(self, obj):
+        if obj.student:
+            return obj.student.full_name or f"{obj.student.last_name}{obj.student.first_name}"
+        return None
+
+    def get_brand_name(self, obj):
+        return obj.brand.brand_name if obj.brand else None
+
+    def get_course_name(self, obj):
+        return obj.course.course_name if obj.course else None
+
+    class Meta:
+        model = Contract
+        fields = [
+            'id', 'contract_no', 'student', 'student_name',
+            'school', 'school_name', 'brand', 'brand_name',
+            'course', 'course_name',
+            'contract_date', 'start_date', 'end_date',
+            'status', 'monthly_total',
+            # 割引関連
+            'discount_applied', 'discount_type',
+            'discounts', 'discount_total', 'discount_max',
+            # スケジュール
+            'day_of_week', 'start_time', 'end_time',
+            # 料金内訳
+            'student_items',
+            # タイムスタンプ
+            'created_at', 'updated_at',
+        ]
+
+    def _find_student_items(self, obj):
+        """生徒に関連するStudentItemを検索（複数条件でフォールバック）"""
+        # 1. 契約に直接紐付いているStudentItem
+        direct_items = obj.student_items.select_related('product', 'school').all()
+        if direct_items.exists():
+            return direct_items
+
+        # 2. 生徒 + ブランド で検索
+        brand_items = StudentItem.objects.filter(
+            student_id=obj.student_id,
+            brand_id=obj.brand_id,
+        ).select_related('product', 'school')
+        if brand_items.exists():
+            return brand_items[:15]
+
+        # 3. 生徒 + 校舎 で検索（brand_idがNullのケース対応）
+        school_items = StudentItem.objects.filter(
+            student_id=obj.student_id,
+            school_id=obj.school_id,
+        ).select_related('product', 'school')
+        if school_items.exists():
+            return school_items[:15]
+
+        # 4. 生徒のみで検索（最終フォールバック）
+        student_items = StudentItem.objects.filter(
+            student_id=obj.student_id,
+        ).select_related('product', 'school')[:15]
+        return student_items
+
+    def get_school_name(self, obj):
+        """校舎名を取得（StudentItemから優先、なければContractから）"""
+        # 1. StudentItemから校舎を取得（最初のアイテムの校舎）
+        related_items = self._find_student_items(obj)
+        if related_items:
+            for item in related_items:
+                if hasattr(item, 'school') and item.school:
+                    return item.school.school_name
+                elif hasattr(item, 'school_id') and item.school_id:
+                    # school_idはあるがschoolオブジェクトがない場合
+                    from apps.schools.models import School
+                    try:
+                        school = School.objects.get(id=item.school_id)
+                        return school.school_name
+                    except School.DoesNotExist:
+                        pass
+
+        # 2. Contractの校舎にフォールバック
+        if obj.school:
+            return obj.school.school_name
+        return None
+
+    def get_student_items(self, obj):
+        """契約に紐づく生徒商品を取得"""
+        # 1. コースの商品構成から生成（優先）
+        if obj.course:
+            course_items = obj.course.course_items.filter(is_active=True).select_related('product')
+            if course_items.exists():
+                items = []
+                for ci in course_items:
+                    items.append({
+                        'id': str(ci.id),
+                        'product_name': ci.product.product_name if ci.product else '',
+                        'quantity': ci.quantity,
+                        'unit_price': ci.get_price(),
+                        'final_price': ci.get_price() * ci.quantity,
+                        'billing_month': None,  # コース構成は請求月なし
+                    })
+                return items
+
+        # 2. StudentItemを検索（全て返す、フロントエンドでフィルタ）
+        related_items = self._find_student_items(obj)
+        if related_items:
+            return StudentItemSerializer(related_items, many=True).data
+
+        return []
+
+    def get_monthly_total(self, obj):
+        """月額合計を計算"""
+        # 契約に設定されている場合はそれを使用
+        if obj.monthly_total and obj.monthly_total > 0:
+            return obj.monthly_total
+
+        # コースの価格を取得
+        if obj.course:
+            return obj.course.get_price()
+
+        # StudentItemから計算
+        related_items = self._find_student_items(obj)
+        if related_items:
+            return sum(item.final_price or 0 for item in related_items)
+
+        return 0
+
+    def get_discounts(self, obj):
+        """生徒の割引情報を取得"""
+        # 生徒に紐づく有効な割引を取得
+        discounts = StudentDiscount.objects.filter(
+            student_id=obj.student_id,
+            is_active=True,
+        ).select_related('brand')
+
+        # ブランドでフィルタ（ブランド指定がある割引のみ）
+        brand_discounts = discounts.filter(brand_id=obj.brand_id)
+        general_discounts = discounts.filter(brand_id__isnull=True)
+
+        # 結合して返す
+        all_discounts = list(brand_discounts) + list(general_discounts)
+        return StudentDiscountSerializer(all_discounts, many=True).data
+
+    def get_discount_total(self, obj):
+        """割引合計を計算（負の値は絶対値で計算）"""
+        discounts = StudentDiscount.objects.filter(
+            student_id=obj.student_id,
+            is_active=True,
+        )
+        # ブランド指定またはブランドなしの割引
+        discounts = discounts.filter(
+            brand_id__isnull=True
+        ) | discounts.filter(brand_id=obj.brand_id)
+
+        # 割引額は負の値で格納されている場合があるため、絶対値で計算
+        total = sum(abs(d.amount or 0) for d in discounts)
+        return total
+
+    def get_discount_max(self, obj):
+        """割引Max取得（契約に紐づくコースまたは商品から）"""
+        discount_max = 0
+        # コースの商品から割引Maxを取得
+        if obj.course:
+            course_items = obj.course.course_items.filter(is_active=True).select_related('product')
+            for ci in course_items:
+                if ci.product and ci.product.discount_max:
+                    discount_max = max(discount_max, ci.product.discount_max)
+        # StudentItemから商品の割引Maxも確認
+        related_items = self._find_student_items(obj)
+        for si in related_items:
+            if hasattr(si, 'product') and si.product and si.product.discount_max:
+                discount_max = max(discount_max, si.product.discount_max)
+        return discount_max
+
+    def get_day_of_week(self, obj):
+        """曜日を取得（ContractまたはStudentItemから）"""
+        # 契約自体に曜日があればそれを使用
+        if obj.day_of_week is not None:
+            return obj.day_of_week
+        # StudentItemから曜日を取得
+        related_items = self._find_student_items(obj)
+        for si in related_items:
+            if hasattr(si, 'day_of_week') and si.day_of_week is not None:
+                return si.day_of_week
+        return None
+
+    def get_start_time(self, obj):
+        """開始時間を取得（ContractまたはStudentItemから）"""
+        if obj.start_time is not None:
+            return obj.start_time
+        related_items = self._find_student_items(obj)
+        for si in related_items:
+            if hasattr(si, 'start_time') and si.start_time is not None:
+                return si.start_time
+        return None
+
+    def get_end_time(self, obj):
+        """終了時間を取得（ContractまたはStudentItemから）"""
+        if obj.end_time is not None:
+            return obj.end_time
+        related_items = self._find_student_items(obj)
+        for si in related_items:
+            if hasattr(si, 'end_time') and si.end_time is not None:
+                return si.end_time
+        return None
+
+
+class ContractDetailSerializer(ContractListSerializer):
+    """契約詳細（ContractListSerializerを継承）"""
     guardian_name = serializers.CharField(source='guardian.full_name', read_only=True)
-    school_name = serializers.CharField(source='school.school_name', read_only=True)
-    brand_name = serializers.CharField(source='brand.brand_name', read_only=True)
-    course_name = serializers.CharField(source='course.course_name', read_only=True)
-    student_items = StudentItemSerializer(many=True, read_only=True)
 
     class Meta:
         model = Contract
@@ -316,6 +641,12 @@ class ContractDetailSerializer(serializers.ModelSerializer):
             'course', 'course_name',
             'contract_date', 'start_date', 'end_date',
             'status', 'monthly_total', 'notes',
+            # 割引関連
+            'discount_applied', 'discount_type',
+            'discounts', 'discount_total', 'discount_max',
+            # スケジュール
+            'day_of_week', 'start_time', 'end_time',
+            # 料金内訳
             'student_items',
             'created_at', 'updated_at'
         ]
@@ -471,8 +802,12 @@ class MyStudentItemSerializer(serializers.ModelSerializer):
         return str(obj.id)[:8].upper()
 
     def get_ticket(self, obj):
-        """コースに紐づくチケットを取得"""
-        # コースがある場合はCourseTicketから取得
+        """StudentItemまたはコースに紐づくチケットを取得"""
+        # 1. StudentItemに直接ticketが紐づいている場合
+        if hasattr(obj, 'ticket') and obj.ticket:
+            return MyStudentItemTicketSerializer(obj.ticket).data
+
+        # 2. コースがある場合はCourseTicketから取得
         if obj.course:
             from .models import CourseTicket
             course_ticket = CourseTicket.objects.filter(
@@ -492,16 +827,27 @@ class MyStudentItemSerializer(serializers.ModelSerializer):
         return None
 
     def get_dayOfWeek(self, obj):
-        # StudentItemにはday_of_weekがないのでNone
-        # 将来的にはLessonScheduleから取得することもできる
+        # StudentItemの曜日を取得（直接または契約から）
+        if obj.day_of_week is not None:
+            return obj.day_of_week
+        if obj.contract and obj.contract.day_of_week is not None:
+            return obj.contract.day_of_week
         return None
 
     def get_startTime(self, obj):
-        # StudentItemにはstart_timeがないのでNone
+        # StudentItemの開始時間を取得（直接または契約から）
+        if obj.start_time:
+            return obj.start_time.strftime('%H:%M:%S')
+        if obj.contract and obj.contract.start_time:
+            return obj.contract.start_time.strftime('%H:%M:%S')
         return None
 
     def get_endTime(self, obj):
-        # StudentItemにはend_timeがないのでNone
+        # StudentItemの終了時間を取得（直接または契約から）
+        if obj.end_time:
+            return obj.end_time.strftime('%H:%M:%S')
+        if obj.contract and obj.contract.end_time:
+            return obj.contract.end_time.strftime('%H:%M:%S')
         return None
 
 
@@ -679,9 +1025,30 @@ class PublicPackCourseSerializer(serializers.Serializer):
     courseName = serializers.CharField(source='course.course_name')
     courseCode = serializers.CharField(source='course.course_code')
     coursePrice = serializers.SerializerMethodField()
+    # コースに紐付くチケット情報（CourseTicketから取得）
+    ticketId = serializers.SerializerMethodField()
+    ticketCode = serializers.SerializerMethodField()
+    ticketName = serializers.SerializerMethodField()
 
     def get_coursePrice(self, obj):
         return obj.course.get_price()
+
+    def _get_first_ticket(self, obj):
+        """コースに紐付く最初のチケットを取得"""
+        course_ticket = obj.course.course_tickets.first()
+        return course_ticket.ticket if course_ticket else None
+
+    def get_ticketId(self, obj):
+        ticket = self._get_first_ticket(obj)
+        return str(ticket.id) if ticket else None
+
+    def get_ticketCode(self, obj):
+        ticket = self._get_first_ticket(obj)
+        return ticket.ticket_code if ticket else None
+
+    def get_ticketName(self, obj):
+        ticket = self._get_first_ticket(obj)
+        return ticket.ticket_name if ticket else None
 
 
 class PublicPackTicketSerializer(serializers.Serializer):

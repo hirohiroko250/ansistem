@@ -358,3 +358,73 @@ class GroupLessonEnrollment(TenantModel):
 
     def __str__(self):
         return f"{self.student} - {self.schedule}"
+
+
+class AbsenceTicket(TenantModel):
+    """欠席チケット
+
+    欠席登録時に発行され、振替予約に使用される。
+    消化記号(consumption_symbol)を基準に振替可能なクラスを判定する。
+    """
+
+    class Status(models.TextChoices):
+        ISSUED = 'issued', '発行済'
+        USED = 'used', '使用済'
+        EXPIRED = 'expired', '期限切れ'
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    student = models.ForeignKey(
+        'students.Student',
+        on_delete=models.CASCADE,
+        related_name='absence_tickets',
+        verbose_name='生徒'
+    )
+    original_ticket = models.ForeignKey(
+        'contracts.Ticket',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='absence_tickets',
+        verbose_name='元チケット'
+    )
+    consumption_symbol = models.CharField(
+        '消化記号',
+        max_length=20,
+        blank=True,
+        help_text='振替対象を判定するための消化記号'
+    )
+    absence_date = models.DateField('欠席日')
+    class_schedule = models.ForeignKey(
+        'schools.ClassSchedule',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='absence_tickets',
+        verbose_name='欠席した授業'
+    )
+    status = models.CharField(
+        'ステータス',
+        max_length=20,
+        choices=Status.choices,
+        default=Status.ISSUED
+    )
+    used_date = models.DateField('使用日', null=True, blank=True)
+    used_class_schedule = models.ForeignKey(
+        'schools.ClassSchedule',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='used_absence_tickets',
+        verbose_name='振替先授業'
+    )
+    valid_until = models.DateField('有効期限')
+    notes = models.TextField('備考', blank=True)
+
+    class Meta:
+        db_table = 't_absence_tickets'
+        verbose_name = '欠席チケット'
+        verbose_name_plural = '欠席チケット'
+        ordering = ['-absence_date']
+
+    def __str__(self):
+        return f"欠席チケット: {self.student} - {self.absence_date} ({self.get_status_display()})"

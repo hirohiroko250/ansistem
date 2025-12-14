@@ -12,9 +12,10 @@ from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 
 from apps.contracts.models import Course, StudentItem, Product
-from apps.students.models import Student
+from apps.students.models import Student, StudentSchool, StudentEnrollment
 from apps.tasks.models import Task
-from apps.schools.models import Brand, School
+from apps.schools.models import Brand, School, ClassSchedule
+from apps.billing.models import MileTransaction
 
 
 def calculate_enrollment_tuition_tickets(start_date: date) -> int:
@@ -101,6 +102,28 @@ class PricingPreviewView(APIView):
         items = []
         subtotal = Decimal('0')
         enrollment_tuition_item = None  # 入会時授業料
+
+        # 生徒からマイル情報を取得
+        student = None
+        guardian = None
+        mile_info = None
+        if student_id:
+            try:
+                student = Student.objects.select_related('guardian').get(id=student_id)
+                guardian = student.guardian
+                if guardian:
+                    mile_balance = MileTransaction.get_balance(guardian)
+                    can_use = MileTransaction.can_use_miles(guardian)
+                    max_discount = MileTransaction.calculate_discount(mile_balance) if can_use and mile_balance >= 4 else Decimal('0')
+                    mile_info = {
+                        'balance': mile_balance,
+                        'canUse': can_use,
+                        'maxDiscount': int(max_discount),
+                        'reason': None if can_use else 'コース契約が2つ以上必要です',
+                    }
+                    print(f"[PricingPreview] Mile info: balance={mile_balance}, canUse={can_use}, maxDiscount={max_discount}", file=sys.stderr)
+            except Student.DoesNotExist:
+                pass
 
         # 開始日をパース
         start_date = None
@@ -199,6 +222,7 @@ class PricingPreviewView(APIView):
             'schoolContribution': 0,
             'grandTotal': grand_total,
             'enrollmentTuition': enrollment_tuition_item,  # 入会時授業料情報
+            'mileInfo': mile_info,  # マイル情報
         })
 
 
@@ -221,9 +245,17 @@ class PricingConfirmView(APIView):
         brand_id = request.data.get('brand_id')
         school_id = request.data.get('school_id')
         start_date_str = request.data.get('start_date')
+        # スケジュール情報（曜日・時間帯）
+        schedules = request.data.get('schedules', [])
+        ticket_id = request.data.get('ticket_id')
+        # マイル使用
+        miles_to_use = request.data.get('miles_to_use', 0)
+        if miles_to_use:
+            miles_to_use = int(miles_to_use)
 
         print(f"[PricingConfirm] preview_id={preview_id}, student_id={student_id}, course_id={course_id}", file=sys.stderr)
         print(f"[PricingConfirm] brand_id={brand_id}, school_id={school_id}, start_date={start_date_str}", file=sys.stderr)
+        print(f"[PricingConfirm] schedules={schedules}, ticket_id={ticket_id}, miles_to_use={miles_to_use}", file=sys.stderr)
 
         # 注文IDを生成
         order_id = f"ORD-{uuid.uuid4().hex[:8].upper()}"
@@ -238,12 +270,34 @@ class PricingConfirmView(APIView):
         school = None
         start_date = None
 
-        # 生徒を取得
+        # 生徒を取得（guardianも一緒に取得）
+        guardian = None
+        mile_discount = Decimal('0')
         if student_id:
             try:
-                student = Student.objects.get(id=student_id)
+                student = Student.objects.select_related('guardian').get(id=student_id)
+                guardian = student.guardian
             except Student.DoesNotExist:
                 pass
+
+        # マイル使用のバリデーションと割引計算
+        if miles_to_use > 0 and guardian:
+            mile_balance = MileTransaction.get_balance(guardian)
+            can_use = MileTransaction.can_use_miles(guardian)
+            if not can_use:
+                return Response({
+                    'error': 'マイルを使用するにはコース契約が2つ以上必要です',
+                }, status=400)
+            if miles_to_use > mile_balance:
+                return Response({
+                    'error': f'マイル残高が不足しています（残高: {mile_balance}pt）',
+                }, status=400)
+            if miles_to_use < 4:
+                return Response({
+                    'error': 'マイルは4pt以上から使用できます',
+                }, status=400)
+            mile_discount = MileTransaction.calculate_discount(miles_to_use)
+            print(f"[PricingConfirm] Mile discount: {miles_to_use}pt -> ¥{mile_discount}", file=sys.stderr)
 
         # コースを取得
         if course_id:
@@ -281,9 +335,61 @@ class PricingConfirmView(APIView):
             except ValueError:
                 pass
 
+        # スケジュール情報から曜日・時間を抽出（最初のスケジュールを使用）
+        schedule_day_of_week = None
+        schedule_start_time = None
+        schedule_end_time = None
+        selected_class_schedule = None  # 選択されたClassSchedule
+        if schedules and len(schedules) > 0:
+            first_schedule = schedules[0]
+            # ClassSchedule IDを取得
+            class_schedule_id = first_schedule.get('id')
+            if class_schedule_id:
+                try:
+                    selected_class_schedule = ClassSchedule.objects.get(id=class_schedule_id)
+                    # ClassScheduleから曜日・時間を取得
+                    schedule_day_of_week = selected_class_schedule.day_of_week
+                    schedule_start_time = selected_class_schedule.start_time
+                    schedule_end_time = selected_class_schedule.end_time
+                    print(f"[PricingConfirm] Found ClassSchedule: {selected_class_schedule.class_name} (id={class_schedule_id})", file=sys.stderr)
+                except ClassSchedule.DoesNotExist:
+                    print(f"[PricingConfirm] ClassSchedule not found: id={class_schedule_id}", file=sys.stderr)
+
+            # ClassScheduleが見つからない場合はフォールバック（フロントエンドから送信された情報を使用）
+            if not selected_class_schedule:
+                day_of_week_str = first_schedule.get('day_of_week', '')
+                # 曜日名を数値に変換（月=1, 火=2, ... 日=7）- ClassScheduleと同じエンコーディング
+                day_name_to_int = {'月曜日': 1, '火曜日': 2, '水曜日': 3, '木曜日': 4, '金曜日': 5, '土曜日': 6, '日曜日': 7}
+                schedule_day_of_week = day_name_to_int.get(day_of_week_str)
+                # 時間を解析
+                start_time_str = first_schedule.get('start_time', '')
+                end_time_str = first_schedule.get('end_time', '')
+                try:
+                    from datetime import time
+                    if start_time_str:
+                        parts = start_time_str.split(':')
+                        schedule_start_time = time(int(parts[0]), int(parts[1]))
+                    if end_time_str:
+                        parts = end_time_str.split(':')
+                        schedule_end_time = time(int(parts[0]), int(parts[1]))
+                except (ValueError, IndexError):
+                    pass
+            print(f"[PricingConfirm] Parsed schedule: day_of_week={schedule_day_of_week}, start_time={schedule_start_time}, end_time={schedule_end_time}, class_schedule={selected_class_schedule}", file=sys.stderr)
+
+        # チケットを取得（クラス予約の場合）
+        ticket = None
+        if ticket_id:
+            try:
+                from apps.schools.models import Ticket
+                ticket = Ticket.objects.get(id=ticket_id)
+                print(f"[PricingConfirm] Found ticket: {ticket.ticket_name}", file=sys.stderr)
+            except Exception as e:
+                print(f"[PricingConfirm] Failed to get ticket: {e}", file=sys.stderr)
+
         # StudentItemを作成（コースの商品構成から）
         print(f"[PricingConfirm] student={student}, course={course}, brand={brand}, school={school}, start_date={start_date}", file=sys.stderr)
         enrollment_tuition_info = None  # 入会時授業料情報（タスク表示用）
+        created_student_items = []
 
         if student and course:
             # コースに紐づく商品を取得して StudentItem を作成
@@ -309,7 +415,57 @@ class PricingConfirmView(APIView):
                     school=school,
                     course=course,
                     start_date=start_date,
+                    # 授業スケジュール
+                    day_of_week=schedule_day_of_week,
+                    start_time=schedule_start_time,
+                    end_time=schedule_end_time,
+                    class_schedule=selected_class_schedule,  # 選択されたクラス
                 )
+
+            # StudentSchool（生徒所属）を作成/更新
+            # これにより、カレンダー表示時に生徒がどの校舎に通っているかがわかる
+            if school and brand:
+                student_school, ss_created = StudentSchool.objects.get_or_create(
+                    tenant_id=student.tenant_id,
+                    student=student,
+                    school=school,
+                    brand=brand,
+                    defaults={
+                        'enrollment_status': 'active',
+                        'start_date': start_date or date.today(),
+                        'is_primary': not StudentSchool.objects.filter(
+                            student=student, is_primary=True
+                        ).exists(),  # 最初の所属なら主所属に設定
+                    }
+                )
+                if ss_created:
+                    print(f"[PricingConfirm] Created StudentSchool: student={student}, school={school}, brand={brand}", file=sys.stderr)
+                else:
+                    print(f"[PricingConfirm] StudentSchool already exists: student={student}, school={school}, brand={brand}", file=sys.stderr)
+
+            # StudentEnrollment（受講履歴）を作成
+            # これにより、入会・クラス変更・曜日変更の履歴が追跡できる
+            if school and brand:
+                enrollment = StudentEnrollment.create_enrollment(
+                    student=student,
+                    school=school,
+                    brand=brand,
+                    class_schedule=selected_class_schedule,  # schedulesから取得したClassScheduleを使用
+                    change_type=StudentEnrollment.ChangeType.NEW_ENROLLMENT,
+                    effective_date=start_date or date.today(),
+                    notes=f'注文番号: {order_id} / コース: {course.course_name}',
+                    # フロントエンドから送信されたスケジュール情報
+                    day_of_week_override=schedule_day_of_week,
+                    start_time_override=schedule_start_time,
+                    end_time_override=schedule_end_time,
+                )
+                print(f"[PricingConfirm] Created StudentEnrollment: student={student}, school={school}, brand={brand}, class_schedule={selected_class_schedule}", file=sys.stderr)
+
+                # 生徒のステータスを「入会」に更新（体験・登録のみの場合）
+                if student.status in [Student.Status.REGISTERED, Student.Status.TRIAL]:
+                    student.status = Student.Status.ENROLLED
+                    student.save(update_fields=['status', 'updated_at'])
+                    print(f"[PricingConfirm] Updated student status to ENROLLED: {student}", file=sys.stderr)
 
             # 入会時授業料（追加チケット）を計算してStudentItemに追加
             if start_date and start_date.day > 1:
@@ -332,6 +488,11 @@ class PricingConfirmView(APIView):
                         school=school,
                         course=course,
                         start_date=start_date,
+                        # 授業スケジュール
+                        day_of_week=schedule_day_of_week,
+                        start_time=schedule_start_time,
+                        end_time=schedule_end_time,
+                        class_schedule=selected_class_schedule,  # 選択されたクラス
                     )
                     enrollment_tuition_info = f'{enrollment_product.product_name} ¥{int(enrollment_price):,}'
                     print(f"[PricingConfirm] Created enrollment tuition StudentItem: {enrollment_product.product_name}, price={enrollment_price}", file=sys.stderr)
@@ -348,6 +509,10 @@ class PricingConfirmView(APIView):
             # 入会時授業料がある場合は追加
             if enrollment_tuition_info:
                 task_description += f'\n入会時授業料: {enrollment_tuition_info}'
+
+            # マイル割引がある場合は追加
+            if mile_discount > 0:
+                task_description += f'\nマイル割引: {miles_to_use}pt使用 → ¥{int(mile_discount):,}引'
 
             Task.objects.create(
                 tenant_id=student.tenant_id,
@@ -369,11 +534,30 @@ class PricingConfirmView(APIView):
                     'payment_method': payment_method,
                     'billing_month': billing_month,
                     'enrollment_tuition': enrollment_tuition_info,
+                    'miles_used': miles_to_use if mile_discount > 0 else 0,
+                    'mile_discount': int(mile_discount) if mile_discount > 0 else 0,
                 },
             )
+
+        # マイル使用の記録
+        if miles_to_use > 0 and mile_discount > 0 and guardian:
+            current_balance = MileTransaction.get_balance(guardian)
+            new_balance = current_balance - miles_to_use
+            MileTransaction.objects.create(
+                tenant_id=student.tenant_id,
+                guardian=guardian,
+                transaction_type=MileTransaction.TransactionType.USE,
+                miles=-miles_to_use,
+                balance_after=new_balance,
+                discount_amount=mile_discount,
+                notes=f'注文番号: {order_id} / コース: {course.course_name if course else "不明"}',
+            )
+            print(f"[PricingConfirm] Created MileTransaction: -{miles_to_use}pt, discount=¥{mile_discount}, new_balance={new_balance}", file=sys.stderr)
 
         return Response({
             'orderId': order_id,
             'status': 'completed',
             'message': '購入申請が完了しました。確認後、ご連絡いたします。',
+            'mileDiscount': int(mile_discount) if mile_discount > 0 else 0,
+            'milesUsed': miles_to_use if mile_discount > 0 else 0,
         })

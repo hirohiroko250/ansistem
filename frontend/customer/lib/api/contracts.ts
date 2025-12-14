@@ -203,6 +203,9 @@ export async function getContractPayments(
 
 /**
  * 顧客用チケット型
+ *
+ * NOTE: ticketCodeはClassScheduleのticket_idフィルタ用として使用可能
+ * (例: Ti10000063 のような形式)
  */
 export interface MyTicket {
   id: string;

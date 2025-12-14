@@ -64,12 +64,16 @@ export async function confirmPricing(data: PricingConfirmRequest): Promise<Prici
     previewId: data.previewId,
     paymentMethod: data.paymentMethod,
     useMile: data.useMile,
+    milesToUse: data.milesToUse,  // マイル使用数
     studentId: data.studentId,
     courseId: data.courseId,
     // 購入時に選択した情報
     brandId: data.brandId,
     schoolId: data.schoolId,
     startDate: data.startDate,
+    // スケジュール情報（曜日・時間帯）
+    schedules: data.schedules,
+    ticketId: data.ticketId,
   };
   console.log('[confirmPricing] Sending request with body:', requestBody);
   return api.post<PricingConfirmResponse>('/pricing/confirm/', requestBody);

@@ -52,8 +52,8 @@ INSTALLED_APPS = [
     'apps.communications',  # コミュニケーション（チャット・対応履歴・ボット）
     'apps.pricing',         # 料金計算
     'apps.tasks',           # 作業一覧（入会申請・体験登録・チャット対応など）
+    'apps.billing',         # 請求・入金管理
     # TODO: 以下は必要に応じて後から追加
-    # 'apps.finance',         # 請求・入金管理
     # 'apps.examinations',    # テスト・成績管理
     # 'apps.learning',        # 学習記録・教材管理
 ]
@@ -272,6 +272,14 @@ CELERY_ACCEPT_CONTENT = ['json']
 CELERY_TASK_SERIALIZER = 'json'
 CELERY_RESULT_SERIALIZER = 'json'
 CELERY_TIMEZONE = TIME_ZONE
+
+
+# Google Calendar Configuration
+GOOGLE_CALENDAR_CREDENTIALS_PATH = os.environ.get('GOOGLE_CALENDAR_CREDENTIALS_PATH')
+# Or set GOOGLE_CALENDAR_CREDENTIALS as JSON string in environment variable
+
+# Default calendar ID (can be overridden per-request)
+GOOGLE_CALENDAR_DEFAULT_CALENDAR_ID = os.environ.get('GOOGLE_CALENDAR_DEFAULT_CALENDAR_ID', 'primary')
 
 
 # Logging

@@ -82,10 +82,13 @@ export interface StudentCalendarEvent {
   date: string;
   dayOfWeek: number;
   period: number;
-  type: 'lesson' | 'closed' | 'native';
+  type: 'lesson' | 'closed' | 'native' | 'absent';
+  status: 'scheduled' | 'absent' | 'closed' | 'confirmed';  // 出欠ステータス
   lessonType: string;
   isClosed: boolean;
   isNativeDay: boolean;
+  isAbsent: boolean;  // 欠席フラグ
+  absenceTicketId: string | null;  // 欠席チケットID
   holidayName: string;
   noticeMessage: string;
   schoolId: string;
@@ -131,11 +134,14 @@ export async function getCalendarEvents(
     start: event.start,
     end: event.end,
     type: event.type,
-    status: event.isClosed ? 'closed' : 'scheduled',
+    // APIからのstatusを優先使用、なければisClosed/isAbsentで判定
+    status: event.status || (event.isAbsent ? 'absent' : event.isClosed ? 'closed' : 'scheduled'),
     resourceId: event.schoolId,
     classScheduleId: event.classScheduleId,
     // 追加情報
     isNativeDay: event.isNativeDay,
+    isAbsent: event.isAbsent,  // 欠席フラグ
+    absenceTicketId: event.absenceTicketId ?? undefined,  // 欠席チケットID (nullをundefinedに変換)
     holidayName: event.holidayName,
     noticeMessage: event.noticeMessage,
     brandName: event.brandName,
@@ -706,5 +712,123 @@ export async function markAbsenceFromCalendar(
     lesson_date: data.lessonDate,
     class_schedule_id: data.classScheduleId,
     reason: data.reason,
+  });
+}
+
+// ============================================
+// 欠席チケット（振替チケット）関連
+// ============================================
+
+/**
+ * 欠席チケット型
+ */
+export interface AbsenceTicket {
+  id: string;
+  studentId: string;
+  studentName: string;
+  originalTicketId: string | null;
+  originalTicketName: string;
+  consumptionSymbol: string;
+  absenceDate: string | null;
+  status: 'issued' | 'used' | 'expired';
+  validUntil: string | null;
+  usedDate: string | null;
+  schoolId: string | null;
+  schoolName: string;
+  brandId: string | null;
+  brandName: string;
+  classScheduleId: string | null;
+  createdAt: string;
+}
+
+/**
+ * 欠席チケット（振替チケット）一覧を取得
+ * 保護者の子どもの欠席チケット一覧を返す
+ *
+ * @param status - ステータスフィルタ（issued, used, expired）
+ * @returns 欠席チケット一覧
+ */
+export async function getAbsenceTickets(
+  status?: 'issued' | 'used' | 'expired'
+): Promise<AbsenceTicket[]> {
+  const query = new URLSearchParams();
+  if (status) query.set('status', status);
+
+  const queryString = query.toString();
+  const endpoint = queryString ? `/lessons/absence-tickets/?${queryString}` : '/lessons/absence-tickets/';
+
+  return api.get<AbsenceTicket[]>(endpoint);
+}
+
+// ============================================
+// 振替予約関連（欠席チケット使用）
+// ============================================
+
+/**
+ * 振替可能クラス型
+ */
+export interface TransferAvailableClass {
+  id: string;
+  dayOfWeek: number;
+  dayOfWeekDisplay: string;
+  period: number;
+  periodDisplay: string;
+  schoolId: string;
+  schoolName: string;
+  brandName: string;
+  className: string;
+  currentSeat: number;
+  maxSeat: number;
+  availableSeats: number;
+}
+
+/**
+ * 振替可能クラス一覧を取得
+ * 欠席チケットの消化記号に基づいて振替可能なクラスを返す
+ *
+ * @param absenceTicketId - 欠席チケットID
+ * @returns 振替可能クラス一覧
+ */
+export async function getTransferAvailableClasses(
+  absenceTicketId: string
+): Promise<TransferAvailableClass[]> {
+  const query = new URLSearchParams({ absence_ticket_id: absenceTicketId });
+  return api.get<TransferAvailableClass[]>(`/lessons/transfer-available-classes/?${query.toString()}`);
+}
+
+/**
+ * 振替予約リクエスト型
+ */
+export interface UseAbsenceTicketRequest {
+  absenceTicketId: string;
+  targetDate: string;  // YYYY-MM-DD
+  targetClassScheduleId: string;
+}
+
+/**
+ * 振替予約レスポンス型
+ */
+export interface UseAbsenceTicketResponse {
+  success: boolean;
+  message: string;
+  absenceTicketId: string;
+  targetDate: string;
+  attendanceId?: string;
+}
+
+/**
+ * 振替予約（欠席チケット使用）
+ * 欠席チケットを使用して振替先のクラスに予約
+ *
+ * @param data - 振替予約データ
+ * @returns 振替予約結果
+ */
+export async function useAbsenceTicket(
+  data: UseAbsenceTicketRequest
+): Promise<UseAbsenceTicketResponse> {
+  return api.post<UseAbsenceTicketResponse>('/lessons/use-absence-ticket/', {
+    absence_ticket_id: data.absenceTicketId,
+    target_date: data.targetDate,
+    target_class_schedule_id: data.targetClassScheduleId,
   });
 }

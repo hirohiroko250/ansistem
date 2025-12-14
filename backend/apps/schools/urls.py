@@ -9,7 +9,12 @@ from .views import (
     TimeSlotViewSet, SchoolScheduleViewSet, SchoolCourseViewSet, SchoolClosureViewSet,
     PublicBrandCategoriesView, PublicBrandSchoolsView, PublicLessonCalendarView, PublicTrialScheduleView,
     PublicTrialAvailabilityView, PublicTrialBookingView, PublicClassScheduleView, PublicSchoolsByTicketView,
-    PublicTicketsBySchoolView,
+    PublicTicketsBySchoolView, PublicTrialMonthlyAvailabilityView, PublicCalendarSeatsView,
+    PublicTrialStatsView,
+    PublicBankTypesView, PublicBanksView, PublicBankDetailView, PublicBankBranchesView,
+    AdminCalendarView, AdminCalendarEventDetailView, AdminCalendarABSwapView,
+    AdminMarkAttendanceView, AdminAbsenceTicketListView,
+    GoogleCalendarEventsView, GoogleCalendarListView,
 )
 
 app_name = 'schools'
@@ -40,6 +45,23 @@ urlpatterns = [
     path('public/class-schedules/', PublicClassScheduleView.as_view(), name='public-class-schedules'),
     path('public/schools-by-ticket/', PublicSchoolsByTicketView.as_view(), name='public-schools-by-ticket'),
     path('public/tickets-by-school/', PublicTicketsBySchoolView.as_view(), name='public-tickets-by-school'),
+    path('public/trial-monthly-availability/', PublicTrialMonthlyAvailabilityView.as_view(), name='public-trial-monthly-availability'),
+    path('public/calendar-seats/', PublicCalendarSeatsView.as_view(), name='public-calendar-seats'),
+    path('public/trial-stats/', PublicTrialStatsView.as_view(), name='public-trial-stats'),
+    # 金融機関API（認証不要）
+    path('public/bank-types/', PublicBankTypesView.as_view(), name='public-bank-types'),
+    path('public/banks/', PublicBanksView.as_view(), name='public-banks'),
+    path('public/banks/<uuid:bank_id>/', PublicBankDetailView.as_view(), name='public-bank-detail'),
+    path('public/banks/<uuid:bank_id>/branches/', PublicBankBranchesView.as_view(), name='public-bank-branches'),
+    # 管理者用カレンダーAPI
+    path('admin/calendar/', AdminCalendarView.as_view(), name='admin-calendar'),
+    path('admin/calendar/event/', AdminCalendarEventDetailView.as_view(), name='admin-calendar-event'),
+    path('admin/calendar/ab-swap/', AdminCalendarABSwapView.as_view(), name='admin-calendar-ab-swap'),
+    path('admin/calendar/attendance/', AdminMarkAttendanceView.as_view(), name='admin-calendar-attendance'),
+    path('admin/calendar/absence-tickets/', AdminAbsenceTicketListView.as_view(), name='admin-absence-tickets'),
+    # Google Calendar API
+    path('admin/google-calendar/events/', GoogleCalendarEventsView.as_view(), name='google-calendar-events'),
+    path('admin/google-calendar/calendars/', GoogleCalendarListView.as_view(), name='google-calendar-list'),
     # 認証必要API
     path('', include(router.urls)),
 ]

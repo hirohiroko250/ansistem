@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { ChevronLeft, Check, Loader2 } from 'lucide-react';
+import { ChevronLeft, Check, Loader2, Clock } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -10,10 +10,63 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
   getMyPayment,
-  updateMyPayment,
+  createBankAccountRequest,
   type PaymentInfo,
-  type PaymentUpdateData
+  type BankAccountRequestData
 } from '@/lib/api/payment';
+import { BankSelector } from '@/components/bank-selector';
+
+// ひらがな・全角カタカナ→半角カタカナ変換
+function toHalfWidthKatakana(str: string): string {
+  const kanaMap: Record<string, string> = {
+    // ひらがな
+    'あ': 'ｱ', 'い': 'ｲ', 'う': 'ｳ', 'え': 'ｴ', 'お': 'ｵ',
+    'か': 'ｶ', 'き': 'ｷ', 'く': 'ｸ', 'け': 'ｹ', 'こ': 'ｺ',
+    'さ': 'ｻ', 'し': 'ｼ', 'す': 'ｽ', 'せ': 'ｾ', 'そ': 'ｿ',
+    'た': 'ﾀ', 'ち': 'ﾁ', 'つ': 'ﾂ', 'て': 'ﾃ', 'と': 'ﾄ',
+    'な': 'ﾅ', 'に': 'ﾆ', 'ぬ': 'ﾇ', 'ね': 'ﾈ', 'の': 'ﾉ',
+    'は': 'ﾊ', 'ひ': 'ﾋ', 'ふ': 'ﾌ', 'へ': 'ﾍ', 'ほ': 'ﾎ',
+    'ま': 'ﾏ', 'み': 'ﾐ', 'む': 'ﾑ', 'め': 'ﾒ', 'も': 'ﾓ',
+    'や': 'ﾔ', 'ゆ': 'ﾕ', 'よ': 'ﾖ',
+    'ら': 'ﾗ', 'り': 'ﾘ', 'る': 'ﾙ', 'れ': 'ﾚ', 'ろ': 'ﾛ',
+    'わ': 'ﾜ', 'を': 'ｦ', 'ん': 'ﾝ',
+    'ぁ': 'ｧ', 'ぃ': 'ｨ', 'ぅ': 'ｩ', 'ぇ': 'ｪ', 'ぉ': 'ｫ',
+    'っ': 'ｯ', 'ゃ': 'ｬ', 'ゅ': 'ｭ', 'ょ': 'ｮ',
+    'が': 'ｶﾞ', 'ぎ': 'ｷﾞ', 'ぐ': 'ｸﾞ', 'げ': 'ｹﾞ', 'ご': 'ｺﾞ',
+    'ざ': 'ｻﾞ', 'じ': 'ｼﾞ', 'ず': 'ｽﾞ', 'ぜ': 'ｾﾞ', 'ぞ': 'ｿﾞ',
+    'だ': 'ﾀﾞ', 'ぢ': 'ﾁﾞ', 'づ': 'ﾂﾞ', 'で': 'ﾃﾞ', 'ど': 'ﾄﾞ',
+    'ば': 'ﾊﾞ', 'び': 'ﾋﾞ', 'ぶ': 'ﾌﾞ', 'べ': 'ﾍﾞ', 'ぼ': 'ﾎﾞ',
+    'ぱ': 'ﾊﾟ', 'ぴ': 'ﾋﾟ', 'ぷ': 'ﾌﾟ', 'ぺ': 'ﾍﾟ', 'ぽ': 'ﾎﾟ',
+    // 全角カタカナ
+    'ア': 'ｱ', 'イ': 'ｲ', 'ウ': 'ｳ', 'エ': 'ｴ', 'オ': 'ｵ',
+    'カ': 'ｶ', 'キ': 'ｷ', 'ク': 'ｸ', 'ケ': 'ｹ', 'コ': 'ｺ',
+    'サ': 'ｻ', 'シ': 'ｼ', 'ス': 'ｽ', 'セ': 'ｾ', 'ソ': 'ｿ',
+    'タ': 'ﾀ', 'チ': 'ﾁ', 'ツ': 'ﾂ', 'テ': 'ﾃ', 'ト': 'ﾄ',
+    'ナ': 'ﾅ', 'ニ': 'ﾆ', 'ヌ': 'ﾇ', 'ネ': 'ﾈ', 'ノ': 'ﾉ',
+    'ハ': 'ﾊ', 'ヒ': 'ﾋ', 'フ': 'ﾌ', 'ヘ': 'ﾍ', 'ホ': 'ﾎ',
+    'マ': 'ﾏ', 'ミ': 'ﾐ', 'ム': 'ﾑ', 'メ': 'ﾒ', 'モ': 'ﾓ',
+    'ヤ': 'ﾔ', 'ユ': 'ﾕ', 'ヨ': 'ﾖ',
+    'ラ': 'ﾗ', 'リ': 'ﾘ', 'ル': 'ﾙ', 'レ': 'ﾚ', 'ロ': 'ﾛ',
+    'ワ': 'ﾜ', 'ヲ': 'ｦ', 'ン': 'ﾝ',
+    'ァ': 'ｧ', 'ィ': 'ｨ', 'ゥ': 'ｩ', 'ェ': 'ｪ', 'ォ': 'ｫ',
+    'ッ': 'ｯ', 'ャ': 'ｬ', 'ュ': 'ｭ', 'ョ': 'ｮ',
+    'ガ': 'ｶﾞ', 'ギ': 'ｷﾞ', 'グ': 'ｸﾞ', 'ゲ': 'ｹﾞ', 'ゴ': 'ｺﾞ',
+    'ザ': 'ｻﾞ', 'ジ': 'ｼﾞ', 'ズ': 'ｽﾞ', 'ゼ': 'ｾﾞ', 'ゾ': 'ｿﾞ',
+    'ダ': 'ﾀﾞ', 'ヂ': 'ﾁﾞ', 'ヅ': 'ﾂﾞ', 'デ': 'ﾃﾞ', 'ド': 'ﾄﾞ',
+    'バ': 'ﾊﾞ', 'ビ': 'ﾋﾞ', 'ブ': 'ﾌﾞ', 'ベ': 'ﾍﾞ', 'ボ': 'ﾎﾞ',
+    'パ': 'ﾊﾟ', 'ピ': 'ﾋﾟ', 'プ': 'ﾌﾟ', 'ペ': 'ﾍﾟ', 'ポ': 'ﾎﾟ',
+    'ヴ': 'ｳﾞ',
+    // 記号
+    'ー': 'ｰ', '－': 'ｰ', '-': 'ｰ', ' ': ' ', '　': ' ',
+  };
+  return str.split('').map(char => kanaMap[char] || char).join('');
+}
+
+// 半角カタカナ・スペースのみを許可するフィルター
+function filterHalfWidthKatakana(str: string): string {
+  // 許可する文字: 半角カタカナ(ｦ-ﾟ)、半角スペース、濁点・半濁点
+  return str.replace(/[^ｦ-ﾟ ]/g, '');
+}
 
 export default function PaymentEditPage() {
   const router = useRouter();
@@ -21,17 +74,17 @@ export default function PaymentEditPage() {
   const [saving, setSaving] = useState(false);
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState('');
+  const [hasExistingAccount, setHasExistingAccount] = useState(false);
 
-  const [formData, setFormData] = useState<PaymentUpdateData>({
+  const [formData, setFormData] = useState({
     bank_name: '',
     bank_code: '',
     branch_name: '',
     branch_code: '',
-    account_type: 'ordinary',
+    account_type: 'ordinary' as 'ordinary' | 'current' | 'savings',
     account_number: '',
     account_holder: '',
     account_holder_kana: '',
-    withdrawal_day: 27,
   });
 
   useEffect(() => {
@@ -42,7 +95,8 @@ export default function PaymentEditPage() {
     try {
       setLoading(true);
       const data = await getMyPayment();
-      if (data) {
+      if (data && data.payment_registered && data.bank_name) {
+        setHasExistingAccount(true);
         setFormData({
           bank_name: data.bank_name || '',
           bank_code: data.bank_code || '',
@@ -52,7 +106,6 @@ export default function PaymentEditPage() {
           account_number: data.account_number || '',
           account_holder: data.account_holder || '',
           account_holder_kana: data.account_holder_kana || '',
-          withdrawal_day: data.withdrawal_day || 27,
         });
       }
     } catch (error) {
@@ -60,6 +113,21 @@ export default function PaymentEditPage() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleBankSelect = (data: {
+    bankName: string;
+    bankCode: string;
+    branchName: string;
+    branchCode: string;
+  }) => {
+    setFormData(prev => ({
+      ...prev,
+      bank_name: data.bankName,
+      bank_code: data.bankCode,
+      branch_name: data.branchName,
+      branch_code: data.branchCode,
+    }));
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -74,10 +142,22 @@ export default function PaymentEditPage() {
 
     try {
       setSaving(true);
-      await updateMyPayment(formData);
+      const requestData: BankAccountRequestData = {
+        request_type: hasExistingAccount ? 'update' : 'new',
+        bank_name: formData.bank_name,
+        bank_code: formData.bank_code,
+        branch_name: formData.branch_name,
+        branch_code: formData.branch_code,
+        account_type: formData.account_type,
+        account_number: formData.account_number,
+        account_holder: formData.account_holder,
+        account_holder_kana: formData.account_holder_kana,
+        is_primary: true,
+      };
+      await createBankAccountRequest(requestData);
       setSuccess(true);
     } catch (err) {
-      setError('保存に失敗しました。もう一度お試しください。');
+      setError('申請に失敗しました。もう一度お試しください。');
     } finally {
       setSaving(false);
     }
@@ -95,12 +175,16 @@ export default function PaymentEditPage() {
     return (
       <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-blue-50 flex items-center justify-center px-4">
         <div className="text-center max-w-[390px] w-full">
-          <div className="w-20 h-20 rounded-full bg-green-100 flex items-center justify-center mx-auto mb-6">
-            <Check className="w-10 h-10 text-green-600" />
+          <div className="w-20 h-20 rounded-full bg-amber-100 flex items-center justify-center mx-auto mb-6">
+            <Clock className="w-10 h-10 text-amber-600" />
           </div>
-          <h2 className="text-2xl font-bold text-gray-800 mb-3">登録完了</h2>
-          <p className="text-gray-600 mb-8">
-            支払い方法の登録が完了しました。
+          <h2 className="text-2xl font-bold text-gray-800 mb-3">申請を受け付けました</h2>
+          <p className="text-gray-600 mb-4">
+            銀行口座の{hasExistingAccount ? '変更' : '登録'}申請を受け付けました。
+          </p>
+          <p className="text-sm text-gray-500 mb-8">
+            担当者が確認後、登録を完了いたします。<br />
+            しばらくお待ちください。
           </p>
           <Link href="/settings/payment">
             <Button className="w-full h-12 rounded-full bg-blue-600 hover:bg-blue-700 text-white font-bold text-lg">
@@ -129,61 +213,21 @@ export default function PaymentEditPage() {
             <CardContent className="p-6 space-y-4">
               <h2 className="text-lg font-bold text-gray-800 mb-4">銀行口座情報</h2>
 
-              <div>
-                <Label htmlFor="bank_name" className="text-sm font-medium text-gray-700 mb-2 block">
-                  金融機関名 <span className="text-red-500">*</span>
-                </Label>
-                <Input
-                  id="bank_name"
-                  placeholder="例: 三菱UFJ銀行"
-                  value={formData.bank_name}
-                  onChange={(e) => setFormData({ ...formData, bank_name: e.target.value })}
-                  className="rounded-xl h-12"
-                  required
-                />
-              </div>
+              {/* 銀行・支店選択コンポーネント */}
+              <BankSelector
+                onSelect={handleBankSelect}
+                initialBank={formData.bank_code ? { name: formData.bank_name, code: formData.bank_code } : undefined}
+                initialBranch={formData.branch_code ? { name: formData.branch_name, code: formData.branch_code } : undefined}
+              />
 
-              <div>
-                <Label htmlFor="bank_code" className="text-sm font-medium text-gray-700 mb-2 block">
-                  金融機関コード（4桁）
-                </Label>
-                <Input
-                  id="bank_code"
-                  placeholder="例: 0005"
-                  value={formData.bank_code}
-                  onChange={(e) => setFormData({ ...formData, bank_code: e.target.value })}
-                  className="rounded-xl h-12"
-                  maxLength={4}
-                />
-              </div>
-
-              <div>
-                <Label htmlFor="branch_name" className="text-sm font-medium text-gray-700 mb-2 block">
-                  支店名 <span className="text-red-500">*</span>
-                </Label>
-                <Input
-                  id="branch_name"
-                  placeholder="例: 渋谷支店"
-                  value={formData.branch_name}
-                  onChange={(e) => setFormData({ ...formData, branch_name: e.target.value })}
-                  className="rounded-xl h-12"
-                  required
-                />
-              </div>
-
-              <div>
-                <Label htmlFor="branch_code" className="text-sm font-medium text-gray-700 mb-2 block">
-                  支店コード（3桁）
-                </Label>
-                <Input
-                  id="branch_code"
-                  placeholder="例: 150"
-                  value={formData.branch_code}
-                  onChange={(e) => setFormData({ ...formData, branch_code: e.target.value })}
-                  className="rounded-xl h-12"
-                  maxLength={3}
-                />
-              </div>
+              {/* 選択された銀行・支店の表示 */}
+              {formData.bank_name && formData.branch_name && (
+                <div className="bg-blue-50 rounded-xl p-4 border border-blue-100">
+                  <p className="text-sm text-blue-800">
+                    <span className="font-medium">選択中:</span> {formData.bank_name} ({formData.bank_code}) / {formData.branch_name} ({formData.branch_code})
+                  </p>
+                </div>
+              )}
 
               <div>
                 <Label className="text-sm font-medium text-gray-700 mb-2 block">
@@ -234,6 +278,14 @@ export default function PaymentEditPage() {
                   placeholder="例: 田中 太郎"
                   value={formData.account_holder}
                   onChange={(e) => setFormData({ ...formData, account_holder: e.target.value })}
+                  onCompositionUpdate={(e) => {
+                    // IME入力中のひらがなを半角カタカナに変換してカナフィールドに反映
+                    const hiragana = (e as React.CompositionEvent).data;
+                    if (hiragana) {
+                      const halfKana = toHalfWidthKatakana(hiragana);
+                      setFormData(prev => ({ ...prev, account_holder_kana: halfKana }));
+                    }
+                  }}
                   className="rounded-xl h-12"
                 />
               </div>
@@ -244,30 +296,31 @@ export default function PaymentEditPage() {
                 </Label>
                 <Input
                   id="account_holder_kana"
-                  placeholder="例: タナカ タロウ"
+                  placeholder="例: ﾀﾅｶ ﾀﾛｳ"
                   value={formData.account_holder_kana}
-                  onChange={(e) => setFormData({ ...formData, account_holder_kana: e.target.value })}
+                  onChange={(e) => {
+                    // 入力を半角カタカナに変換してフィルター
+                    const converted = toHalfWidthKatakana(e.target.value);
+                    const filtered = filterHalfWidthKatakana(converted);
+                    setFormData({ ...formData, account_holder_kana: filtered });
+                  }}
                   className="rounded-xl h-12"
                   required
                 />
-                <p className="text-xs text-gray-500 mt-1">通帳に記載されている名義をカタカナで入力してください</p>
+                <p className="text-xs text-gray-500 mt-1">半角カタカナで入力（漢字入力で自動変換されます）</p>
               </div>
 
-              <div>
-                <Label htmlFor="withdrawal_day" className="text-sm font-medium text-gray-700 mb-2 block">
-                  引き落とし日
-                </Label>
-                <select
-                  id="withdrawal_day"
-                  value={formData.withdrawal_day || 27}
-                  onChange={(e) => setFormData({ ...formData, withdrawal_day: parseInt(e.target.value) })}
-                  className="w-full h-12 rounded-xl border border-gray-300 px-3 text-base"
-                >
-                  {[10, 15, 20, 25, 27, 28].map((day) => (
-                    <option key={day} value={day}>毎月{day}日</option>
-                  ))}
-                </select>
-              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="rounded-xl shadow-md mb-6 border-amber-200 bg-amber-50">
+            <CardContent className="p-4">
+              <h3 className="text-sm font-semibold text-amber-900 mb-2">銀行口座の登録について</h3>
+              <ul className="text-xs text-amber-800 space-y-1">
+                <li>* 銀行口座の登録・変更は承認制となっております</li>
+                <li>* 申請後、担当者が確認し承認処理を行います</li>
+                <li>* 承認完了後、支払い方法として設定されます</li>
+              </ul>
             </CardContent>
           </Card>
 
@@ -287,10 +340,10 @@ export default function PaymentEditPage() {
             {saving ? (
               <span className="flex items-center gap-2">
                 <Loader2 className="h-5 w-5 animate-spin" />
-                保存中...
+                申請中...
               </span>
             ) : (
-              '登録する'
+              hasExistingAccount ? '変更を申請する' : '登録を申請する'
             )}
           </Button>
         </form>

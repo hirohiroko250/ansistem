@@ -1,0 +1,89 @@
+"use client";
+
+import { Student, PaginatedResult } from "@/lib/api/staff";
+import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
+import { GraduationCap } from "lucide-react";
+
+interface StudentListProps {
+  result: PaginatedResult<Student>;
+  selectedStudentId?: string;
+  onSelectStudent: (studentId: string) => void;
+}
+
+// ステータスの日本語変換
+function getStatusLabel(status: string): string {
+  const statusMap: Record<string, string> = {
+    registered: "登録済",
+    enrolled: "在籍",
+    suspended: "休会",
+    withdrawn: "退会",
+    graduated: "卒業",
+  };
+  return statusMap[status] || status;
+}
+
+function getStatusVariant(status: string): "default" | "secondary" | "destructive" | "outline" {
+  if (status === "enrolled") return "default";
+  if (status === "suspended") return "secondary";
+  if (status === "withdrawn" || status === "graduated") return "outline";
+  return "secondary";
+}
+
+export function StudentList({ result, selectedStudentId, onSelectStudent }: StudentListProps) {
+  const { data: students } = result;
+
+  if (students.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full text-gray-500 py-12">
+        <GraduationCap className="w-16 h-16 mb-4 text-gray-300" />
+        <p>生徒が見つかりません</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      {students.map((student) => {
+        // 名前を生成（fullNameがあれば使用、なければ姓名を結合）
+        // APIはcamelCase（lastName, firstName）またはsnake_case（last_name, first_name）で返す
+        const lastName = student.lastName || student.last_name || "";
+        const firstName = student.firstName || student.first_name || "";
+        const studentName = student.fullName || student.full_name || `${lastName} ${firstName}`.trim();
+        // 学年
+        const gradeText = student.gradeText || student.grade_text || student.gradeName || "";
+        // 生徒番号
+        const studentNo = student.studentNo || student.student_no || "";
+
+        return (
+          <div
+            key={student.id}
+            className={cn(
+              "px-3 py-2 cursor-pointer hover:bg-blue-50 transition-all border-b border-gray-100",
+              selectedStudentId === student.id && "bg-blue-50 border-l-4 border-l-blue-500"
+            )}
+            onClick={() => onSelectStudent(student.id)}
+          >
+            <div className="flex items-center gap-2">
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="font-medium text-gray-900 text-sm truncate">{studentName || "名前未設定"}</span>
+                  {gradeText && <span className="text-xs text-gray-500">{gradeText}</span>}
+                  <Badge
+                    variant={getStatusVariant(student.status)}
+                    className="text-[10px] px-1.5 py-0"
+                  >
+                    {getStatusLabel(student.status)}
+                  </Badge>
+                </div>
+                <div className="text-xs text-gray-400">
+                  {studentNo && <span>No.{studentNo}</span>}
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}

@@ -9,36 +9,30 @@ import type { PaginatedResponse } from './types';
 // 契約ステータス型
 export type ContractStatus = 'draft' | 'pending' | 'active' | 'suspended' | 'cancelled' | 'expired';
 
-// 契約型
+// 契約型（一覧用）
 export interface Contract {
   id: string;
-  contractNumber?: string;
-  studentId: string;
-  student?: {
-    id: string;
-    user: {
-      id: string;
-      fullName: string;
-      email?: string;
-    };
-    grade?: string;
-  };
-  courseId: string;
-  course?: {
-    id: string;
-    name: string;
-    monthlyFee?: string;
-    ticketCost: number;
-  };
-  startDate: string;
-  endDate?: string;
+  contract_no?: string;
+  student?: string;
+  student_name?: string;
+  guardian?: string;
+  guardian_name?: string;
+  school?: string;
+  school_name?: string;
+  brand?: string;
+  brand_name?: string;
+  course?: string;
+  course_name?: string;
+  contract_date?: string;
+  start_date?: string;
+  end_date?: string;
+  suspend_from?: string;
+  suspend_until?: string;
   status: ContractStatus;
-  monthlyFee?: string;
-  discountRate?: number;
-  discountAmount?: string;
+  monthly_total?: string;
   notes?: string;
-  createdAt: string;
-  updatedAt: string;
+  created_at?: string;
+  updated_at?: string;
 }
 
 // 契約詳細型

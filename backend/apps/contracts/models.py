@@ -159,6 +159,34 @@ class Product(TenantModel):
     mile = models.DecimalField('マイル', max_digits=10, decimal_places=0, default=0)
     discount_max = models.DecimalField('割引Max', max_digits=10, decimal_places=0, default=0)
 
+    # 初月料金（入会月別）- 1月〜12月入会者
+    enrollment_price_jan = models.DecimalField('1月入会者', max_digits=10, decimal_places=0, null=True, blank=True)
+    enrollment_price_feb = models.DecimalField('2月入会者', max_digits=10, decimal_places=0, null=True, blank=True)
+    enrollment_price_mar = models.DecimalField('3月入会者', max_digits=10, decimal_places=0, null=True, blank=True)
+    enrollment_price_apr = models.DecimalField('4月入会者', max_digits=10, decimal_places=0, null=True, blank=True)
+    enrollment_price_may = models.DecimalField('5月入会者', max_digits=10, decimal_places=0, null=True, blank=True)
+    enrollment_price_jun = models.DecimalField('6月入会者', max_digits=10, decimal_places=0, null=True, blank=True)
+    enrollment_price_jul = models.DecimalField('7月入会者', max_digits=10, decimal_places=0, null=True, blank=True)
+    enrollment_price_aug = models.DecimalField('8月入会者', max_digits=10, decimal_places=0, null=True, blank=True)
+    enrollment_price_sep = models.DecimalField('9月入会者', max_digits=10, decimal_places=0, null=True, blank=True)
+    enrollment_price_oct = models.DecimalField('10月入会者', max_digits=10, decimal_places=0, null=True, blank=True)
+    enrollment_price_nov = models.DecimalField('11月入会者', max_digits=10, decimal_places=0, null=True, blank=True)
+    enrollment_price_dec = models.DecimalField('12月入会者', max_digits=10, decimal_places=0, null=True, blank=True)
+
+    # 2ヶ月目以降料金（請求月別）- 1月〜12月
+    billing_price_jan = models.DecimalField('1月請求', max_digits=10, decimal_places=0, null=True, blank=True)
+    billing_price_feb = models.DecimalField('2月請求', max_digits=10, decimal_places=0, null=True, blank=True)
+    billing_price_mar = models.DecimalField('3月請求', max_digits=10, decimal_places=0, null=True, blank=True)
+    billing_price_apr = models.DecimalField('4月請求', max_digits=10, decimal_places=0, null=True, blank=True)
+    billing_price_may = models.DecimalField('5月請求', max_digits=10, decimal_places=0, null=True, blank=True)
+    billing_price_jun = models.DecimalField('6月請求', max_digits=10, decimal_places=0, null=True, blank=True)
+    billing_price_jul = models.DecimalField('7月請求', max_digits=10, decimal_places=0, null=True, blank=True)
+    billing_price_aug = models.DecimalField('8月請求', max_digits=10, decimal_places=0, null=True, blank=True)
+    billing_price_sep = models.DecimalField('9月請求', max_digits=10, decimal_places=0, null=True, blank=True)
+    billing_price_oct = models.DecimalField('10月請求', max_digits=10, decimal_places=0, null=True, blank=True)
+    billing_price_nov = models.DecimalField('11月請求', max_digits=10, decimal_places=0, null=True, blank=True)
+    billing_price_dec = models.DecimalField('12月請求', max_digits=10, decimal_places=0, null=True, blank=True)
+
     # その他
     description = models.TextField('説明', blank=True)
     sort_order = models.IntegerField('表示順', default=0)
@@ -430,6 +458,7 @@ class Discount(TenantModel):
         SIBLING = 'sibling', '兄弟割引'
         MULTI_SUBJECT = 'multi_subject', '複数科目割引'
         CAMPAIGN = 'campaign', 'キャンペーン'
+        MILE = 'mile', 'マイル割引'
         OTHER = 'other', 'その他'
 
     class CalculationType(models.TextChoices):
@@ -534,6 +563,11 @@ class Course(TenantModel):
 
     description = models.TextField('説明', blank=True)
     sort_order = models.IntegerField('表示順', default=0)
+    is_visible = models.BooleanField(
+        '保護者に表示',
+        default=True,
+        help_text='チェックを外すと保護者アプリに表示されません'
+    )
     is_active = models.BooleanField('有効', default=True)
 
     class Meta:
@@ -1175,6 +1209,7 @@ class Contract(TenantModel):
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     contract_no = models.CharField('契約番号', max_length=30)
+    old_id = models.CharField('旧システムID', max_length=50, blank=True, db_index=True)
 
     # 契約者
     student = models.ForeignKey(
@@ -1229,6 +1264,38 @@ class Contract(TenantModel):
     # 金額
     monthly_total = models.DecimalField('月額合計', max_digits=10, decimal_places=0, default=0)
 
+    # マイル・割引関連
+    mile_earn_monthly = models.IntegerField(
+        '月間獲得マイル',
+        default=0,
+        help_text='この契約で毎月獲得するマイル数'
+    )
+    discount_applied = models.DecimalField(
+        '適用割引額',
+        max_digits=10,
+        decimal_places=0,
+        default=0,
+        help_text='兄弟割引など適用されている割引額'
+    )
+    discount_type = models.CharField(
+        '割引種別',
+        max_length=50,
+        blank=True,
+        help_text='兄弟割引、キャンペーン等'
+    )
+    mile_discount_applied = models.DecimalField(
+        'マイル割引額',
+        max_digits=10,
+        decimal_places=0,
+        default=0,
+        help_text='マイル使用による割引額'
+    )
+    mile_used = models.IntegerField(
+        '使用マイル',
+        default=0,
+        help_text='この契約で使用したマイル数'
+    )
+
     # 授業スケジュール
     day_of_week = models.IntegerField(
         '曜日',
@@ -1259,6 +1326,7 @@ class StudentItem(TenantModel):
     """T04: 生徒商品（請求対象）"""
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    old_id = models.CharField('旧システムID', max_length=50, blank=True, db_index=True)
 
     student = models.ForeignKey(
         'students.Student',
@@ -1304,6 +1372,25 @@ class StudentItem(TenantModel):
     )
     start_date = models.DateField('開始日', null=True, blank=True)
 
+    # 授業スケジュール
+    day_of_week = models.IntegerField(
+        '曜日',
+        null=True,
+        blank=True,
+        help_text='1=月, 2=火, 3=水, 4=木, 5=金, 6=土, 7=日'
+    )
+    start_time = models.TimeField('開始時間', null=True, blank=True)
+    end_time = models.TimeField('終了時間', null=True, blank=True)
+    class_schedule = models.ForeignKey(
+        'schools.ClassSchedule',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='student_items',
+        verbose_name='受講クラス',
+        help_text='チケット購入時に選択したクラス'
+    )
+
     # 請求情報
     billing_month = models.CharField('請求月', max_length=7, help_text='例: 2025-04')
     quantity = models.IntegerField('数量', default=1)
@@ -1321,6 +1408,100 @@ class StudentItem(TenantModel):
 
     def __str__(self):
         return f"{self.student} - {self.product} ({self.billing_month})"
+
+
+# =============================================================================
+# T06: 生徒割引 (StudentDiscount) - 生徒に適用される割引
+# =============================================================================
+class StudentDiscount(TenantModel):
+    """T06: 生徒割引（生徒に適用される割引明細）"""
+
+    class DiscountUnit(models.TextChoices):
+        YEN = 'yen', '円'
+        PERCENT = 'percent', '%'
+
+    class EndCondition(models.TextChoices):
+        ONCE = 'once', '１回だけ'
+        MONTHLY = 'monthly', '毎月'
+        UNTIL_END_DATE = 'until_end_date', '終了日まで'
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    old_id = models.CharField('旧システムID', max_length=50, blank=True, db_index=True)
+
+    # 対象
+    student = models.ForeignKey(
+        'students.Student',
+        on_delete=models.CASCADE,
+        null=True, blank=True,
+        related_name='student_discounts',
+        verbose_name='生徒'
+    )
+    guardian = models.ForeignKey(
+        'students.Guardian',
+        on_delete=models.CASCADE,
+        null=True, blank=True,
+        related_name='student_discounts',
+        verbose_name='保護者'
+    )
+    contract = models.ForeignKey(
+        Contract,
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='student_discounts',
+        verbose_name='契約'
+    )
+    student_item = models.ForeignKey(
+        StudentItem,
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='student_discounts',
+        verbose_name='請求項目'
+    )
+    brand = models.ForeignKey(
+        'schools.Brand',
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='student_discounts',
+        verbose_name='ブランド'
+    )
+
+    # 割引情報
+    discount_name = models.CharField('割引名', max_length=200)
+    amount = models.DecimalField('金額', max_digits=10, decimal_places=0, help_text='マイナス値で割引')
+    discount_unit = models.CharField(
+        '割引単位',
+        max_length=10,
+        choices=DiscountUnit.choices,
+        default=DiscountUnit.YEN
+    )
+
+    # 適用期間
+    start_date = models.DateField('開始日', null=True, blank=True)
+    end_date = models.DateField('終了日', null=True, blank=True)
+
+    # 繰り返し・自動適用
+    is_recurring = models.BooleanField('繰り返し', default=False)
+    is_auto = models.BooleanField('自動割引', default=False)
+    end_condition = models.CharField(
+        '終了条件',
+        max_length=20,
+        choices=EndCondition.choices,
+        default=EndCondition.ONCE
+    )
+
+    # その他
+    is_active = models.BooleanField('有効', default=True)
+    notes = models.TextField('備考', blank=True)
+
+    class Meta:
+        db_table = 't06_student_discounts'
+        verbose_name = 'T06_生徒割引'
+        verbose_name_plural = 'T06_生徒割引'
+        ordering = ['-start_date', 'student']
+
+    def __str__(self):
+        target = self.student or self.guardian
+        return f"{target} - {self.discount_name} ({self.amount})"
 
 
 # =============================================================================
@@ -1538,3 +1719,504 @@ class ContractChangeRequest(TenantModel):
 
     def __str__(self):
         return f"{self.contract} - {self.get_request_type_display()} ({self.get_status_display()})"
+
+
+# =============================================================================
+# 契約履歴 (ContractHistory) - 契約変更履歴を記録
+# =============================================================================
+class ContractHistory(TenantModel):
+    """契約履歴
+
+    契約の変更（作成、更新、キャンセル等）を全て記録する。
+    """
+
+    class ActionType(models.TextChoices):
+        CREATED = 'created', '新規作成'
+        UPDATED = 'updated', '更新'
+        CANCELLED = 'cancelled', '解約'
+        PAUSED = 'paused', '休会'
+        RESUMED = 'resumed', '再開'
+        COURSE_CHANGED = 'course_changed', 'コース変更'
+        SCHEDULE_CHANGED = 'schedule_changed', 'スケジュール変更'
+        SCHOOL_CHANGED = 'school_changed', '校舎変更'
+        PRICE_CHANGED = 'price_changed', '料金変更'
+        DISCOUNT_APPLIED = 'discount_applied', '割引適用'
+        MILE_APPLIED = 'mile_applied', 'マイル適用'
+        PROMOTION = 'promotion', '進級'
+        OTHER = 'other', 'その他'
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+
+    contract = models.ForeignKey(
+        Contract,
+        on_delete=models.CASCADE,
+        related_name='histories',
+        verbose_name='契約'
+    )
+
+    # 変更種別
+    action_type = models.CharField(
+        '変更種別',
+        max_length=30,
+        choices=ActionType.choices
+    )
+
+    # 変更前後のデータ（JSON形式）
+    before_data = models.JSONField(
+        '変更前データ',
+        null=True,
+        blank=True,
+        help_text='変更前の契約情報をJSON形式で保存'
+    )
+    after_data = models.JSONField(
+        '変更後データ',
+        null=True,
+        blank=True,
+        help_text='変更後の契約情報をJSON形式で保存'
+    )
+
+    # 変更内容の説明
+    change_summary = models.CharField('変更概要', max_length=500)
+    change_detail = models.TextField('変更詳細', blank=True)
+
+    # 金額関連
+    amount_before = models.DecimalField(
+        '変更前金額',
+        max_digits=10,
+        decimal_places=0,
+        null=True,
+        blank=True
+    )
+    amount_after = models.DecimalField(
+        '変更後金額',
+        max_digits=10,
+        decimal_places=0,
+        null=True,
+        blank=True
+    )
+    discount_amount = models.DecimalField(
+        '割引額',
+        max_digits=10,
+        decimal_places=0,
+        null=True,
+        blank=True
+    )
+    mile_used = models.IntegerField('使用マイル', null=True, blank=True)
+    mile_discount = models.DecimalField(
+        'マイル割引額',
+        max_digits=10,
+        decimal_places=0,
+        null=True,
+        blank=True
+    )
+
+    # 適用日
+    effective_date = models.DateField('適用日', null=True, blank=True)
+
+    # 変更者
+    changed_by = models.ForeignKey(
+        'users.User',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='contract_histories',
+        verbose_name='変更者'
+    )
+    changed_by_name = models.CharField('変更者名', max_length=100, blank=True)
+
+    # システム変更フラグ
+    is_system_change = models.BooleanField(
+        'システム変更',
+        default=False,
+        help_text='自動処理による変更の場合True'
+    )
+
+    # IPアドレス（監査用）
+    ip_address = models.GenericIPAddressField('IPアドレス', null=True, blank=True)
+
+    notes = models.TextField('備考', blank=True)
+
+    class Meta:
+        db_table = 'contract_histories'
+        verbose_name = '契約履歴'
+        verbose_name_plural = '契約履歴'
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['contract', '-created_at']),
+            models.Index(fields=['action_type']),
+        ]
+
+    def __str__(self):
+        return f"{self.contract.contract_no} - {self.get_action_type_display()} ({self.created_at.strftime('%Y-%m-%d %H:%M')})"
+
+    @classmethod
+    def log_change(cls, contract, action_type, change_summary,
+                   before_data=None, after_data=None, user=None,
+                   is_system=False, **kwargs):
+        """契約変更をログに記録するヘルパーメソッド"""
+        return cls.objects.create(
+            tenant_id=contract.tenant_id,
+            contract=contract,
+            action_type=action_type,
+            change_summary=change_summary,
+            before_data=before_data,
+            after_data=after_data,
+            changed_by=user,
+            changed_by_name=user.get_full_name() if user else 'システム',
+            is_system_change=is_system,
+            **kwargs
+        )
+
+
+# =============================================================================
+# システム監査ログ (SystemAuditLog) - 全システム操作を記録
+# =============================================================================
+class SystemAuditLog(TenantModel):
+    """システム監査ログ
+
+    システム全体の操作履歴を記録する。
+    契約だけでなく、生徒、保護者、請求など全てのエンティティの変更を追跡。
+    """
+
+    class EntityType(models.TextChoices):
+        STUDENT = 'student', '生徒'
+        GUARDIAN = 'guardian', '保護者'
+        CONTRACT = 'contract', '契約'
+        STUDENT_ITEM = 'student_item', '生徒商品'
+        INVOICE = 'invoice', '請求書'
+        PAYMENT = 'payment', '入金'
+        MILE = 'mile', 'マイル'
+        DISCOUNT = 'discount', '割引'
+        SCHOOL = 'school', '校舎'
+        COURSE = 'course', 'コース'
+        CLASS_SCHEDULE = 'class_schedule', 'クラススケジュール'
+        ENROLLMENT = 'enrollment', '受講登録'
+        USER = 'user', 'ユーザー'
+        OTHER = 'other', 'その他'
+
+    class ActionType(models.TextChoices):
+        CREATE = 'create', '作成'
+        UPDATE = 'update', '更新'
+        DELETE = 'delete', '削除'
+        SOFT_DELETE = 'soft_delete', '論理削除'
+        RESTORE = 'restore', '復元'
+        LOGIN = 'login', 'ログイン'
+        LOGOUT = 'logout', 'ログアウト'
+        EXPORT = 'export', 'エクスポート'
+        IMPORT = 'import', 'インポート'
+        APPROVE = 'approve', '承認'
+        REJECT = 'reject', '却下'
+        CANCEL = 'cancel', 'キャンセル'
+        OTHER = 'other', 'その他'
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+
+    # 対象エンティティ
+    entity_type = models.CharField(
+        'エンティティ種別',
+        max_length=30,
+        choices=EntityType.choices
+    )
+    entity_id = models.CharField('エンティティID', max_length=100)
+    entity_name = models.CharField('エンティティ名', max_length=200, blank=True)
+
+    # 操作種別
+    action_type = models.CharField(
+        '操作種別',
+        max_length=30,
+        choices=ActionType.choices
+    )
+    action_detail = models.CharField('操作詳細', max_length=500)
+
+    # 変更データ
+    before_data = models.JSONField('変更前データ', null=True, blank=True)
+    after_data = models.JSONField('変更後データ', null=True, blank=True)
+    changed_fields = models.JSONField(
+        '変更フィールド',
+        null=True,
+        blank=True,
+        help_text='変更されたフィールド名のリスト'
+    )
+
+    # 関連エンティティ（検索用）
+    student = models.ForeignKey(
+        'students.Student',
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='audit_logs',
+        verbose_name='関連生徒'
+    )
+    guardian = models.ForeignKey(
+        'students.Guardian',
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='audit_logs',
+        verbose_name='関連保護者'
+    )
+    contract = models.ForeignKey(
+        Contract,
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='audit_logs',
+        verbose_name='関連契約'
+    )
+
+    # 操作者
+    user = models.ForeignKey(
+        'users.User',
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='audit_logs',
+        verbose_name='操作者'
+    )
+    user_name = models.CharField('操作者名', max_length=100, blank=True)
+    user_email = models.CharField('操作者メール', max_length=200, blank=True)
+
+    # システム情報
+    is_system_action = models.BooleanField('システム操作', default=False)
+    ip_address = models.GenericIPAddressField('IPアドレス', null=True, blank=True)
+    user_agent = models.TextField('ユーザーエージェント', blank=True)
+    request_path = models.CharField('リクエストパス', max_length=500, blank=True)
+    request_method = models.CharField('リクエストメソッド', max_length=10, blank=True)
+
+    # 結果
+    is_success = models.BooleanField('成功', default=True)
+    error_message = models.TextField('エラーメッセージ', blank=True)
+
+    notes = models.TextField('備考', blank=True)
+
+    class Meta:
+        db_table = 'system_audit_logs'
+        verbose_name = 'システム監査ログ'
+        verbose_name_plural = 'システム監査ログ'
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['entity_type', 'entity_id']),
+            models.Index(fields=['action_type']),
+            models.Index(fields=['user', '-created_at']),
+            models.Index(fields=['student']),
+            models.Index(fields=['guardian']),
+            models.Index(fields=['contract']),
+            models.Index(fields=['-created_at']),
+        ]
+
+    def __str__(self):
+        return f"[{self.entity_type}] {self.action_detail} ({self.created_at.strftime('%Y-%m-%d %H:%M')})"
+
+    @classmethod
+    def log(cls, tenant_id, entity_type, entity_id, action_type, action_detail,
+            user=None, before_data=None, after_data=None, request=None, **kwargs):
+        """監査ログを記録するヘルパーメソッド"""
+        log_data = {
+            'tenant_id': tenant_id,
+            'entity_type': entity_type,
+            'entity_id': str(entity_id),
+            'action_type': action_type,
+            'action_detail': action_detail,
+            'before_data': before_data,
+            'after_data': after_data,
+        }
+
+        if user:
+            log_data['user'] = user
+            log_data['user_name'] = user.get_full_name() if hasattr(user, 'get_full_name') else str(user)
+            log_data['user_email'] = getattr(user, 'email', '')
+
+        if request:
+            log_data['ip_address'] = cls._get_client_ip(request)
+            log_data['user_agent'] = request.META.get('HTTP_USER_AGENT', '')[:500]
+            log_data['request_path'] = request.path[:500]
+            log_data['request_method'] = request.method
+
+        log_data.update(kwargs)
+        return cls.objects.create(**log_data)
+
+    @staticmethod
+    def _get_client_ip(request):
+        """クライアントIPアドレスを取得"""
+        x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
+        if x_forwarded_for:
+            return x_forwarded_for.split(',')[0].strip()
+        return request.META.get('REMOTE_ADDR')
+
+
+# =============================================================================
+# 割引操作履歴 (DiscountOperationLog) - 割引変更を記録し、校舎負担分を追跡
+# =============================================================================
+class DiscountOperationLog(TenantModel):
+    """割引操作履歴
+
+    割引の追加・変更・削除を記録し、割引Max超過時の校舎負担分を追跡する。
+    """
+
+    class OperationType(models.TextChoices):
+        ADD = 'add', '追加'
+        UPDATE = 'update', '変更'
+        DELETE = 'delete', '削除'
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+
+    # 対象
+    contract = models.ForeignKey(
+        Contract,
+        on_delete=models.CASCADE,
+        related_name='discount_logs',
+        verbose_name='契約'
+    )
+    student_discount = models.ForeignKey(
+        StudentDiscount,
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='operation_logs',
+        verbose_name='割引'
+    )
+    student = models.ForeignKey(
+        'students.Student',
+        on_delete=models.CASCADE,
+        related_name='discount_logs',
+        verbose_name='生徒'
+    )
+
+    # 操作種別
+    operation_type = models.CharField(
+        '操作種別',
+        max_length=10,
+        choices=OperationType.choices
+    )
+
+    # 割引情報
+    discount_name = models.CharField('割引名', max_length=200)
+    discount_amount = models.DecimalField(
+        '割引額',
+        max_digits=10,
+        decimal_places=0,
+        help_text='適用された割引額'
+    )
+    discount_unit = models.CharField(
+        '割引単位',
+        max_length=10,
+        default='yen'
+    )
+
+    # 割引Max情報
+    discount_max = models.DecimalField(
+        '割引Max',
+        max_digits=10,
+        decimal_places=0,
+        default=0,
+        help_text='適用時点の商品の割引Max'
+    )
+    total_discount_before = models.DecimalField(
+        '操作前の合計割引額',
+        max_digits=10,
+        decimal_places=0,
+        default=0
+    )
+    total_discount_after = models.DecimalField(
+        '操作後の合計割引額',
+        max_digits=10,
+        decimal_places=0,
+        default=0
+    )
+
+    # 校舎負担分（割引Max超過分）
+    excess_amount = models.DecimalField(
+        '校舎負担分',
+        max_digits=10,
+        decimal_places=0,
+        default=0,
+        help_text='割引Maxを超過した金額（校舎負担）'
+    )
+
+    # 担当校舎（負担する校舎）
+    school = models.ForeignKey(
+        'schools.School',
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='discount_excess_logs',
+        verbose_name='担当校舎'
+    )
+    brand = models.ForeignKey(
+        'schools.Brand',
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='discount_excess_logs',
+        verbose_name='ブランド'
+    )
+
+    # 操作者
+    operated_by = models.ForeignKey(
+        'users.User',
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='discount_operations',
+        verbose_name='操作者'
+    )
+    operated_by_name = models.CharField('操作者名', max_length=100, blank=True)
+
+    # IPアドレス（監査用）
+    ip_address = models.GenericIPAddressField('IPアドレス', null=True, blank=True)
+
+    notes = models.TextField('備考', blank=True)
+
+    class Meta:
+        db_table = 'discount_operation_logs'
+        verbose_name = '割引操作履歴'
+        verbose_name_plural = '割引操作履歴'
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['contract', '-created_at']),
+            models.Index(fields=['student', '-created_at']),
+            models.Index(fields=['school', '-created_at']),
+            models.Index(fields=['operated_by', '-created_at']),
+        ]
+
+    def __str__(self):
+        return f"{self.contract.contract_no} - {self.get_operation_type_display()} {self.discount_name} ({self.created_at.strftime('%Y-%m-%d %H:%M')})"
+
+    @classmethod
+    def log_operation(cls, contract, operation_type, discount_name, discount_amount,
+                      discount_unit='yen', discount_max=0, total_before=0, total_after=0,
+                      user=None, school=None, brand=None, student_discount=None,
+                      ip_address=None, notes=''):
+        """割引操作をログに記録するヘルパーメソッド
+
+        Args:
+            contract: 契約
+            operation_type: 操作種別 ('add', 'update', 'delete')
+            discount_name: 割引名
+            discount_amount: 割引額
+            discount_unit: 割引単位 ('yen' or 'percent')
+            discount_max: 割引Max
+            total_before: 操作前の合計割引額
+            total_after: 操作後の合計割引額
+            user: 操作者
+            school: 担当校舎
+            brand: ブランド
+            student_discount: StudentDiscountインスタンス
+            ip_address: IPアドレス
+            notes: 備考
+        """
+        # 校舎負担分（割引Max超過分）を計算
+        excess_amount = max(0, total_after - discount_max) if discount_max > 0 else 0
+
+        return cls.objects.create(
+            tenant_id=contract.tenant_id,
+            contract=contract,
+            student_discount=student_discount,
+            student=contract.student,
+            operation_type=operation_type,
+            discount_name=discount_name,
+            discount_amount=discount_amount,
+            discount_unit=discount_unit,
+            discount_max=discount_max,
+            total_discount_before=total_before,
+            total_discount_after=total_after,
+            excess_amount=excess_amount,
+            school=school or contract.school,
+            brand=brand or contract.brand,
+            operated_by=user,
+            operated_by_name=user.get_full_name() if user else '',
+            ip_address=ip_address,
+            notes=notes
+        )

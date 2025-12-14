@@ -1,13 +1,56 @@
+from datetime import datetime
 from django.contrib import admin
+from django.utils.html import format_html
 from apps.core.admin_csv import CSVImportExportMixin
 from .models import (
     Product, ProductPrice, ProductSet, ProductSetItem,
     Discount, Course, CourseItem,
     Pack, PackCourse, PackItem,
     Seminar, Certification, CourseRequiredSeminar,
-    Contract, StudentItem, SeminarEnrollment, CertificationEnrollment,
-    Ticket, CourseTicket, PackTicket
+    Contract, StudentItem, StudentDiscount, SeminarEnrollment, CertificationEnrollment,
+    Ticket, CourseTicket, PackTicket,
+    ContractHistory, SystemAuditLog,
 )
+
+
+# =============================================================================
+# T05: 商品価格マスタ（インライン用）
+# =============================================================================
+class ProductPriceInline(admin.StackedInline):
+    """商品詳細画面で月毎料金を編集するためのインライン"""
+    model = ProductPrice
+    extra = 1  # 料金設定がない場合に1件分の入力フォームを表示
+    max_num = 1
+    can_delete = True
+    verbose_name = '月別料金設定'
+    verbose_name_plural = '月別料金設定'
+
+    fieldsets = (
+        ('【初月料金】入会月別料金（〜月入会者）', {
+            'fields': (
+                ('enrollment_price_apr', 'enrollment_price_may', 'enrollment_price_jun'),
+                ('enrollment_price_jul', 'enrollment_price_aug', 'enrollment_price_sep'),
+                ('enrollment_price_oct', 'enrollment_price_nov', 'enrollment_price_dec'),
+                ('enrollment_price_jan', 'enrollment_price_feb', 'enrollment_price_mar'),
+            ),
+            'description': '★入会した月（初月）に請求される金額。例：4月入会者は「4月入会者料金」が初月に適用されます。',
+        }),
+        ('【2ヶ月目以降】請求月別料金（〜月）', {
+            'fields': (
+                ('billing_price_apr', 'billing_price_may', 'billing_price_jun'),
+                ('billing_price_jul', 'billing_price_aug', 'billing_price_sep'),
+                ('billing_price_oct', 'billing_price_nov', 'billing_price_dec'),
+                ('billing_price_jan', 'billing_price_feb', 'billing_price_mar'),
+            ),
+            'description': '★2ヶ月目以降に請求される金額。例：4月入会者の5月請求には「5月請求料金」が適用されます。',
+        }),
+    )
+
+    def get_extra(self, request, obj=None, **kwargs):
+        """既存の料金設定がある場合はextra=0、ない場合はextra=1"""
+        if obj and obj.prices.exists():
+            return 0
+        return 1
 
 
 # =============================================================================
@@ -17,7 +60,8 @@ from .models import (
 class ProductAdmin(CSVImportExportMixin, admin.ModelAdmin):
     list_display = [
         'product_code', 'product_name', 'item_type', 'base_price',
-        'is_one_time', 'is_enrollment_tuition', 'is_active', 'tenant_ref'
+        'enrollment_price_display', 'billing_price_display',
+        'is_one_time', 'is_enrollment_tuition', 'has_monthly_prices', 'is_active', 'tenant_ref'
     ]
     list_filter = [
         'tenant_ref', 'item_type', 'is_one_time', 'is_enrollment_tuition',
@@ -41,10 +85,99 @@ class ProductAdmin(CSVImportExportMixin, admin.ModelAdmin):
             'fields': ('is_one_time', 'is_first_year_free', 'is_enrollment_tuition', 'per_ticket_price'),
             'description': '入会時授業料: 月途中入会時に追加チケット数を計算。1チケット単価を設定。'
         }),
+        ('【初月料金】入会月別料金（〜月入会者）', {
+            'fields': (
+                ('enrollment_price_apr', 'enrollment_price_may', 'enrollment_price_jun'),
+                ('enrollment_price_jul', 'enrollment_price_aug', 'enrollment_price_sep'),
+                ('enrollment_price_oct', 'enrollment_price_nov', 'enrollment_price_dec'),
+                ('enrollment_price_jan', 'enrollment_price_feb', 'enrollment_price_mar'),
+            ),
+            'description': '★入会した月（初月）に請求される金額。例：4月入会者は「4月入会者料金」が初月に適用されます。',
+        }),
+        ('【2ヶ月目以降】請求月別料金（〜月）', {
+            'fields': (
+                ('billing_price_apr', 'billing_price_may', 'billing_price_jun'),
+                ('billing_price_jul', 'billing_price_aug', 'billing_price_sep'),
+                ('billing_price_oct', 'billing_price_nov', 'billing_price_dec'),
+                ('billing_price_jan', 'billing_price_feb', 'billing_price_mar'),
+            ),
+            'description': '★2ヶ月目以降に請求される金額。例：4月入会者の5月請求には「5月請求料金」が適用されます。',
+        }),
         ('その他', {
             'fields': ('description', 'sort_order', 'is_active', 'tenant_ref')
         }),
     )
+
+    @admin.display(boolean=True, description='月別料金')
+    def has_monthly_prices(self, obj):
+        """月別料金が設定されているかどうか（Product直接参照）"""
+        return any([
+            obj.enrollment_price_jan, obj.enrollment_price_feb, obj.enrollment_price_mar,
+            obj.enrollment_price_apr, obj.enrollment_price_may, obj.enrollment_price_jun,
+            obj.enrollment_price_jul, obj.enrollment_price_aug, obj.enrollment_price_sep,
+            obj.enrollment_price_oct, obj.enrollment_price_nov, obj.enrollment_price_dec,
+            obj.billing_price_jan, obj.billing_price_feb, obj.billing_price_mar,
+            obj.billing_price_apr, obj.billing_price_may, obj.billing_price_jun,
+            obj.billing_price_jul, obj.billing_price_aug, obj.billing_price_sep,
+            obj.billing_price_oct, obj.billing_price_nov, obj.billing_price_dec,
+        ])
+
+    @admin.display(description='初月料金(今月)')
+    def enrollment_price_display(self, obj):
+        """今月の初月料金を表示（Product直接参照）"""
+        month_map = {
+            1: obj.enrollment_price_jan,
+            2: obj.enrollment_price_feb,
+            3: obj.enrollment_price_mar,
+            4: obj.enrollment_price_apr,
+            5: obj.enrollment_price_may,
+            6: obj.enrollment_price_jun,
+            7: obj.enrollment_price_jul,
+            8: obj.enrollment_price_aug,
+            9: obj.enrollment_price_sep,
+            10: obj.enrollment_price_oct,
+            11: obj.enrollment_price_nov,
+            12: obj.enrollment_price_dec,
+        }
+        current_month = datetime.now().month
+        value = month_map.get(current_month)
+        if value is not None:
+            return f'¥{value:,.0f}'
+        return '-'
+
+    @admin.display(description='2ヶ月目以降(今月)')
+    def billing_price_display(self, obj):
+        """今月の2ヶ月目以降料金を表示（Product直接参照）"""
+        month_map = {
+            1: obj.billing_price_jan,
+            2: obj.billing_price_feb,
+            3: obj.billing_price_mar,
+            4: obj.billing_price_apr,
+            5: obj.billing_price_may,
+            6: obj.billing_price_jun,
+            7: obj.billing_price_jul,
+            8: obj.billing_price_aug,
+            9: obj.billing_price_sep,
+            10: obj.billing_price_oct,
+            11: obj.billing_price_nov,
+            12: obj.billing_price_dec,
+        }
+        current_month = datetime.now().month
+        value = month_map.get(current_month)
+        if value is not None:
+            return f'¥{value:,.0f}'
+        return '-'
+
+    def save_formset(self, request, form, formset, change):
+        """インラインフォームセット保存時にtenant_refを自動設定"""
+        instances = formset.save(commit=False)
+        for instance in instances:
+            # ProductPriceの場合、親Productのtenant_refを継承
+            if hasattr(instance, 'tenant_ref_id') and not instance.tenant_ref_id:
+                if hasattr(form.instance, 'tenant_ref_id'):
+                    instance.tenant_ref_id = form.instance.tenant_ref_id
+            instance.save()
+        formset.save_m2m()
 
     csv_import_fields = {
         '商品コード': 'product_code',
@@ -106,23 +239,23 @@ class ProductPriceAdmin(CSVImportExportMixin, admin.ModelAdmin):
         ('商品情報', {
             'fields': ('product', 'is_active')
         }),
-        ('入会月別料金（当月分＝〜月入会者）', {
+        ('【初月料金】入会月別料金（〜月入会者）', {
             'fields': (
                 ('enrollment_price_apr', 'enrollment_price_may', 'enrollment_price_jun'),
                 ('enrollment_price_jul', 'enrollment_price_aug', 'enrollment_price_sep'),
                 ('enrollment_price_oct', 'enrollment_price_nov', 'enrollment_price_dec'),
                 ('enrollment_price_jan', 'enrollment_price_feb', 'enrollment_price_mar'),
             ),
-            'description': '入会した月に請求される金額（〜月入会者の列）'
+            'description': '★入会した月（初月）に請求される金額。例：4月入会者は「4月入会者料金」が初月に適用されます。'
         }),
-        ('請求月別料金（次月以降＝〜月）', {
+        ('【2ヶ月目以降】請求月別料金（〜月）', {
             'fields': (
                 ('billing_price_apr', 'billing_price_may', 'billing_price_jun'),
                 ('billing_price_jul', 'billing_price_aug', 'billing_price_sep'),
                 ('billing_price_oct', 'billing_price_nov', 'billing_price_dec'),
                 ('billing_price_jan', 'billing_price_feb', 'billing_price_mar'),
             ),
-            'description': '翌月以降に請求される金額（〜月の列）'
+            'description': '★2ヶ月目以降に請求される金額。例：4月入会者の5月請求には「5月請求料金」が適用されます。'
         }),
     )
 
@@ -360,12 +493,37 @@ class CourseItemInline(admin.TabularInline):
 class CourseAdmin(CSVImportExportMixin, admin.ModelAdmin):
     list_display = [
         'course_code', 'course_name', 'brand', 'grade',
-        'product_set', 'course_price', 'is_active'
+        'get_ticket_codes', 'product_set', 'course_price', 'is_visible', 'is_active'
     ]
-    list_filter = ['brand', 'grade', 'product_set', 'is_active']
+    list_filter = ['brand', 'grade', 'is_visible', 'product_set', 'is_active']
     search_fields = ['course_code', 'course_name']
     raw_id_fields = ['brand', 'school', 'grade', 'product_set']
+    list_editable = ['is_visible']  # 一覧から直接編集可能
     inlines = [CourseItemInline]  # CourseTicketInline added dynamically below
+    ordering = ['brand', 'grade', 'course_code']
+    actions = ['make_visible', 'make_invisible']
+
+    def get_queryset(self, request):
+        """チケット情報を効率的に取得"""
+        return super().get_queryset(request).prefetch_related('course_tickets__ticket')
+
+    @admin.display(description='チケットID')
+    def get_ticket_codes(self, obj):
+        """紐づくチケットIDを表示"""
+        tickets = obj.course_tickets.filter(is_active=True).select_related('ticket')
+        if tickets:
+            return ', '.join([ct.ticket.ticket_code for ct in tickets if ct.ticket])
+        return '-'
+
+    @admin.action(description='選択したコースを表示する')
+    def make_visible(self, request, queryset):
+        updated = queryset.update(is_visible=True)
+        self.message_user(request, f'{updated}件のコースを表示に設定しました。')
+
+    @admin.action(description='選択したコースを非表示にする')
+    def make_invisible(self, request, queryset):
+        updated = queryset.update(is_visible=False)
+        self.message_user(request, f'{updated}件のコースを非表示に設定しました。')
 
     csv_import_fields = {
         'コースコード': 'course_code',
@@ -951,6 +1109,24 @@ class StudentItemAdmin(CSVImportExportMixin, admin.ModelAdmin):
 
 
 # =============================================================================
+# T06: 生徒割引
+# =============================================================================
+@admin.register(StudentDiscount)
+class StudentDiscountAdmin(CSVImportExportMixin, admin.ModelAdmin):
+    list_display = [
+        'student', 'guardian', 'discount_name', 'amount', 'discount_unit',
+        'start_date', 'end_date', 'is_recurring', 'is_active'
+    ]
+    list_filter = ['discount_unit', 'is_recurring', 'is_auto', 'is_active', 'end_condition']
+    search_fields = [
+        'discount_name', 'student__last_name', 'student__first_name',
+        'guardian__last_name', 'guardian__first_name'
+    ]
+    raw_id_fields = ['student', 'guardian', 'contract', 'student_item', 'brand']
+    date_hierarchy = 'start_date'
+
+
+# =============================================================================
 # T55: 講習申込
 # =============================================================================
 @admin.register(SeminarEnrollment)
@@ -1039,6 +1215,140 @@ class CertificationEnrollmentAdmin(CSVImportExportMixin, admin.ModelAdmin):
 
 
 # =============================================================================
+# 契約履歴（インライン）
+# =============================================================================
+class ContractHistoryInline(admin.TabularInline):
+    model = ContractHistory
+    extra = 0
+    readonly_fields = [
+        'action_type', 'change_summary', 'amount_before', 'amount_after',
+        'discount_amount', 'mile_used', 'mile_discount', 'changed_by_name',
+        'is_system_change', 'created_at'
+    ]
+    ordering = ['-created_at']
+    max_num = 10
+    can_delete = False
+    verbose_name = '変更履歴'
+    verbose_name_plural = '変更履歴'
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
+
+# =============================================================================
+# 契約履歴（単体）
+# =============================================================================
+@admin.register(ContractHistory)
+class ContractHistoryAdmin(admin.ModelAdmin):
+    list_display = [
+        'contract', 'action_type', 'change_summary',
+        'amount_before', 'amount_after', 'changed_by_name',
+        'is_system_change', 'created_at'
+    ]
+    list_filter = ['action_type', 'is_system_change', 'created_at']
+    search_fields = ['contract__contract_no', 'change_summary', 'changed_by_name']
+    readonly_fields = [
+        'contract', 'action_type', 'before_data', 'after_data',
+        'change_summary', 'change_detail', 'amount_before', 'amount_after',
+        'discount_amount', 'mile_used', 'mile_discount', 'effective_date',
+        'changed_by', 'changed_by_name', 'is_system_change', 'ip_address',
+        'created_at', 'updated_at'
+    ]
+    raw_id_fields = ['contract', 'changed_by']
+    date_hierarchy = 'created_at'
+
+    fieldsets = (
+        ('契約情報', {
+            'fields': ('contract',)
+        }),
+        ('変更内容', {
+            'fields': ('action_type', 'change_summary', 'change_detail', 'effective_date')
+        }),
+        ('金額', {
+            'fields': ('amount_before', 'amount_after', 'discount_amount', 'mile_used', 'mile_discount')
+        }),
+        ('変更データ', {
+            'fields': ('before_data', 'after_data'),
+            'classes': ('collapse',)
+        }),
+        ('変更者情報', {
+            'fields': ('changed_by', 'changed_by_name', 'is_system_change', 'ip_address')
+        }),
+        ('日時', {
+            'fields': ('created_at', 'updated_at')
+        }),
+    )
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+# =============================================================================
+# システム監査ログ
+# =============================================================================
+@admin.register(SystemAuditLog)
+class SystemAuditLogAdmin(admin.ModelAdmin):
+    list_display = [
+        'created_at', 'entity_type', 'action_type', 'action_detail',
+        'user_name', 'is_system_action', 'is_success'
+    ]
+    list_filter = ['entity_type', 'action_type', 'is_system_action', 'is_success', 'created_at']
+    search_fields = ['entity_name', 'action_detail', 'user_name', 'user_email', 'entity_id']
+    readonly_fields = [
+        'entity_type', 'entity_id', 'entity_name', 'action_type', 'action_detail',
+        'before_data', 'after_data', 'changed_fields',
+        'student', 'guardian', 'contract',
+        'user', 'user_name', 'user_email',
+        'is_system_action', 'ip_address', 'user_agent', 'request_path', 'request_method',
+        'is_success', 'error_message', 'notes', 'created_at', 'updated_at'
+    ]
+    raw_id_fields = ['student', 'guardian', 'contract', 'user']
+    date_hierarchy = 'created_at'
+    list_per_page = 50
+
+    fieldsets = (
+        ('エンティティ情報', {
+            'fields': ('entity_type', 'entity_id', 'entity_name')
+        }),
+        ('操作内容', {
+            'fields': ('action_type', 'action_detail', 'is_success', 'error_message')
+        }),
+        ('変更データ', {
+            'fields': ('before_data', 'after_data', 'changed_fields'),
+            'classes': ('collapse',)
+        }),
+        ('関連エンティティ', {
+            'fields': ('student', 'guardian', 'contract')
+        }),
+        ('操作者情報', {
+            'fields': ('user', 'user_name', 'user_email', 'is_system_action')
+        }),
+        ('リクエスト情報', {
+            'fields': ('ip_address', 'user_agent', 'request_path', 'request_method'),
+            'classes': ('collapse',)
+        }),
+        ('日時', {
+            'fields': ('created_at', 'updated_at')
+        }),
+    )
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+# =============================================================================
 # 動的にinlinesを追加（モデル定義順序の問題を回避）
 # =============================================================================
 # CourseAdminにCourseTicketInlineを追加
@@ -1046,3 +1356,6 @@ CourseAdmin.inlines = [CourseItemInline, CourseTicketInline]
 
 # PackAdminにPackTicketInlineを追加
 PackAdmin.inlines = [PackCourseInline, PackItemInline, PackTicketInline]
+
+# ContractAdminにContractHistoryInlineを追加
+ContractAdmin.inlines = [StudentItemInline, ContractHistoryInline]

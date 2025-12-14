@@ -123,13 +123,15 @@ export default function ChildrenPage() {
     const isEarlyBorn = birthMonth < 4 || (birthMonth === 4 && birthDay === 1);
 
     // 小学1年生に入学する年度を計算
-    // 4月2日〜12月31日生まれ: 生まれた年の6年後の4月に入学
-    // 1月1日〜4月1日生まれ（早生まれ）: 生まれた年の5年後の4月に入学
+    // 4月2日〜12月31日生まれ: 満6歳になる年度に入学（birthYear + 6年度）
+    // 1月1日〜4月1日生まれ（早生まれ）: 生まれた年の5年後の年度に入学（birthYear + 5年度）
     let firstGradeYear: number;
     if (isEarlyBorn) {
-      firstGradeYear = birthYear + 6;
+      // 早生まれ: 例) 2020年1月生まれ → 2025年度に小1入学
+      firstGradeYear = birthYear + 5;
     } else {
-      firstGradeYear = birthYear + 7;
+      // 通常: 例) 2019年5月生まれ → 2025年度に小1入学
+      firstGradeYear = birthYear + 6;
     }
 
     // 現在の学年度から入学年度を引いて学年を計算

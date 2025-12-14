@@ -6,7 +6,7 @@ services:
     image: postgres:15-alpine
     container_name: oza_db
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - ansistem_postgres_data:/var/lib/postgresql/data
     environment:
       - POSTGRES_DB=${DB_NAME:-oza_db}
       - POSTGRES_USER=${DB_USER:-oza_user}
@@ -45,16 +45,18 @@ services:
       dockerfile: Dockerfile
     container_name: oza_backend
     command: >
-      sh -c "python manage.py migrate --settings=config.settings.production &&
-             gunicorn --bind 0.0.0.0:8000 --workers 4 --threads 2 config.wsgi:application"
+      sh -c "python manage.py migrate --settings=config.settings.development &&
+             python manage.py runserver 0.0.0.0:8000 --settings=config.settings.development"
     volumes:
       - static_volume:/app/staticfiles
       - media_volume:/app/media
+      - ./logs:/app/logs
+      - .:/app
     ports:
       - "8000:8000"
     environment:
-      - DEBUG=False
-      - DJANGO_SETTINGS_MODULE=config.settings.production
+      - DEBUG=True
+      - DJANGO_SETTINGS_MODULE=config.settings.development
       - SECRET_KEY=${SECRET_KEY}
       - DB_HOST=db
       - DB_PORT=5432
@@ -128,7 +130,8 @@ services:
       - oza_network
 
 volumes:
-  postgres_data:
+  ansistem_postgres_data:
+    external: true
   redis_data:
   static_volume:
   media_volume:

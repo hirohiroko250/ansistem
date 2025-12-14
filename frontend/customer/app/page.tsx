@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Bell, CreditCard, QrCode, Building2, MessageSquare, Receipt, Calendar, ChevronRight, Ticket, UserPlus, Star, Loader2 } from 'lucide-react';
+import { Bell, CreditCard, QrCode, Building2, MessageSquare, Receipt, Calendar, ChevronRight, Ticket, UserPlus, Star, Loader2, AlertCircle, Banknote } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { BottomTabBar } from '@/components/bottom-tab-bar';
@@ -11,6 +11,7 @@ import Image from 'next/image';
 import { getLatestNews, type NewsItem } from '@/lib/api/announcements';
 import { posts as fallbackPosts } from '@/lib/feed-data';
 import { isAuthenticated } from '@/lib/api/auth';
+import { getMyPayment, type PaymentInfo } from '@/lib/api/payment';
 
 const shortcuts = [
   { id: 1, name: 'チケット', icon: Ticket, href: '/tickets', color: 'bg-blue-500' },
@@ -24,11 +25,23 @@ const shortcuts = [
   { id: 9, name: 'カレンダー', icon: Calendar, href: '/calendar', color: 'bg-sky-500' },
 ];
 
+// 作業一覧の項目型
+type TaskItem = {
+  id: string;
+  title: string;
+  description: string;
+  href: string;
+  icon: typeof Banknote;
+  priority: 'high' | 'medium' | 'low';
+};
+
 export default function Home() {
   const router = useRouter();
   const [isChecking, setIsChecking] = useState(true);
   const [news, setNews] = useState<NewsItem[]>([]);
   const [newsLoading, setNewsLoading] = useState(true);
+  const [tasks, setTasks] = useState<TaskItem[]>([]);
+  const [tasksLoading, setTasksLoading] = useState(true);
 
   useEffect(() => {
     // 認証チェック
@@ -38,8 +51,36 @@ export default function Home() {
       setIsChecking(false);
       // お知らせを取得
       fetchNews();
+      // 作業一覧を取得
+      fetchTasks();
     }
   }, [router]);
+
+  const fetchTasks = async () => {
+    try {
+      setTasksLoading(true);
+      const pendingTasks: TaskItem[] = [];
+
+      // 支払い情報を確認
+      const paymentInfo = await getMyPayment();
+      if (!paymentInfo || !paymentInfo.payment_registered) {
+        pendingTasks.push({
+          id: 'payment-registration',
+          title: '銀行口座を登録してください',
+          description: '月謝の引き落としに必要な口座情報を登録してください',
+          href: '/settings/payment/edit',
+          icon: Banknote,
+          priority: 'high',
+        });
+      }
+
+      setTasks(pendingTasks);
+    } catch (error) {
+      console.error('Failed to fetch tasks:', error);
+    } finally {
+      setTasksLoading(false);
+    }
+  };
 
   const fetchNews = async () => {
     try {
@@ -101,6 +142,41 @@ export default function Home() {
       </header>
 
       <main className="max-w-[390px] mx-auto px-4 py-6 pb-24">
+        {/* 作業一覧セクション */}
+        {!tasksLoading && tasks.length > 0 && (
+          <section className="mb-4">
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-lg font-semibold text-gray-800 flex items-center gap-2">
+                <AlertCircle className="h-5 w-5 text-orange-500" />
+                やることリスト
+              </h2>
+            </div>
+            <div className="space-y-3">
+              {tasks.map((task) => {
+                const Icon = task.icon;
+                return (
+                  <Link key={task.id} href={task.href}>
+                    <Card className="rounded-xl shadow-md hover:shadow-lg transition-shadow cursor-pointer border-l-4 border-orange-500 bg-orange-50">
+                      <CardContent className="p-4">
+                        <div className="flex items-start gap-3">
+                          <div className="w-10 h-10 bg-orange-500 rounded-lg flex items-center justify-center shrink-0">
+                            <Icon className="h-5 w-5 text-white" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <h3 className="font-semibold text-gray-800 mb-1">{task.title}</h3>
+                            <p className="text-sm text-gray-600">{task.description}</p>
+                          </div>
+                          <ChevronRight className="h-5 w-5 text-gray-400 shrink-0" />
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </Link>
+                );
+              })}
+            </div>
+          </section>
+        )}
+
         <section className="mb-4">
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-lg font-semibold text-gray-800">最新情報</h2>

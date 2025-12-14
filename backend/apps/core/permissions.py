@@ -4,28 +4,50 @@ Custom Permissions
 from rest_framework import permissions
 
 
+def is_admin_user(user):
+    """管理者ユーザーかどうかを判定"""
+    if not user or not user.is_authenticated:
+        return False
+    # Djangoのis_superuserまたはis_staff
+    if getattr(user, 'is_superuser', False) or getattr(user, 'is_staff', False):
+        return True
+    # カスタムroleフィールド
+    role = getattr(user, 'role', None)
+    if role in ['ADMIN', 'SUPER_ADMIN']:
+        return True
+    # user_typeフィールド
+    user_type = getattr(user, 'user_type', None)
+    if user_type in ['ADMIN', 'STAFF']:
+        return True
+    return False
+
+
 class IsTenantUser(permissions.BasePermission):
-    """テナントユーザーであることを確認"""
+    """テナントユーザーであることを確認（管理者は常にアクセス可能）"""
     message = 'テナントへのアクセス権限がありません'
 
     def has_permission(self, request, view):
+        if not request.user or not request.user.is_authenticated:
+            return False
+        # 管理者は常にアクセス可能
+        if is_admin_user(request.user):
+            return True
         # tenant_idはrequest.tenant_idまたはrequest.user.tenant_idから取得
         tenant_id = getattr(request, 'tenant_id', None) or getattr(request.user, 'tenant_id', None)
-        return (
-            request.user and
-            request.user.is_authenticated and
-            tenant_id is not None
-        )
+        return tenant_id is not None
 
 
 class IsTenantAdmin(permissions.BasePermission):
-    """テナント管理者であることを確認"""
+    """テナント管理者であることを確認（管理者は常にアクセス可能）"""
     message = 'テナント管理者権限が必要です'
 
     def has_permission(self, request, view):
+        if not request.user or not request.user.is_authenticated:
+            return False
+        # 管理者は常にアクセス可能
+        if is_admin_user(request.user):
+            return True
         return (
-            request.user and
-            request.user.is_authenticated and
             hasattr(request, 'tenant') and
             request.tenant is not None and
             request.user.role in ['ADMIN', 'SUPER_ADMIN']

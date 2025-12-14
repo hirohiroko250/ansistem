@@ -455,7 +455,31 @@ class Classroom(TenantModel):
 
 class TimeSlot(TenantModel):
     """T13: 時間帯マスタ"""
+
+    class DayOfWeek(models.IntegerChoices):
+        MONDAY = 1, '月曜日'
+        TUESDAY = 2, '火曜日'
+        WEDNESDAY = 3, '水曜日'
+        THURSDAY = 4, '木曜日'
+        FRIDAY = 5, '金曜日'
+        SATURDAY = 6, '土曜日'
+        SUNDAY = 7, '日曜日'
+
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    school = models.ForeignKey(
+        'School',
+        on_delete=models.CASCADE,
+        related_name='school_time_slots',
+        verbose_name='校舎',
+        null=True,
+        blank=True,
+    )
+    day_of_week = models.IntegerField(
+        '曜日',
+        choices=DayOfWeek.choices,
+        null=True,
+        blank=True,
+    )
     slot_code = models.CharField('時間帯コード', max_length=20)
     slot_name = models.CharField('時間帯名', max_length=50)  # 例: "1限", "A枠"
     start_time = models.TimeField('開始時刻')
@@ -468,11 +492,12 @@ class TimeSlot(TenantModel):
         db_table = 't13_time_slots'
         verbose_name = 'T13_時間帯'
         verbose_name_plural = 'T13_時間帯'
-        ordering = ['sort_order', 'start_time']
-        unique_together = ['tenant_id', 'slot_code']
+        ordering = ['school', 'day_of_week', 'sort_order', 'start_time']
 
     def __str__(self):
-        return f"{self.slot_name} ({self.start_time.strftime('%H:%M')}-{self.end_time.strftime('%H:%M')})"
+        day_str = self.get_day_of_week_display() if self.day_of_week else ''
+        school_str = self.school.school_name if self.school else ''
+        return f"{school_str} {day_str} {self.slot_name} ({self.start_time.strftime('%H:%M')}-{self.end_time.strftime('%H:%M')})"
 
 
 class SchoolSchedule(TenantModel):
@@ -740,6 +765,16 @@ class ClassSchedule(TenantModel):
         'クラス終了日',
         null=True,
         blank=True
+    )
+
+    # 対象学年
+    grade = models.ForeignKey(
+        Grade,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='class_schedules',
+        verbose_name='対象学年'
     )
 
     is_active = models.BooleanField('有効', default=True)
@@ -1065,3 +1100,322 @@ class LessonCalendar(TenantModel):
         return cls.get_calendar_for_month(
             tenant_id, brand_id, school_id, year, month
         ).filter(is_open=True)
+
+
+class BankType(TenantModel):
+    """金融機関種別マスタ"""
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    type_code = models.CharField('種別コード', max_length=10)  # 00200, 01100 など
+    type_name = models.CharField('種別名', max_length=50)  # 都市銀行, 信用金庫
+    type_label = models.CharField('表示名', max_length=20)  # 都市銀行, 信金
+    sort_order = models.IntegerField('表示順', default=0)
+    is_active = models.BooleanField('有効', default=True)
+
+    class Meta:
+        db_table = 'bank_types'
+        verbose_name = '金融機関種別'
+        verbose_name_plural = '金融機関種別'
+        ordering = ['sort_order']
+        unique_together = ['tenant_id', 'type_code']
+
+    def __str__(self):
+        return f"{self.type_name} ({self.type_code})"
+
+
+class Bank(TenantModel):
+    """金融機関マスタ"""
+
+    class AiueoRow(models.TextChoices):
+        A = 'あ', 'あ行'
+        KA = 'か', 'か行'
+        SA = 'さ', 'さ行'
+        TA = 'た', 'た行'
+        NA = 'な', 'な行'
+        HA = 'は', 'は行'
+        MA = 'ま', 'ま行'
+        YA = 'や', 'や行'
+        RA = 'ら', 'ら行'
+        WA = 'わ', 'わ行'
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    bank_code = models.CharField('金融機関コード', max_length=10, db_index=True)
+    bank_name = models.CharField('金融機関名', max_length=100)
+    bank_name_kana = models.CharField('金融機関名カナ', max_length=100, blank=True)
+    bank_name_half_kana = models.CharField('金融機関名半角カナ', max_length=100, blank=True)
+    bank_name_hiragana = models.CharField('金融機関名ひらがな', max_length=100, blank=True)
+    aiueo_row = models.CharField(
+        'あいうえお行',
+        max_length=2,
+        choices=AiueoRow.choices,
+        blank=True,
+        db_index=True,
+        help_text='頭文字の行（あ行、か行...）'
+    )
+
+    bank_type = models.ForeignKey(
+        BankType,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='banks',
+        verbose_name='金融機関種別'
+    )
+
+    sort_order = models.IntegerField('表示順', default=0)
+    is_active = models.BooleanField('有効', default=True)
+
+    class Meta:
+        db_table = 'banks'
+        verbose_name = '金融機関'
+        verbose_name_plural = '金融機関'
+        ordering = ['sort_order', 'bank_name_hiragana']
+        unique_together = ['tenant_id', 'bank_code']
+
+    def __str__(self):
+        return f"{self.bank_name} ({self.bank_code})"
+
+    def save(self, *args, **kwargs):
+        """保存時にあいうえお行を自動設定"""
+        if self.bank_name_hiragana and not self.aiueo_row:
+            self.aiueo_row = self._get_aiueo_row(self.bank_name_hiragana)
+        super().save(*args, **kwargs)
+
+    @staticmethod
+    def _get_aiueo_row(hiragana: str) -> str:
+        """ひらがなの最初の文字からあいうえお行を判定"""
+        if not hiragana:
+            return ''
+        first_char = hiragana[0]
+        # 濁音・半濁音を清音に変換
+        dakuon_map = {
+            'が': 'か', 'ぎ': 'か', 'ぐ': 'か', 'げ': 'か', 'ご': 'か',
+            'ざ': 'さ', 'じ': 'さ', 'ず': 'さ', 'ぜ': 'さ', 'ぞ': 'さ',
+            'だ': 'た', 'ぢ': 'た', 'づ': 'た', 'で': 'た', 'ど': 'た',
+            'ば': 'は', 'び': 'は', 'ぶ': 'は', 'べ': 'は', 'ぼ': 'は',
+            'ぱ': 'は', 'ぴ': 'は', 'ぷ': 'は', 'ぺ': 'は', 'ぽ': 'は',
+        }
+        first_char = dakuon_map.get(first_char, first_char)
+
+        if first_char in 'あいうえお':
+            return 'あ'
+        elif first_char in 'かきくけこ':
+            return 'か'
+        elif first_char in 'さしすせそ':
+            return 'さ'
+        elif first_char in 'たちつてと':
+            return 'た'
+        elif first_char in 'なにぬねの':
+            return 'な'
+        elif first_char in 'はひふへほ':
+            return 'は'
+        elif first_char in 'まみむめも':
+            return 'ま'
+        elif first_char in 'やゆよ':
+            return 'や'
+        elif first_char in 'らりるれろ':
+            return 'ら'
+        elif first_char in 'わをん':
+            return 'わ'
+        return ''
+
+
+class BankBranch(TenantModel):
+    """支店マスタ"""
+
+    class AiueoRow(models.TextChoices):
+        A = 'あ', 'あ行'
+        KA = 'か', 'か行'
+        SA = 'さ', 'さ行'
+        TA = 'た', 'た行'
+        NA = 'な', 'な行'
+        HA = 'は', 'は行'
+        MA = 'ま', 'ま行'
+        YA = 'や', 'や行'
+        RA = 'ら', 'ら行'
+        WA = 'わ', 'わ行'
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    bank = models.ForeignKey(
+        Bank,
+        on_delete=models.CASCADE,
+        related_name='branches',
+        verbose_name='金融機関'
+    )
+    branch_code = models.CharField('支店コード', max_length=10, db_index=True)
+    branch_name = models.CharField('支店名', max_length=100)
+    branch_name_kana = models.CharField('支店名カナ', max_length=100, blank=True)
+    branch_name_half_kana = models.CharField('支店名半角カナ', max_length=100, blank=True)
+    branch_name_hiragana = models.CharField('支店名ひらがな', max_length=100, blank=True)
+    aiueo_row = models.CharField(
+        'あいうえお行',
+        max_length=2,
+        choices=AiueoRow.choices,
+        blank=True,
+        db_index=True,
+        help_text='頭文字の行（あ行、か行...）'
+    )
+
+    sort_order = models.IntegerField('表示順', default=0)
+    is_active = models.BooleanField('有効', default=True)
+
+    class Meta:
+        db_table = 'bank_branches'
+        verbose_name = '金融機関支店'
+        verbose_name_plural = '金融機関支店'
+        ordering = ['sort_order', 'branch_name_hiragana']
+        unique_together = ['bank', 'branch_code']
+
+    def __str__(self):
+        return f"{self.bank.bank_name} {self.branch_name} ({self.branch_code})"
+
+    def save(self, *args, **kwargs):
+        """保存時にあいうえお行を自動設定"""
+        if self.branch_name_hiragana and not self.aiueo_row:
+            self.aiueo_row = Bank._get_aiueo_row(self.branch_name_hiragana)
+        super().save(*args, **kwargs)
+
+
+class CalendarOperationLog(TenantModel):
+    """
+    カレンダー操作ログ
+    ABスワップ、休校設定などの操作履歴を記録
+    """
+
+    class OperationType(models.TextChoices):
+        AB_SWAP = 'ab_swap', 'ABスワップ'
+        SET_CLOSURE = 'set_closure', '休校設定'
+        CANCEL_CLOSURE = 'cancel_closure', '休校解除'
+        LESSON_TYPE_CHANGE = 'lesson_type_change', 'レッスンタイプ変更'
+        SCHEDULE_CHANGE = 'schedule_change', 'スケジュール変更'
+        STAFF_ABSENCE = 'staff_absence', 'スタッフ欠勤'
+        NATIVE_ABSENCE = 'native_absence', '外国人欠勤'
+        OTHER = 'other', 'その他'
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+
+    operation_type = models.CharField(
+        '操作種別',
+        max_length=30,
+        choices=OperationType.choices
+    )
+
+    # 対象
+    school = models.ForeignKey(
+        School,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='operation_logs',
+        verbose_name='校舎'
+    )
+    brand = models.ForeignKey(
+        Brand,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='operation_logs',
+        verbose_name='ブランド'
+    )
+    schedule = models.ForeignKey(
+        SchoolSchedule,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='operation_logs',
+        verbose_name='スケジュール'
+    )
+    lesson_calendar = models.ForeignKey(
+        LessonCalendar,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='operation_logs',
+        verbose_name='開講カレンダー'
+    )
+
+    # 操作日時・対象日
+    operation_date = models.DateField('対象日')
+    operated_at = models.DateTimeField('操作日時', auto_now_add=True)
+
+    # 操作者
+    operated_by = models.ForeignKey(
+        'users.User',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='calendar_operations',
+        verbose_name='操作者'
+    )
+
+    # 変更内容
+    old_value = models.CharField('変更前', max_length=100, blank=True)
+    new_value = models.CharField('変更後', max_length=100, blank=True)
+    reason = models.TextField('理由', blank=True)
+    notes = models.TextField('備考', blank=True)
+
+    # メタデータ
+    metadata = models.JSONField('メタデータ', default=dict, blank=True)
+
+    class Meta:
+        db_table = 'calendar_operation_logs'
+        verbose_name = 'カレンダー操作ログ'
+        verbose_name_plural = 'カレンダー操作ログ'
+        ordering = ['-operated_at']
+
+    def __str__(self):
+        return f"{self.get_operation_type_display()} - {self.operation_date} ({self.operated_at.strftime('%Y-%m-%d %H:%M')})"
+
+    @classmethod
+    def log_ab_swap(cls, tenant_id, school, brand, lesson_calendar, old_type, new_type, user=None, reason=''):
+        """ABスワップをログに記録"""
+        return cls.objects.create(
+            tenant_id=tenant_id,
+            operation_type=cls.OperationType.AB_SWAP,
+            school=school,
+            brand=brand,
+            lesson_calendar=lesson_calendar,
+            operation_date=lesson_calendar.lesson_date if lesson_calendar else None,
+            operated_by=user,
+            old_value=old_type,
+            new_value=new_type,
+            reason=reason,
+            metadata={
+                'calendar_code': lesson_calendar.calendar_code if lesson_calendar else None,
+            }
+        )
+
+    @classmethod
+    def log_closure(cls, tenant_id, closure, user=None):
+        """休校設定をログに記録"""
+        return cls.objects.create(
+            tenant_id=tenant_id,
+            operation_type=cls.OperationType.SET_CLOSURE,
+            school=closure.school,
+            brand=closure.brand,
+            schedule=closure.schedule,
+            operation_date=closure.closure_date,
+            operated_by=user,
+            new_value=closure.get_closure_type_display(),
+            reason=closure.reason or '',
+            metadata={
+                'closure_id': str(closure.id),
+                'closure_type': closure.closure_type,
+            }
+        )
+
+    @classmethod
+    def log_staff_absence(cls, tenant_id, school, brand, date, staff_type, user=None, reason=''):
+        """スタッフ欠勤をログに記録"""
+        op_type = cls.OperationType.NATIVE_ABSENCE if staff_type == 'native' else cls.OperationType.STAFF_ABSENCE
+        return cls.objects.create(
+            tenant_id=tenant_id,
+            operation_type=op_type,
+            school=school,
+            brand=brand,
+            operation_date=date,
+            operated_by=user,
+            reason=reason,
+            metadata={
+                'staff_type': staff_type,
+            }
+        )

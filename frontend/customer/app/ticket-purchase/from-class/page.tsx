@@ -17,7 +17,29 @@ import { cn } from '@/lib/utils';
 import { getChildren } from '@/lib/api/students';
 import { getBrandCategories, getBrandSchools, getLessonCalendar, getClassSchedules, type BrandCategory, type CategoryBrand, type BrandSchool, type LessonCalendarDay, type ClassScheduleResponse, type TimeSlotSchedule, type ClassScheduleItem } from '@/lib/api/schools';
 import { previewPricing, confirmPricing } from '@/lib/api/pricing';
+import { getMyContracts, type MyContract } from '@/lib/api/contracts';
 import type { Child, ApiError, PricingPreviewResponse } from '@/lib/api/types';
+
+// 曜日番号を曜日名に変換
+const dayOfWeekNames: Record<number, string> = {
+  0: '日曜日',
+  1: '月曜日',
+  2: '火曜日',
+  3: '水曜日',
+  4: '木曜日',
+  5: '金曜日',
+  6: '土曜日',
+};
+
+// チケット情報型（校舎で開講しているチケット一覧用）
+type AvailableTicket = {
+  ticketId: string;
+  ticketName: string;
+  durationMinutes?: number;
+  gradeCode?: string;
+  gradeName?: string;
+  sortOrder?: number;
+};
 
 const dayMapping: Record<number, string> = {
   0: '日曜日',
@@ -67,6 +89,27 @@ const getGradeOrder = (grade?: string): number => {
   return gradeOrder[grade] ?? 999;
 };
 
+// チケット名からレベル/年齢順を推測（英会話クラスの色名など）
+const ticketLevelOrder: Record<string, number> = {
+  'White': 1,    // 低年齢
+  'Yellow': 2,
+  'Orange': 3,
+  'Red': 4,
+  'Purple': 5,
+  'Blue': 6,
+  'Green': 7,    // 高年齢
+};
+
+const getTicketLevelFromName = (ticketName: string): number => {
+  // チケット名から色名を抽出してソート順を返す
+  for (const [colorName, order] of Object.entries(ticketLevelOrder)) {
+    if (ticketName.includes(colorName)) {
+      return order;
+    }
+  }
+  return 999; // 色名がない場合は最後
+};
+
 const sortChildrenByGrade = (children: Child[]): Child[] => {
   return [...children].sort((a, b) => getGradeOrder(a.grade) - getGradeOrder(b.grade));
 };
@@ -102,6 +145,9 @@ export default function FromClassPurchasePage() {
   const [isLoadingChildren, setIsLoadingChildren] = useState(true);
   const [childrenError, setChildrenError] = useState<string | null>(null);
 
+  // 選択した生徒の既存契約（受講中クラス）
+  const [existingContracts, setExistingContracts] = useState<MyContract[]>([]);
+
   const [categories, setCategories] = useState<BrandCategory[]>([]);
   const [isLoadingCategories, setIsLoadingCategories] = useState(true);
   const [categoriesError, setCategoriesError] = useState<string | null>(null);
@@ -126,6 +172,12 @@ export default function FromClassPurchasePage() {
   const [isConfirming, setIsConfirming] = useState(false);
   const [confirmError, setConfirmError] = useState<string | null>(null);
 
+  // チケット選択用
+  const [availableTickets, setAvailableTickets] = useState<AvailableTicket[]>([]);
+  const [isLoadingTickets, setIsLoadingTickets] = useState(false);
+  const [ticketsError, setTicketsError] = useState<string | null>(null);
+  const [selectedTicketId, setSelectedTicketId] = useState<string | null>(null);
+
   // 子ども一覧を取得
   useEffect(() => {
     const fetchChildren = async () => {
@@ -147,6 +199,28 @@ export default function FromClassPurchasePage() {
     };
     fetchChildren();
   }, [router]);
+
+  // 選択した生徒の既存契約を取得
+  useEffect(() => {
+    if (!selectedChild) {
+      setExistingContracts([]);
+      return;
+    }
+    const fetchContracts = async () => {
+      try {
+        const response = await getMyContracts();
+        // 選択した生徒のactive契約のみフィルタ
+        const childContracts = response.contracts.filter(
+          c => c.student.id === selectedChild.id && c.status === 'active'
+        );
+        setExistingContracts(childContracts);
+      } catch (err) {
+        console.error('Failed to fetch contracts:', err);
+        setExistingContracts([]);
+      }
+    };
+    fetchContracts();
+  }, [selectedChild]);
 
   // ブランドカテゴリ一覧を取得
   useEffect(() => {
@@ -193,8 +267,13 @@ export default function FromClassPurchasePage() {
         });
         const uniqueSchools = Array.from(schoolMap.values());
 
-        // 校舎名でソート
-        uniqueSchools.sort((a, b) => a.name.localeCompare(b.name, 'ja'));
+        // sortOrderでソート（sortOrderがなければ校舎名でソート）
+        uniqueSchools.sort((a, b) => {
+          const orderA = a.sortOrder ?? 9999;
+          const orderB = b.sortOrder ?? 9999;
+          if (orderA !== orderB) return orderA - orderB;
+          return a.name.localeCompare(b.name, 'ja');
+        });
 
         setSchools(uniqueSchools);
       } catch (err) {
@@ -207,9 +286,92 @@ export default function FromClassPurchasePage() {
     fetchSchools();
   }, [selectedCategory]);
 
-  // 校舎選択時に開講時間割を取得（APIから）
+  // 校舎選択時にチケット一覧を取得（ClassScheduleから抽出）
   useEffect(() => {
     if (!selectedSchoolId) return;
+
+    const fetchTickets = async () => {
+      setIsLoadingTickets(true);
+      setTicketsError(null);
+      try {
+        // ClassScheduleからチケット情報を取得
+        const schedules = await getClassSchedules(
+          selectedSchoolId,
+          selectedBrand?.id,
+          selectedCategory?.id
+        );
+        // schedules.timeSlotsからユニークなチケットIDを抽出
+        const ticketMap = new Map<string, AvailableTicket>();
+        schedules.timeSlots.forEach(ts => {
+          Object.values(ts.days).forEach(day => {
+            day.schedules.forEach(sched => {
+              if (sched.ticketId && !ticketMap.has(sched.ticketId)) {
+                ticketMap.set(sched.ticketId, {
+                  ticketId: sched.ticketId,
+                  ticketName: sched.ticketName || sched.ticketId,
+                  durationMinutes: sched.durationMinutes,
+                  gradeCode: sched.gradeCode,
+                  gradeName: sched.gradeName,
+                  sortOrder: sched.sortOrder,
+                });
+              }
+            });
+          });
+        });
+        // チケットを子どもの学年に合った順でソート
+        const childGradeOrder = selectedChild ? getGradeOrder(selectedChild.grade) : 999;
+
+        // 子どもの学年に基づいてチケットレベルの目安を決定
+        // 幼児(年少〜年長)=1-3、小学低学年=4-6、小学高学年=7-9、中学生=10-12
+        let childTicketLevel = 4; // デフォルトはRedあたり
+        if (childGradeOrder <= 3) {
+          childTicketLevel = 1; // 幼児 → White/Yellow
+        } else if (childGradeOrder <= 12) {
+          childTicketLevel = 3; // 小学1-3年 → Orange
+        } else if (childGradeOrder <= 15) {
+          childTicketLevel = 5; // 小学4-6年 → Purple
+        } else {
+          childTicketLevel = 6; // 中学生以上 → Blue/Green
+        }
+
+        const sortedTickets = Array.from(ticketMap.values()).sort((a, b) => {
+          // チケット名から色レベルを取得
+          const ticketLevelA = getTicketLevelFromName(a.ticketName);
+          const ticketLevelB = getTicketLevelFromName(b.ticketName);
+
+          // 子どもに合ったレベルに近いものを優先
+          const distA = Math.abs(ticketLevelA - childTicketLevel);
+          const distB = Math.abs(ticketLevelB - childTicketLevel);
+
+          if (distA !== distB) return distA - distB;
+
+          // sortOrderがある場合はそれを使用
+          if (a.sortOrder !== undefined && b.sortOrder !== undefined) {
+            return a.sortOrder - b.sortOrder;
+          }
+
+          // 最後はチケットレベル順（小さい方が低年齢）
+          if (ticketLevelA !== ticketLevelB) {
+            return ticketLevelA - ticketLevelB;
+          }
+
+          return a.ticketName.localeCompare(b.ticketName, 'ja');
+        });
+        setAvailableTickets(sortedTickets);
+      } catch (err) {
+        const apiError = err as ApiError;
+        setTicketsError(apiError.message || 'チケット情報の取得に失敗しました');
+        setAvailableTickets([]);
+      } finally {
+        setIsLoadingTickets(false);
+      }
+    };
+    fetchTickets();
+  }, [selectedSchoolId, selectedBrand?.id, selectedCategory?.id]);
+
+  // チケット選択時に開講時間割を取得（APIから）
+  useEffect(() => {
+    if (!selectedSchoolId || !selectedTicketId) return;
 
     const fetchClassSchedules = async () => {
       setIsLoadingSchedules(true);
@@ -218,7 +380,8 @@ export default function FromClassPurchasePage() {
         const data = await getClassSchedules(
           selectedSchoolId,
           selectedBrand?.id,
-          selectedCategory?.id
+          selectedCategory?.id,
+          selectedTicketId  // チケットIDでフィルタリング
         );
         setClassScheduleData(data);
       } catch (err) {
@@ -230,7 +393,7 @@ export default function FromClassPurchasePage() {
       }
     };
     fetchClassSchedules();
-  }, [selectedSchoolId, selectedBrand?.id, selectedCategory?.id]);
+  }, [selectedSchoolId, selectedBrand?.id, selectedCategory?.id, selectedTicketId]);
 
   // 校舎選択時に開講カレンダーを取得
   useEffect(() => {
@@ -272,12 +435,23 @@ export default function FromClassPurchasePage() {
 
   const handleSchoolSelect = (schoolId: string) => {
     setSelectedSchoolId(schoolId);
+    setSelectedTicketId(null);  // チケット選択をリセット
     // 校舎選択後は確認表示し、「次へ」ボタンで遷移
   };
 
-  // 校舎確認後に次のステップへ進む
+  // 校舎確認後にチケット選択画面へ進む
   const handleConfirmSchool = () => {
-    setStep(4); // 曜日・時間帯選択へ
+    setStep(4); // チケット選択へ（新規追加）
+  };
+
+  // チケット選択時
+  const handleTicketSelect = (ticketId: string) => {
+    setSelectedTicketId(ticketId);
+  };
+
+  // チケット確認後に曜日・時間帯選択画面へ進む
+  const handleConfirmTicket = () => {
+    setStep(5); // 曜日・時間帯選択へ
   };
 
   const handleBackToStep = (targetStep: number) => {
@@ -287,7 +461,7 @@ export default function FromClassPurchasePage() {
   const handleTimeSlotSelect = (time: string, dayOfWeek: string) => {
     setSelectedTime(time);
     setSelectedDayOfWeek(dayOfWeek);
-    setStep(5);
+    setStep(6);  // 開始日・クラス選択へ
   };
 
   const handleScheduleToggle = (schedule: ClassScheduleItem) => {
@@ -323,12 +497,12 @@ export default function FromClassPurchasePage() {
         // courseIdはクラス予約の場合は使用しない
       });
       setPricingPreview(preview);
-      setStep(6);
+      setStep(7);  // 規約確認へ
     } catch (err) {
       const apiError = err as ApiError;
       setPricingError(apiError.message || '料金計算に失敗しました');
       // エラーでも次のステップへ進む
-      setStep(6);
+      setStep(7);  // 規約確認へ
     } finally {
       setIsLoadingPricing(false);
     }
@@ -337,9 +511,11 @@ export default function FromClassPurchasePage() {
   const handleTermsAccepted = () => {
     const info = calculateAdditionalInfo();
     if (info.needed) {
-      setStep(7);
+      // 推奨枚数を自動設定
+      setAdditionalTicketCount(info.tickets);
+      setStep(8);  // 追加チケット購入へ
     } else {
-      setStep(8);
+      setStep(9);  // 予約確認へ
     }
   };
 
@@ -355,6 +531,19 @@ export default function FromClassPurchasePage() {
         previewId: 'class-reservation',
         paymentMethod: 'credit_card',
         studentId: selectedChild.id,
+        // 購入時に選択した情報を追加（生徒所属の自動作成用）
+        brandId: selectedBrand?.id || undefined,
+        schoolId: selectedSchoolId || undefined,
+        startDate: startDate ? format(startDate, 'yyyy-MM-dd') : undefined,
+        // スケジュール情報（曜日・時間帯）を送信
+        schedules: selectedScheduleInfo.map(s => ({
+          id: s.id,
+          dayOfWeek: s.dayOfWeek,
+          startTime: s.startTime,
+          endTime: s.endTime,
+          className: s.className,
+        })),
+        ticketId: selectedTicketId || undefined,
       });
 
       if (result.status === 'completed' || result.status === 'pending') {
@@ -383,13 +572,18 @@ export default function FromClassPurchasePage() {
 
   const selectedSchool = schools.find((s) => s.id === selectedSchoolId);
 
-  // 選択した曜日・時間のスケジュールを取得
+  // 選択した曜日・時間のスケジュールを取得（選択したチケットIDでフィルタリング）
   const getSchedulesForTimeAndDay = (): ClassScheduleItem[] => {
     if (!classScheduleData || !selectedTime || !selectedDayOfWeek) return [];
     const dayShort = selectedDayOfWeek.replace('曜日', '');
     const timeSlot = classScheduleData.timeSlots.find(ts => ts.time === selectedTime);
     if (!timeSlot) return [];
-    return timeSlot.days[dayShort]?.schedules || [];
+    const schedules = timeSlot.days[dayShort]?.schedules || [];
+    // 選択したチケットIDでフィルタリング（バックエンドでもフィルタしているが、念のためフロントでも）
+    if (selectedTicketId) {
+      return schedules.filter(s => s.ticketId === selectedTicketId);
+    }
+    return schedules;
   };
 
   const filteredSchedulesByTimeAndDay = getSchedulesForTimeAndDay();
@@ -474,7 +668,7 @@ export default function FromClassPurchasePage() {
 
         <div className="mb-6">
           <div className="flex items-center justify-center space-x-2">
-            {[1, 2, 3, 4, 5, 6, 7, 8].map((s) => (
+            {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((s) => (
               <div
                 key={s}
                 className={`h-2 flex-1 rounded-full transition-colors ${s <= step ? 'bg-green-500' : 'bg-gray-200'
@@ -483,7 +677,7 @@ export default function FromClassPurchasePage() {
             ))}
           </div>
           <p className="text-center text-sm text-gray-600 mt-2">
-            Step {step} / 8
+            Step {step} / 9
           </p>
         </div>
 
@@ -644,7 +838,87 @@ export default function FromClassPurchasePage() {
           </div>
         )}
 
-        {step === 4 && (() => {
+        {/* Step 4: チケット（コース）選択 */}
+        {step === 4 && (
+          <div>
+            <div className="mb-4">
+              <Card className="rounded-xl shadow-sm bg-green-50 border-green-200">
+                <CardContent className="p-3">
+                  <p className="text-xs text-gray-600 mb-1">選択中の校舎</p>
+                  <p className="font-semibold text-gray-800">{selectedSchool?.name}</p>
+                  <p className="text-xs text-gray-600 mt-1">対象: {selectedChild?.fullName}（{selectedChild?.grade}）</p>
+                </CardContent>
+              </Card>
+            </div>
+
+            <h2 className="text-lg font-semibold text-gray-800 mb-4">コース（チケット）を選択</h2>
+            <p className="text-sm text-gray-600 mb-4">
+              お子様の年齢・レベルに合ったコースを選択してください。
+            </p>
+
+            {isLoadingTickets ? (
+              <div className="flex flex-col items-center justify-center py-12">
+                <Loader2 className="h-8 w-8 animate-spin text-green-500 mb-3" />
+                <p className="text-sm text-gray-600">コース情報を読み込み中...</p>
+              </div>
+            ) : ticketsError ? (
+              <div className="flex items-center gap-2 p-4 rounded-lg bg-red-50 border border-red-200 mb-4">
+                <AlertCircle className="h-5 w-5 text-red-600 shrink-0" />
+                <p className="text-sm text-red-800">{ticketsError}</p>
+              </div>
+            ) : availableTickets.length === 0 ? (
+              <div className="text-center py-12">
+                <AlertCircle className="h-12 w-12 text-gray-400 mx-auto mb-3" />
+                <p className="text-gray-500">この校舎で開講中のコースがありません</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {availableTickets.map((ticket) => (
+                  <Card
+                    key={ticket.ticketId}
+                    className={`rounded-xl shadow-md hover:shadow-lg transition-shadow cursor-pointer ${
+                      selectedTicketId === ticket.ticketId
+                        ? 'border-2 border-green-500 bg-green-50'
+                        : ''
+                    }`}
+                    onClick={() => handleTicketSelect(ticket.ticketId)}
+                  >
+                    <CardContent className="p-4">
+                      <div className="flex items-start justify-between">
+                        <div>
+                          <h3 className="font-semibold text-gray-800">{ticket.ticketName}</h3>
+                          {ticket.durationMinutes && (
+                            <div className="flex items-center gap-1 mt-1 text-sm text-gray-600">
+                              <Clock className="h-4 w-4" />
+                              <span>{ticket.durationMinutes}分</span>
+                            </div>
+                          )}
+                        </div>
+                        {selectedTicketId === ticket.ticketId && (
+                          <div className="w-6 h-6 rounded-full bg-green-500 flex items-center justify-center">
+                            <Check className="h-4 w-4 text-white" />
+                          </div>
+                        )}
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            )}
+
+            {selectedTicketId && (
+              <Button
+                onClick={handleConfirmTicket}
+                className="w-full h-14 rounded-full bg-green-600 hover:bg-green-700 text-white font-semibold text-lg mt-6"
+              >
+                次へ
+              </Button>
+            )}
+          </div>
+        )}
+
+        {/* Step 5: 曜日・時間帯選択 */}
+        {step === 5 && (() => {
           const dayLabels = classScheduleData?.dayLabels || ['月', '火', '水', '木', '金', '土', '日'];
 
           const getStatusIcon = (status: string) => {
@@ -662,13 +936,16 @@ export default function FromClassPurchasePage() {
             }
           };
 
+          const selectedTicket = availableTickets.find(t => t.ticketId === selectedTicketId);
+
           return (
             <div>
               <div className="mb-4">
                 <Card className="rounded-xl shadow-sm bg-green-50 border-green-200">
                   <CardContent className="p-3">
-                    <p className="text-xs text-gray-600 mb-1">選択中の校舎</p>
+                    <p className="text-xs text-gray-600 mb-1">選択中の校舎・コース</p>
                     <p className="font-semibold text-gray-800">{selectedSchool?.name}</p>
+                    <p className="text-sm text-gray-700">{selectedTicket?.ticketName}</p>
                     <p className="text-xs text-gray-600 mt-1">対象: {selectedChild?.fullName}</p>
                   </CardContent>
                 </Card>
@@ -711,7 +988,7 @@ export default function FromClassPurchasePage() {
               ) : !classScheduleData || classScheduleData.timeSlots.length === 0 ? (
                 <div className="text-center py-12">
                   <AlertCircle className="h-12 w-12 text-gray-400 mx-auto mb-3" />
-                  <p className="text-gray-500">この校舎には現在開講中のクラスがありません</p>
+                  <p className="text-gray-500">このコースの開講クラスがありません</p>
                 </div>
               ) : (
               <Card className="rounded-xl shadow-md overflow-hidden">
@@ -769,7 +1046,8 @@ export default function FromClassPurchasePage() {
           );
         })()}
 
-        {step === 5 && (
+        {/* Step 6: 開始日・クラス選択 */}
+        {step === 6 && (
           <div>
             <div className="mb-4">
               <Card className="rounded-xl shadow-sm bg-green-50 border-green-200">
@@ -944,7 +1222,7 @@ export default function FromClassPurchasePage() {
                 <AlertCircle className="h-12 w-12 text-gray-400 mx-auto mb-3" />
                 <p className="text-gray-500">この時間帯には開講中のクラスがありません</p>
                 <Button
-                  onClick={() => setStep(4)}
+                  onClick={() => setStep(5)}
                   variant="outline"
                   className="mt-4"
                 >
@@ -972,7 +1250,8 @@ export default function FromClassPurchasePage() {
           </div>
         )}
 
-        {step === 6 && (
+        {/* Step 7: 利用規約の確認 */}
+        {step === 7 && (
           <div>
             <h2 className="text-lg font-semibold text-gray-800 mb-4">利用規約の確認</h2>
 
@@ -1050,9 +1329,66 @@ export default function FromClassPurchasePage() {
           </div>
         )}
 
-        {step === 7 && (
+        {/* Step 8: 追加チケット購入 */}
+        {step === 8 && (
           <div>
             <h2 className="text-lg font-semibold text-gray-800 mb-4">追加チケットの購入</h2>
+
+            {/* 選択したクラス情報（受講曜日・時間）を表示 */}
+            {selectedScheduleInfo.length > 0 && (
+              <Card className="rounded-xl shadow-md mb-4 border-blue-200 bg-blue-50">
+                <CardContent className="p-4">
+                  <div className="flex items-center gap-2 mb-2">
+                    <CalendarIcon className="h-5 w-5 text-blue-600" />
+                    <h3 className="font-semibold text-blue-900">受講するクラス</h3>
+                  </div>
+                  <div className="space-y-2">
+                    {selectedScheduleInfo.map((schedule) => (
+                      <div key={schedule.id} className="flex items-center justify-between bg-white rounded-lg p-3 border border-blue-100">
+                        <div>
+                          <p className="font-semibold text-gray-800">
+                            {schedule.dayOfWeek} {schedule.startTime}～{schedule.endTime}
+                          </p>
+                          <p className="text-sm text-gray-600">{schedule.className}</p>
+                        </div>
+                        <Badge className="bg-blue-500 text-white">
+                          {selectedTicketId ? availableTickets.find(t => t.ticketId === selectedTicketId)?.ticketName : 'クラス'}
+                        </Badge>
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* 現在受講中のクラス（既存契約） */}
+            {existingContracts.length > 0 && (
+              <Card className="rounded-xl shadow-md mb-4 border-green-200 bg-green-50">
+                <CardContent className="p-4">
+                  <div className="flex items-center gap-2 mb-2">
+                    <BookOpen className="h-5 w-5 text-green-600" />
+                    <h3 className="font-semibold text-green-900">現在受講中のクラス</h3>
+                  </div>
+                  <div className="space-y-2">
+                    {existingContracts.map((contract) => (
+                      <div key={contract.id} className="flex items-center justify-between bg-white rounded-lg p-3 border border-green-100">
+                        <div>
+                          <p className="font-semibold text-gray-800">
+                            {contract.dayOfWeek !== undefined && contract.dayOfWeek !== null
+                              ? `${dayOfWeekNames[contract.dayOfWeek]} ${contract.startTime || ''}～${contract.endTime || ''}`
+                              : contract.course?.courseName || contract.ticket?.ticketName || '受講中'}
+                          </p>
+                          <p className="text-sm text-gray-600">
+                            {contract.brand.brandName} / {contract.school.schoolName}
+                          </p>
+                        </div>
+                        <Badge className="bg-green-500 text-white">受講中</Badge>
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
 
             <Card className="rounded-xl shadow-md mb-4 border-orange-200 bg-orange-50">
               <CardContent className="p-4">
@@ -1140,14 +1476,14 @@ export default function FromClassPurchasePage() {
                 variant="outline"
                 onClick={() => {
                   setAdditionalTicketCount(0);
-                  setStep(8);
+                  setStep(9);
                 }}
                 className="flex-1 h-14 rounded-full"
               >
                 スキップ
               </Button>
               <Button
-                onClick={() => setStep(8)}
+                onClick={() => setStep(9)}
                 className="flex-1 h-14 rounded-full bg-green-600 hover:bg-green-700 text-white font-semibold"
               >
                 確認画面へ
@@ -1156,7 +1492,8 @@ export default function FromClassPurchasePage() {
           </div>
         )}
 
-        {step === 8 && (
+        {/* Step 9: 予約確認 */}
+        {step === 9 && (
           <div>
             <h2 className="text-lg font-semibold text-gray-800 mb-4">予約内容の確認</h2>
 

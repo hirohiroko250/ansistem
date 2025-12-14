@@ -82,17 +82,39 @@ export type StudentStatus = 'inquiry' | 'trial' | 'enrolled' | 'suspended' | 'wi
 
 export interface Student {
   id: string;
-  user_id: string;
-  user: UserSummary;
-  student_number?: string;
-  grade?: string;
+  student_no?: string;
+  full_name?: string;
+  last_name?: string;
+  first_name?: string;
+  last_name_kana?: string;
+  first_name_kana?: string;
+  birth_date?: string;
+  gender?: 'male' | 'female' | 'other';
   school_name?: string;
-  enrollment_date?: string;
-  withdrawal_date?: string;
+  grade?: string;
+  grade_name?: string;
+  grade_text?: string;
+  primary_school?: string;
+  primary_school_name?: string;
+  primary_brand?: string;
+  primary_brand_name?: string;
+  brands?: string[];
+  brand_ids?: string[];
+  brand_names?: string[];
   status: StudentStatus;
+  registered_date?: string;
+  trial_date?: string;
+  enrollment_date?: string;
+  suspended_date?: string;
+  withdrawal_date?: string;
+  email?: string;
+  phone?: string;
   notes?: string;
-  created_at: string;
-  updated_at: string;
+  guardian?: string;
+  guardian_id?: string;
+  guardian_no?: string;
+  guardian_name?: string;
+  guardian_phone?: string;
 }
 
 export interface StudentDetail extends Student {

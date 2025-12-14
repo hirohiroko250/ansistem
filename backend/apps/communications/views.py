@@ -173,16 +173,27 @@ class MessageViewSet(viewsets.ModelViewSet):
         return tenant_id
 
     def get_queryset(self):
+        from apps.core.permissions import is_admin_user
         tenant_id = self.get_tenant_id()
         queryset = Message.objects.filter(
-            tenant_id=tenant_id,
             is_deleted=False
-        ).select_related('channel', 'sender', 'sender_guardian', 'reply_to')
+        ).select_related('channel', 'sender', 'sender_guardian', 'reply_to', 'channel__guardian', 'channel__school')
+
+        # 管理者以外はテナントでフィルタ
+        if not is_admin_user(self.request.user):
+            queryset = queryset.filter(tenant_id=tenant_id)
 
         # channel_id でフィルタ
         channel_id = self.request.query_params.get('channel_id')
         if channel_id:
             queryset = queryset.filter(channel_id=channel_id)
+
+        # guardian_id でフィルタ（チャンネルの保護者または送信者保護者）
+        guardian_id = self.request.query_params.get('guardian_id')
+        if guardian_id:
+            queryset = queryset.filter(
+                Q(channel__guardian_id=guardian_id) | Q(sender_guardian_id=guardian_id)
+            )
 
         # 作成日時の昇順（古いメッセージが先）
         return queryset.order_by('created_at')
@@ -306,10 +317,13 @@ class ContactLogViewSet(CSVMixin, viewsets.ModelViewSet):
     csv_unique_fields = []
 
     def get_queryset(self):
+        from apps.core.permissions import is_admin_user
         tenant_id = getattr(self.request, 'tenant_id', None)
-        queryset = ContactLog.objects.filter(
-            tenant_id=tenant_id
-        ).select_related('student', 'guardian', 'school', 'handled_by', 'resolved_by')
+        queryset = ContactLog.objects.select_related('student', 'guardian', 'school', 'handled_by', 'resolved_by')
+
+        # 管理者以外はテナントでフィルタ
+        if not is_admin_user(self.request.user):
+            queryset = queryset.filter(tenant_id=tenant_id)
 
         # フィルター
         status_filter = self.request.query_params.get('status')
@@ -1020,13 +1034,16 @@ class FeedBookmarkViewSet(viewsets.ReadOnlyModelViewSet):
 
 class ChatLogViewSet(viewsets.ReadOnlyModelViewSet):
     """チャットログビューセット（管理者向け）"""
-    permission_classes = [IsAuthenticated, IsTenantAdmin]
+    permission_classes = [IsAuthenticated, IsTenantUser]
 
     def get_queryset(self):
+        from apps.core.permissions import is_admin_user
         tenant_id = getattr(self.request, 'tenant_id', None)
-        queryset = ChatLog.objects.filter(
-            tenant_id=tenant_id
-        ).select_related('school', 'guardian', 'brand', 'message')
+        queryset = ChatLog.objects.select_related('school', 'guardian', 'brand', 'message')
+
+        # 管理者以外はテナントでフィルタ
+        if not is_admin_user(self.request.user):
+            queryset = queryset.filter(tenant_id=tenant_id)
 
         # フィルタリング
         brand_id = self.request.query_params.get('brand_id')

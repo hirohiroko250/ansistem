@@ -8,6 +8,7 @@ import { BottomTabBar } from '@/components/bottom-tab-bar';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { getAllStudentItems, type PurchasedItem } from '@/lib/api/students';
+import { getAbsenceTickets, type AbsenceTicket } from '@/lib/api/lessons';
 
 type TicketType = {
   id: string;
@@ -20,6 +21,10 @@ type TicketType = {
   studentName?: string;
   productName?: string;
   billingMonth?: string;
+  // 振替チケット専用
+  absenceDate?: string;
+  consumptionSymbol?: string;
+  originalTicketName?: string;
 };
 
 // チケットとして表示すべき商品タイプかどうか判定
@@ -61,7 +66,12 @@ export default function TicketsPage() {
     const fetchTickets = async () => {
       try {
         setLoading(true);
-        const items = await getAllStudentItems();
+
+        // コースチケット（StudentItems）と振替チケット（AbsenceTickets）を並行取得
+        const [items, absenceTickets] = await Promise.all([
+          getAllStudentItems(),
+          getAbsenceTickets('issued').catch(() => [] as AbsenceTicket[]), // エラー時は空配列
+        ]);
 
         // 授業料（tuition）のみをチケットとして表示
         // 月会費、教材費、入会金などは購入履歴ページで表示
@@ -84,7 +94,23 @@ export default function TicketsPage() {
           };
         });
 
-        setTickets(convertedTickets);
+        // AbsenceTicketをTicketTypeに変換（振替チケット）
+        const transferTicketsConverted: TicketType[] = absenceTickets.map((ticket: AbsenceTicket) => ({
+          id: ticket.id,
+          type: 'transfer' as const,
+          school: ticket.schoolName || '未指定',
+          brand: ticket.brandName || '振替チケット',
+          count: 1,
+          expiryDate: ticket.validUntil || '',
+          status: ticket.validUntil && isExpiringSoon(ticket.validUntil) ? 'expiring' : 'active',
+          studentName: ticket.studentName,
+          productName: ticket.originalTicketName || '振替チケット',
+          absenceDate: ticket.absenceDate || undefined,
+          consumptionSymbol: ticket.consumptionSymbol,
+          originalTicketName: ticket.originalTicketName,
+        }));
+
+        setTickets([...convertedTickets, ...transferTicketsConverted]);
         setError(null);
       } catch (err: unknown) {
         console.error('Failed to fetch tickets:', err);
@@ -258,10 +284,18 @@ export default function TicketsPage() {
                           <Badge className="bg-purple-500 text-white text-xs">
                             振替専用
                           </Badge>
+                          {ticket.consumptionSymbol && (
+                            <Badge className="bg-blue-500 text-white text-xs">
+                              {ticket.consumptionSymbol}
+                            </Badge>
+                          )}
                         </div>
                         <h3 className="font-semibold text-gray-800 mb-1">{ticket.school}</h3>
                         {ticket.studentName && (
                           <p className="text-xs text-gray-500">{ticket.studentName}</p>
+                        )}
+                        {ticket.originalTicketName && (
+                          <p className="text-xs text-gray-500">元チケット: {ticket.originalTicketName}</p>
                         )}
                       </div>
                       <div className="text-right">
@@ -272,8 +306,14 @@ export default function TicketsPage() {
                         <p className="text-xs text-gray-500">枚</p>
                       </div>
                     </div>
+                    {ticket.absenceDate && (
+                      <div className="flex items-center gap-2 text-sm text-gray-600 mb-1">
+                        <Calendar className="h-4 w-4" />
+                        <span>欠席日: {ticket.absenceDate}</span>
+                      </div>
+                    )}
                     <div className="flex items-center gap-2 text-sm text-gray-600">
-                      <Calendar className="h-4 w-4" />
+                      <Clock className="h-4 w-4" />
                       <span>有効期限: {ticket.expiryDate}</span>
                     </div>
                   </CardContent>

@@ -6,16 +6,19 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.parsers import MultiPartParser, FormParser
+from django.db import models
 from django.db.models import Sum
 from django.utils import timezone
 
 from apps.core.permissions import IsTenantUser, IsTenantAdmin
 from apps.core.csv_utils import CSVMixin
+from apps.core.pagination import AdminResultsSetPagination
 from .models import (
     Product, Discount, Course, CourseItem,
     Pack, PackCourse,
     Seminar, Certification,
-    Contract, StudentItem, SeminarEnrollment, CertificationEnrollment
+    Contract, StudentItem, StudentDiscount, SeminarEnrollment, CertificationEnrollment,
+    DiscountOperationLog
 )
 from .serializers import (
     ProductListSerializer, ProductDetailSerializer,
@@ -24,7 +27,7 @@ from .serializers import (
     PackListSerializer, PackDetailSerializer,
     SeminarListSerializer, SeminarDetailSerializer,
     CertificationListSerializer, CertificationDetailSerializer,
-    StudentItemSerializer,
+    StudentItemSerializer, StudentDiscountSerializer,
     ContractListSerializer, ContractDetailSerializer, ContractCreateSerializer,
     MyContractSerializer, MyStudentItemSerializer,
     SeminarEnrollmentListSerializer, SeminarEnrollmentDetailSerializer,
@@ -390,15 +393,20 @@ class StudentItemViewSet(CSVMixin, viewsets.ModelViewSet):
     serializer_class = StudentItemSerializer
     permission_classes = [IsAuthenticated, IsTenantUser]
     parser_classes = [MultiPartParser, FormParser]
+    pagination_class = AdminResultsSetPagination
 
     csv_filename_prefix = 'student_items'
 
     def get_queryset(self):
+        from apps.core.permissions import is_admin_user
         tenant_id = getattr(self.request, 'tenant_id', None)
         queryset = StudentItem.objects.filter(
-            tenant_id=tenant_id,
             deleted_at__isnull=True
-        ).select_related('student', 'contract', 'product')
+        ).select_related('student', 'contract', 'product', 'brand', 'school', 'course')
+
+        # 管理者以外はテナントでフィルタ
+        if not is_admin_user(self.request.user):
+            queryset = queryset.filter(tenant_id=tenant_id)
 
         student_id = self.request.query_params.get('student_id')
         if student_id:
@@ -408,11 +416,93 @@ class StudentItemViewSet(CSVMixin, viewsets.ModelViewSet):
         if billing_month:
             queryset = queryset.filter(billing_month=billing_month)
 
+        # 年月フィルタ（billing_month形式: YYYY-MM）
+        year = self.request.query_params.get('year')
+        month = self.request.query_params.get('month')
+        if year:
+            if month:
+                # 年月両方指定: billing_month = YYYY-MM
+                queryset = queryset.filter(billing_month=f"{year}-{month.zfill(2)}")
+            else:
+                # 年のみ指定: billing_month starts with YYYY
+                queryset = queryset.filter(billing_month__startswith=year)
+
         contract_id = self.request.query_params.get('contract_id')
         if contract_id:
             queryset = queryset.filter(contract_id=contract_id)
 
-        return queryset
+        brand_id = self.request.query_params.get('brand_id')
+        if brand_id:
+            queryset = queryset.filter(brand_id=brand_id)
+
+        school_id = self.request.query_params.get('school_id')
+        if school_id:
+            queryset = queryset.filter(school_id=school_id)
+
+        return queryset.order_by('-created_at')
+
+    def get_permissions(self):
+        if self.action in ['create', 'update', 'partial_update', 'destroy']:
+            return [IsAuthenticated(), IsTenantAdmin()]
+        return super().get_permissions()
+
+    def perform_create(self, serializer):
+        serializer.save(tenant_id=self.request.tenant_id)
+
+
+class StudentDiscountViewSet(CSVMixin, viewsets.ModelViewSet):
+    """生徒割引ビューセット"""
+    serializer_class = StudentDiscountSerializer
+    permission_classes = [IsAuthenticated, IsTenantUser]
+    parser_classes = [MultiPartParser, FormParser]
+    pagination_class = AdminResultsSetPagination
+
+    csv_filename_prefix = 'student_discounts'
+
+    def get_queryset(self):
+        from apps.core.permissions import is_admin_user
+        tenant_id = getattr(self.request, 'tenant_id', None)
+        queryset = StudentDiscount.objects.filter(
+            deleted_at__isnull=True
+        ).select_related('student', 'guardian', 'contract', 'brand', 'student_item')
+
+        # 管理者以外はテナントでフィルタ
+        if not is_admin_user(self.request.user):
+            queryset = queryset.filter(tenant_id=tenant_id)
+
+        student_id = self.request.query_params.get('student_id')
+        if student_id:
+            queryset = queryset.filter(student_id=student_id)
+
+        guardian_id = self.request.query_params.get('guardian_id')
+        if guardian_id:
+            queryset = queryset.filter(guardian_id=guardian_id)
+
+        contract_id = self.request.query_params.get('contract_id')
+        if contract_id:
+            queryset = queryset.filter(contract_id=contract_id)
+
+        is_active = self.request.query_params.get('is_active')
+        if is_active is not None:
+            queryset = queryset.filter(is_active=is_active.lower() == 'true')
+
+        brand_id = self.request.query_params.get('brand_id')
+        if brand_id:
+            queryset = queryset.filter(brand_id=brand_id)
+
+        # 年月フィルタ（start_dateまたはcreated_atでフィルタ）
+        year = self.request.query_params.get('year')
+        month = self.request.query_params.get('month')
+        if year:
+            queryset = queryset.filter(
+                models.Q(start_date__year=int(year)) | models.Q(created_at__year=int(year))
+            )
+        if month:
+            queryset = queryset.filter(
+                models.Q(start_date__month=int(month)) | models.Q(created_at__month=int(month))
+            )
+
+        return queryset.order_by('-created_at')
 
     def get_permissions(self):
         if self.action in ['create', 'update', 'partial_update', 'destroy']:
@@ -427,6 +517,7 @@ class ContractViewSet(CSVMixin, viewsets.ModelViewSet):
     """契約ビューセット"""
     permission_classes = [IsAuthenticated, IsTenantUser]
     parser_classes = [MultiPartParser, FormParser]
+    pagination_class = AdminResultsSetPagination
 
     csv_filename_prefix = 'contracts'
     csv_export_fields = [
@@ -470,11 +561,15 @@ class ContractViewSet(CSVMixin, viewsets.ModelViewSet):
     csv_unique_fields = ['contract_no']
 
     def get_queryset(self):
+        from apps.core.permissions import is_admin_user
         tenant_id = getattr(self.request, 'tenant_id', None)
         queryset = Contract.objects.filter(
-            tenant_id=tenant_id,
             deleted_at__isnull=True
         ).select_related('student', 'guardian', 'school', 'brand', 'course')
+
+        # 管理者以外はテナントでフィルタ
+        if not is_admin_user(self.request.user):
+            queryset = queryset.filter(tenant_id=tenant_id)
 
         status_filter = self.request.query_params.get('status')
         if status_filter:
@@ -488,11 +583,29 @@ class ContractViewSet(CSVMixin, viewsets.ModelViewSet):
         if school_id:
             queryset = queryset.filter(school_id=school_id)
 
-        return queryset
+        brand_id = self.request.query_params.get('brand_id')
+        if brand_id:
+            queryset = queryset.filter(brand_id=brand_id)
+
+        # 年月フィルタ（start_dateでフィルタ）
+        year = self.request.query_params.get('year')
+        month = self.request.query_params.get('month')
+        if year:
+            queryset = queryset.filter(start_date__year=int(year))
+        if month:
+            queryset = queryset.filter(start_date__month=int(month))
+
+        return queryset.order_by('-start_date', '-created_at')
 
     def get_serializer_class(self):
         if self.action == 'list':
-            return ContractListSerializer
+            # student_idが指定されている場合は詳細版を使用（生徒詳細画面用）
+            student_id = self.request.query_params.get('student_id')
+            if student_id:
+                return ContractListSerializer
+            # それ以外は高速版を使用
+            from .serializers import ContractSimpleListSerializer
+            return ContractSimpleListSerializer
         elif self.action == 'create':
             return ContractCreateSerializer
         return ContractDetailSerializer
@@ -503,6 +616,19 @@ class ContractViewSet(CSVMixin, viewsets.ModelViewSet):
     def perform_destroy(self, instance):
         instance.deleted_at = timezone.now()
         instance.save()
+
+    def get_object(self):
+        """オブジェクト取得をオーバーライド
+
+        change-class, change-school, request-suspension, request-cancellation
+        アクションではStudentItem IDが使用されるため、それらのアクションでは
+        get_object()を呼ばずに直接pkを返す（実際のオブジェクト取得はアクション内で行う）
+        """
+        # カスタムアクションの場合はNoneを返す（アクション内で独自に処理）
+        if self.action in ['change_class', 'change_school', 'request_suspension', 'request_cancellation']:
+            return None
+        # 通常のCRUD操作の場合は親クラスのget_objectを呼ぶ
+        return super().get_object()
 
     @action(detail=True, methods=['post'])
     def activate(self, request, pk=None):
@@ -549,6 +675,263 @@ class ContractViewSet(CSVMixin, viewsets.ModelViewSet):
             serializer.save(tenant_id=request.tenant_id, contract=contract, student=contract.student)
             return Response(serializer.data, status=status.HTTP_201_CREATED)
 
+    @action(detail=True, methods=['post'], url_path='update-discounts')
+    def update_discounts(self, request, pk=None):
+        """契約の割引を更新（明細単位の割引に対応）
+
+        Request body:
+        {
+            "item_discounts": [
+                {
+                    "id": "existing-uuid",  // 既存の割引（更新用）
+                    "student_item_id": "item-uuid",  // 明細ID（optional）
+                    "discount_name": "社割_正社員",
+                    "amount": 1990,
+                    "discount_unit": "yen",
+                    "is_deleted": false  // trueの場合は削除
+                },
+                {
+                    "student_item_id": "item-uuid",  // 明細ID（optional）
+                    "discount_name": "マイル割引",  // idなしは新規作成
+                    "amount": 500,
+                    "discount_unit": "yen",
+                    "is_new": true
+                }
+            ],
+            "notes": "契約メモ"
+        }
+        """
+        contract = Contract.objects.filter(
+            pk=pk,
+            deleted_at__isnull=True
+        ).select_related('student', 'brand', 'school', 'course').first()
+
+        if not contract:
+            return Response(
+                {'error': '契約が見つかりません'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        tenant_id = request.tenant_id
+        user = request.user
+        # item_discounts を優先、後方互換性のため discounts もサポート
+        discounts_data = request.data.get('item_discounts', request.data.get('discounts', []))
+        notes = request.data.get('notes')
+
+        # 割引Max取得（契約に紐づくコースまたは商品から）
+        discount_max = 0
+        if contract.course:
+            # コースの商品から割引Maxを取得
+            course_items = contract.course.course_items.filter(is_active=True).select_related('product')
+            for ci in course_items:
+                if ci.product and ci.product.discount_max:
+                    discount_max = max(discount_max, ci.product.discount_max)
+        # StudentItemから商品の割引Maxも確認
+        student_items = StudentItem.objects.filter(
+            student_id=contract.student_id,
+            contract_id=contract.id
+        ).select_related('product')
+        for si in student_items:
+            if si.product and si.product.discount_max:
+                discount_max = max(discount_max, si.product.discount_max)
+
+        # 操作前の合計割引額を計算
+        existing_discounts = StudentDiscount.objects.filter(
+            student_id=contract.student_id,
+            is_active=True,
+        ).filter(
+            models.Q(brand_id__isnull=True) | models.Q(brand_id=contract.brand_id)
+        )
+        total_discount_before = sum(d.amount or 0 for d in existing_discounts)
+
+        # 備考を更新
+        if notes is not None:
+            contract.notes = notes
+            contract.save(update_fields=['notes', 'updated_at'])
+
+        created_count = 0
+        updated_count = 0
+        deleted_count = 0
+        operation_logs = []
+
+        # IPアドレス取得
+        ip_address = request.META.get('HTTP_X_FORWARDED_FOR', '').split(',')[0].strip() or request.META.get('REMOTE_ADDR')
+
+        for discount_data in discounts_data:
+            discount_id = discount_data.get('id')
+            is_deleted = discount_data.get('is_deleted', False)
+            is_new = discount_data.get('is_new', False)
+            discount_name = discount_data.get('discount_name', '')
+            discount_amount = discount_data.get('amount', 0)
+            discount_unit = discount_data.get('discount_unit', 'yen')
+            student_item_id = discount_data.get('student_item_id')
+            # "default" は明細がない場合のデフォルト値なので None に変換
+            if student_item_id == 'default':
+                student_item_id = None
+
+            if is_deleted and discount_id and not discount_id.startswith('new-'):
+                # 既存の割引を削除（soft delete）
+                old_discount = StudentDiscount.objects.filter(id=discount_id, tenant_id=tenant_id).first()
+                if old_discount:
+                    old_amount = old_discount.amount or 0
+                    StudentDiscount.objects.filter(id=discount_id, tenant_id=tenant_id).update(is_active=False)
+                    deleted_count += 1
+
+                    # 操作ログを記録
+                    total_after = total_discount_before - old_amount
+                    log = DiscountOperationLog.log_operation(
+                        contract=contract,
+                        operation_type='delete',
+                        discount_name=old_discount.discount_name,
+                        discount_amount=old_amount,
+                        discount_unit=old_discount.discount_unit,
+                        discount_max=discount_max,
+                        total_before=total_discount_before,
+                        total_after=total_after,
+                        user=user,
+                        school=contract.school,
+                        brand=contract.brand,
+                        student_discount=old_discount,
+                        ip_address=ip_address,
+                        notes=f'割引削除: {old_discount.discount_name}'
+                    )
+                    operation_logs.append(log)
+                    total_discount_before = total_after
+
+            elif is_new or (discount_id and discount_id.startswith('new-')):
+                # 新規割引を作成
+                new_discount = StudentDiscount.objects.create(
+                    tenant_id=tenant_id,
+                    student_id=contract.student_id,
+                    contract_id=contract.id,
+                    student_item_id=student_item_id,  # 明細IDを保存
+                    brand_id=contract.brand_id,
+                    discount_name=discount_name,
+                    amount=discount_amount,
+                    discount_unit=discount_unit,
+                    is_active=True,
+                    is_recurring=True,
+                )
+                created_count += 1
+
+                # 操作ログを記録
+                total_after = total_discount_before + discount_amount
+                log = DiscountOperationLog.log_operation(
+                    contract=contract,
+                    operation_type='add',
+                    discount_name=discount_name,
+                    discount_amount=discount_amount,
+                    discount_unit=discount_unit,
+                    discount_max=discount_max,
+                    total_before=total_discount_before,
+                    total_after=total_after,
+                    user=user,
+                    school=contract.school,
+                    brand=contract.brand,
+                    student_discount=new_discount,
+                    ip_address=ip_address,
+                    notes=f'割引追加: {discount_name}'
+                )
+                operation_logs.append(log)
+                total_discount_before = total_after
+
+            elif discount_id:
+                # 既存の割引を更新
+                old_discount = StudentDiscount.objects.filter(id=discount_id, tenant_id=tenant_id).first()
+                if old_discount:
+                    old_amount = old_discount.amount or 0
+                    StudentDiscount.objects.filter(id=discount_id, tenant_id=tenant_id).update(
+                        discount_name=discount_name,
+                        amount=discount_amount,
+                        discount_unit=discount_unit,
+                    )
+                    updated_count += 1
+
+                    # 操作ログを記録
+                    amount_diff = discount_amount - old_amount
+                    total_after = total_discount_before + amount_diff
+                    log = DiscountOperationLog.log_operation(
+                        contract=contract,
+                        operation_type='update',
+                        discount_name=discount_name,
+                        discount_amount=discount_amount,
+                        discount_unit=discount_unit,
+                        discount_max=discount_max,
+                        total_before=total_discount_before,
+                        total_after=total_after,
+                        user=user,
+                        school=contract.school,
+                        brand=contract.brand,
+                        student_discount=old_discount,
+                        ip_address=ip_address,
+                        notes=f'割引変更: {old_discount.discount_name} → {discount_name} ({old_amount}→{discount_amount})'
+                    )
+                    operation_logs.append(log)
+                    total_discount_before = total_after
+
+        # 操作ログの情報を返す
+        logs_data = [{
+            'id': str(log.id),
+            'operation_type': log.operation_type,
+            'discount_name': log.discount_name,
+            'discount_amount': log.discount_amount,
+            'discount_max': log.discount_max,
+            'total_discount_after': log.total_discount_after,
+            'excess_amount': log.excess_amount,
+            'operated_by_name': log.operated_by_name,
+            'created_at': log.created_at.isoformat(),
+        } for log in operation_logs]
+
+        return Response({
+            'success': True,
+            'created': created_count,
+            'updated': updated_count,
+            'deleted': deleted_count,
+            'discount_max': discount_max,
+            'operation_logs': logs_data,
+            'contract': ContractDetailSerializer(contract).data
+        })
+
+    @action(detail=True, methods=['get'], url_path='discount-logs')
+    def discount_logs(self, request, pk=None):
+        """契約の割引操作履歴を取得"""
+        contract = Contract.objects.filter(
+            pk=pk,
+            deleted_at__isnull=True
+        ).first()
+
+        if not contract:
+            return Response(
+                {'error': '契約が見つかりません'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        logs = DiscountOperationLog.objects.filter(
+            contract_id=contract.id
+        ).select_related('operated_by', 'school').order_by('-created_at')[:50]
+
+        logs_data = [{
+            'id': str(log.id),
+            'operation_type': log.operation_type,
+            'operation_type_display': log.get_operation_type_display(),
+            'discount_name': log.discount_name,
+            'discount_amount': log.discount_amount,
+            'discount_unit': log.discount_unit,
+            'discount_max': log.discount_max,
+            'total_discount_before': log.total_discount_before,
+            'total_discount_after': log.total_discount_after,
+            'excess_amount': log.excess_amount,
+            'school_name': log.school.school_name if log.school else '',
+            'operated_by_name': log.operated_by_name,
+            'notes': log.notes,
+            'created_at': log.created_at.isoformat(),
+        } for log in logs]
+
+        return Response({
+            'logs': logs_data,
+            'total_count': len(logs_data)
+        })
+
     @action(detail=False, methods=['get'])
     def statistics(self, request):
         """契約統計"""
@@ -575,30 +958,46 @@ class ContractViewSet(CSVMixin, viewsets.ModelViewSet):
         保護者としてログインしている場合、その保護者に紐づく生徒の受講中コース（StudentItem）を返す
         ContractモデルではなくStudentItemモデルをベースにデータを取得
         """
-        from apps.students.models import Student, Guardian
+        from apps.students.models import Student, Guardian, StudentGuardian
 
         user = request.user
-        tenant_id = getattr(request, 'tenant_id', None)
+        request_tenant_id = getattr(request, 'tenant_id', None)
 
-        # ユーザーに紐づく保護者を取得
+        # ユーザーに紐づく保護者を取得（tenant_idがNoneの場合はtenant_id条件なしで検索）
         try:
-            guardian = Guardian.objects.get(user=user, tenant_id=tenant_id, deleted_at__isnull=True)
+            if request_tenant_id:
+                guardian = Guardian.objects.get(user=user, tenant_id=request_tenant_id, deleted_at__isnull=True)
+            else:
+                guardian = Guardian.objects.filter(user=user, deleted_at__isnull=True).first()
+                if not guardian:
+                    raise Guardian.DoesNotExist()
         except Guardian.DoesNotExist:
             return Response({'contracts': [], 'students': []})
 
-        # 保護者に紐づく生徒を取得（children経由）
-        students = guardian.children.filter(
+        # Guardianが見つかったらそのtenant_idを使用
+        tenant_id = guardian.tenant_id
+
+        # 保護者に紐づく生徒を取得（StudentGuardian中間テーブル経由）
+        student_ids = StudentGuardian.objects.filter(
+            guardian=guardian,
+            tenant_id=tenant_id
+        ).values_list('student_id', flat=True)
+
+        students = Student.objects.filter(
+            id__in=student_ids,
             tenant_id=tenant_id,
             deleted_at__isnull=True
         )
 
         # 生徒のStudentItem（受講コース）を取得
-        # courseが紐づいているものを対象とする
+        # course, brandのいずれかが設定されているものを対象とする
+        from django.db.models import Q
         student_items = StudentItem.objects.filter(
             student__in=students,
             tenant_id=tenant_id,
             deleted_at__isnull=True,
-            course__isnull=False  # コースが紐づいているもののみ
+        ).filter(
+            Q(course__isnull=False) | Q(brand__isnull=False)
         ).select_related(
             'student', 'student__grade',
             'school', 'brand', 'course'
@@ -625,11 +1024,51 @@ class ContractViewSet(CSVMixin, viewsets.ModelViewSet):
         """クラス変更（曜日・時間変更）
 
         翌週から適用。空席があれば即時OK
+        my_contractsが返すStudentItemのIDを使って処理
         """
         from apps.schools.models import ClassSchedule
         from datetime import timedelta
+        from apps.students.models import Guardian, StudentGuardian
 
-        contract = self.get_object()
+        # StudentItemを取得（my_contractsはStudentItemを返すため）
+        user = request.user
+        request_tenant_id = getattr(request, 'tenant_id', None)
+
+        # ユーザーに紐づく保護者を取得
+        try:
+            if request_tenant_id:
+                guardian = Guardian.objects.get(user=user, tenant_id=request_tenant_id, deleted_at__isnull=True)
+            else:
+                guardian = Guardian.objects.filter(user=user, deleted_at__isnull=True).first()
+                if not guardian:
+                    raise Guardian.DoesNotExist()
+        except Guardian.DoesNotExist:
+            return Response(
+                {'error': '保護者情報が見つかりません'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        tenant_id = guardian.tenant_id
+
+        # 保護者に紐づく生徒を取得
+        student_ids = StudentGuardian.objects.filter(
+            guardian=guardian,
+            tenant_id=tenant_id
+        ).values_list('student_id', flat=True)
+
+        # StudentItemを取得（自分の子供のものか確認）
+        try:
+            student_item = StudentItem.objects.get(
+                id=pk,
+                student_id__in=student_ids,
+                tenant_id=tenant_id,
+                deleted_at__isnull=True
+            )
+        except StudentItem.DoesNotExist:
+            return Response(
+                {'error': '指定された受講情報が見つかりません'},
+                status=status.HTTP_404_NOT_FOUND
+            )
 
         # リクエストデータ
         new_day_of_week = request.data.get('new_day_of_week')
@@ -646,7 +1085,7 @@ class ContractViewSet(CSVMixin, viewsets.ModelViewSet):
         try:
             class_schedule = ClassSchedule.objects.get(
                 id=new_class_schedule_id,
-                tenant_id=request.tenant_id,
+                tenant_id=tenant_id,
                 deleted_at__isnull=True
             )
         except ClassSchedule.DoesNotExist:
@@ -655,8 +1094,8 @@ class ContractViewSet(CSVMixin, viewsets.ModelViewSet):
                 status=status.HTTP_404_NOT_FOUND
             )
 
-        # 同じ校舎・ブランドかチェック
-        if class_schedule.school_id != contract.school_id:
+        # 同じ校舎かチェック
+        if class_schedule.school_id != student_item.school_id:
             return Response(
                 {'error': '校舎が異なります。校舎変更は別のAPIをご利用ください'},
                 status=status.HTTP_400_BAD_REQUEST
@@ -671,17 +1110,40 @@ class ContractViewSet(CSVMixin, viewsets.ModelViewSet):
         next_monday = today + timedelta(days=days_until_next_week)
         effective_date = request.data.get('effective_date', next_monday.isoformat())
 
-        # 契約を更新
-        contract.day_of_week = int(new_day_of_week)
-        contract.start_time = new_start_time
+        # StudentItemを更新
+        student_item.day_of_week = int(new_day_of_week)
+        student_item.start_time = new_start_time
         if hasattr(class_schedule, 'end_time'):
-            contract.end_time = class_schedule.end_time
-        contract.save()
+            student_item.end_time = class_schedule.end_time
+        student_item.save()
+
+        # StudentEnrollment（受講履歴）を作成
+        # クラス変更の履歴として新しいレコードを作成
+        from apps.students.models import StudentEnrollment
+        from datetime import datetime
+
+        # effective_dateをdate型に変換
+        if isinstance(effective_date, str):
+            effective_date_obj = datetime.strptime(effective_date, '%Y-%m-%d').date()
+        else:
+            effective_date_obj = effective_date
+
+        if student_item.school and student_item.brand:
+            StudentEnrollment.create_enrollment(
+                student=student_item.student,
+                school=student_item.school,
+                brand=student_item.brand,
+                class_schedule=class_schedule,
+                change_type=StudentEnrollment.ChangeType.CLASS_CHANGE,
+                effective_date=effective_date_obj,
+                student_item=student_item,
+                notes=f'クラス変更: {class_schedule}',
+            )
 
         return Response({
             'success': True,
             'message': f'{effective_date}からクラスが変更されます',
-            'contract': ContractDetailSerializer(contract).data,
+            'contract': MyStudentItemSerializer(student_item).data,
             'effective_date': effective_date
         })
 
@@ -690,11 +1152,51 @@ class ContractViewSet(CSVMixin, viewsets.ModelViewSet):
         """校舎変更
 
         翌週から適用
+        my_contractsが返すStudentItemのIDを使って処理
         """
         from apps.schools.models import School, ClassSchedule
         from datetime import timedelta
+        from apps.students.models import Guardian, StudentGuardian
 
-        contract = self.get_object()
+        # StudentItemを取得（my_contractsはStudentItemを返すため）
+        user = request.user
+        request_tenant_id = getattr(request, 'tenant_id', None)
+
+        # ユーザーに紐づく保護者を取得
+        try:
+            if request_tenant_id:
+                guardian = Guardian.objects.get(user=user, tenant_id=request_tenant_id, deleted_at__isnull=True)
+            else:
+                guardian = Guardian.objects.filter(user=user, deleted_at__isnull=True).first()
+                if not guardian:
+                    raise Guardian.DoesNotExist()
+        except Guardian.DoesNotExist:
+            return Response(
+                {'error': '保護者情報が見つかりません'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        tenant_id = guardian.tenant_id
+
+        # 保護者に紐づく生徒を取得
+        student_ids = StudentGuardian.objects.filter(
+            guardian=guardian,
+            tenant_id=tenant_id
+        ).values_list('student_id', flat=True)
+
+        # StudentItemを取得（自分の子供のものか確認）
+        try:
+            student_item = StudentItem.objects.get(
+                id=pk,
+                student_id__in=student_ids,
+                tenant_id=tenant_id,
+                deleted_at__isnull=True
+            )
+        except StudentItem.DoesNotExist:
+            return Response(
+                {'error': '指定された受講情報が見つかりません'},
+                status=status.HTTP_404_NOT_FOUND
+            )
 
         # リクエストデータ
         new_school_id = request.data.get('new_school_id')
@@ -712,7 +1214,7 @@ class ContractViewSet(CSVMixin, viewsets.ModelViewSet):
         try:
             new_school = School.objects.get(
                 id=new_school_id,
-                tenant_id=request.tenant_id,
+                tenant_id=tenant_id,
                 deleted_at__isnull=True
             )
         except School.DoesNotExist:
@@ -727,16 +1229,16 @@ class ContractViewSet(CSVMixin, viewsets.ModelViewSet):
         next_monday = today + timedelta(days=days_until_next_week)
         effective_date = request.data.get('effective_date', next_monday.isoformat())
 
-        # 契約を更新
-        contract.school = new_school
-        contract.day_of_week = int(new_day_of_week)
-        contract.start_time = new_start_time
-        contract.save()
+        # StudentItemを更新
+        student_item.school = new_school
+        student_item.day_of_week = int(new_day_of_week)
+        student_item.start_time = new_start_time
+        student_item.save()
 
         return Response({
             'success': True,
             'message': f'{effective_date}から校舎が{new_school.school_name}に変更されます',
-            'contract': ContractDetailSerializer(contract).data,
+            'contract': MyStudentItemSerializer(student_item).data,
             'effective_date': effective_date
         })
 
@@ -745,11 +1247,59 @@ class ContractViewSet(CSVMixin, viewsets.ModelViewSet):
         """休会申請
 
         保護者からの休会申請を受け付ける
+        my_contractsが返すStudentItemのIDを使って処理
         """
         from .models import ContractChangeRequest
         from datetime import datetime
+        from apps.students.models import Guardian, StudentGuardian
 
-        contract = self.get_object()
+        # StudentItemを取得（my_contractsはStudentItemを返すため）
+        user = request.user
+        request_tenant_id = getattr(request, 'tenant_id', None)
+
+        # ユーザーに紐づく保護者を取得
+        try:
+            if request_tenant_id:
+                guardian = Guardian.objects.get(user=user, tenant_id=request_tenant_id, deleted_at__isnull=True)
+            else:
+                guardian = Guardian.objects.filter(user=user, deleted_at__isnull=True).first()
+                if not guardian:
+                    raise Guardian.DoesNotExist()
+        except Guardian.DoesNotExist:
+            return Response(
+                {'error': '保護者情報が見つかりません'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        tenant_id = guardian.tenant_id
+
+        # 保護者に紐づく生徒を取得
+        student_ids = StudentGuardian.objects.filter(
+            guardian=guardian,
+            tenant_id=tenant_id
+        ).values_list('student_id', flat=True)
+
+        # StudentItemを取得（自分の子供のものか確認）
+        try:
+            student_item = StudentItem.objects.get(
+                id=pk,
+                student_id__in=student_ids,
+                tenant_id=tenant_id,
+                deleted_at__isnull=True
+            )
+        except StudentItem.DoesNotExist:
+            return Response(
+                {'error': '指定された受講情報が見つかりません'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        # StudentItemに関連するContractを取得
+        contract = student_item.contract
+        if not contract:
+            return Response(
+                {'error': 'この受講情報には契約が紐づいていないため、休会申請できません'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
         # リクエストデータ
         suspend_from = request.data.get('suspend_from')
@@ -765,7 +1315,7 @@ class ContractViewSet(CSVMixin, viewsets.ModelViewSet):
 
         # 既存の申請中をチェック
         existing = ContractChangeRequest.objects.filter(
-            tenant_id=request.tenant_id,
+            tenant_id=tenant_id,
             contract=contract,
             request_type=ContractChangeRequest.RequestType.SUSPENSION,
             status=ContractChangeRequest.Status.PENDING
@@ -779,7 +1329,7 @@ class ContractViewSet(CSVMixin, viewsets.ModelViewSet):
 
         # 申請を作成
         change_request = ContractChangeRequest.objects.create(
-            tenant_id=request.tenant_id,
+            tenant_id=tenant_id,
             contract=contract,
             request_type=ContractChangeRequest.RequestType.SUSPENSION,
             status=ContractChangeRequest.Status.PENDING,
@@ -808,12 +1358,60 @@ class ContractViewSet(CSVMixin, viewsets.ModelViewSet):
         """退会申請
 
         保護者からの退会申請を受け付ける
+        my_contractsが返すStudentItemのIDを使って処理
         """
         from .models import ContractChangeRequest
         from datetime import datetime, date
         from decimal import Decimal
+        from apps.students.models import Guardian, StudentGuardian
 
-        contract = self.get_object()
+        # StudentItemを取得（my_contractsはStudentItemを返すため）
+        user = request.user
+        request_tenant_id = getattr(request, 'tenant_id', None)
+
+        # ユーザーに紐づく保護者を取得
+        try:
+            if request_tenant_id:
+                guardian = Guardian.objects.get(user=user, tenant_id=request_tenant_id, deleted_at__isnull=True)
+            else:
+                guardian = Guardian.objects.filter(user=user, deleted_at__isnull=True).first()
+                if not guardian:
+                    raise Guardian.DoesNotExist()
+        except Guardian.DoesNotExist:
+            return Response(
+                {'error': '保護者情報が見つかりません'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        tenant_id = guardian.tenant_id
+
+        # 保護者に紐づく生徒を取得
+        student_ids = StudentGuardian.objects.filter(
+            guardian=guardian,
+            tenant_id=tenant_id
+        ).values_list('student_id', flat=True)
+
+        # StudentItemを取得（自分の子供のものか確認）
+        try:
+            student_item = StudentItem.objects.get(
+                id=pk,
+                student_id__in=student_ids,
+                tenant_id=tenant_id,
+                deleted_at__isnull=True
+            )
+        except StudentItem.DoesNotExist:
+            return Response(
+                {'error': '指定された受講情報が見つかりません'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        # StudentItemに関連するContractを取得
+        contract = student_item.contract
+        if not contract:
+            return Response(
+                {'error': 'この受講情報には契約が紐づいていないため、退会申請できません'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
         # リクエストデータ
         cancel_date = request.data.get('cancel_date')
@@ -827,7 +1425,7 @@ class ContractViewSet(CSVMixin, viewsets.ModelViewSet):
 
         # 既存の申請中をチェック
         existing = ContractChangeRequest.objects.filter(
-            tenant_id=request.tenant_id,
+            tenant_id=tenant_id,
             contract=contract,
             request_type=ContractChangeRequest.RequestType.CANCELLATION,
             status=ContractChangeRequest.Status.PENDING
@@ -848,12 +1446,12 @@ class ContractViewSet(CSVMixin, viewsets.ModelViewSet):
             # 当月退会の場合、日割り計算の目安を表示
             days_in_month = 30
             remaining_days = days_in_month - cancel_date_obj.day
-            monthly_fee = contract.monthly_fee or Decimal('0')
+            monthly_fee = getattr(contract, 'monthly_fee', None) or Decimal('0')
             refund_amount = (monthly_fee / days_in_month * remaining_days).quantize(Decimal('1'))
 
         # 申請を作成
         change_request = ContractChangeRequest.objects.create(
-            tenant_id=request.tenant_id,
+            tenant_id=tenant_id,
             contract=contract,
             request_type=ContractChangeRequest.RequestType.CANCELLATION,
             status=ContractChangeRequest.Status.PENDING,
@@ -1189,3 +1787,129 @@ class PublicPackDetailView(APIView):
 
         serializer = PublicPackSerializer(pack)
         return Response(serializer.data)
+
+
+# =============================================================================
+# 操作履歴 (Operation History)
+# =============================================================================
+class OperationHistoryViewSet(viewsets.ViewSet):
+    """操作履歴ビューセット
+
+    契約履歴、割引操作ログ、引落結果などを統合して返す。
+    """
+    permission_classes = [IsAuthenticated, IsTenantUser]
+    pagination_class = AdminResultsSetPagination
+
+    def list(self, request):
+        """操作履歴一覧を取得"""
+        from apps.billing.models import DirectDebitResult
+        from .models import ContractHistory, DiscountOperationLog
+
+        tenant_id = getattr(request, 'tenant_id', None)
+        year = request.query_params.get('year')
+        month = request.query_params.get('month')
+        limit = int(request.query_params.get('limit', 100))
+
+        results = []
+
+        # 日付フィルター用のクエリ作成
+        date_filter = {}
+        if year and year != 'all':
+            date_filter['created_at__year'] = int(year)
+        if month and month != 'all':
+            date_filter['created_at__month'] = int(month)
+
+        # 1. 契約履歴
+        contract_histories = ContractHistory.objects.filter(
+            tenant_id=tenant_id,
+            **date_filter
+        ).select_related('contract', 'contract__student', 'changed_by').order_by('-created_at')[:limit]
+
+        for h in contract_histories:
+            results.append({
+                'id': str(h.id),
+                'date': h.created_at.strftime('%Y-%m-%d') if h.created_at else None,
+                'type': f'contract_{h.action_type}',
+                'type_display': h.get_action_type_display(),
+                'student_id': str(h.contract.student.id) if h.contract and h.contract.student else None,
+                'student_name': h.contract.student.full_name if h.contract and h.contract.student else None,
+                'guardian_id': None,
+                'guardian_name': None,
+                'content': h.change_summary,
+                'status': None,
+                'status_display': None,
+                'amount': float(h.amount_after) if h.amount_after else None,
+                'operator': h.changed_by.get_full_name() if h.changed_by else None,
+                'created_at': h.created_at.isoformat() if h.created_at else None,
+            })
+
+        # 2. 割引操作ログ
+        discount_logs = DiscountOperationLog.objects.filter(
+            tenant_id=tenant_id,
+            **date_filter
+        ).select_related('student', 'operated_by').order_by('-created_at')[:limit]
+
+        for d in discount_logs:
+            results.append({
+                'id': str(d.id),
+                'date': d.created_at.strftime('%Y-%m-%d') if d.created_at else None,
+                'type': f'discount_{d.operation_type}',
+                'type_display': d.get_operation_type_display(),
+                'student_id': str(d.student.id) if d.student else None,
+                'student_name': d.student.full_name if d.student else None,
+                'guardian_id': None,
+                'guardian_name': None,
+                'content': f'{d.discount_name} ¥{int(d.discount_amount):,}',
+                'status': None,
+                'status_display': None,
+                'amount': float(d.discount_amount) if d.discount_amount else None,
+                'operator': d.operated_by.get_full_name() if d.operated_by else None,
+                'created_at': d.created_at.isoformat() if d.created_at else None,
+            })
+
+        # 3. 引落結果
+        debit_results = DirectDebitResult.objects.filter(
+            tenant_id=tenant_id,
+            **date_filter
+        ).select_related('guardian', 'invoice').order_by('-created_at')[:limit]
+
+        for dr in debit_results:
+            status_map = {
+                'success': ('success', '成功'),
+                'failed': ('failed', '失敗'),
+                'pending': ('pending', '処理中'),
+            }
+            status_info = status_map.get(dr.result_status, (dr.result_status, dr.result_status))
+
+            results.append({
+                'id': str(dr.id),
+                'date': dr.created_at.strftime('%Y-%m-%d') if dr.created_at else None,
+                'type': f'debit_{dr.result_status}',
+                'type_display': f'口座振替{status_info[1]}',
+                'student_id': None,
+                'student_name': None,
+                'guardian_id': str(dr.guardian.id) if dr.guardian else None,
+                'guardian_name': dr.guardian.full_name if dr.guardian else None,
+                'content': f'{dr.billing_month}分 ¥{int(dr.amount):,}' if dr.amount else '',
+                'status': status_info[0],
+                'status_display': status_info[1],
+                'amount': float(dr.amount) if dr.amount else None,
+                'operator': None,
+                'created_at': dr.created_at.isoformat() if dr.created_at else None,
+            })
+
+        # 日時でソート
+        results.sort(key=lambda x: x['created_at'] or '', reverse=True)
+
+        # limitを適用
+        results = results[:limit]
+
+        return Response({
+            'data': results,
+            'meta': {
+                'total': len(results),
+                'page': 1,
+                'limit': limit,
+                'total_pages': 1,
+            }
+        })

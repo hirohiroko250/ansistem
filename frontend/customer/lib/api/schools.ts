@@ -199,6 +199,9 @@ export interface ClassScheduleItem {
   brandCategoryName: string | null;
   ticketName: string;
   ticketId: string;
+  gradeCode?: string;
+  gradeName?: string;
+  sortOrder?: number;
 }
 
 /**
@@ -286,6 +289,52 @@ export async function getTicketsBySchool(
 
   return api.get<{ schoolId: string; ticketIds: string[] }>(
     `/schools/public/tickets-by-school/?${params.toString()}`,
+    { skipAuth: true }
+  );
+}
+
+/**
+ * 日ごとの座席状況
+ */
+export interface DailySeatInfo {
+  date: string;
+  dayOfWeek: number;
+  isOpen: boolean;
+  totalCapacity: number;
+  enrolledCount: number;
+  availableSeats: number;
+  lessonType: string | null;
+  ticketType: string | null;
+  holidayName: string | null;
+}
+
+/**
+ * 月間座席状況レスポンス
+ */
+export interface CalendarSeatsResponse {
+  year: number;
+  month: number;
+  schoolId: string;
+  brandId: string;
+  days: DailySeatInfo[];
+}
+
+/**
+ * 月間座席状況を取得
+ * 認証不要
+ * @param brandId - ブランドID
+ * @param schoolId - 校舎ID
+ * @param year - 年
+ * @param month - 月
+ */
+export async function getCalendarSeats(
+  brandId: string,
+  schoolId: string,
+  year: number,
+  month: number
+): Promise<CalendarSeatsResponse> {
+  return api.get<CalendarSeatsResponse>(
+    `/schools/public/calendar-seats/?brand_id=${brandId}&school_id=${schoolId}&year=${year}&month=${month}`,
     { skipAuth: true }
   );
 }

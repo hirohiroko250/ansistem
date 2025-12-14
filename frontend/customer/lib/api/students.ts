@@ -284,3 +284,154 @@ export async function getAllStudentItems(
   const params = billingMonth ? `?billing_month=${billingMonth}` : '';
   return api.get<PurchasedItem[]>(`/students/all_items/${params}`);
 }
+
+// ============================================
+// 休会・退会申請API（保護者向け）
+// ============================================
+
+import type {
+  SuspensionRequest,
+  SuspensionRequestCreate,
+  WithdrawalRequest,
+  WithdrawalRequestCreate,
+} from './types';
+
+/**
+ * 休会申請一覧を取得
+ */
+export async function getSuspensionRequests(): Promise<SuspensionRequest[]> {
+  const response = await api.get<PaginatedResponse<SuspensionRequest> | SuspensionRequest[]>(
+    '/students/suspension-requests/'
+  );
+  if (Array.isArray(response)) {
+    return response;
+  }
+  if ('results' in response && Array.isArray(response.results)) {
+    return response.results;
+  }
+  if ('data' in response && Array.isArray(response.data)) {
+    return response.data;
+  }
+  return [];
+}
+
+/**
+ * 休会申請詳細を取得
+ * @param id - 申請ID
+ */
+export async function getSuspensionRequest(id: string): Promise<SuspensionRequest> {
+  return api.get<SuspensionRequest>(`/students/suspension-requests/${id}/`);
+}
+
+/**
+ * 休会申請を作成
+ * @param data - 申請データ
+ */
+export async function createSuspensionRequest(
+  data: SuspensionRequestCreate
+): Promise<SuspensionRequest> {
+  // snake_caseに変換
+  const payload = {
+    student: data.student,
+    brand: data.brand,
+    school: data.school,
+    suspend_from: data.suspendFrom,
+    suspend_until: data.suspendUntil,
+    keep_seat: data.keepSeat ?? false,
+    reason: data.reason,
+    reason_detail: data.reasonDetail,
+  };
+  return api.post<SuspensionRequest>('/students/suspension-requests/', payload);
+}
+
+/**
+ * 休会申請をキャンセル
+ * @param id - 申請ID
+ */
+export async function cancelSuspensionRequest(id: string): Promise<SuspensionRequest> {
+  return api.post<SuspensionRequest>(`/students/suspension-requests/${id}/cancel/`, {});
+}
+
+/**
+ * 退会申請一覧を取得
+ */
+export async function getWithdrawalRequests(): Promise<WithdrawalRequest[]> {
+  const response = await api.get<PaginatedResponse<WithdrawalRequest> | WithdrawalRequest[]>(
+    '/students/withdrawal-requests/'
+  );
+  if (Array.isArray(response)) {
+    return response;
+  }
+  if ('results' in response && Array.isArray(response.results)) {
+    return response.results;
+  }
+  if ('data' in response && Array.isArray(response.data)) {
+    return response.data;
+  }
+  return [];
+}
+
+/**
+ * 退会申請詳細を取得
+ * @param id - 申請ID
+ */
+export async function getWithdrawalRequest(id: string): Promise<WithdrawalRequest> {
+  return api.get<WithdrawalRequest>(`/students/withdrawal-requests/${id}/`);
+}
+
+/**
+ * 退会申請を作成
+ * @param data - 申請データ
+ */
+export async function createWithdrawalRequest(
+  data: WithdrawalRequestCreate
+): Promise<WithdrawalRequest> {
+  // snake_caseに変換
+  const payload = {
+    student: data.student,
+    brand: data.brand,
+    school: data.school,
+    withdrawal_date: data.withdrawalDate,
+    last_lesson_date: data.lastLessonDate,
+    reason: data.reason,
+    reason_detail: data.reasonDetail,
+  };
+  return api.post<WithdrawalRequest>('/students/withdrawal-requests/', payload);
+}
+
+/**
+ * 退会申請をキャンセル
+ * @param id - 申請ID
+ */
+export async function cancelWithdrawalRequest(id: string): Promise<WithdrawalRequest> {
+  return api.post<WithdrawalRequest>(`/students/withdrawal-requests/${id}/cancel/`, {});
+}
+
+// 理由選択肢の定数
+export const SUSPENSION_REASONS = [
+  { value: 'travel', label: '旅行・帰省' },
+  { value: 'illness', label: '病気・怪我' },
+  { value: 'exam', label: '受験準備' },
+  { value: 'schedule', label: 'スケジュール都合' },
+  { value: 'financial', label: '経済的理由' },
+  { value: 'other', label: 'その他' },
+] as const;
+
+export const WITHDRAWAL_REASONS = [
+  { value: 'moving', label: '転居' },
+  { value: 'school_change', label: '学校変更' },
+  { value: 'graduation', label: '卒業' },
+  { value: 'schedule', label: 'スケジュール都合' },
+  { value: 'financial', label: '経済的理由' },
+  { value: 'satisfaction', label: '満足度' },
+  { value: 'other_school', label: '他塾への変更' },
+  { value: 'other', label: 'その他' },
+] as const;
+
+export const REQUEST_STATUS_LABELS = {
+  pending: '申請中',
+  approved: '承認済',
+  rejected: '却下',
+  cancelled: '取消',
+  resumed: '復会済',
+} as const;

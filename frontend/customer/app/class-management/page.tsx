@@ -17,6 +17,7 @@ import {
   type MyStudent,
 } from '@/lib/api/contracts';
 import { getClassSchedules, getSchoolsByTicket, type ClassScheduleResponse, type ClassScheduleItem, type BrandSchool } from '@/lib/api/schools';
+import { getAbsenceTickets, getTransferAvailableClasses, useAbsenceTicket, type AbsenceTicket, type TransferAvailableClass } from '@/lib/api/lessons';
 import { MapSchoolSelector } from '@/components/map-school-selector';
 import {
   ChevronLeft,
@@ -35,16 +36,96 @@ import {
   Triangle,
   X as XIcon,
   Minus,
+  RefreshCw,
+  Ticket,
 } from 'lucide-react';
 
 // 曜日ラベル
 const DAY_LABELS = ['日', '月', '火', '水', '木', '金', '土'];
 
+// 月末日のリストを生成（6ヶ月分）
+const getEndOfMonthOptions = (): { value: string; label: string }[] => {
+  const options: { value: string; label: string }[] = [];
+  const today = new Date();
+
+  for (let i = 0; i < 6; i++) {
+    const date = new Date(today.getFullYear(), today.getMonth() + i + 1, 0); // 月末日
+    const value = date.toISOString().split('T')[0];
+    const label = `${date.getFullYear()}年${date.getMonth() + 1}月${date.getDate()}日`;
+    options.push({ value, label });
+  }
+
+  return options;
+};
+
+// ブランドのソート順を定義
+const BRAND_SORT_ORDER: Record<string, number> = {
+  'AEC': 1,  // 英語
+  'SOR': 2,  // そろばん
+  'BMC': 3,  // 書写
+  'PRO': 4,  // プログラミング
+  'SHO': 5,  // 習い事
+  'KID': 6,  // キッズ
+  'INT': 7,  // インターナショナル
+};
+
+const getBrandSortOrder = (brandCode?: string): number => {
+  if (!brandCode) return 999;
+  return BRAND_SORT_ORDER[brandCode] ?? 999;
+};
+
+// 契約を校舎→ブランド→曜日→時間の順でソート
+const sortContracts = (contracts: MyContract[]): MyContract[] => {
+  return [...contracts].sort((a, b) => {
+    // 1. 校舎名でソート
+    const schoolNameA = a.school.schoolName || '';
+    const schoolNameB = b.school.schoolName || '';
+    if (schoolNameA !== schoolNameB) {
+      return schoolNameA.localeCompare(schoolNameB, 'ja');
+    }
+
+    // 2. ブランドコードでソート
+    const brandCodeA = a.brand.brandCode || '';
+    const brandCodeB = b.brand.brandCode || '';
+    const brandOrderA = getBrandSortOrder(brandCodeA);
+    const brandOrderB = getBrandSortOrder(brandCodeB);
+    if (brandOrderA !== brandOrderB) {
+      return brandOrderA - brandOrderB;
+    }
+
+    // 3. 曜日でソート
+    const dayOfWeekA = a.dayOfWeek ?? 7;
+    const dayOfWeekB = b.dayOfWeek ?? 7;
+    if (dayOfWeekA !== dayOfWeekB) {
+      return dayOfWeekA - dayOfWeekB;
+    }
+
+    // 4. 開始時間でソート
+    const startTimeA = a.startTime || '99:99';
+    const startTimeB = b.startTime || '99:99';
+    return startTimeA.localeCompare(startTimeB);
+  });
+};
+
+// 校舎を校舎名順でソート
+const sortSchools = (schools: BrandSchool[]): BrandSchool[] => {
+  return [...schools].sort((a, b) => {
+    // sortOrderがあれば優先
+    const orderA = a.sortOrder ?? 9999;
+    const orderB = b.sortOrder ?? 9999;
+    if (orderA !== orderB) {
+      return orderA - orderB;
+    }
+    // 次に名前でソート
+    return a.name.localeCompare(b.name, 'ja');
+  });
+};
+
 // ステップ定義
-type Step = 'select-child' | 'select-contract' | 'select-action' | 'change-class' | 'change-school' | 'request-suspension' | 'request-cancellation' | 'confirm';
+type Step = 'select-child' | 'select-contract' | 'select-action' | 'change-class' | 'change-school' | 'request-suspension' | 'request-cancellation' | 'transfer-reservation' | 'confirm';
 
 // アクション定義
-type ActionType = 'change-class' | 'change-school' | 'request-suspension' | 'request-cancellation';
+type ActionType = 'change-class' | 'change-school' | 'request-suspension' | 'request-cancellation' | 'transfer-reservation';
 
 export default function ClassManagementPage() {
   const router = useRouter();
@@ -93,6 +174,16 @@ export default function ClassManagementPage() {
   const [cancelDate, setCancelDate] = useState<string>('');
   const [cancelReason, setCancelReason] = useState<string>('');
 
+  // 振替予約用
+  const [absenceTickets, setAbsenceTickets] = useState<AbsenceTicket[]>([]);
+  const [selectedAbsenceTicket, setSelectedAbsenceTicket] = useState<AbsenceTicket | null>(null);
+  const [transferAvailableClasses, setTransferAvailableClasses] = useState<TransferAvailableClass[]>([]);
+  const [selectedTransferClass, setSelectedTransferClass] = useState<TransferAvailableClass | null>(null);
+  const [transferDate, setTransferDate] = useState<string>('');
+  const [loadingTickets, setLoadingTickets] = useState(false);
+  const [loadingTransferClasses, setLoadingTransferClasses] = useState(false);
+  const [transferStep, setTransferStep] = useState<'select-ticket' | 'select-class' | 'select-date'>('select-ticket');
+
   // 処理状態
   const [submitting, setSubmitting] = useState(false);
   const [submitSuccess, setSubmitSuccess] = useState(false);
@@ -132,13 +223,17 @@ export default function ClassManagementPage() {
     }
   }, [authChecking, fetchContracts]);
 
-  // 開講時間割取得
+  // 開講時間割取得（チケットでフィルタリング）
   const fetchClassSchedules = useCallback(async (contract: MyContract) => {
     try {
       setLoadingSchedules(true);
+      // チケットコードがある場合はチケットでフィルタリング
+      const ticketId = contract.ticket?.ticketCode;
       const response = await getClassSchedules(
         contract.school.id,
-        contract.brand.id
+        contract.brand.id,
+        undefined,  // brandCategoryId
+        ticketId    // ticketId
       );
       setClassSchedules(response);
     } catch (err) {
@@ -165,11 +260,14 @@ export default function ClassManagementPage() {
   const fetchAvailableSchools = useCallback(async (contract: MyContract) => {
     try {
       setLoadingSchools(true);
-      // ブランドIDで開講校舎を取得
-      const schools = await getSchoolsByTicket(contract.brand.id);
-      // 現在の校舎を除外
+      // チケットIDで開講校舎を取得（チケットがない場合はブランドIDで取得）
+      const ticketCode = contract.ticket?.ticketCode;
+      const schools = ticketCode
+        ? await getSchoolsByTicket(ticketCode, contract.brand.id)
+        : await getSchoolsByTicket(contract.brand.id);
+      // 現在の校舎を除外してソート
       const filteredSchools = schools.filter(s => s.id !== contract.school.id);
-      setAvailableSchools(filteredSchools);
+      setAvailableSchools(sortSchools(filteredSchools));
     } catch (err) {
       console.error('Failed to fetch schools:', err);
       setError('校舎情報の取得に失敗しました');
@@ -178,11 +276,16 @@ export default function ClassManagementPage() {
     }
   }, []);
 
-  // 新しい校舎の時間割を取得
-  const fetchNewSchoolSchedules = useCallback(async (schoolId: string, brandId: string) => {
+  // 新しい校舎の時間割を取得（チケットでフィルタリング）
+  const fetchNewSchoolSchedules = useCallback(async (schoolId: string, brandId: string, ticketId?: string) => {
     try {
       setLoadingSchedules(true);
-      const response = await getClassSchedules(schoolId, brandId);
+      const response = await getClassSchedules(
+        schoolId,
+        brandId,
+        undefined,  // brandCategoryId
+        ticketId    // ticketId
+      );
       setNewSchoolSchedules(response);
     } catch (err) {
       console.error('Failed to fetch new school schedules:', err);
@@ -203,6 +306,13 @@ export default function ClassManagementPage() {
       setSelectedNewSchool(null);
       setSelectedNewSchedule(null);
       await fetchAvailableSchools(selectedContract);
+    }
+    if (action === 'transfer-reservation') {
+      setTransferStep('select-ticket');
+      setSelectedAbsenceTicket(null);
+      setSelectedTransferClass(null);
+      setTransferDate('');
+      await fetchAbsenceTickets();
     }
     setStep(action);
   };
@@ -235,7 +345,9 @@ export default function ClassManagementPage() {
     if (school && selectedContract) {
       setSelectedNewSchool(school);
       setSelectedNewSchedule(null);
-      await fetchNewSchoolSchedules(school.id, selectedContract.brand.id);
+      // チケットコードがある場合はチケットでフィルタリング
+      const ticketId = selectedContract.ticket?.ticketCode;
+      await fetchNewSchoolSchedules(school.id, selectedContract.brand.id, ticketId);
       setSchoolChangeStep('select-class');
     }
   };
@@ -307,6 +419,69 @@ export default function ClassManagementPage() {
     }
   };
 
+  // 欠席チケット一覧取得
+  const fetchAbsenceTickets = useCallback(async () => {
+    try {
+      setLoadingTickets(true);
+      const tickets = await getAbsenceTickets('issued');
+      setAbsenceTickets(tickets);
+    } catch (err) {
+      console.error('Failed to fetch absence tickets:', err);
+      setError('欠席チケットの取得に失敗しました');
+    } finally {
+      setLoadingTickets(false);
+    }
+  }, []);
+
+  // 振替可能クラス取得
+  const fetchTransferClasses = useCallback(async (ticketId: string) => {
+    try {
+      setLoadingTransferClasses(true);
+      const classes = await getTransferAvailableClasses(ticketId);
+      setTransferAvailableClasses(classes);
+    } catch (err) {
+      console.error('Failed to fetch transfer classes:', err);
+      setError('振替可能クラスの取得に失敗しました');
+    } finally {
+      setLoadingTransferClasses(false);
+    }
+  }, []);
+
+  // 欠席チケット選択
+  const handleSelectAbsenceTicket = async (ticket: AbsenceTicket) => {
+    setSelectedAbsenceTicket(ticket);
+    await fetchTransferClasses(ticket.id);
+    setTransferStep('select-class');
+  };
+
+  // 振替クラス選択
+  const handleSelectTransferClass = (cls: TransferAvailableClass) => {
+    setSelectedTransferClass(cls);
+    setTransferStep('select-date');
+  };
+
+  // 振替予約の確定
+  const handleConfirmTransfer = async () => {
+    if (!selectedAbsenceTicket || !selectedTransferClass || !transferDate) return;
+
+    try {
+      setSubmitting(true);
+      const response = await useAbsenceTicket({
+        absenceTicketId: selectedAbsenceTicket.id,
+        targetDate: transferDate,
+        targetClassScheduleId: selectedTransferClass.id,
+      });
+      setSubmitSuccess(true);
+      setSubmitMessage(response.message);
+      setStep('confirm');
+    } catch (err) {
+      console.error('Failed to make transfer reservation:', err);
+      setError('振替予約に失敗しました');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   // 戻るボタン
   const handleBack = () => {
     switch (step) {
@@ -342,15 +517,28 @@ export default function ClassManagementPage() {
         setSelectedSchedule(null);
         setStep('select-action');
         break;
+      case 'transfer-reservation':
+        if (transferStep === 'select-date') {
+          setTransferStep('select-class');
+          setTransferDate('');
+        } else if (transferStep === 'select-class') {
+          setTransferStep('select-ticket');
+          setSelectedTransferClass(null);
+        } else {
+          setSelectedAction(null);
+          setSelectedAbsenceTicket(null);
+          setStep('select-action');
+        }
+        break;
       case 'confirm':
         router.push('/feed');
         break;
     }
   };
 
-  // フィルタリング
+  // フィルタリング（校舎→ブランド→曜日→時間の順でソート）
   const studentContracts = selectedStudent
-    ? contracts.filter(c => c.student.id === selectedStudent.id)
+    ? sortContracts(contracts.filter(c => c.student.id === selectedStudent.id))
     : [];
 
   if (authChecking || loading) {
@@ -470,6 +658,29 @@ export default function ClassManagementPage() {
                             </h3>
                             <Badge className="bg-green-100 text-green-800">有効</Badge>
                           </div>
+                          {/* チケット情報と曜日・時間 */}
+                          {contract.ticket && (
+                            <div className="bg-blue-50 rounded-md px-2 py-1 mb-2">
+                              <div className="flex items-center justify-between">
+                                <span className="text-sm font-medium text-blue-700">
+                                  {contract.ticket.ticketName}
+                                </span>
+                                {contract.ticket.durationMinutes && (
+                                  <span className="text-xs text-blue-600">
+                                    {contract.ticket.durationMinutes}分
+                                  </span>
+                                )}
+                              </div>
+                              {contract.dayOfWeek !== undefined && contract.dayOfWeek !== null && contract.startTime && (
+                                <div className="flex items-center gap-1 mt-1 text-xs text-blue-600">
+                                  <Clock className="w-3 h-3" />
+                                  <span className="font-semibold">
+                                    {DAY_LABELS[contract.dayOfWeek]}曜 {contract.startTime.slice(0, 5)}〜
+                                  </span>
+                                </div>
+                              )}
+                            </div>
+                          )}
                           <div className="space-y-1 text-sm text-gray-600">
                             <div className="flex items-center gap-2">
                               <MapPin className="w-4 h-4" />
@@ -504,6 +715,13 @@ export default function ClassManagementPage() {
                 <p className="text-sm text-green-800">
                   <span className="font-semibold">{selectedStudent?.fullName}</span>さん / {selectedContract.brand.brandName}
                 </p>
+                {/* チケット情報 */}
+                {selectedContract.ticket && (
+                  <p className="text-sm text-green-700 font-medium mt-1">
+                    {selectedContract.ticket.ticketName}
+                    {selectedContract.ticket.durationMinutes && ` (${selectedContract.ticket.durationMinutes}分)`}
+                  </p>
+                )}
                 <p className="text-xs text-green-700 mt-1">
                   {selectedContract.school.schoolName} / {selectedContract.dayOfWeek !== undefined ? `${DAY_LABELS[selectedContract.dayOfWeek]}曜日` : ''}
                 </p>
@@ -541,6 +759,24 @@ export default function ClassManagementPage() {
                         <div>
                           <h3 className="font-semibold text-gray-900">校舎変更</h3>
                           <p className="text-sm text-gray-500">通う校舎を変更します</p>
+                        </div>
+                      </div>
+                      <ChevronRight className="w-5 h-5 text-gray-400" />
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card
+                  className="cursor-pointer hover:shadow-md transition-shadow border-l-4 border-l-cyan-500"
+                  onClick={() => handleSelectAction('transfer-reservation')}
+                >
+                  <CardContent className="p-4">
+                    <div className="flex justify-between items-center">
+                      <div className="flex items-center gap-3">
+                        <RefreshCw className="w-6 h-6 text-cyan-500" />
+                        <div>
+                          <h3 className="font-semibold text-gray-900">振替予約</h3>
+                          <p className="text-sm text-gray-500">欠席チケットで振替予約</p>
                         </div>
                       </div>
                       <ChevronRight className="w-5 h-5 text-gray-400" />
@@ -784,7 +1020,7 @@ export default function ClassManagementPage() {
                     </div>
                   ) : availableSchools.length > 0 ? (
                     <MapSchoolSelector
-                      schools={availableSchools}
+                      schools={sortSchools(availableSchools)}
                       selectedSchoolId={selectedNewSchool?.id || null}
                       onSelectSchool={handleSelectNewSchool}
                     />
@@ -797,11 +1033,11 @@ export default function ClassManagementPage() {
                     </Card>
                   )}
 
-                  {/* 校舎リスト表示 */}
+                  {/* 校舎リスト表示（ソート済み） */}
                   {availableSchools.length > 0 && (
                     <div className="mt-4 space-y-2">
                       <h3 className="text-sm font-semibold text-gray-700">校舎一覧</h3>
-                      {availableSchools.map((school) => (
+                      {sortSchools(availableSchools).map((school) => (
                         <Card
                           key={school.id}
                           className={`cursor-pointer transition-all ${
@@ -1007,30 +1243,45 @@ export default function ClassManagementPage() {
                 <CardContent className="p-4 space-y-4">
                   <div>
                     <label className="block text-sm font-semibold text-gray-700 mb-2">
-                      休会開始日 <span className="text-red-500">*</span>
+                      休会開始月（月末） <span className="text-red-500">*</span>
                     </label>
-                    <input
-                      type="date"
+                    <select
                       value={suspendFrom}
                       onChange={(e) => setSuspendFrom(e.target.value)}
                       className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
-                      min={new Date().toISOString().split('T')[0]}
-                    />
+                    >
+                      <option value="">選択してください</option>
+                      {getEndOfMonthOptions().map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                    <p className="text-xs text-gray-500 mt-1">
+                      休会は月末からの開始となります
+                    </p>
                   </div>
 
                   <div>
                     <label className="block text-sm font-semibold text-gray-700 mb-2">
-                      休会終了日（任意）
+                      休会終了月（月末・任意）
                     </label>
-                    <input
-                      type="date"
+                    <select
                       value={suspendUntil}
                       onChange={(e) => setSuspendUntil(e.target.value)}
                       className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
-                      min={suspendFrom || new Date().toISOString().split('T')[0]}
-                    />
+                    >
+                      <option value="">未定</option>
+                      {getEndOfMonthOptions()
+                        .filter((option) => !suspendFrom || option.value > suspendFrom)
+                        .map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                    </select>
                     <p className="text-xs text-gray-500 mt-1">
-                      未入力の場合、再開時期未定となります
+                      未選択の場合、再開時期未定となります
                     </p>
                   </div>
 
@@ -1114,17 +1365,22 @@ export default function ClassManagementPage() {
                 <CardContent className="p-4 space-y-4">
                   <div>
                     <label className="block text-sm font-semibold text-gray-700 mb-2">
-                      退会日 <span className="text-red-500">*</span>
+                      退会日（月末） <span className="text-red-500">*</span>
                     </label>
-                    <input
-                      type="date"
+                    <select
                       value={cancelDate}
                       onChange={(e) => setCancelDate(e.target.value)}
                       className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
-                      min={new Date().toISOString().split('T')[0]}
-                    />
+                    >
+                      <option value="">選択してください</option>
+                      {getEndOfMonthOptions().map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
                     <p className="text-xs text-gray-500 mt-1">
-                      当月退会の場合、日割り計算で相殺される場合があります
+                      退会は月末付けとなります
                     </p>
                   </div>
 
@@ -1172,6 +1428,201 @@ export default function ClassManagementPage() {
                     '退会を申請する'
                   )}
                 </Button>
+              )}
+            </div>
+          )}
+
+          {/* Step: 振替予約 */}
+          {step === 'transfer-reservation' && (
+            <div className="space-y-4">
+              <div className="bg-cyan-100 rounded-lg p-3 mb-4">
+                <p className="text-sm text-cyan-800">
+                  <span className="font-semibold">振替予約</span>
+                  {transferStep === 'select-ticket' && ' - チケット選択'}
+                  {transferStep === 'select-class' && ' - クラス選択'}
+                  {transferStep === 'select-date' && ' - 日程選択'}
+                </p>
+                {selectedAbsenceTicket && (
+                  <p className="text-xs text-cyan-700 mt-1">
+                    {selectedAbsenceTicket.brandName} / 欠席日: {selectedAbsenceTicket.absenceDate}
+                    {selectedTransferClass && ` → ${selectedTransferClass.schoolName} ${selectedTransferClass.dayOfWeekDisplay} ${selectedTransferClass.periodDisplay}`}
+                  </p>
+                )}
+              </div>
+
+              {/* チケット選択 */}
+              {transferStep === 'select-ticket' && (
+                <>
+                  <h2 className="text-lg font-semibold text-gray-800">欠席チケットを選択</h2>
+                  {loadingTickets ? (
+                    <div className="flex justify-center py-8">
+                      <Loader2 className="h-8 w-8 animate-spin text-cyan-500" />
+                    </div>
+                  ) : absenceTickets.length > 0 ? (
+                    <div className="space-y-3">
+                      {absenceTickets.map((ticket) => (
+                        <Card
+                          key={ticket.id}
+                          className="cursor-pointer hover:shadow-md transition-shadow"
+                          onClick={() => handleSelectAbsenceTicket(ticket)}
+                        >
+                          <CardContent className="p-4">
+                            <div className="flex justify-between items-start">
+                              <div className="flex items-start gap-3">
+                                <Ticket className="w-6 h-6 text-cyan-500 mt-1" />
+                                <div>
+                                  <h3 className="font-semibold text-gray-900">{ticket.brandName}</h3>
+                                  <p className="text-sm text-gray-600">{ticket.originalTicketName}</p>
+                                  <p className="text-xs text-gray-500 mt-1">
+                                    欠席日: {ticket.absenceDate}
+                                  </p>
+                                  <p className="text-xs text-gray-500">
+                                    有効期限: {ticket.validUntil}
+                                  </p>
+                                  <p className="text-xs text-gray-500">
+                                    校舎: {ticket.schoolName}
+                                  </p>
+                                </div>
+                              </div>
+                              <ChevronRight className="w-5 h-5 text-gray-400" />
+                            </div>
+                          </CardContent>
+                        </Card>
+                      ))}
+                    </div>
+                  ) : (
+                    <Card>
+                      <CardContent className="p-6 text-center">
+                        <Ticket className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+                        <p className="text-gray-500">利用可能な欠席チケットがありません</p>
+                        <p className="text-sm text-gray-400 mt-2">
+                          カレンダーから欠席登録をすると、振替チケットが発行されます
+                        </p>
+                      </CardContent>
+                    </Card>
+                  )}
+                </>
+              )}
+
+              {/* クラス選択 */}
+              {transferStep === 'select-class' && selectedAbsenceTicket && (
+                <>
+                  <h2 className="text-lg font-semibold text-gray-800">振替先クラスを選択</h2>
+                  {loadingTransferClasses ? (
+                    <div className="flex justify-center py-8">
+                      <Loader2 className="h-8 w-8 animate-spin text-cyan-500" />
+                    </div>
+                  ) : transferAvailableClasses.length > 0 ? (
+                    <div className="space-y-3">
+                      {transferAvailableClasses.map((cls) => (
+                        <Card
+                          key={cls.id}
+                          className={`cursor-pointer transition-all ${
+                            selectedTransferClass?.id === cls.id
+                              ? 'border-2 border-cyan-500 bg-cyan-50'
+                              : 'hover:shadow-md'
+                          }`}
+                          onClick={() => handleSelectTransferClass(cls)}
+                        >
+                          <CardContent className="p-4">
+                            <div className="flex justify-between items-start">
+                              <div>
+                                <h3 className="font-semibold text-gray-900">
+                                  {cls.dayOfWeekDisplay} {cls.periodDisplay}
+                                </h3>
+                                <p className="text-sm text-gray-600">{cls.schoolName}</p>
+                                <p className="text-xs text-gray-500 mt-1">
+                                  {cls.className}
+                                </p>
+                                <div className="flex items-center gap-2 mt-2">
+                                  <Users className="w-4 h-4 text-gray-400" />
+                                  <span className={`text-sm ${cls.availableSeats > 2 ? 'text-green-600' : cls.availableSeats > 0 ? 'text-orange-500' : 'text-red-500'}`}>
+                                    残り{cls.availableSeats}席
+                                  </span>
+                                </div>
+                              </div>
+                              {selectedTransferClass?.id === cls.id ? (
+                                <CheckCircle className="w-5 h-5 text-cyan-500" />
+                              ) : (
+                                <ChevronRight className="w-5 h-5 text-gray-400" />
+                              )}
+                            </div>
+                          </CardContent>
+                        </Card>
+                      ))}
+                    </div>
+                  ) : (
+                    <Card>
+                      <CardContent className="p-6 text-center">
+                        <Calendar className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+                        <p className="text-gray-500">振替可能なクラスがありません</p>
+                      </CardContent>
+                    </Card>
+                  )}
+                </>
+              )}
+
+              {/* 日程選択 */}
+              {transferStep === 'select-date' && selectedAbsenceTicket && selectedTransferClass && (
+                <>
+                  <h2 className="text-lg font-semibold text-gray-800">振替日を選択</h2>
+                  <Card className="rounded-xl shadow-md">
+                    <CardContent className="p-4 space-y-4">
+                      <div className="bg-cyan-50 p-3 rounded-lg">
+                        <p className="text-sm text-cyan-800">
+                          <span className="font-semibold">振替先:</span> {selectedTransferClass.schoolName}
+                        </p>
+                        <p className="text-sm text-cyan-800">
+                          <span className="font-semibold">クラス:</span> {selectedTransferClass.dayOfWeekDisplay} {selectedTransferClass.periodDisplay}
+                        </p>
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-semibold text-gray-700 mb-2">
+                          振替日 <span className="text-red-500">*</span>
+                        </label>
+                        <input
+                          type="date"
+                          value={transferDate}
+                          onChange={(e) => setTransferDate(e.target.value)}
+                          min={new Date().toISOString().split('T')[0]}
+                          max={selectedAbsenceTicket.validUntil || undefined}
+                          className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
+                        />
+                        <p className="text-xs text-gray-500 mt-1">
+                          有効期限: {selectedAbsenceTicket.validUntil}まで
+                        </p>
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  <div className="bg-cyan-50 border border-cyan-200 rounded-lg p-3">
+                    <div className="flex gap-2">
+                      <AlertCircle className="w-5 h-5 text-cyan-600 flex-shrink-0" />
+                      <div className="text-sm text-cyan-800">
+                        <p className="font-semibold">ご注意</p>
+                        <p>振替予約後のキャンセルは教室にお問い合わせください</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {transferDate && (
+                    <Button
+                      className="w-full bg-cyan-500 hover:bg-cyan-600"
+                      onClick={handleConfirmTransfer}
+                      disabled={submitting}
+                    >
+                      {submitting ? (
+                        <>
+                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                          処理中...
+                        </>
+                      ) : (
+                        '振替予約を確定する'
+                      )}
+                    </Button>
+                  )}
+                </>
               )}
             </div>
           )}

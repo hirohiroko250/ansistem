@@ -2,7 +2,7 @@
 Schools Serializers
 """
 from rest_framework import serializers
-from .models import Brand, BrandCategory, School, Grade, Subject, Classroom, TimeSlot, SchoolSchedule, SchoolCourse, SchoolClosure
+from .models import Brand, BrandCategory, School, Grade, Subject, Classroom, TimeSlot, SchoolSchedule, SchoolCourse, SchoolClosure, BankType, Bank, BankBranch
 
 
 # ========================================
@@ -110,13 +110,12 @@ class BrandCreateUpdateSerializer(serializers.ModelSerializer):
 
 class SchoolListSerializer(serializers.ModelSerializer):
     """校舎一覧"""
-    brand_name = serializers.CharField(source='brand.brand_name', read_only=True)
 
     class Meta:
         model = School
         fields = [
             'id', 'school_code', 'school_name', 'school_name_short',
-            'brand', 'brand_name', 'school_type',
+            'school_type',
             'prefecture', 'city', 'phone',
             'sort_order', 'is_active'
         ]
@@ -124,12 +123,11 @@ class SchoolListSerializer(serializers.ModelSerializer):
 
 class SchoolDetailSerializer(serializers.ModelSerializer):
     """校舎詳細"""
-    brand_name = serializers.CharField(source='brand.brand_name', read_only=True)
 
     class Meta:
         model = School
         fields = [
-            'id', 'brand', 'brand_name',
+            'id',
             'school_code', 'school_name', 'school_name_short', 'school_type',
             'postal_code', 'prefecture', 'city', 'address1', 'address2',
             'phone', 'fax', 'email',
@@ -147,7 +145,7 @@ class SchoolCreateUpdateSerializer(serializers.ModelSerializer):
     class Meta:
         model = School
         fields = [
-            'brand', 'school_code', 'school_name', 'school_name_short', 'school_type',
+            'school_code', 'school_name', 'school_name_short', 'school_type',
             'postal_code', 'prefecture', 'city', 'address1', 'address2',
             'phone', 'fax', 'email',
             'latitude', 'longitude',
@@ -211,14 +209,11 @@ class ClassroomDetailSerializer(serializers.ModelSerializer):
 
 class PublicSchoolSerializer(serializers.ModelSerializer):
     """公開校舎情報（認証不要・新規登録用）"""
-    brand_name = serializers.CharField(source='brand.brand_name', read_only=True)
-    brand_code = serializers.CharField(source='brand.brand_code', read_only=True)
 
     class Meta:
         model = School
         fields = [
             'id', 'school_code', 'school_name',
-            'brand_name', 'brand_code',
             'prefecture', 'city', 'address1',
             'phone',
         ]
@@ -408,3 +403,66 @@ class SchoolClosureCreateUpdateSerializer(serializers.ModelSerializer):
             'has_makeup', 'makeup_date', 'makeup_schedule',
             'reason', 'notes', 'notified_at'
         ]
+
+
+# ========================================
+# Bank（金融機関）
+# ========================================
+class BankTypeSerializer(serializers.ModelSerializer):
+    """金融機関種別"""
+
+    class Meta:
+        model = BankType
+        fields = [
+            'id', 'type_code', 'type_name', 'type_label',
+            'sort_order', 'is_active'
+        ]
+        read_only_fields = ['id']
+
+
+class BankBranchSerializer(serializers.ModelSerializer):
+    """金融機関支店"""
+
+    class Meta:
+        model = BankBranch
+        fields = [
+            'id', 'branch_code', 'branch_name', 'branch_name_kana',
+            'branch_name_half_kana', 'branch_name_hiragana', 'aiueo_row',
+            'sort_order', 'is_active'
+        ]
+        read_only_fields = ['id']
+
+
+class BankSerializer(serializers.ModelSerializer):
+    """金融機関"""
+    bank_type_name = serializers.CharField(source='bank_type.type_name', read_only=True, allow_null=True)
+    branch_count = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Bank
+        fields = [
+            'id', 'bank_code', 'bank_name', 'bank_name_kana',
+            'bank_name_half_kana', 'bank_name_hiragana', 'aiueo_row',
+            'bank_type', 'bank_type_name',
+            'sort_order', 'is_active', 'branch_count'
+        ]
+        read_only_fields = ['id']
+
+    def get_branch_count(self, obj):
+        return obj.branches.filter(is_active=True).count()
+
+
+class BankDetailSerializer(serializers.ModelSerializer):
+    """金融機関詳細（支店一覧含む）"""
+    bank_type_name = serializers.CharField(source='bank_type.type_name', read_only=True, allow_null=True)
+    branches = BankBranchSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = Bank
+        fields = [
+            'id', 'bank_code', 'bank_name', 'bank_name_kana',
+            'bank_name_half_kana', 'bank_name_hiragana', 'aiueo_row',
+            'bank_type', 'bank_type_name',
+            'sort_order', 'is_active', 'branches'
+        ]
+        read_only_fields = ['id']

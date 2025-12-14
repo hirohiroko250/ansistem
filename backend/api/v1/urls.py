@@ -35,4 +35,10 @@ urlpatterns = [
 
     # 料金計算
     path('pricing/', include('apps.pricing.urls', namespace='pricing')),
+
+    # 請求・支払い
+    path('billing/', include('apps.billing.urls', namespace='billing')),
+
+    # 作業管理
+    path('tasks/', include('apps.tasks.urls', namespace='tasks')),
 ]

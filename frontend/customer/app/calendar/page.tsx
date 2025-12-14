@@ -14,7 +14,7 @@ import { ja } from 'date-fns/locale';
 import { getChildren, getStudentItems } from '@/lib/api/students';
 import { getChildTicketBalance } from '@/lib/api/students';
 import { getCalendarEvents, markAbsent, requestMakeup, getMakeupAvailableDates, markAbsenceFromCalendar } from '@/lib/api/lessons';
-import { getLessonCalendar, type LessonCalendarDay } from '@/lib/api/schools';
+import { getLessonCalendar, getCalendarSeats, type LessonCalendarDay, type DailySeatInfo } from '@/lib/api/schools';
 import type { Child, CalendarEvent, TicketBalance, MakeupAvailableDate, ApiError } from '@/lib/api/types';
 
 type DisplayEvent = {
@@ -30,6 +30,25 @@ type DisplayEvent = {
   courseId?: string;
   classScheduleId?: string;  // 欠席登録用
   brandName?: string;
+  brandId?: string;
+};
+
+// ブランド別の色設定
+const BRAND_COLORS: Record<string, { bg: string; text: string; badge: string }> = {
+  // アンイングリッシュクラブ
+  'アンイングリッシュクラブ': { bg: 'bg-blue-500', text: 'text-white', badge: 'bg-blue-100 text-blue-700' },
+  // あんそろばんクラブ
+  'アンそろばんクラブ': { bg: 'bg-orange-500', text: 'text-white', badge: 'bg-orange-100 text-orange-700' },
+  // サンシャインキッズ
+  'サンシャインキッズ': { bg: 'bg-yellow-500', text: 'text-white', badge: 'bg-yellow-100 text-yellow-700' },
+  // デフォルト
+  'default': { bg: 'bg-blue-500', text: 'text-white', badge: 'bg-gray-100 text-gray-700' },
+};
+
+// ブランド名から色を取得するヘルパー
+const getBrandColor = (brandName?: string): { bg: string; text: string; badge: string } => {
+  if (!brandName) return BRAND_COLORS['default'];
+  return BRAND_COLORS[brandName] || BRAND_COLORS['default'];
 };
 
 export default function CalendarPage() {
@@ -53,8 +72,15 @@ export default function CalendarPage() {
   const [closedDates, setClosedDates] = useState<Set<number>>(new Set());
   const [holidayDates, setHolidayDates] = useState<Map<number, string>>(new Map());
 
+  // 座席状況 state
+  const [seatInfo, setSeatInfo] = useState<Map<number, DailySeatInfo>>(new Map());
+
   // 選択中のイベント
   const [selectedEvent, setSelectedEvent] = useState<DisplayEvent | null>(null);
+
+  // 選択中の日付（カレンダーからのクリック用）
+  const [selectedDay, setSelectedDay] = useState<number | null>(null);
+  const [showDayEventsDialog, setShowDayEventsDialog] = useState(false);
 
   // 欠席ダイアログ
   const [showAbsentDialog, setShowAbsentDialog] = useState(false);
@@ -130,7 +156,7 @@ export default function CalendarPage() {
           time: `${format(eventDate, 'HH:mm')}-${format(endTime, 'HH:mm')}`,
           color,
           status: event.status as DisplayEvent['status'],
-          school: event.resourceId || '',
+          school: event.schoolName || '',
           scheduleId: event.id,
           courseId: event.resourceId,
           classScheduleId: event.classScheduleId,
@@ -193,6 +219,19 @@ export default function CalendarPage() {
 
       setClosedDates(closed);
       setHolidayDates(holidays);
+
+      // 座席状況を取得
+      try {
+        const seatsData = await getCalendarSeats(item.brandId, item.schoolId, year, month);
+        const seatsMap = new Map<number, DailySeatInfo>();
+        (seatsData.days || []).forEach(day => {
+          const dayNum = parseInt(day.date.split('-')[2], 10);
+          seatsMap.set(dayNum, day);
+        });
+        setSeatInfo(seatsMap);
+      } catch (seatsError) {
+        console.error('Failed to fetch seat info:', seatsError);
+      }
     } catch (error) {
       console.error('Failed to fetch lesson calendar:', error);
     }
@@ -226,6 +265,21 @@ export default function CalendarPage() {
   };
 
   const handleEventClick = (event: DisplayEvent) => {
+    setSelectedEvent(event);
+  };
+
+  // カレンダーの日付クリック（授業がある日のみ）
+  const handleDayClick = (day: number) => {
+    const dayEvents = getEventsForDay(day);
+    if (dayEvents.length > 0) {
+      setSelectedDay(day);
+      setShowDayEventsDialog(true);
+    }
+  };
+
+  // 日付ダイアログから欠席登録
+  const handleAbsentFromDayDialog = (event: DisplayEvent) => {
+    setShowDayEventsDialog(false);
     setSelectedEvent(event);
   };
 
@@ -439,9 +493,8 @@ export default function CalendarPage() {
                       setSelectedChild(child);
                       setShowChildSelector(false);
                     }}
-                    className={`w-full flex items-center gap-3 p-3 rounded-lg transition-colors ${
-                      selectedChild?.id === child.id ? 'bg-blue-50 border-2 border-blue-500' : 'hover:bg-gray-50'
-                    }`}
+                    className={`w-full flex items-center gap-3 p-3 rounded-lg transition-colors ${selectedChild?.id === child.id ? 'bg-blue-50 border-2 border-blue-500' : 'hover:bg-gray-50'
+                      }`}
                   >
                     <div className={`w-8 h-8 ${selectedChild?.id === child.id ? 'bg-blue-500' : 'bg-gray-200'} rounded-full flex items-center justify-center`}>
                       <User className={`h-4 w-4 ${selectedChild?.id === child.id ? 'text-white' : 'text-gray-600'}`} />
@@ -493,27 +546,55 @@ export default function CalendarPage() {
                   const hasEvents = dayEvents.length > 0;
                   const hasAbsent = dayEvents.some(e => e.status === 'absent');
                   const hasMakeup = dayEvents.some(e => e.status === 'makeup');
+                  const hasScheduled = dayEvents.some(e => e.status === 'scheduled' || e.status === 'confirmed');
                   const isClosed = closedDates.has(day);
                   const holidayName = holidayDates.get(day);
+                  const seats = seatInfo.get(day);
+
+                  // ブランド別の色を取得（最初のイベントのブランドを使用）
+                  const primaryEvent = dayEvents[0];
+                  const brandColor = getBrandColor(primaryEvent?.brandName);
+
+                  // 複数ブランドがある場合はマルチカラー表示
+                  const uniqueBrands = [...new Set(dayEvents.map(e => e.brandName).filter(Boolean))];
+                  const hasMultipleBrands = uniqueBrands.length > 1;
 
                   return (
                     <div
                       key={day}
-                      className={`aspect-square flex flex-col items-center justify-center rounded-lg text-sm ${
-                        isClosed ? 'bg-gray-200 text-gray-500' :
-                        hasAbsent ? 'bg-red-100 text-red-700 font-semibold' :
-                        hasMakeup ? 'bg-purple-100 text-purple-700 font-semibold' :
-                        hasEvents ? 'bg-blue-500 text-white font-semibold' :
-                        'text-gray-700 hover:bg-gray-100'
-                      } cursor-pointer transition-colors relative`}
-                      title={holidayName || (isClosed ? '休校日' : undefined)}
+                      onClick={() => handleDayClick(day)}
+                      className={`aspect-square flex flex-col items-center justify-center rounded-lg text-sm ${isClosed ? 'bg-gray-200 text-gray-500' :
+                        hasAbsent ? 'bg-pink-400 text-white font-semibold' :
+                          hasMakeup ? 'bg-purple-500 text-white font-semibold' :
+                            hasScheduled || hasEvents ? `${brandColor.bg} ${brandColor.text} font-semibold` :
+                              'text-gray-700 hover:bg-gray-100'
+                        } ${hasEvents && !isClosed ? 'cursor-pointer hover:opacity-80' : 'cursor-default'} transition-colors relative`}
+                      title={holidayName || (isClosed ? '休校日' : seats?.isOpen ? `受講${seats.enrolledCount}人 / 残${seats.availableSeats}席` : undefined)}
                     >
-                      {day}
+                      <span className="text-xs">{day}</span>
+                      {seats?.isOpen && seats.totalCapacity > 0 && !isClosed && (
+                        <span className={`text-[8px] leading-none ${hasEvents ? 'text-white/80' : seats.availableSeats <= 2 ? 'text-red-500' : 'text-green-600'}`}>
+                          {seats.enrolledCount}/{seats.totalCapacity}
+                        </span>
+                      )}
                       {hasEvents && !isClosed && (
-                        <div className="flex gap-0.5 mt-1">
-                          {dayEvents.slice(0, 3).map((_, i) => (
-                            <div key={i} className="w-1 h-1 rounded-full bg-current opacity-70" />
-                          ))}
+                        <div className="flex gap-0.5 mt-0.5">
+                          {hasMultipleBrands ? (
+                            // 複数ブランドの場合、各ブランドの色でドットを表示
+                            uniqueBrands.slice(0, 3).map((brand, i) => {
+                              const color = getBrandColor(brand);
+                              return (
+                                <div
+                                  key={i}
+                                  className={`w-1.5 h-1.5 rounded-full ${color.bg} border border-white/50`}
+                                />
+                              );
+                            })
+                          ) : (
+                            dayEvents.slice(0, 3).map((_, i) => (
+                              <div key={i} className="w-1 h-1 rounded-full bg-current opacity-70" />
+                            ))
+                          )}
                         </div>
                       )}
                       {isClosed && (
@@ -531,18 +612,22 @@ export default function CalendarPage() {
         <div className="flex flex-wrap gap-3 mb-4 text-xs">
           <div className="flex items-center gap-1.5">
             <div className="w-4 h-4 rounded bg-blue-500" />
-            <span className="text-gray-600">授業予定</span>
+            <span className="text-gray-600">アンイングリッシュ</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <div className="w-4 h-4 rounded bg-orange-500" />
+            <span className="text-gray-600">アンそろばんクラブ</span>
           </div>
           <div className="flex items-center gap-1.5">
             <div className="w-4 h-4 rounded bg-gray-200" />
             <span className="text-gray-600">休校日</span>
           </div>
           <div className="flex items-center gap-1.5">
-            <div className="w-4 h-4 rounded bg-red-100" />
+            <div className="w-4 h-4 rounded bg-pink-400" />
             <span className="text-gray-600">欠席</span>
           </div>
           <div className="flex items-center gap-1.5">
-            <div className="w-4 h-4 rounded bg-purple-100" />
+            <div className="w-4 h-4 rounded bg-purple-500" />
             <span className="text-gray-600">振替</span>
           </div>
         </div>
@@ -573,34 +658,92 @@ export default function CalendarPage() {
               {events
                 .sort((a, b) => a.date - b.date)
                 .map((event) => (
+                  <Card
+                    key={event.id}
+                    className="rounded-xl shadow-md cursor-pointer hover:shadow-lg transition-shadow"
+                    onClick={() => handleEventClick(event)}
+                  >
+                    <CardContent className="p-4 flex items-center gap-3">
+                      <div className="text-center">
+                        <div className="text-2xl font-bold text-gray-800">{event.date}</div>
+                        <div className="text-xs text-gray-500">{format(currentDate, 'M月', { locale: ja })}</div>
+                      </div>
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2">
+                          <h4 className="font-semibold text-gray-800">{event.title}</h4>
+                          {event.brandName && (
+                            <Badge className="bg-blue-100 text-blue-700 text-xs px-1.5 py-0.5">{event.brandName}</Badge>
+                          )}
+                        </div>
+                        <p className="text-sm text-gray-600">{event.time}</p>
+                        <p className="text-xs text-gray-500">{event.school}</p>
+                      </div>
+                      {getStatusBadge(event.status)}
+                    </CardContent>
+                  </Card>
+                ))}
+            </div>
+          )}
+        </div>
+      </main>
+
+      {/* 日付クリック時のイベント一覧ダイアログ */}
+      <Dialog open={showDayEventsDialog} onOpenChange={setShowDayEventsDialog}>
+        <DialogContent className="max-w-[340px] rounded-2xl">
+          <DialogHeader>
+            <DialogTitle>
+              {format(currentDate, 'M月', { locale: ja })}{selectedDay}日の予定
+            </DialogTitle>
+            <DialogDescription>
+              授業を選択して欠席登録ができます
+            </DialogDescription>
+          </DialogHeader>
+          {selectedDay && (
+            <div className="space-y-2 max-h-[300px] overflow-y-auto">
+              {getEventsForDay(selectedDay).map((event) => (
                 <Card
                   key={event.id}
-                  className="rounded-xl shadow-md cursor-pointer hover:shadow-lg transition-shadow"
-                  onClick={() => handleEventClick(event)}
+                  className={`cursor-pointer transition-all hover:shadow-md ${event.status === 'absent' ? 'bg-pink-50 border-pink-200' :
+                    event.status === 'makeup' ? 'bg-purple-50 border-purple-200' :
+                      'hover:bg-gray-50'
+                    }`}
+                  onClick={() => handleAbsentFromDayDialog(event)}
                 >
-                  <CardContent className="p-4 flex items-center gap-3">
-                    <div className="text-center">
-                      <div className="text-2xl font-bold text-gray-800">{event.date}</div>
-                      <div className="text-xs text-gray-500">{format(currentDate, 'M月', { locale: ja })}</div>
-                    </div>
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2">
-                        <h4 className="font-semibold text-gray-800">{event.title}</h4>
-                        {event.brandName && (
-                          <Badge className="bg-blue-100 text-blue-700 text-xs px-1.5 py-0.5">{event.brandName}</Badge>
-                        )}
+                  <CardContent className="p-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2">
+                          <p className="font-semibold text-sm text-gray-800">{event.title}</p>
+                          {event.brandName && (
+                            <Badge className="bg-blue-100 text-blue-700 text-xs px-1.5 py-0">{event.brandName}</Badge>
+                          )}
+                        </div>
+                        <p className="text-xs text-gray-600">{event.time}</p>
+                        <p className="text-xs text-gray-500">{event.school}</p>
                       </div>
-                      <p className="text-sm text-gray-600">{event.time}</p>
-                      <p className="text-xs text-gray-500">{event.school}</p>
+                      <div className="ml-2">
+                        {getStatusBadge(event.status)}
+                      </div>
                     </div>
-                    {getStatusBadge(event.status)}
+                    {(event.status === 'scheduled' || event.status === 'confirmed') && (
+                      <div className="mt-2 pt-2 border-t border-gray-100">
+                        <p className="text-xs text-blue-600">タップして欠席登録</p>
+                      </div>
+                    )}
                   </CardContent>
                 </Card>
               ))}
             </div>
           )}
-        </div>
-      </main>
+          <Button
+            variant="outline"
+            className="w-full rounded-xl"
+            onClick={() => setShowDayEventsDialog(false)}
+          >
+            閉じる
+          </Button>
+        </DialogContent>
+      </Dialog>
 
       {/* イベント詳細ダイアログ */}
       <Dialog open={selectedEvent !== null} onOpenChange={() => setSelectedEvent(null)}>
@@ -642,10 +785,10 @@ export default function CalendarPage() {
               )}
 
               {(selectedEvent.status === 'scheduled' || selectedEvent.status === 'confirmed') && (
-                <div className="flex gap-2 pt-2">
+                <div className="pt-2">
                   <Button
                     variant="outline"
-                    className="flex-1 rounded-xl"
+                    className="w-full rounded-xl"
                     onClick={(e) => {
                       e.stopPropagation();
                       handleMarkAbsent();
@@ -658,16 +801,6 @@ export default function CalendarPage() {
                       <X className="h-4 w-4 mr-2" />
                     )}
                     欠席登録
-                  </Button>
-                  <Button
-                    className="flex-1 rounded-xl bg-blue-600 hover:bg-blue-700"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleOpenMakeupDialog();
-                    }}
-                  >
-                    <RefreshCw className="h-4 w-4 mr-2" />
-                    振替申請
                   </Button>
                 </div>
               )}

@@ -1,0 +1,62 @@
+{% extends "admin/change_form.html" %}
+{% load i18n admin_urls %}
+
+{% block object-tools-items %}
+{{ block.super }}
+{% if original %}
+<li>
+    <a href="{% url 'admin:billing_debitexportbatch_import_result' original.pk %}"
+       onclick="return showImportDialog(event, '{{ original.pk }}');"
+       class="viewlink">
+        結果インポート
+    </a>
+</li>
+{% endif %}
+{% endblock %}
+
+{% block content %}
+{{ block.super }}
+
+<!-- 結果インポートダイアログ -->
+<div id="import-dialog" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 9999;">
+    <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; padding: 30px; border-radius: 8px; min-width: 400px;">
+        <h2 style="margin-top: 0;">結果ファイルのインポート</h2>
+        <form id="import-form" method="post" enctype="multipart/form-data" action="">
+            {% csrf_token %}
+            <p style="margin-bottom: 10px;">決済代行会社からの結果CSVファイルを選択してください。</p>
+            <input type="file" name="result_file" accept=".csv" required style="margin-bottom: 20px;">
+            <div style="text-align: right;">
+                <button type="button" onclick="hideImportDialog()" style="margin-right: 10px; padding: 8px 16px;">キャンセル</button>
+                <button type="submit" style="padding: 8px 16px; background: #417690; color: white; border: none; cursor: pointer;">インポート</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+function showImportDialog(event, batchId) {
+    event.preventDefault();
+    document.getElementById('import-form').action = '/admin/billing/debitexportbatch/' + batchId + '/import-result/';
+    document.getElementById('import-dialog').style.display = 'block';
+    return false;
+}
+
+function hideImportDialog() {
+    document.getElementById('import-dialog').style.display = 'none';
+}
+
+// ESCキーでダイアログを閉じる
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') {
+        hideImportDialog();
+    }
+});
+
+// ダイアログ外クリックで閉じる
+document.getElementById('import-dialog').addEventListener('click', function(e) {
+    if (e.target === this) {
+        hideImportDialog();
+    }
+});
+</script>
+{% endblock %}

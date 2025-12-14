@@ -4,7 +4,7 @@ from apps.core.csv_utils import CSVImporter
 from apps.tenants.models import Tenant
 from .models import (
     Brand, BrandCategory, School, Grade, Subject, Classroom, SchoolYear, GradeSchoolYear, BrandSchool,
-    TimeSlot, LessonCalendar, ClassSchedule
+    TimeSlot, LessonCalendar, ClassSchedule, BankType, Bank, BankBranch, CalendarOperationLog
 )
 
 
@@ -794,12 +794,12 @@ class ClassScheduleAdmin(CSVImportExportMixin, admin.ModelAdmin):
     クラス登録・振替のベースとなるマスタ
     """
     list_display = [
-        'schedule_code', 'school', 'brand_category', 'brand',
+        'schedule_code', 'school', 'brand_category', 'brand', 'grade',
         'get_day_of_week_display', 'period', 'start_time', 'class_name',
         'capacity', 'reserved_seats', 'is_active'
     ]
     list_filter = [
-        'is_active', 'brand_category', 'brand', 'school',
+        'is_active', 'brand_category', 'brand', 'school', 'grade',
         'day_of_week', 'approval_type'
     ]
     search_fields = [
@@ -807,7 +807,7 @@ class ClassScheduleAdmin(CSVImportExportMixin, admin.ModelAdmin):
         'ticket_name', 'transfer_group', 'calendar_pattern'
     ]
     ordering = ['school', 'brand_category', 'brand', 'day_of_week', 'period']
-    autocomplete_fields = ['brand', 'brand_category', 'school', 'room']
+    autocomplete_fields = ['brand', 'brand_category', 'school', 'room', 'grade']
     date_hierarchy = 'class_start_date'
 
     fieldsets = (
@@ -816,6 +816,7 @@ class ClassScheduleAdmin(CSVImportExportMixin, admin.ModelAdmin):
                 'schedule_code',
                 ('school', 'room', 'room_name'),
                 ('brand_category', 'brand'),
+                'grade',
             )
         }),
         ('曜日・時間', {
@@ -865,6 +866,7 @@ class ClassScheduleAdmin(CSVImportExportMixin, admin.ModelAdmin):
         '時間割コード': 'schedule_code',
         '校舎名': 'school__school_name',
         'ブランド名': 'brand__brand_name',
+        '学年コード': 'grade__grade_code',
         '曜日': 'day_of_week',
         '時限': 'period',
         '開始時間': 'start_time',
@@ -894,6 +896,7 @@ class ClassScheduleAdmin(CSVImportExportMixin, admin.ModelAdmin):
     csv_unique_fields = ['schedule_code']
     csv_export_fields = [
         'schedule_code', 'school.school_name', 'brand.brand_name',
+        'grade.grade_code', 'grade.grade_name',
         'day_of_week', 'period', 'start_time', 'duration_minutes', 'end_time',
         'class_name', 'class_type', 'display_course_name', 'display_pair_name',
         'ticket_name', 'ticket_id', 'transfer_group', 'schedule_group',
@@ -905,6 +908,8 @@ class ClassScheduleAdmin(CSVImportExportMixin, admin.ModelAdmin):
         'schedule_code': '時間割コード',
         'school.school_name': '校舎名',
         'brand.brand_name': 'ブランド名',
+        'grade.grade_code': '学年コード',
+        'grade.grade_name': '学年名',
         'day_of_week': '曜日',
         'period': '時限',
         'start_time': '開始時間',
@@ -929,3 +934,184 @@ class ClassScheduleAdmin(CSVImportExportMixin, admin.ModelAdmin):
         'class_end_date': 'クラス終了日',
         'is_active': '有効',
     }
+
+
+# =============================================================================
+# 金融機関マスタ
+# =============================================================================
+class BankBranchInline(admin.TabularInline):
+    """支店インライン編集"""
+    model = BankBranch
+    extra = 1
+    fields = ['branch_code', 'branch_name', 'branch_name_kana', 'branch_name_hiragana', 'aiueo_row', 'is_active']
+
+
+@admin.register(BankType)
+class BankTypeAdmin(CSVImportExportMixin, admin.ModelAdmin):
+    """金融機関種別Admin"""
+    list_display = ['type_code', 'type_name', 'type_label', 'sort_order', 'is_active', 'tenant_ref']
+    list_filter = ['tenant_ref', 'is_active']
+    search_fields = ['type_code', 'type_name', 'type_label']
+    ordering = ['sort_order', 'type_code']
+    raw_id_fields = ['tenant_ref']
+
+    csv_import_fields = {
+        '種別コード': 'type_code',
+        '種別名': 'type_name',
+        '表示名': 'type_label',
+        '並び順': 'sort_order',
+        '有効': 'is_active',
+    }
+    csv_required_fields = ['種別コード', '種別名']
+    csv_unique_fields = ['type_code']
+    csv_export_fields = ['type_code', 'type_name', 'type_label', 'sort_order', 'is_active']
+    csv_export_headers = {
+        'type_code': '種別コード',
+        'type_name': '種別名',
+        'type_label': '表示名',
+        'sort_order': '並び順',
+        'is_active': '有効',
+    }
+
+
+@admin.register(Bank)
+class BankAdmin(CSVImportExportMixin, admin.ModelAdmin):
+    """金融機関マスタAdmin"""
+    list_display = [
+        'bank_code', 'bank_name', 'bank_name_kana', 'aiueo_row',
+        'bank_type', 'get_branch_count', 'is_active', 'tenant_ref'
+    ]
+    list_filter = ['tenant_ref', 'is_active', 'aiueo_row', 'bank_type']
+    search_fields = ['bank_code', 'bank_name', 'bank_name_kana', 'bank_name_hiragana']
+    ordering = ['sort_order', 'bank_name_hiragana']
+    raw_id_fields = ['tenant_ref']
+    autocomplete_fields = ['bank_type']
+    inlines = [BankBranchInline]
+
+    fieldsets = (
+        ('基本情報', {
+            'fields': ('bank_code', 'bank_name', 'bank_type')
+        }),
+        ('カナ表記', {
+            'fields': ('bank_name_kana', 'bank_name_half_kana', 'bank_name_hiragana', 'aiueo_row')
+        }),
+        ('表示設定', {
+            'fields': ('sort_order', 'is_active', 'tenant_ref')
+        }),
+    )
+
+    @admin.display(description='支店数')
+    def get_branch_count(self, obj):
+        return obj.branches.filter(is_active=True).count()
+
+    csv_import_fields = {
+        '金融機関コード': 'bank_code',
+        '金融機関名': 'bank_name',
+        '金融機関名カナ': 'bank_name_kana',
+        '金融機関名半角カナ': 'bank_name_half_kana',
+        '金融機関名ひらがな': 'bank_name_hiragana',
+        'あいうえお行': 'aiueo_row',
+        '並び順': 'sort_order',
+        '有効': 'is_active',
+    }
+    csv_required_fields = ['金融機関コード', '金融機関名']
+    csv_unique_fields = ['bank_code']
+    csv_export_fields = [
+        'bank_code', 'bank_name', 'bank_name_kana', 'bank_name_half_kana',
+        'bank_name_hiragana', 'aiueo_row', 'bank_type.type_code', 'sort_order', 'is_active'
+    ]
+    csv_export_headers = {
+        'bank_code': '金融機関コード',
+        'bank_name': '金融機関名',
+        'bank_name_kana': '金融機関名カナ',
+        'bank_name_half_kana': '金融機関名半角カナ',
+        'bank_name_hiragana': '金融機関名ひらがな',
+        'aiueo_row': 'あいうえお行',
+        'bank_type.type_code': '種別コード',
+        'sort_order': '並び順',
+        'is_active': '有効',
+    }
+
+
+@admin.register(BankBranch)
+class BankBranchAdmin(CSVImportExportMixin, admin.ModelAdmin):
+    """金融機関支店マスタAdmin"""
+    list_display = [
+        'branch_code', 'branch_name', 'bank', 'branch_name_kana',
+        'aiueo_row', 'is_active', 'tenant_ref'
+    ]
+    list_filter = ['tenant_ref', 'is_active', 'aiueo_row', 'bank']
+    search_fields = ['branch_code', 'branch_name', 'branch_name_kana', 'bank__bank_name']
+    ordering = ['bank', 'sort_order', 'branch_name_hiragana']
+    raw_id_fields = ['tenant_ref']
+    autocomplete_fields = ['bank']
+
+    fieldsets = (
+        ('基本情報', {
+            'fields': ('bank', 'branch_code', 'branch_name')
+        }),
+        ('カナ表記', {
+            'fields': ('branch_name_kana', 'branch_name_half_kana', 'branch_name_hiragana', 'aiueo_row')
+        }),
+        ('表示設定', {
+            'fields': ('sort_order', 'is_active', 'tenant_ref')
+        }),
+    )
+
+    csv_import_fields = {
+        '金融機関コード': 'bank__bank_code',
+        '支店コード': 'branch_code',
+        '支店名': 'branch_name',
+        '支店名カナ': 'branch_name_kana',
+        '支店名半角カナ': 'branch_name_half_kana',
+        '支店名ひらがな': 'branch_name_hiragana',
+        'あいうえお行': 'aiueo_row',
+        '並び順': 'sort_order',
+        '有効': 'is_active',
+    }
+    csv_required_fields = ['金融機関コード', '支店コード', '支店名']
+    csv_unique_fields = ['branch_code']
+    csv_export_fields = [
+        'bank.bank_code', 'bank.bank_name', 'branch_code', 'branch_name',
+        'branch_name_kana', 'branch_name_half_kana', 'branch_name_hiragana',
+        'aiueo_row', 'sort_order', 'is_active'
+    ]
+    csv_export_headers = {
+        'bank.bank_code': '金融機関コード',
+        'bank.bank_name': '金融機関名',
+        'branch_code': '支店コード',
+        'branch_name': '支店名',
+        'branch_name_kana': '支店名カナ',
+        'branch_name_half_kana': '支店名半角カナ',
+        'branch_name_hiragana': '支店名ひらがな',
+        'aiueo_row': 'あいうえお行',
+        'sort_order': '並び順',
+        'is_active': '有効',
+    }
+
+
+@admin.register(CalendarOperationLog)
+class CalendarOperationLogAdmin(admin.ModelAdmin):
+    """カレンダー操作ログ管理"""
+    list_display = [
+        'operation_type', 'operation_date', 'school', 'brand',
+        'old_value', 'new_value', 'operated_by', 'operated_at'
+    ]
+    list_filter = ['operation_type', 'school', 'brand', 'operated_at']
+    search_fields = ['reason', 'notes', 'old_value', 'new_value']
+    date_hierarchy = 'operated_at'
+    readonly_fields = [
+        'id', 'operation_type', 'school', 'brand', 'schedule', 'lesson_calendar',
+        'operation_date', 'operated_at', 'operated_by', 'old_value', 'new_value',
+        'reason', 'notes', 'metadata', 'tenant_id'
+    ]
+    ordering = ['-operated_at']
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
