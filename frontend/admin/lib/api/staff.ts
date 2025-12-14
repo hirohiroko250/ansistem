@@ -26,6 +26,7 @@ import type {
 // Re-export types for backward compatibility
 export type {
   Brand,
+  School,
   School as Campus,
   Student,
   Guardian as Parent,
@@ -359,7 +360,7 @@ export async function getAllStudentItems(filters?: StudentItemFilters): Promise<
   try {
     console.log("[getAllStudentItems] Starting API call with filters:", filters);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const params: Record<string, unknown> = {
+    const params: Record<string, string | number | undefined> = {
       limit: 200,
     };
     if (filters?.student_id) params.student_id = filters.student_id;
@@ -370,7 +371,8 @@ export async function getAllStudentItems(filters?: StudentItemFilters): Promise<
     if (filters?.year && filters.year !== "all") params.year = filters.year;
     if (filters?.month && filters.month !== "all") params.month = filters.month;
 
-    const response = await apiClient.get<any>("/contracts/student-items/", params);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const response = await apiClient.get<any>("/contracts/student-items/", params as any);
     console.log("[getAllStudentItems] response:", response);
     const data = response.data || response.results || [];
     console.log("[getAllStudentItems] returning", data.length, "items");
@@ -424,7 +426,7 @@ export async function getAllStudentDiscounts(filters?: StudentDiscountFilters): 
   try {
     console.log("[getAllStudentDiscounts] Starting API call with filters:", filters);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const params: Record<string, unknown> = {
+    const params: Record<string, string | number | boolean | undefined> = {
       limit: 200,
     };
     if (filters?.student_id) params.student_id = filters.student_id;
@@ -490,7 +492,7 @@ export async function searchParents(
   search?: string
 ): Promise<{ results: Guardian[]; count: number }> {
   try {
-    const params: Record<string, unknown> = {
+    const params: Record<string, string | number | boolean | undefined> = {
       page_size: 100,
     };
     if (search) {
@@ -532,7 +534,7 @@ export async function getContracts(filters?: ContractFilters): Promise<Contract[
   try {
     console.log("[getContracts] Starting API call with filters:", filters);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const params: Record<string, unknown> = {
+    const params: Record<string, string | number | boolean | undefined> = {
       limit: 200,
     };
     // 年月フィルタ
@@ -1400,7 +1402,7 @@ export interface DirectDebitResult {
  */
 export async function getInvoices(filters?: InvoiceFilters): Promise<PaginatedResult<Invoice>> {
   try {
-    const params: Record<string, unknown> = {
+    const params: Record<string, string | number | boolean | undefined> = {
       page: filters?.page || 1,
       page_size: filters?.page_size || 50,
     };

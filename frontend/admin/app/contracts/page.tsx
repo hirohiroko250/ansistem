@@ -611,14 +611,14 @@ export default function ContractsPage() {
                             };
                             // camelCase/snake_case両対応
                             const studentId = typeof contract.student === 'string' ? contract.student : contract.student?.id;
-                            const studentName = (contract as any).studentName || contract.student_name || getStudentName(contract.student);
-                            const brandName = (contract as any).brandName || contract.brand_name || contract.brand?.brand_name || "-";
-                            const schoolName = (contract as any).schoolName || contract.school_name || contract.school?.school_name || "-";
-                            const contractNo = (contract as any).contractNo || contract.contract_no || "-";
-                            const startDate = (contract as any).startDate || contract.start_date;
-                            const endDate = (contract as any).endDate || contract.end_date;
-                            const updatedAt = (contract as any).updatedAt || contract.updated_at;
-                            const createdAt = (contract as any).createdAt || contract.created_at;
+                            const studentName = (contract as any).studentName || (contract as any).student_name || getStudentName(contract.student);
+                            const brandName = (contract as any).brandName || (contract as any).brand_name || contract.brand?.brand_name || "-";
+                            const schoolName = (contract as any).schoolName || (contract as any).school_name || contract.school?.school_name || "-";
+                            const contractNo = (contract as any).contractNo || (contract as any).contract_no || "-";
+                            const startDate = (contract as any).startDate || (contract as any).start_date;
+                            const endDate = (contract as any).endDate || (contract as any).end_date;
+                            const updatedAt = (contract as any).updatedAt || (contract as any).updated_at;
+                            const createdAt = (contract as any).createdAt || (contract as any).created_at;
 
                             return (
                               <TableRow key={contract.id} className="cursor-pointer hover:bg-gray-50">

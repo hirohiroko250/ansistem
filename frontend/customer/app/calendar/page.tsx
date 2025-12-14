@@ -556,7 +556,7 @@ export default function CalendarPage() {
                   const brandColor = getBrandColor(primaryEvent?.brandName);
 
                   // 複数ブランドがある場合はマルチカラー表示
-                  const uniqueBrands = [...new Set(dayEvents.map(e => e.brandName).filter(Boolean))];
+                  const uniqueBrands = Array.from(new Set(dayEvents.map(e => e.brandName).filter(Boolean)));
                   const hasMultipleBrands = uniqueBrands.length > 1;
 
                   return (

@@ -4,6 +4,7 @@
 
 ## 技術スタック
 
+### Backend
 - **Framework**: Django 4.2 + Django REST Framework
 - **Database**: PostgreSQL 15
 - **Cache**: Redis 7
@@ -11,25 +12,49 @@
 - **Authentication**: JWT (SimpleJWT)
 - **API Documentation**: drf-spectacular (OpenAPI 3.0)
 
-## ディレクトリ構成
+### Frontend
+- **Framework**: Next.js 14 (App Router)
+- **Language**: TypeScript
+- **Styling**: Tailwind CSS
+- **UI Components**: shadcn/ui
+- **Mobile**: Capacitor (iOS/Android)
+
+---
+
+## プロジェクト全体構成
+
+```
+アンシステム/
+├── backend/                   # Django REST API
+├── frontend/
+│   ├── customer/              # 保護者・生徒向けアプリ
+│   ├── admin/                 # 管理者向けアプリ
+│   └── syain/                 # 社員・講師向けアプリ
+├── docker-compose.yml         # 全体のDocker Compose
+└── .env                       # 環境変数
+```
+
+---
+
+## Backend ディレクトリ構成
 
 ```
 backend/
 ├── api/
 │   └── v1/                    # API v1 ルーティング
 ├── apps/
-│   ├── core/                  # 共通機能（TenantModel, CSV Import等）
+│   ├── [app_name]/            # 各機能アプリケーション (例: students, schools)
+│   │   ├── models.py          # データベースモデル定義
+│   │   ├── serializers.py     # APIデータの変換・バリデーション
+│   │   ├── views.py           # リクエスト処理ロジック (ViewSets)
+│   │   ├── urls.py            # アプリ内のルーティング
+│   │   ├── admin.py           # Django管理画面の設定
+│   │   ├── services/          # ビジネスロジック・複雑な処理
+│   │   └── tasks.py           # Celeryタスク (非同期処理)
+│   ├── core/                  # 共通機能
 │   ├── tenants/               # テナント管理
-│   ├── authentication/        # 認証（JWT）
-│   ├── users/                 # ユーザー管理
-│   ├── schools/               # 校舎・ブランド・学年・教科
-│   ├── students/              # 生徒・保護者
-│   ├── contracts/             # 契約・商品・コース・パック
-│   ├── lessons/               # 授業・スケジュール
-│   ├── hr/                    # 人事・勤怠・給与
-│   ├── communications/        # チャット・対応履歴・通知
-│   ├── pricing/               # 料金計算エンジン
-│   └── tasks/                 # 作業一覧
+│   ├── authentication/        # 認証
+│   └── ... (contracts, lessons, etc.)
 ├── config/
 │   ├── settings/
 │   │   ├── base.py           # 共通設定
@@ -41,11 +66,68 @@ backend/
 │   ├── base.txt
 │   ├── development.txt
 │   └── production.txt
+├── scripts/                   # データインポート/管理スクリプト
+├── templates/                 # メールテンプレート等
+├── tests/                     # テストコード
 ├── docker-compose.yml         # 本番用
-├── docker-compose.dev.yml     # 開発用
-├── Dockerfile
-├── Makefile
-└── manage.py
+└── ...
+```
+
+---
+
+## Frontend ディレクトリ構成
+
+### customer/ - 保護者・生徒向けアプリ
+
+```
+frontend/customer/
+├── app/                       # Next.js App Router
+│   ├── [feature]/             # 各機能ページ (calendar, chat, etc.)
+│   │   ├── page.tsx           # ページコンポーネント
+│   │   └── layout.tsx         # レイアウト
+│   ├── login/                 # ログイン関連
+│   └── ...
+├── components/                # コンポーネント
+│   ├── ui/                    # 汎用UIコンポーネント (shadcn/ui - Button, Input, etc.)
+│   ├── [feature]/             # 機能特有のコンポーネント
+│   │   ├── calendar-agent.tsx
+│   │   └── ...
+│   └── ...
+├── lib/                       # ユーティリティ・ライブラリ
+│   ├── api/                   # APIクライアント・定義
+│   ├── utils.ts               # 共通ユーティリティ関数
+│   └── ...
+├── hooks/                     # カスタムフック
+├── ios/                       # Capacitor iOS プロジェクト
+├── android/                   # Capacitor Android プロジェクト
+└── public/                    # 静的ファイル (画像など)
+```
+
+### admin/ - 管理者向けアプリ
+
+```
+frontend/admin/
+├── app/                       # Next.js App Router
+│   ├── dashboard/             # ダッシュボード
+│   ├── students/              # 生徒管理機能
+│   └── ...
+├── components/
+│   ├── ui/                    # 共通UIパーツ
+│   └── ...
+└── lib/
+```
+
+### syain/ - 社員・講師向けアプリ
+
+```
+frontend/syain/
+├── app/                       # Next.js App Router
+│   ├── home/                  # ホーム画面
+│   ├── attendance/            # 出勤管理
+│   └── ...
+├── components/
+├── lib/
+└── supabase/                  # Supabase設定 (一部機能で使用)
 ```
 
 ## モデル構成

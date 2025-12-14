@@ -287,25 +287,26 @@ export function StudentDetail({ student, parents, contracts, invoices, contactLo
     });
   }, [invoices, invoiceYear, invoiceMonth]);
 
-  // フィールド名の両対応
-  const lastName = student.lastName || student.last_name || "";
-  const firstName = student.firstName || student.first_name || "";
-  const lastNameKana = student.lastNameKana || student.last_name_kana || "";
-  const firstNameKana = student.firstNameKana || student.first_name_kana || "";
-  const studentNo = student.studentNo || student.student_no || "";
-  const gradeText = student.gradeText || student.grade_text || student.gradeName || "";
-  const schoolName = student.schoolName || student.school_name || "";
-  const primarySchoolName = student.primarySchoolName || student.primary_school_name || "";
-  const primaryBrandName = student.primaryBrandName || student.primary_brand_name || "";
-  const brandNames = student.brandNames || student.brand_names || [];
-  const email = student.email || "";
-  const phone = student.phone || "";
-  const gender = student.gender || "";
+  // フィールド名の両対応 (eslint-disable-next-line @typescript-eslint/no-explicit-any)
+  const s = student as any;
+  const lastName = s.lastName || s.last_name || "";
+  const firstName = s.firstName || s.first_name || "";
+  const lastNameKana = s.lastNameKana || s.last_name_kana || "";
+  const firstNameKana = s.firstNameKana || s.first_name_kana || "";
+  const studentNo = s.studentNo || s.student_no || "";
+  const gradeText = s.gradeText || s.grade_text || s.gradeName || "";
+  const schoolName = s.schoolName || s.school_name || "";
+  const primarySchoolName = s.primarySchoolName || s.primary_school_name || "";
+  const primaryBrandName = s.primaryBrandName || s.primary_brand_name || "";
+  const brandNames = s.brandNames || s.brand_names || [];
+  const email = s.email || "";
+  const phone = s.phone || "";
+  const gender = s.gender || "";
   // 日付情報
-  const birthDate = student.birthDate || student.birth_date || "";
-  const enrollmentDate = student.enrollmentDate || student.enrollment_date || "";
-  const registeredDate = student.registeredDate || student.registered_date || "";
-  const trialDate = student.trialDate || student.trial_date || "";
+  const birthDate = s.birthDate || s.birth_date || "";
+  const enrollmentDate = s.enrollmentDate || s.enrollment_date || "";
+  const registeredDate = s.registeredDate || s.registered_date || "";
+  const trialDate = s.trialDate || s.trial_date || "";
 
   // 日付フォーマット
   const formatDate = (dateStr: string | null | undefined) => {
@@ -447,8 +448,8 @@ export function StudentDetail({ student, parents, contracts, invoices, contactLo
                     <td className="px-3 py-2">
                       {contracts.length > 0 ? (
                         <div className="flex flex-wrap gap-1">
-                          {[...new Set(contracts.map(c => c.brand_name || c.brandName).filter(Boolean))].map((brandName, i) => (
-                            <Badge key={i} variant="outline" className="text-xs">{brandName}</Badge>
+                          {Array.from(new Set(contracts.map(c => (c as any).brand_name || (c as any).brandName).filter(Boolean))).map((brandName, i) => (
+                            <Badge key={i} variant="outline" className="text-xs">{brandName as string}</Badge>
                           ))}
                         </div>
                       ) : "-"}
@@ -554,18 +555,18 @@ export function StudentDetail({ student, parents, contracts, invoices, contactLo
             )}
 
             {/* 特記事項 */}
-            {(student.notes || student.tags) && (
+            {(s.notes || s.tags) && (
               <div>
                 <h3 className="text-sm font-semibold text-gray-700 mb-2">特記事項</h3>
                 <div className="border rounded p-3 bg-yellow-50 text-sm">
-                  {student.tags && Array.isArray(student.tags) && student.tags.length > 0 && (
+                  {s.tags && Array.isArray(s.tags) && s.tags.length > 0 && (
                     <div className="flex flex-wrap gap-1 mb-2">
-                      {student.tags.map((tag: string, i: number) => (
+                      {s.tags.map((tag: string, i: number) => (
                         <Badge key={i} className="bg-yellow-200 text-yellow-800 text-xs">{tag}</Badge>
                       ))}
                     </div>
                   )}
-                  <p className="whitespace-pre-wrap text-gray-700">{student.notes || "特記事項なし"}</p>
+                  <p className="whitespace-pre-wrap text-gray-700">{s.notes || "特記事項なし"}</p>
                 </div>
               </div>
             )}
@@ -715,9 +716,9 @@ export function StudentDetail({ student, parents, contracts, invoices, contactLo
                   const discountTotal = contract.discount_total || contract.discountTotal || 0;
 
                   // 請求月を取得（StudentItemから）
-                  const billingMonths = [...new Set(studentItems.map((item: { billing_month?: string; billingMonth?: string }) =>
+                  const billingMonths = Array.from(new Set(studentItems.map((item: { billing_month?: string; billingMonth?: string }) =>
                     item.billing_month || item.billingMonth
-                  ).filter(Boolean))];
+                  ).filter(Boolean)));
                   const billingMonthLabel = billingMonths.length > 0 ? billingMonths.join(", ") : "";
 
                   // 曜日表示
