@@ -11,7 +11,7 @@ from django.utils import timezone
 
 from apps.core.permissions import IsTenantUser, IsTenantAdmin
 from apps.core.csv_utils import CSVExporter, CSVImporter, CSVMixin
-from .models import Student, Guardian, StudentSchool, StudentGuardian
+from .models import Student, Guardian, StudentSchool, StudentGuardian, SuspensionRequest, WithdrawalRequest, BankAccount, BankAccountChangeRequest
 from .serializers import (
     StudentListSerializer, StudentDetailSerializer,
     StudentCreateSerializer, StudentUpdateSerializer,
@@ -19,6 +19,9 @@ from .serializers import (
     GuardianPaymentSerializer, GuardianPaymentUpdateSerializer,
     StudentSchoolSerializer, StudentGuardianSerializer,
     StudentWithGuardiansSerializer,
+    SuspensionRequestSerializer, SuspensionRequestCreateSerializer,
+    WithdrawalRequestSerializer, WithdrawalRequestCreateSerializer,
+    BankAccountSerializer, BankAccountChangeRequestSerializer, BankAccountChangeRequestCreateSerializer,
 )
 
 
@@ -81,14 +84,20 @@ class StudentViewSet(CSVMixin, viewsets.ModelViewSet):
     csv_unique_fields = ['student_no']
 
     def get_queryset(self):
+        from apps.core.permissions import is_admin_user
+
         # request.tenant_id または request.user.tenant_id からテナントIDを取得
         tenant_id = getattr(self.request, 'tenant_id', None)
         if tenant_id is None and hasattr(self.request, 'user') and hasattr(self.request.user, 'tenant_id'):
             tenant_id = self.request.user.tenant_id
+
         queryset = Student.objects.filter(
-            tenant_id=tenant_id,
             deleted_at__isnull=True
         ).select_related('grade', 'primary_school', 'primary_brand', 'guardian')
+
+        # 管理者以外はテナントでフィルタ
+        if not is_admin_user(self.request.user):
+            queryset = queryset.filter(tenant_id=tenant_id)
 
         # ログインユーザーが保護者の場合、その保護者に紐づく子供だけを返す
         if hasattr(self.request.user, 'guardian_profile') and self.request.user.guardian_profile:
@@ -100,17 +109,36 @@ class StudentViewSet(CSVMixin, viewsets.ModelViewSet):
         if status_filter:
             queryset = queryset.filter(status=status_filter)
 
-        school_id = self.request.query_params.get('school_id')
+        school_id = self.request.query_params.get('school_id') or self.request.query_params.get('primary_school_id')
         if school_id:
-            queryset = queryset.filter(primary_school_id=school_id)
+            # primary_schoolまたはStudentSchoolで紐づいている生徒を取得
+            queryset = queryset.filter(
+                Q(primary_school_id=school_id) |
+                Q(school_enrollments__school_id=school_id, school_enrollments__enrollment_status='active', school_enrollments__deleted_at__isnull=True)
+            ).distinct()
 
         brand_id = self.request.query_params.get('brand_id')
         if brand_id:
-            queryset = queryset.filter(primary_brand_id=brand_id)
+            # primary_brandまたはStudentSchool、またはbrandsで紐づいている生徒を取得
+            queryset = queryset.filter(
+                Q(primary_brand_id=brand_id) |
+                Q(brands__id=brand_id) |
+                Q(school_enrollments__brand_id=brand_id, school_enrollments__enrollment_status='active', school_enrollments__deleted_at__isnull=True)
+            ).distinct()
+
+        # ブランドカテゴリ（会社）でフィルタ
+        brand_category_id = self.request.query_params.get('brand_category_id')
+        if brand_category_id:
+            queryset = queryset.filter(primary_brand__brand_category_id=brand_category_id)
 
         grade_id = self.request.query_params.get('grade_id')
         if grade_id:
             queryset = queryset.filter(grade_id=grade_id)
+
+        # 保護者IDでフィルタ（兄弟検索用）
+        guardian_id = self.request.query_params.get('guardian_id')
+        if guardian_id:
+            queryset = queryset.filter(guardian_id=guardian_id)
 
         # 検索
         search = self.request.query_params.get('search')
@@ -121,7 +149,11 @@ class StudentViewSet(CSVMixin, viewsets.ModelViewSet):
                 Q(first_name__icontains=search) |
                 Q(last_name_kana__icontains=search) |
                 Q(first_name_kana__icontains=search) |
-                Q(email__icontains=search)
+                Q(email__icontains=search) |
+                Q(phone__icontains=search) |
+                Q(phone2__icontains=search) |
+                Q(guardian__phone__icontains=search) |
+                Q(guardian__phone_mobile__icontains=search)
             )
 
         return queryset
@@ -560,11 +592,18 @@ class GuardianViewSet(CSVMixin, viewsets.ModelViewSet):
     csv_unique_fields = ['guardian_no']
 
     def get_queryset(self):
+        # request.tenant_id または request.user.tenant_id からテナントIDを取得
         tenant_id = getattr(self.request, 'tenant_id', None)
+        if tenant_id is None and hasattr(self.request, 'user') and hasattr(self.request.user, 'tenant_id'):
+            tenant_id = self.request.user.tenant_id
+
         queryset = Guardian.objects.filter(
-            tenant_id=tenant_id,
             deleted_at__isnull=True
         )
+
+        # tenant_idがある場合のみフィルタ
+        if tenant_id:
+            queryset = queryset.filter(tenant_id=tenant_id)
 
         if self.action == 'list':
             queryset = queryset.annotate(
@@ -574,13 +613,39 @@ class GuardianViewSet(CSVMixin, viewsets.ModelViewSet):
         # 検索
         search = self.request.query_params.get('search')
         if search:
-            queryset = queryset.filter(
-                Q(guardian_no__icontains=search) |
-                Q(last_name__icontains=search) |
-                Q(first_name__icontains=search) |
-                Q(email__icontains=search) |
-                Q(phone__icontains=search)
-            )
+            # スペースで区切られた検索ワードを分割
+            search_terms = search.replace('　', ' ').split()
+
+            if len(search_terms) >= 2:
+                # 2つ以上のワードがある場合：姓名検索
+                q = Q()
+                for term in search_terms:
+                    q &= (
+                        Q(last_name__icontains=term) |
+                        Q(first_name__icontains=term) |
+                        Q(last_name_kana__icontains=term) |
+                        Q(first_name_kana__icontains=term)
+                    )
+                queryset = queryset.filter(q)
+            else:
+                # 1つのワード：姓または名、または姓名結合に部分一致
+                from django.db.models.functions import Concat
+                from django.db.models import Value
+                queryset = queryset.annotate(
+                    full_name=Concat('last_name', 'first_name'),
+                    full_name_kana=Concat('last_name_kana', 'first_name_kana'),
+                ).filter(
+                    Q(guardian_no__icontains=search) |
+                    Q(last_name__icontains=search) |
+                    Q(first_name__icontains=search) |
+                    Q(last_name_kana__icontains=search) |
+                    Q(first_name_kana__icontains=search) |
+                    Q(full_name__icontains=search) |
+                    Q(full_name_kana__icontains=search) |
+                    Q(email__icontains=search) |
+                    Q(phone__icontains=search) |
+                    Q(phone_mobile__icontains=search)
+                )
 
         return queryset
 
@@ -812,7 +877,8 @@ class StudentSchoolViewSet(CSVMixin, viewsets.ModelViewSet):
     csv_filename_prefix = 'student_schools'
     csv_export_fields = [
         'student.student_no', 'school.school_code', 'brand.brand_code',
-        'enrollment_status', 'start_date', 'end_date', 'is_primary', 'notes', 'tenant_id'
+        'enrollment_status', 'start_date', 'end_date', 'is_primary',
+        'day_of_week', 'start_time', 'end_time', 'notes', 'tenant_id'
     ]
     csv_export_headers = {
         'student.student_no': '生徒番号',
@@ -822,6 +888,9 @@ class StudentSchoolViewSet(CSVMixin, viewsets.ModelViewSet):
         'start_date': '開始日',
         'end_date': '終了日',
         'is_primary': '主所属',
+        'day_of_week': '曜日',
+        'start_time': '開始時間',
+        'end_time': '終了時間',
         'notes': '備考',
         'tenant_id': 'テナントID',
     }
@@ -831,7 +900,7 @@ class StudentSchoolViewSet(CSVMixin, viewsets.ModelViewSet):
         return StudentSchool.objects.filter(
             tenant_id=tenant_id,
             deleted_at__isnull=True
-        ).select_related('student', 'school', 'brand')
+        ).select_related('student', 'school', 'brand', 'class_schedule')
 
     def perform_create(self, serializer):
         serializer.save(tenant_id=self.request.tenant_id)
@@ -845,3 +914,313 @@ class StudentSchoolViewSet(CSVMixin, viewsets.ModelViewSet):
     def template(self, request):
         """CSVテンプレートダウンロード"""
         return self.get_csv_template(request)
+
+
+# =====================================
+# 休会・退会申請用ViewSet
+# =====================================
+
+class SuspensionRequestViewSet(viewsets.ModelViewSet):
+    """休会申請ビューセット"""
+    permission_classes = [IsAuthenticated, IsTenantUser]
+
+    def get_queryset(self):
+        tenant_id = getattr(self.request, 'tenant_id', None)
+        if tenant_id is None and hasattr(self.request, 'user') and hasattr(self.request.user, 'tenant_id'):
+            tenant_id = self.request.user.tenant_id
+
+        queryset = SuspensionRequest.objects.filter(
+            tenant_id=tenant_id,
+            deleted_at__isnull=True
+        ).select_related('student', 'brand', 'school', 'requested_by', 'processed_by')
+
+        # 保護者の場合は自分の子供の申請のみ
+        if hasattr(self.request.user, 'guardian_profile') and self.request.user.guardian_profile:
+            guardian = self.request.user.guardian_profile
+            queryset = queryset.filter(student__guardian=guardian)
+
+        # フィルタリング
+        student_id = self.request.query_params.get('student_id')
+        if student_id:
+            queryset = queryset.filter(student_id=student_id)
+
+        status_filter = self.request.query_params.get('status')
+        if status_filter:
+            queryset = queryset.filter(status=status_filter)
+
+        return queryset.order_by('-requested_at')
+
+    def get_serializer_class(self):
+        if self.action == 'create':
+            return SuspensionRequestCreateSerializer
+        return SuspensionRequestSerializer
+
+    def perform_create(self, serializer):
+        tenant_id = getattr(self.request, 'tenant_id', None)
+        if not tenant_id and hasattr(self.request.user, 'guardian_profile') and self.request.user.guardian_profile:
+            tenant_id = self.request.user.guardian_profile.tenant_id
+
+        # 生徒情報から自動的にブランド・校舎を設定
+        student = serializer.validated_data.get('student')
+        brand = serializer.validated_data.get('brand') or student.primary_brand
+        school = serializer.validated_data.get('school') or student.primary_school
+
+        instance = serializer.save(
+            tenant_id=tenant_id,
+            brand=brand,
+            school=school,
+            requested_by=self.request.user,
+            status='pending'
+        )
+
+        # 作業一覧にタスクを作成
+        from apps.tasks.models import Task
+        Task.objects.create(
+            tenant_id=tenant_id,
+            task_type='suspension_request',
+            title=f'休会申請: {instance.student.full_name}',
+            description=f'{instance.student.full_name}さんの休会申請が提出されました。休会開始日: {instance.suspend_from}',
+            status='new',
+            priority='normal',
+            student=instance.student,
+            source_type='suspension_request',
+            source_id=instance.id,
+        )
+
+    @action(detail=True, methods=['post'])
+    def cancel(self, request, pk=None):
+        """申請キャンセル"""
+        instance = self.get_object()
+        if instance.status != 'pending':
+            return Response(
+                {'error': '申請中のもののみキャンセルできます'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        instance.status = 'cancelled'
+        instance.save()
+        return Response(SuspensionRequestSerializer(instance).data)
+
+
+class WithdrawalRequestViewSet(viewsets.ModelViewSet):
+    """退会申請ビューセット"""
+    permission_classes = [IsAuthenticated, IsTenantUser]
+
+    def get_queryset(self):
+        tenant_id = getattr(self.request, 'tenant_id', None)
+        if tenant_id is None and hasattr(self.request, 'user') and hasattr(self.request.user, 'tenant_id'):
+            tenant_id = self.request.user.tenant_id
+
+        queryset = WithdrawalRequest.objects.filter(
+            tenant_id=tenant_id,
+            deleted_at__isnull=True
+        ).select_related('student', 'brand', 'school', 'requested_by', 'processed_by')
+
+        # 保護者の場合は自分の子供の申請のみ
+        if hasattr(self.request.user, 'guardian_profile') and self.request.user.guardian_profile:
+            guardian = self.request.user.guardian_profile
+            queryset = queryset.filter(student__guardian=guardian)
+
+        # フィルタリング
+        student_id = self.request.query_params.get('student_id')
+        if student_id:
+            queryset = queryset.filter(student_id=student_id)
+
+        status_filter = self.request.query_params.get('status')
+        if status_filter:
+            queryset = queryset.filter(status=status_filter)
+
+        return queryset.order_by('-requested_at')
+
+    def get_serializer_class(self):
+        if self.action == 'create':
+            return WithdrawalRequestCreateSerializer
+        return WithdrawalRequestSerializer
+
+    def perform_create(self, serializer):
+        tenant_id = getattr(self.request, 'tenant_id', None)
+        if not tenant_id and hasattr(self.request.user, 'guardian_profile') and self.request.user.guardian_profile:
+            tenant_id = self.request.user.guardian_profile.tenant_id
+
+        # 生徒情報から自動的にブランド・校舎を設定
+        student = serializer.validated_data.get('student')
+        brand = serializer.validated_data.get('brand') or student.primary_brand
+        school = serializer.validated_data.get('school') or student.primary_school
+
+        # 残チケット数を計算
+        from apps.contracts.models import StudentItem
+        remaining_tickets = StudentItem.objects.filter(
+            student=student,
+            deleted_at__isnull=True,
+            product__item_type='ticket'
+        ).aggregate(total=Count('id'))['total'] or 0
+
+        instance = serializer.save(
+            tenant_id=tenant_id,
+            brand=brand,
+            school=school,
+            requested_by=self.request.user,
+            status='pending',
+            remaining_tickets=remaining_tickets
+        )
+
+        # 作業一覧にタスクを作成
+        from apps.tasks.models import Task
+        Task.objects.create(
+            tenant_id=tenant_id,
+            task_type='withdrawal_request',
+            title=f'退会申請: {instance.student.full_name}',
+            description=f'{instance.student.full_name}さんの退会申請が提出されました。退会希望日: {instance.withdrawal_date}',
+            status='new',
+            priority='high',
+            student=instance.student,
+            source_type='withdrawal_request',
+            source_id=instance.id,
+        )
+
+    @action(detail=True, methods=['post'])
+    def cancel(self, request, pk=None):
+        """申請キャンセル"""
+        instance = self.get_object()
+        if instance.status != 'pending':
+            return Response(
+                {'error': '申請中のもののみキャンセルできます'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        instance.status = 'cancelled'
+        instance.save()
+        return Response(WithdrawalRequestSerializer(instance).data)
+
+
+# =====================================
+# 銀行口座管理用ViewSet
+# =====================================
+
+class BankAccountViewSet(viewsets.ReadOnlyModelViewSet):
+    """銀行口座ビューセット（読み取り専用）"""
+    permission_classes = [IsAuthenticated, IsTenantUser]
+    serializer_class = BankAccountSerializer
+
+    def get_queryset(self):
+        tenant_id = getattr(self.request, 'tenant_id', None)
+        if tenant_id is None and hasattr(self.request, 'user') and hasattr(self.request.user, 'tenant_id'):
+            tenant_id = self.request.user.tenant_id
+
+        queryset = BankAccount.objects.filter(
+            tenant_id=tenant_id,
+            is_active=True
+        ).select_related('guardian')
+
+        # 保護者の場合は自分の口座のみ
+        if hasattr(self.request.user, 'guardian_profile') and self.request.user.guardian_profile:
+            guardian = self.request.user.guardian_profile
+            queryset = queryset.filter(guardian=guardian)
+
+        return queryset.order_by('-is_primary', '-created_at')
+
+    @action(detail=False, methods=['get'])
+    def my_accounts(self, request):
+        """ログイン中の保護者の銀行口座一覧"""
+        if not hasattr(request.user, 'guardian_profile') or not request.user.guardian_profile:
+            return Response(
+                {'error': '保護者プロファイルが見つかりません'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        guardian = request.user.guardian_profile
+        accounts = BankAccount.objects.filter(
+            guardian=guardian,
+            is_active=True
+        ).order_by('-is_primary', '-created_at')
+        serializer = BankAccountSerializer(accounts, many=True)
+        return Response(serializer.data)
+
+
+class BankAccountChangeRequestViewSet(viewsets.ModelViewSet):
+    """銀行口座変更申請ビューセット"""
+    permission_classes = [IsAuthenticated, IsTenantUser]
+
+    def get_queryset(self):
+        tenant_id = getattr(self.request, 'tenant_id', None)
+        if tenant_id is None and hasattr(self.request, 'user') and hasattr(self.request.user, 'tenant_id'):
+            tenant_id = self.request.user.tenant_id
+
+        queryset = BankAccountChangeRequest.objects.filter(
+            tenant_id=tenant_id
+        ).select_related('guardian', 'existing_account', 'requested_by', 'processed_by')
+
+        # 保護者の場合は自分の申請のみ
+        if hasattr(self.request.user, 'guardian_profile') and self.request.user.guardian_profile:
+            guardian = self.request.user.guardian_profile
+            queryset = queryset.filter(guardian=guardian)
+
+        # フィルタリング
+        status_filter = self.request.query_params.get('status')
+        if status_filter:
+            queryset = queryset.filter(status=status_filter)
+
+        return queryset.order_by('-requested_at')
+
+    def get_serializer_class(self):
+        if self.action == 'create':
+            return BankAccountChangeRequestCreateSerializer
+        return BankAccountChangeRequestSerializer
+
+    def perform_create(self, serializer):
+        tenant_id = getattr(self.request, 'tenant_id', None)
+        guardian = None
+
+        if hasattr(self.request.user, 'guardian_profile') and self.request.user.guardian_profile:
+            guardian = self.request.user.guardian_profile
+            if not tenant_id:
+                tenant_id = guardian.tenant_id
+
+        instance = serializer.save(
+            tenant_id=tenant_id,
+            guardian=guardian,
+            requested_by=self.request.user,
+            status='pending'
+        )
+
+        # 作業一覧にタスクを作成
+        from apps.tasks.models import Task
+        request_type_display = dict(BankAccountChangeRequest.RequestType.choices).get(
+            instance.request_type, instance.request_type
+        )
+        Task.objects.create(
+            tenant_id=tenant_id,
+            task_type='bank_account_request',
+            title=f'銀行口座{request_type_display}: {guardian.full_name if guardian else "不明"}',
+            description=f'{guardian.full_name if guardian else "不明"}さんから銀行口座の{request_type_display}申請が提出されました。',
+            status='new',
+            priority='normal',
+            guardian=guardian,
+            source_type='bank_account_request',
+            source_id=instance.id,
+        )
+
+    @action(detail=False, methods=['get'])
+    def my_requests(self, request):
+        """ログイン中の保護者の申請一覧"""
+        if not hasattr(request.user, 'guardian_profile') or not request.user.guardian_profile:
+            return Response(
+                {'error': '保護者プロファイルが見つかりません'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        guardian = request.user.guardian_profile
+        requests = BankAccountChangeRequest.objects.filter(
+            guardian=guardian
+        ).order_by('-requested_at')
+        serializer = BankAccountChangeRequestSerializer(requests, many=True)
+        return Response(serializer.data)
+
+    @action(detail=True, methods=['post'])
+    def cancel(self, request, pk=None):
+        """申請キャンセル"""
+        instance = self.get_object()
+        if instance.status != 'pending':
+            return Response(
+                {'error': '申請中のもののみキャンセルできます'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        instance.status = 'cancelled'
+        instance.save()
+        return Response(BankAccountChangeRequestSerializer(instance).data)

@@ -338,7 +338,8 @@ class StudentCalendarView(APIView):
         tenant_id = getattr(request, 'tenant_id', None)
         if tenant_id is None and hasattr(request, 'user') and hasattr(request.user, 'tenant_id'):
             tenant_id = request.user.tenant_id
-        student_id = request.query_params.get('student_id')
+        # student_id または student パラメータを受け付ける
+        student_id = request.query_params.get('student_id') or request.query_params.get('student')
         date_from = request.query_params.get('date_from')
         date_to = request.query_params.get('date_to')
         year = request.query_params.get('year')
@@ -371,20 +372,36 @@ class StudentCalendarView(APIView):
             date_to = today.replace(day=last_day)
 
         # 生徒の受講クラス（ClassSchedule）を取得
-        # StudentItemからブランド・校舎情報を取得
+        # StudentItemから直接class_scheduleを参照する
         student_items = StudentItem.objects.filter(
             student=student,
             deleted_at__isnull=True
-        ).select_related('brand', 'school')
+        ).select_related('brand', 'school', 'course', 'class_schedule')
 
-        # 受講中のブランド・校舎を特定
+        # StudentItemから受講ClassScheduleのIDを収集
+        # class_scheduleがあればそれを直接使用、なければ曜日+時間+ブランド+校舎でマッチング
+        direct_schedule_ids = set()  # class_schedule FKで直接紐付けられたもの
+        fallback_schedules = []  # class_scheduleがない場合のフォールバック用
         brand_ids = set()
         school_ids = set()
+
         for item in student_items:
             if item.brand_id:
                 brand_ids.add(item.brand_id)
             if item.school_id:
                 school_ids.add(item.school_id)
+
+            # class_scheduleが設定されている場合は直接使用
+            if item.class_schedule_id:
+                direct_schedule_ids.add(item.class_schedule_id)
+            # class_scheduleがない場合は曜日+時間でフォールバックマッチング
+            elif item.day_of_week is not None and item.start_time:
+                fallback_schedules.append({
+                    'day_of_week': item.day_of_week,
+                    'start_time': item.start_time,
+                    'brand_id': str(item.brand_id) if item.brand_id else None,
+                    'school_id': str(item.school_id) if item.school_id else None,
+                })
 
         # 生徒の主校舎・主ブランドも追加
         if student.primary_school_id:
@@ -392,23 +409,53 @@ class StudentCalendarView(APIView):
         if student.primary_brand_id:
             brand_ids.add(student.primary_brand_id)
 
-        # ClassScheduleを取得（曜日ベース）
-        class_schedules = ClassSchedule.objects.filter(
-            tenant_id=tenant_id,
+        # 直接紐付けられたClassScheduleを取得
+        class_schedules = list(ClassSchedule.objects.filter(
+            id__in=direct_schedule_ids,
             is_active=True,
             deleted_at__isnull=True
-        )
+        ).select_related('school', 'brand', 'brand_category'))
 
-        if school_ids:
-            class_schedules = class_schedules.filter(school_id__in=school_ids)
-        if brand_ids:
-            class_schedules = class_schedules.filter(brand_id__in=brand_ids)
+        # フォールバック: class_scheduleがないStudentItemの場合は曜日+時間+ブランド+校舎でマッチング
+        if fallback_schedules:
+            all_class_schedules = ClassSchedule.objects.filter(
+                is_active=True,
+                deleted_at__isnull=True
+            )
+            if school_ids:
+                all_class_schedules = all_class_schedules.filter(school_id__in=school_ids)
+            if brand_ids:
+                all_class_schedules = all_class_schedules.filter(brand_id__in=brand_ids)
+            all_class_schedules = all_class_schedules.select_related('school', 'brand', 'brand_category')
 
-        class_schedules = class_schedules.select_related('school', 'brand', 'brand_category')
+            # フォールバックマッチング（既に直接紐付けされたものは除外）
+            # 時間差を分単位で計算するヘルパー関数
+            def time_diff_minutes(t1, t2):
+                """2つの時間の差を分単位で返す"""
+                if not t1 or not t2:
+                    return float('inf')
+                return abs((t1.hour * 60 + t1.minute) - (t2.hour * 60 + t2.minute))
+
+            for cs in all_class_schedules:
+                if cs.id in direct_schedule_ids:
+                    continue  # 既に追加済み
+                for enrolled in fallback_schedules:
+                    # 曜日が一致
+                    dow_match = (enrolled['day_of_week'] == cs.day_of_week)
+                    # 開始時間が近い（±30分以内でマッチ）
+                    si_start_time = enrolled['start_time']
+                    time_match = time_diff_minutes(si_start_time, cs.start_time) <= 30
+                    # ブランドと校舎が一致
+                    brand_match = (enrolled['brand_id'] == str(cs.brand_id) if cs.brand_id else True)
+                    school_match = (enrolled['school_id'] == str(cs.school_id) if cs.school_id else True)
+
+                    if dow_match and time_match and brand_match and school_match:
+                        class_schedules.append(cs)
+                        break  # このスケジュールは追加済み
 
         # LessonCalendarを取得（日付ベースの開講情報）
+        # school_idとbrand_idでフィルタ（tenant_idは使用しない）
         lesson_calendars = LessonCalendar.objects.filter(
-            tenant_id=tenant_id,
             lesson_date__gte=date_from,
             lesson_date__lte=date_to,
         )
@@ -423,12 +470,33 @@ class StudentCalendarView(APIView):
             key = (lc.lesson_date, str(lc.school_id), str(lc.brand_id) if lc.brand_id else None)
             calendar_map[key] = lc
 
+        # 欠席チケット（AbsenceTicket）を取得して欠席日をマップ化
+        from .models import AbsenceTicket
+        absence_tickets = AbsenceTicket.objects.filter(
+            student=student,
+            absence_date__gte=date_from,
+            absence_date__lte=date_to,
+        ).select_related('class_schedule')
+
+        # 欠席日とclass_schedule_idのマップを作成
+        # キー: (absence_date, class_schedule_id)
+        absence_map = {}
+        for at in absence_tickets:
+            key = (at.absence_date, str(at.class_schedule_id) if at.class_schedule_id else None)
+            absence_map[key] = at
+
         # カレンダーイベントを生成
         events = []
+        today = dt.now().date()
         current_date = date_from
         day_of_week_map = {0: 1, 1: 2, 2: 3, 3: 4, 4: 5, 5: 6, 6: 7}  # Python weekday -> DB day_of_week
 
         while current_date <= date_to:
+            # 今日より前の日付はスキップ
+            if current_date < today:
+                current_date += timedelta(days=1)
+                continue
+
             python_weekday = current_date.weekday()
             db_day_of_week = day_of_week_map[python_weekday]
 
@@ -455,13 +523,22 @@ class StudentCalendarView(APIView):
                     notice_message = lesson_cal.notice_message or ''
                     holiday_name = lesson_cal.holiday_name or ''
 
+                # 欠席チェック
+                absence_key = (current_date, str(cs.id))
+                absence_ticket = absence_map.get(absence_key)
+                is_absent = absence_ticket is not None
+
                 # イベントを追加
                 start_datetime = dt.combine(current_date, cs.start_time)
                 end_datetime = dt.combine(current_date, cs.end_time)
 
                 event_type = 'lesson'
+                event_status = 'scheduled'  # デフォルトステータス
                 if is_closed:
                     event_type = 'closed'
+                elif is_absent:
+                    event_type = 'absent'
+                    event_status = 'absent'
                 elif is_native_day:
                     event_type = 'native'
 
@@ -475,8 +552,10 @@ class StudentCalendarView(APIView):
                     'dayOfWeek': db_day_of_week,
                     'period': cs.period,
                     'type': event_type,
+                    'status': event_status,  # absent/scheduled/confirmed等
                     'lessonType': lesson_type,
                     'isClosed': is_closed,
+                    'isAbsent': is_absent,
                     'isNativeDay': is_native_day,
                     'holidayName': holiday_name,
                     'noticeMessage': notice_message,
@@ -491,6 +570,7 @@ class StudentCalendarView(APIView):
                     'displayPairName': cs.display_pair_name,
                     'transferGroup': cs.transfer_group,
                     'calendarPattern': cs.calendar_pattern,
+                    'absenceTicketId': str(absence_ticket.id) if absence_ticket else None,
                 })
 
             current_date += timedelta(days=1)
@@ -507,15 +587,17 @@ class StudentCalendarView(APIView):
 class MarkAbsenceView(APIView):
     """カレンダーから欠席登録するAPI
 
-    欠席登録と同時に振替チケットを自動追加する
+    欠席登録と同時にAbsenceTicketを発行する。
+    消化記号(consumption_symbol)を基準に振替可能なクラスを判定。
     """
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
         from apps.students.models import Student
         from apps.schools.models import ClassSchedule
-        from apps.contracts.models import StudentItem, Product
-        from datetime import datetime as dt
+        from apps.contracts.models import Ticket
+        from datetime import datetime as dt, timedelta
+        from .models import AbsenceTicket
 
         # tenant_idはrequest.tenant_idまたはrequest.user.tenant_idから取得
         tenant_id = getattr(request, 'tenant_id', None)
@@ -536,9 +618,9 @@ class MarkAbsenceView(APIView):
         except Student.DoesNotExist:
             return Response({'error': 'Student not found'}, status=404)
 
-        # ClassSchedule取得
+        # ClassSchedule取得（tenant_idはフィルタリングしない - 異なるテナントIDが設定されている場合があるため）
         try:
-            class_schedule = ClassSchedule.objects.get(id=class_schedule_id, tenant_id=tenant_id)
+            class_schedule = ClassSchedule.objects.get(id=class_schedule_id)
         except ClassSchedule.DoesNotExist:
             return Response({'error': 'ClassSchedule not found'}, status=404)
 
@@ -548,65 +630,310 @@ class MarkAbsenceView(APIView):
         except ValueError:
             return Response({'error': 'Invalid date format'}, status=400)
 
-        # 欠席レコードを作成（Attendanceモデルに記録）
-        # AttendanceモデルがあればそれをAを使用、なければ新しい欠席記録モデルを検討
-        from .models import Attendance, LessonSchedule
+        # ClassScheduleからticket_idで消化記号を取得
+        consumption_symbol = ''
+        original_ticket = None
+        if class_schedule.ticket_id:
+            try:
+                original_ticket = Ticket.objects.get(
+                    ticket_code=class_schedule.ticket_id,
+                    deleted_at__isnull=True
+                )
+                consumption_symbol = original_ticket.consumption_symbol or ''
+            except Ticket.DoesNotExist:
+                pass
 
-        # LessonScheduleを取得または作成して、Attendanceを記録
-        # 現状の設計上、特定の日のレッスンスケジュールを取得
-        lesson_schedule = LessonSchedule.objects.filter(
-            tenant_id=tenant_id,
-            scheduled_date=absence_date,
-            course_id=class_schedule.course_id if hasattr(class_schedule, 'course_id') else None,
-            deleted_at__isnull=True,
-        ).first()
+        # 有効期限: 欠席日から90日
+        valid_until = absence_date + timedelta(days=90)
 
-        # 出欠記録を作成
-        attendance, created = Attendance.objects.update_or_create(
-            tenant_id=tenant_id,
+        # 生徒のtenant_idを使用（integer型）
+        student_tenant_id = student.tenant_id
+
+        # AbsenceTicketを作成
+        absence_ticket = AbsenceTicket.objects.create(
+            tenant_id=student_tenant_id,
             student=student,
-            schedule=lesson_schedule,
-            defaults={
-                'status': 'absent_notice',
-                'absence_reason': reason or 'カレンダーからの欠席連絡',
-            }
+            original_ticket=original_ticket,
+            consumption_symbol=consumption_symbol,
+            absence_date=absence_date,
+            class_schedule=class_schedule,
+            status='issued',
+            valid_until=valid_until,
+            notes=reason or 'カレンダーからの欠席連絡',
         )
-
-        # 振替チケットを追加
-        # 商品（振替チケット）を検索
-        transfer_ticket_product = Product.objects.filter(
-            tenant_id=tenant_id,
-            item_type='ticket',
-            deleted_at__isnull=True,
-        ).filter(
-            Q(product_name__icontains='振替') | Q(product_code__icontains='transfer')
-        ).first()
-
-        transfer_ticket_created = False
-        if transfer_ticket_product:
-            # 振替チケットをStudentItemとして追加
-            from django.utils import timezone
-            billing_month = absence_date.strftime('%Y-%m')
-
-            StudentItem.objects.create(
-                tenant_id=tenant_id,
-                student=student,
-                product=transfer_ticket_product,
-                billing_month=billing_month,
-                quantity=1,
-                unit_price=0,
-                discount_amount=0,
-                final_price=0,
-                notes=f'欠席による振替チケット発行（{absence_date.isoformat()}）',
-                brand=class_schedule.brand if hasattr(class_schedule, 'brand') else None,
-                school=class_schedule.school if hasattr(class_schedule, 'school') else None,
-            )
-            transfer_ticket_created = True
 
         return Response({
             'success': True,
-            'message': '欠席登録が完了しました',
-            'attendance_id': str(attendance.id) if attendance else None,
-            'transfer_ticket_created': transfer_ticket_created,
+            'message': '欠席登録が完了しました。欠席チケットが発行されました。',
+            'absence_ticket_id': str(absence_ticket.id),
+            'consumption_symbol': consumption_symbol,
+            'valid_until': valid_until.isoformat(),
             'absence_date': absence_date.isoformat(),
+        })
+
+
+class AbsenceTicketListView(APIView):
+    """欠席チケット（振替チケット）一覧取得API
+
+    保護者の子供に関連する欠席チケットを返す。
+    ステータス（issued/used/expired）でフィルタ可能。
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        from apps.students.models import Student, Guardian, StudentGuardian
+        from .models import AbsenceTicket
+        from datetime import date
+
+        tenant_id = getattr(request, 'tenant_id', None)
+        if tenant_id is None and hasattr(request, 'user') and hasattr(request.user, 'tenant_id'):
+            tenant_id = request.user.tenant_id
+
+        status_filter = request.query_params.get('status')  # issued, used, expired
+        student_id = request.query_params.get('student_id')
+
+        # 保護者の子供を取得（StudentGuardian中間テーブル経由）
+        try:
+            guardian = Guardian.objects.get(user=request.user)
+            student_ids = list(StudentGuardian.objects.filter(
+                guardian=guardian
+            ).values_list('student_id', flat=True))
+        except Guardian.DoesNotExist:
+            student_ids = []
+
+        # 特定の生徒のみ取得する場合
+        if student_id:
+            student_ids = [student_id] if student_id in [str(sid) for sid in student_ids] else []
+
+        if not student_ids:
+            return Response([])
+
+        # AbsenceTicketを取得
+        queryset = AbsenceTicket.objects.filter(
+            student_id__in=student_ids
+        ).select_related(
+            'student', 'original_ticket', 'class_schedule',
+            'class_schedule__school', 'class_schedule__brand'
+        ).order_by('-absence_date')
+
+        # ステータスフィルタ
+        if status_filter:
+            queryset = queryset.filter(status=status_filter)
+
+        # 期限切れチケットの自動更新
+        today = date.today()
+        for ticket in queryset.filter(status='issued'):
+            if ticket.valid_until and ticket.valid_until < today:
+                ticket.status = 'expired'
+                ticket.save(update_fields=['status'])
+
+        # レスポンス生成
+        tickets = []
+        for ticket in queryset:
+            school_name = ''
+            brand_name = ''
+            if ticket.class_schedule:
+                if ticket.class_schedule.school:
+                    school_name = ticket.class_schedule.school.school_name
+                if ticket.class_schedule.brand:
+                    brand_name = ticket.class_schedule.brand.brand_name
+
+            tickets.append({
+                'id': str(ticket.id),
+                'studentId': str(ticket.student_id),
+                'studentName': ticket.student.full_name if ticket.student else '',
+                'originalTicketId': str(ticket.original_ticket_id) if ticket.original_ticket_id else None,
+                'originalTicketName': ticket.original_ticket.ticket_name if ticket.original_ticket else '',
+                'consumptionSymbol': ticket.consumption_symbol or '',
+                'absenceDate': ticket.absence_date.isoformat() if ticket.absence_date else None,
+                'status': ticket.status,
+                'validUntil': ticket.valid_until.isoformat() if ticket.valid_until else None,
+                'usedDate': ticket.used_date.isoformat() if ticket.used_date else None,
+                'schoolId': str(ticket.class_schedule.school_id) if ticket.class_schedule and ticket.class_schedule.school_id else None,
+                'schoolName': school_name,
+                'brandId': str(ticket.class_schedule.brand_id) if ticket.class_schedule and ticket.class_schedule.brand_id else None,
+                'brandName': brand_name,
+                'classScheduleId': str(ticket.class_schedule_id) if ticket.class_schedule_id else None,
+                'notes': ticket.notes or '',
+                'createdAt': ticket.created_at.isoformat() if ticket.created_at else None,
+            })
+
+        return Response(tickets)
+
+
+class UseAbsenceTicketView(APIView):
+    """振替予約API（欠席チケット使用）
+
+    欠席チケット（AbsenceTicket）を使って振替予約を行う。
+    同じconsumption_symbolを持つClassScheduleを選んで予約できる。
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        from apps.students.models import Student, Guardian, StudentGuardian
+        from .models import AbsenceTicket, Attendance
+        from apps.schools.models import ClassSchedule
+        from datetime import date, datetime
+
+        absence_ticket_id = request.data.get('absence_ticket_id')
+        target_date = request.data.get('target_date')  # 振替先の日付 (YYYY-MM-DD)
+        target_class_schedule_id = request.data.get('target_class_schedule_id')  # 振替先のクラス
+
+        if not absence_ticket_id:
+            return Response({'error': '欠席チケットIDが必要です'}, status=400)
+        if not target_date:
+            return Response({'error': '振替先の日付が必要です'}, status=400)
+        if not target_class_schedule_id:
+            return Response({'error': '振替先のクラスが必要です'}, status=400)
+
+        # 保護者の子供を取得
+        try:
+            guardian = Guardian.objects.get(user=request.user)
+            student_ids = list(StudentGuardian.objects.filter(
+                guardian=guardian
+            ).values_list('student_id', flat=True))
+        except Guardian.DoesNotExist:
+            return Response({'error': '保護者情報が見つかりません'}, status=404)
+
+        # 欠席チケットを取得
+        try:
+            absence_ticket = AbsenceTicket.objects.get(
+                id=absence_ticket_id,
+                student_id__in=student_ids,
+                status=AbsenceTicket.Status.ISSUED
+            )
+        except AbsenceTicket.DoesNotExist:
+            return Response({'error': '有効な欠席チケットが見つかりません'}, status=404)
+
+        # 有効期限チェック
+        if absence_ticket.valid_until and absence_ticket.valid_until < date.today():
+            return Response({'error': 'このチケットは期限切れです'}, status=400)
+
+        # 振替先のクラスを取得
+        try:
+            target_schedule = ClassSchedule.objects.get(
+                id=target_class_schedule_id,
+                is_active=True
+            )
+        except ClassSchedule.DoesNotExist:
+            return Response({'error': '振替先のクラスが見つかりません'}, status=404)
+
+        # 振替先日付をパース
+        try:
+            target_date_obj = datetime.strptime(target_date, '%Y-%m-%d').date()
+        except ValueError:
+            return Response({'error': '日付形式が不正です（YYYY-MM-DD）'}, status=400)
+
+        # 過去の日付チェック
+        if target_date_obj < date.today():
+            return Response({'error': '過去の日付には振替できません'}, status=400)
+
+        # 曜日チェック（振替先のクラスの曜日と一致するか）
+        if target_schedule.day_of_week != target_date_obj.weekday():
+            day_names = ['月', '火', '水', '木', '金', '土', '日']
+            return Response({
+                'error': f'このクラスは{day_names[target_schedule.day_of_week]}曜日のみ開講しています'
+            }, status=400)
+
+        # 欠席チケットを使用済みに更新
+        absence_ticket.status = AbsenceTicket.Status.USED
+        absence_ticket.used_date = target_date_obj
+        absence_ticket.used_class_schedule = target_schedule
+        absence_ticket.save()
+
+        # 振替先の出席記録を作成（予約済みステータス）
+        Attendance.objects.create(
+            tenant_id=absence_ticket.tenant_id,
+            student=absence_ticket.student,
+            class_schedule=target_schedule,
+            lesson_date=target_date_obj,
+            status='reserved',  # 振替予約
+            notes=f'振替予約（元: {absence_ticket.absence_date}）'
+        )
+
+        return Response({
+            'success': True,
+            'message': f'{target_date_obj.strftime("%m/%d")}に振替予約しました',
+            'absenceTicketId': str(absence_ticket.id),
+            'targetDate': target_date,
+            'targetClassScheduleId': str(target_schedule.id),
+        })
+
+
+class TransferAvailableClassesView(APIView):
+    """振替可能クラス取得API
+
+    欠席チケットのconsumption_symbolを基に、振替可能なクラス一覧を返す。
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        from apps.students.models import Guardian, StudentGuardian
+        from .models import AbsenceTicket
+        from apps.schools.models import ClassSchedule
+        from datetime import date
+
+        absence_ticket_id = request.query_params.get('absence_ticket_id')
+        if not absence_ticket_id:
+            return Response({'error': '欠席チケットIDが必要です'}, status=400)
+
+        # 保護者の子供を取得
+        try:
+            guardian = Guardian.objects.get(user=request.user)
+            student_ids = list(StudentGuardian.objects.filter(
+                guardian=guardian
+            ).values_list('student_id', flat=True))
+        except Guardian.DoesNotExist:
+            return Response({'error': '保護者情報が見つかりません'}, status=404)
+
+        # 欠席チケットを取得
+        try:
+            absence_ticket = AbsenceTicket.objects.select_related(
+                'class_schedule', 'class_schedule__school', 'class_schedule__brand'
+            ).get(
+                id=absence_ticket_id,
+                student_id__in=student_ids,
+                status=AbsenceTicket.Status.ISSUED
+            )
+        except AbsenceTicket.DoesNotExist:
+            return Response({'error': '有効な欠席チケットが見つかりません'}, status=404)
+
+        # 同じconsumption_symbolを持つClassScheduleを検索
+        available_classes = ClassSchedule.objects.filter(
+            is_active=True
+        ).select_related('school', 'brand', 'ticket')
+
+        # consumption_symbolでフィルタ（ticketを通じて）
+        if absence_ticket.consumption_symbol:
+            available_classes = available_classes.filter(
+                ticket__consumption_symbol=absence_ticket.consumption_symbol
+            )
+
+        day_names = ['月', '火', '水', '木', '金', '土', '日']
+        classes = []
+        for cs in available_classes:
+            classes.append({
+                'id': str(cs.id),
+                'schoolId': str(cs.school_id) if cs.school_id else None,
+                'schoolName': cs.school.school_name if cs.school else '',
+                'brandId': str(cs.brand_id) if cs.brand_id else None,
+                'brandName': cs.brand.brand_name if cs.brand else '',
+                'dayOfWeek': cs.day_of_week,
+                'dayOfWeekLabel': day_names[cs.day_of_week] if cs.day_of_week is not None else '',
+                'startTime': cs.start_time.strftime('%H:%M') if cs.start_time else '',
+                'endTime': cs.end_time.strftime('%H:%M') if cs.end_time else '',
+                'className': cs.class_name or '',
+                'roomName': cs.room.room_name if cs.room else '',
+                'maxStudents': cs.max_students,
+                'currentStudents': cs.current_students,
+            })
+
+        return Response({
+            'absenceTicket': {
+                'id': str(absence_ticket.id),
+                'consumptionSymbol': absence_ticket.consumption_symbol or '',
+                'absenceDate': absence_ticket.absence_date.isoformat() if absence_ticket.absence_date else None,
+                'validUntil': absence_ticket.valid_until.isoformat() if absence_ticket.valid_until else None,
+            },
+            'availableClasses': classes
         })

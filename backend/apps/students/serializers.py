@@ -2,7 +2,7 @@
 Students Serializers
 """
 from rest_framework import serializers
-from .models import Student, Guardian, StudentSchool, StudentGuardian
+from .models import Student, Guardian, StudentSchool, StudentGuardian, SuspensionRequest, WithdrawalRequest, BankAccount, BankAccountChangeRequest
 from apps.schools.models import Brand
 
 
@@ -13,7 +13,9 @@ class StudentListSerializer(serializers.ModelSerializer):
     primary_school_name = serializers.CharField(source='primary_school.school_name', read_only=True)
     primary_brand_name = serializers.CharField(source='primary_brand.brand_name', read_only=True)
     guardian_id = serializers.UUIDField(source='guardian.id', read_only=True)
+    guardian_no = serializers.CharField(source='guardian.guardian_no', read_only=True)
     guardian_name = serializers.CharField(source='guardian.full_name', read_only=True)
+    guardian_phone = serializers.SerializerMethodField()
     brand_ids = serializers.PrimaryKeyRelatedField(source='brands', many=True, read_only=True)
     brand_names = serializers.SerializerMethodField()
 
@@ -21,13 +23,14 @@ class StudentListSerializer(serializers.ModelSerializer):
         model = Student
         fields = [
             'id', 'student_no', 'full_name', 'last_name', 'first_name',
+            'last_name_kana', 'first_name_kana',
             'birth_date', 'gender', 'school_name',
             'grade', 'grade_name', 'grade_text',
             'primary_school', 'primary_school_name', 'primary_brand', 'primary_brand_name',
             'brands', 'brand_ids', 'brand_names',
             'status', 'registered_date', 'trial_date', 'enrollment_date', 'suspended_date', 'withdrawal_date',
-            'email', 'phone',
-            'guardian', 'guardian_id', 'guardian_name'
+            'email', 'phone', 'notes',
+            'guardian', 'guardian_id', 'guardian_no', 'guardian_name', 'guardian_phone'
         ]
 
     def get_brand_names(self, obj):
@@ -42,16 +45,28 @@ class StudentListSerializer(serializers.ModelSerializer):
             return obj.grade.grade_name
         return None
 
+    def get_guardian_phone(self, obj):
+        """保護者の電話番号を返す（携帯優先）"""
+        if obj.guardian:
+            return obj.guardian.phone_mobile or obj.guardian.phone
+        return None
+
 
 class StudentDetailSerializer(serializers.ModelSerializer):
     """生徒詳細"""
     full_name = serializers.CharField(read_only=True)
     full_name_kana = serializers.CharField(read_only=True)
-    grade_name = serializers.CharField(source='grade.grade_name', read_only=True)
-    primary_school_name = serializers.CharField(source='primary_school.school_name', read_only=True)
-    primary_brand_name = serializers.CharField(source='primary_brand.brand_name', read_only=True)
+    grade_name = serializers.SerializerMethodField()
+    primary_school_name = serializers.SerializerMethodField()
+    primary_brand_name = serializers.SerializerMethodField()
     brand_ids = serializers.PrimaryKeyRelatedField(source='brands', many=True, read_only=True)
     brand_names = serializers.SerializerMethodField()
+    # 保護者情報
+    guardian_id = serializers.UUIDField(source='guardian.id', read_only=True)
+    guardian_no = serializers.CharField(source='guardian.guardian_no', read_only=True)
+    guardian_name = serializers.CharField(source='guardian.full_name', read_only=True)
+    guardian_phone = serializers.SerializerMethodField()
+    guardian = serializers.SerializerMethodField()
 
     class Meta:
         model = Student
@@ -62,19 +77,113 @@ class StudentDetailSerializer(serializers.ModelSerializer):
             'email', 'phone', 'line_id',
             'birth_date', 'gender', 'profile_image_url',
             'school_name', 'school_type',
-            'grade', 'grade_name', 'grade_updated_at',
+            'grade', 'grade_name', 'grade_text', 'grade_updated_at',
             'primary_school', 'primary_school_name',
             'primary_brand', 'primary_brand_name',
             'brands', 'brand_ids', 'brand_names',
             'status', 'registered_date', 'trial_date', 'enrollment_date', 'suspended_date', 'withdrawal_date', 'withdrawal_reason',
             'notes', 'tags', 'custom_fields',
+            'guardian', 'guardian_id', 'guardian_no', 'guardian_name', 'guardian_phone',
             'created_at', 'updated_at'
         ]
         read_only_fields = ['id', 'created_at', 'updated_at']
 
+    def get_grade_name(self, obj):
+        """grade_textがあればそれを、なければgrade.grade_nameを返す"""
+        if obj.grade_text:
+            return obj.grade_text
+        if obj.grade:
+            return obj.grade.grade_name
+        return None
+
+    def get_primary_school_name(self, obj):
+        """主所属校舎名を返す（フォールバック: StudentSchool → Contract）"""
+        # 1. primary_schoolがあればそれを返す
+        if obj.primary_school:
+            return obj.primary_school.school_name
+
+        # 2. StudentSchoolから取得
+        active_school = obj.school_enrollments.filter(
+            enrollment_status='active',
+            deleted_at__isnull=True
+        ).select_related('school').first()
+        if active_school and active_school.school:
+            return active_school.school.school_name
+
+        # 3. Contractから取得
+        from apps.contracts.models import Contract
+        active_contract = Contract.objects.filter(
+            student=obj,
+            status='active',
+            deleted_at__isnull=True
+        ).select_related('school').first()
+        if active_contract and active_contract.school:
+            return active_contract.school.school_name
+
+        return None
+
+    def get_primary_brand_name(self, obj):
+        """主所属ブランド名を返す（フォールバック: brands → StudentSchool → Contract）"""
+        # 1. primary_brandがあればそれを返す
+        if obj.primary_brand:
+            return obj.primary_brand.brand_name
+
+        # 2. brandsから最初の1つを取得
+        first_brand = obj.brands.first()
+        if first_brand:
+            return first_brand.brand_name
+
+        # 3. StudentSchoolから取得
+        active_school = obj.school_enrollments.filter(
+            enrollment_status='active',
+            deleted_at__isnull=True
+        ).select_related('brand').first()
+        if active_school and active_school.brand:
+            return active_school.brand.brand_name
+
+        # 4. Contractから取得
+        from apps.contracts.models import Contract
+        active_contract = Contract.objects.filter(
+            student=obj,
+            status='active',
+            deleted_at__isnull=True
+        ).select_related('brand').first()
+        if active_contract and active_contract.brand:
+            return active_contract.brand.brand_name
+
+        return None
+
     def get_brand_names(self, obj):
         """所属ブランド名のリストを返す"""
         return [brand.brand_name for brand in obj.brands.all()]
+
+    def get_guardian_phone(self, obj):
+        """保護者の電話番号を返す（携帯優先）"""
+        if obj.guardian:
+            return obj.guardian.phone_mobile or obj.guardian.phone
+        return None
+
+    def get_guardian(self, obj):
+        """保護者情報をシリアライズ"""
+        if obj.guardian:
+            return {
+                'id': str(obj.guardian.id),
+                'guardian_no': obj.guardian.guardian_no,
+                'last_name': obj.guardian.last_name,
+                'first_name': obj.guardian.first_name,
+                'last_name_kana': obj.guardian.last_name_kana,
+                'first_name_kana': obj.guardian.first_name_kana,
+                'full_name': obj.guardian.full_name,
+                'email': obj.guardian.email,
+                'phone': obj.guardian.phone,
+                'phone_mobile': obj.guardian.phone_mobile,
+                'postal_code': obj.guardian.postal_code,
+                'prefecture': obj.guardian.prefecture,
+                'city': obj.guardian.city,
+                'address1': obj.guardian.address1,
+                'address2': obj.guardian.address2,
+            }
+        return None
 
 
 class StudentCreateSerializer(serializers.ModelSerializer):
@@ -229,14 +338,22 @@ class StudentSchoolSerializer(serializers.ModelSerializer):
     """生徒所属"""
     school_name = serializers.CharField(source='school.school_name', read_only=True)
     brand_name = serializers.CharField(source='brand.brand_name', read_only=True)
+    class_schedule_name = serializers.CharField(source='class_schedule.class_name', read_only=True)
+    day_of_week_display = serializers.SerializerMethodField()
 
     class Meta:
         model = StudentSchool
         fields = [
             'id', 'student', 'school', 'school_name', 'brand', 'brand_name',
-            'enrollment_status', 'start_date', 'end_date', 'is_primary', 'notes'
+            'enrollment_status', 'start_date', 'end_date', 'is_primary', 'notes',
+            'class_schedule', 'class_schedule_name', 'day_of_week', 'day_of_week_display',
+            'start_time', 'end_time'
         ]
         read_only_fields = ['id']
+
+    def get_day_of_week_display(self, obj):
+        days = {1: '月', 2: '火', 3: '水', 4: '木', 5: '金', 6: '土', 7: '日'}
+        return days.get(obj.day_of_week, '')
 
 
 class StudentGuardianSerializer(serializers.ModelSerializer):
@@ -276,3 +393,224 @@ class StudentWithGuardiansSerializer(serializers.ModelSerializer):
             'phone': r.guardian.phone or r.guardian.phone_mobile,
             'email': r.guardian.email,
         } for r in relations]
+
+
+# =====================================
+# 休会・退会申請用シリアライザ
+# =====================================
+
+class SuspensionRequestSerializer(serializers.ModelSerializer):
+    """休会申請シリアライザ"""
+    student_name = serializers.CharField(source='student.full_name', read_only=True)
+    student_no = serializers.CharField(source='student.student_no', read_only=True)
+    school_name = serializers.CharField(source='school.school_name', read_only=True)
+    brand_name = serializers.CharField(source='brand.brand_name', read_only=True)
+    requested_by_name = serializers.CharField(source='requested_by.get_full_name', read_only=True)
+    processed_by_name = serializers.CharField(source='processed_by.get_full_name', read_only=True)
+    reason_display = serializers.CharField(source='get_reason_display', read_only=True)
+    status_display = serializers.CharField(source='get_status_display', read_only=True)
+
+    class Meta:
+        model = SuspensionRequest
+        fields = [
+            'id', 'student', 'student_name', 'student_no',
+            'brand', 'brand_name', 'school', 'school_name',
+            'suspend_from', 'suspend_until', 'keep_seat',
+            'monthly_fee_during_suspension',
+            'reason', 'reason_display', 'reason_detail',
+            'status', 'status_display',
+            'requested_at', 'requested_by', 'requested_by_name',
+            'processed_at', 'processed_by', 'processed_by_name',
+            'process_notes', 'resumed_at', 'resumed_by',
+            'created_at', 'updated_at'
+        ]
+        read_only_fields = [
+            'id', 'student_name', 'student_no', 'school_name', 'brand_name',
+            'requested_by', 'requested_by_name', 'requested_at',
+            'processed_by', 'processed_by_name', 'processed_at',
+            'process_notes', 'resumed_at', 'resumed_by',
+            'status', 'created_at', 'updated_at'
+        ]
+
+
+class SuspensionRequestCreateSerializer(serializers.ModelSerializer):
+    """休会申請作成用シリアライザ"""
+
+    class Meta:
+        model = SuspensionRequest
+        fields = [
+            'student', 'brand', 'school',
+            'suspend_from', 'suspend_until', 'keep_seat',
+            'reason', 'reason_detail'
+        ]
+
+    def validate_student(self, value):
+        """生徒が保護者に紐づいているか確認"""
+        request = self.context.get('request')
+        if request and hasattr(request.user, 'guardian_profile') and request.user.guardian_profile:
+            guardian = request.user.guardian_profile
+            if value.guardian != guardian:
+                raise serializers.ValidationError('この生徒に対する申請権限がありません')
+        return value
+
+
+class WithdrawalRequestSerializer(serializers.ModelSerializer):
+    """退会申請シリアライザ"""
+    student_name = serializers.CharField(source='student.full_name', read_only=True)
+    student_no = serializers.CharField(source='student.student_no', read_only=True)
+    school_name = serializers.CharField(source='school.school_name', read_only=True)
+    brand_name = serializers.CharField(source='brand.brand_name', read_only=True)
+    requested_by_name = serializers.CharField(source='requested_by.get_full_name', read_only=True)
+    processed_by_name = serializers.CharField(source='processed_by.get_full_name', read_only=True)
+    reason_display = serializers.CharField(source='get_reason_display', read_only=True)
+    status_display = serializers.CharField(source='get_status_display', read_only=True)
+
+    class Meta:
+        model = WithdrawalRequest
+        fields = [
+            'id', 'student', 'student_name', 'student_no',
+            'brand', 'brand_name', 'school', 'school_name',
+            'withdrawal_date', 'last_lesson_date',
+            'reason', 'reason_display', 'reason_detail',
+            'refund_amount', 'refund_calculated', 'remaining_tickets',
+            'status', 'status_display',
+            'requested_at', 'requested_by', 'requested_by_name',
+            'processed_at', 'processed_by', 'processed_by_name',
+            'process_notes',
+            'created_at', 'updated_at'
+        ]
+        read_only_fields = [
+            'id', 'student_name', 'student_no', 'school_name', 'brand_name',
+            'requested_by', 'requested_by_name', 'requested_at',
+            'processed_by', 'processed_by_name', 'processed_at',
+            'process_notes', 'refund_amount', 'refund_calculated', 'remaining_tickets',
+            'status', 'created_at', 'updated_at'
+        ]
+
+
+class WithdrawalRequestCreateSerializer(serializers.ModelSerializer):
+    """退会申請作成用シリアライザ"""
+
+    class Meta:
+        model = WithdrawalRequest
+        fields = [
+            'student', 'brand', 'school',
+            'withdrawal_date', 'last_lesson_date',
+            'reason', 'reason_detail'
+        ]
+
+    def validate_student(self, value):
+        """生徒が保護者に紐づいているか確認"""
+        request = self.context.get('request')
+        if request and hasattr(request.user, 'guardian_profile') and request.user.guardian_profile:
+            guardian = request.user.guardian_profile
+            if value.guardian != guardian:
+                raise serializers.ValidationError('この生徒に対する申請権限がありません')
+        return value
+
+
+# =====================================
+# 銀行口座関連シリアライザ
+# =====================================
+
+class BankAccountSerializer(serializers.ModelSerializer):
+    """銀行口座シリアライザ"""
+    guardian_name = serializers.SerializerMethodField()
+    account_type_display = serializers.CharField(source='get_account_type_display', read_only=True)
+
+    class Meta:
+        model = BankAccount
+        fields = [
+            'id', 'guardian', 'guardian_name',
+            'bank_name', 'bank_code', 'branch_name', 'branch_code',
+            'account_type', 'account_type_display',
+            'account_number', 'account_holder', 'account_holder_kana',
+            'is_primary', 'is_active', 'notes',
+            'created_at', 'updated_at'
+        ]
+        read_only_fields = ['id', 'guardian_name', 'created_at', 'updated_at']
+
+    def get_guardian_name(self, obj):
+        if obj.guardian:
+            return f"{obj.guardian.last_name} {obj.guardian.first_name}"
+        return ""
+
+
+class BankAccountChangeRequestSerializer(serializers.ModelSerializer):
+    """銀行口座変更申請シリアライザ"""
+    guardian_name = serializers.SerializerMethodField()
+    guardian_no = serializers.CharField(source='guardian.guardian_no', read_only=True)
+    request_type_display = serializers.CharField(source='get_request_type_display', read_only=True)
+    status_display = serializers.CharField(source='get_status_display', read_only=True)
+    account_type_display = serializers.CharField(source='get_account_type_display', read_only=True)
+    requested_by_name = serializers.SerializerMethodField()
+    processed_by_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = BankAccountChangeRequest
+        fields = [
+            'id', 'guardian', 'guardian_name', 'guardian_no',
+            'existing_account',
+            'request_type', 'request_type_display',
+            'bank_name', 'bank_code', 'branch_name', 'branch_code',
+            'account_type', 'account_type_display',
+            'account_number', 'account_holder', 'account_holder_kana',
+            'is_primary',
+            'status', 'status_display',
+            'requested_at', 'requested_by', 'requested_by_name', 'request_notes',
+            'processed_at', 'processed_by', 'processed_by_name', 'process_notes',
+            'created_at', 'updated_at'
+        ]
+        read_only_fields = [
+            'id', 'guardian_name', 'guardian_no',
+            'request_type_display', 'status_display', 'account_type_display',
+            'requested_at', 'requested_by', 'requested_by_name',
+            'processed_at', 'processed_by', 'processed_by_name', 'process_notes',
+            'status', 'created_at', 'updated_at'
+        ]
+
+    def get_guardian_name(self, obj):
+        if obj.guardian:
+            return f"{obj.guardian.last_name} {obj.guardian.first_name}"
+        return ""
+
+    def get_requested_by_name(self, obj):
+        if obj.requested_by:
+            return f"{obj.requested_by.first_name} {obj.requested_by.last_name}".strip() or obj.requested_by.email
+        return ""
+
+    def get_processed_by_name(self, obj):
+        if obj.processed_by:
+            return f"{obj.processed_by.first_name} {obj.processed_by.last_name}".strip() or obj.processed_by.email
+        return ""
+
+
+class BankAccountChangeRequestCreateSerializer(serializers.ModelSerializer):
+    """銀行口座変更申請作成用シリアライザ"""
+
+    class Meta:
+        model = BankAccountChangeRequest
+        fields = [
+            'existing_account', 'request_type',
+            'bank_name', 'bank_code', 'branch_name', 'branch_code',
+            'account_type', 'account_number',
+            'account_holder', 'account_holder_kana',
+            'is_primary', 'request_notes'
+        ]
+
+    def validate(self, data):
+        request_type = data.get('request_type', 'new')
+
+        # 新規・変更の場合は銀行情報が必須
+        if request_type in ('new', 'update'):
+            required_fields = ['bank_name', 'branch_name', 'account_number', 'account_holder', 'account_holder_kana']
+            for field in required_fields:
+                if not data.get(field):
+                    raise serializers.ValidationError({field: 'この項目は必須です。'})
+
+        # 変更・削除の場合はexisting_accountが必須
+        if request_type in ('update', 'delete'):
+            if not data.get('existing_account'):
+                raise serializers.ValidationError({'existing_account': '変更・削除には既存口座の指定が必須です。'})
+
+        return data
