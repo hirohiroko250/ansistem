@@ -478,10 +478,11 @@ export async function getStudentInvoices(studentId: string): Promise<Invoice[]> 
 
 export async function getParents(): Promise<Guardian[]> {
   try {
-    const response = await apiClient.get<PaginatedResponse<Guardian>>("/students/guardians/", {
+    const response = await apiClient.get<any>("/students/guardians/", {
       page_size: 100,
     });
-    return response.results || [];
+    // Handle both response formats: { data } or { results }
+    return response.data || response.results || [];
   } catch (error) {
     console.error("Error fetching parents:", error);
     return [];
@@ -498,10 +499,13 @@ export async function searchParents(
     if (search) {
       params.search = search;
     }
-    const response = await apiClient.get<PaginatedResponse<Guardian>>("/students/guardians/", params);
+    const response = await apiClient.get<any>("/students/guardians/", params);
+    // Handle both response formats: { data, meta } or { results, count }
+    const results = response.data || response.results || [];
+    const count = response.meta?.total || response.count || 0;
     return {
-      results: response.results || [],
-      count: response.count || 0,
+      results,
+      count,
     };
   } catch (error) {
     console.error("Error fetching parents:", error);
@@ -675,11 +679,13 @@ export async function getTasks(filters?: {
     if (filters?.priority) params.priority = filters.priority;
     if (filters?.task_type) params.task_type = filters.task_type;
 
-    const response = await apiClient.get<PaginatedResponse<Task> | Task[]>("/tasks/", params);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const response = await apiClient.get<any>("/tasks/", params);
     if (Array.isArray(response)) {
       return response;
     }
-    return response.results || [];
+    // Handle both { data: [...] } and { results: [...] } formats
+    return response.data || response.results || [];
   } catch (error) {
     console.error("Error fetching tasks:", error);
     return [];
@@ -688,11 +694,13 @@ export async function getTasks(filters?: {
 
 export async function getPendingTasks(): Promise<Task[]> {
   try {
-    const response = await apiClient.get<PaginatedResponse<Task> | Task[]>("/tasks/pending/");
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const response = await apiClient.get<any>("/tasks/pending/");
     if (Array.isArray(response)) {
       return response;
     }
-    return response.results || [];
+    // Handle both { data: [...] } and { results: [...] } formats
+    return response.data || response.results || [];
   } catch (error) {
     console.error("Error fetching pending tasks:", error);
     return [];
@@ -1375,8 +1383,12 @@ export interface InvoiceDetail extends Invoice {
 }
 
 export interface DirectDebitExportRequest {
-  billing_year: number;
-  billing_month: number;
+  // 新形式（日付範囲）
+  start_date?: string;  // YYYY-MM-DD
+  end_date?: string;    // YYYY-MM-DD
+  // 旧形式（互換性のため）
+  billing_year?: number;
+  billing_month?: number;
   provider?: string; // jaccs, ufj_factor, chukyo_finance
 }
 
@@ -1443,10 +1455,18 @@ export async function getInvoiceDetail(invoiceId: string): Promise<InvoiceDetail
  */
 export async function exportDirectDebitCSV(params: DirectDebitExportRequest): Promise<Blob | null> {
   try {
-    const queryParams: Record<string, string | number> = {
-      billing_year: params.billing_year,
-      billing_month: params.billing_month,
-    };
+    const queryParams: Record<string, string | number> = {};
+
+    // 新形式（日付範囲）を優先
+    if (params.start_date && params.end_date) {
+      queryParams.start_date = params.start_date;
+      queryParams.end_date = params.end_date;
+    } else if (params.billing_year && params.billing_month) {
+      // 旧形式（互換性のため）
+      queryParams.billing_year = params.billing_year;
+      queryParams.billing_month = params.billing_month;
+    }
+
     if (params.provider) {
       queryParams.provider = params.provider;
     }

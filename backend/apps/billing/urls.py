@@ -10,6 +10,8 @@ from .views import (
     OffsetLogViewSet,
     RefundRequestViewSet,
     MileTransactionViewSet,
+    PaymentProviderViewSet,
+    BillingPeriodViewSet,
 )
 
 app_name = 'billing'
@@ -21,6 +23,8 @@ router.register(r'balances', GuardianBalanceViewSet, basename='guardian-balance'
 router.register(r'offset-logs', OffsetLogViewSet, basename='offset-log')
 router.register(r'refund-requests', RefundRequestViewSet, basename='refund-request')
 router.register(r'miles', MileTransactionViewSet, basename='mile-transaction')
+router.register(r'providers', PaymentProviderViewSet, basename='payment-provider')
+router.register(r'periods', BillingPeriodViewSet, basename='billing-period')
 
 urlpatterns = [
     path('', include(router.urls)),

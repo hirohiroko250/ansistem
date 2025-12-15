@@ -5,3 +5,6 @@ class TasksConfig(AppConfig):
     default_auto_field = "django.db.models.BigAutoField"
     name = "apps.tasks"
     verbose_name = "作業一覧"
+
+    def ready(self):
+        import apps.tasks.signals  # noqa: F401

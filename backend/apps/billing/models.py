@@ -111,6 +111,18 @@ class Invoice(TenantModel):
         verbose_name='確定者'
     )
 
+    # 引落データエクスポート・ロック情報
+    is_locked = models.BooleanField('編集ロック', default=False, help_text='エクスポート済みで編集不可')
+    locked_at = models.DateTimeField('ロック日時', null=True, blank=True)
+    locked_by = models.ForeignKey(
+        'users.User',
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='locked_invoices',
+        verbose_name='ロック実行者'
+    )
+    export_batch_no = models.CharField('エクスポートバッチ番号', max_length=50, blank=True, help_text='引落データ出力時のバッチ番号')
+
     notes = models.TextField('備考', blank=True)
 
     class Meta:

@@ -11,6 +11,7 @@ interface MapSchoolSelectorProps {
   onSelectSchool: (schoolId: string) => void;
   brandColor?: string;
   isLoading?: boolean;
+  initialSchoolId?: string | null;  // 初期表示時に中心にする校舎ID
 }
 
 export function MapSchoolSelector({
@@ -18,6 +19,7 @@ export function MapSchoolSelector({
   selectedSchoolId,
   onSelectSchool,
   isLoading = false,
+  initialSchoolId,
 }: MapSchoolSelectorProps) {
   const mapContainer = useRef<HTMLDivElement>(null);
   const mapRef = useRef<any>(null);
@@ -30,6 +32,12 @@ export function MapSchoolSelector({
   useEffect(() => {
     onSelectSchoolRef.current = onSelectSchool;
   }, [onSelectSchool]);
+
+  // 初期表示時の中心校舎を取得
+  const getInitialSchool = useCallback(() => {
+    if (!initialSchoolId) return null;
+    return schools.find(s => s.id === initialSchoolId && s.latitude && s.longitude);
+  }, [schools, initialSchoolId]);
 
   // 校舎の境界を計算
   const getBounds = useCallback(() => {
@@ -83,8 +91,10 @@ export function MapSchoolSelector({
         }
 
         const bounds = getBounds();
+        const initialSchool = getInitialSchool();
 
-        mapInstance = new maplibregl.Map({
+        // 初期校舎がある場合はその位置を中心に、なければ全体を表示
+        const mapOptions: any = {
           container: mapContainer.current!,
           style: {
             version: 8,
@@ -104,12 +114,22 @@ export function MapSchoolSelector({
               }
             ]
           },
-          bounds: [bounds.sw, bounds.ne],
-          fitBoundsOptions: {
+        };
+
+        if (initialSchool) {
+          // 初期校舎の位置を中心に表示
+          mapOptions.center = [initialSchool.longitude!, initialSchool.latitude!];
+          mapOptions.zoom = 14;
+        } else {
+          // 全校舎が収まるように表示
+          mapOptions.bounds = [bounds.sw, bounds.ne];
+          mapOptions.fitBoundsOptions = {
             padding: 40,
             maxZoom: 12,
-          },
-        });
+          };
+        }
+
+        mapInstance = new maplibregl.Map(mapOptions);
 
         mapInstance.addControl(new maplibregl.NavigationControl(), 'top-right');
 
@@ -221,7 +241,7 @@ export function MapSchoolSelector({
       }
       markersRef.current = [];
     };
-  }, [schools, getBounds]);
+  }, [schools, getBounds, getInitialSchool]);
 
   // 選択された校舎が変わったらマーカーの色を更新
   useEffect(() => {

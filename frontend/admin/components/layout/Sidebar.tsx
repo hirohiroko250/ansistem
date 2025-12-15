@@ -14,6 +14,7 @@ import {
   Calendar,
   Settings,
   Receipt,
+  Landmark,
 } from "lucide-react";
 
 const menuItems = [
@@ -56,6 +57,11 @@ const menuItems = [
     name: "Billing",
     href: "/billing",
     icon: Receipt,
+  },
+  {
+    name: "Bank Requests",
+    href: "/billing/bank-requests",
+    icon: Landmark,
   },
   {
     name: "Messages",

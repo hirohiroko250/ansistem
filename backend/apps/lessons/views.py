@@ -618,6 +618,11 @@ class MarkAbsenceView(APIView):
         except Student.DoesNotExist:
             return Response({'error': 'Student not found'}, status=404)
 
+        # 退会済み生徒で退会日を過ぎている場合はエラー
+        from datetime import date
+        if student.status == 'withdrawn' and student.withdrawal_date and date.today() > student.withdrawal_date:
+            return Response({'error': '退会日を過ぎているため、欠席登録はできません'}, status=400)
+
         # ClassSchedule取得（tenant_idはフィルタリングしない - 異なるテナントIDが設定されている場合があるため）
         try:
             class_schedule = ClassSchedule.objects.get(id=class_schedule_id)
@@ -738,6 +743,19 @@ class AbsenceTicketListView(APIView):
                 if ticket.class_schedule.brand:
                     brand_name = ticket.class_schedule.brand.brand_name
 
+            # 使用可能かどうか判定（退会後は使用不可）
+            can_use = True
+            unavailable_reason = None
+            student = ticket.student
+            if student and student.status == 'withdrawn' and student.withdrawal_date and today > student.withdrawal_date:
+                can_use = False
+                unavailable_reason = '退会日を過ぎているため使用できません'
+            elif ticket.status != 'issued':
+                can_use = False
+            elif ticket.valid_until and ticket.valid_until < today:
+                can_use = False
+                unavailable_reason = '有効期限が切れています'
+
             tickets.append({
                 'id': str(ticket.id),
                 'studentId': str(ticket.student_id),
@@ -756,6 +774,8 @@ class AbsenceTicketListView(APIView):
                 'classScheduleId': str(ticket.class_schedule_id) if ticket.class_schedule_id else None,
                 'notes': ticket.notes or '',
                 'createdAt': ticket.created_at.isoformat() if ticket.created_at else None,
+                'canUse': can_use,
+                'unavailableReason': unavailable_reason,
             })
 
         return Response(tickets)
@@ -797,13 +817,18 @@ class UseAbsenceTicketView(APIView):
 
         # 欠席チケットを取得
         try:
-            absence_ticket = AbsenceTicket.objects.get(
+            absence_ticket = AbsenceTicket.objects.select_related('student').get(
                 id=absence_ticket_id,
                 student_id__in=student_ids,
                 status=AbsenceTicket.Status.ISSUED
             )
         except AbsenceTicket.DoesNotExist:
             return Response({'error': '有効な欠席チケットが見つかりません'}, status=404)
+
+        # 退会済み生徒で退会日を過ぎている場合はエラー
+        student = absence_ticket.student
+        if student.status == 'withdrawn' and student.withdrawal_date and date.today() > student.withdrawal_date:
+            return Response({'error': '退会日を過ぎているため、振替チケットは使用できません'}, status=400)
 
         # 有効期限チェック
         if absence_ticket.valid_until and absence_ticket.valid_until < date.today():
@@ -889,7 +914,7 @@ class TransferAvailableClassesView(APIView):
         # 欠席チケットを取得
         try:
             absence_ticket = AbsenceTicket.objects.select_related(
-                'class_schedule', 'class_schedule__school', 'class_schedule__brand'
+                'student', 'class_schedule', 'class_schedule__school', 'class_schedule__brand'
             ).get(
                 id=absence_ticket_id,
                 student_id__in=student_ids,
@@ -897,6 +922,11 @@ class TransferAvailableClassesView(APIView):
             )
         except AbsenceTicket.DoesNotExist:
             return Response({'error': '有効な欠席チケットが見つかりません'}, status=404)
+
+        # 退会済み生徒で退会日を過ぎている場合はエラー
+        student = absence_ticket.student
+        if student and student.status == 'withdrawn' and student.withdrawal_date and date.today() > student.withdrawal_date:
+            return Response({'error': '退会日を過ぎているため、振替チケットは使用できません'}, status=400)
 
         # 同じconsumption_symbolを持つClassScheduleを検索
         available_classes = ClassSchedule.objects.filter(

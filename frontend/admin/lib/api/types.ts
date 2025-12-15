@@ -188,6 +188,8 @@ export interface Guardian {
   updated_at?: string;
   full_name?: string;
   full_name_kana?: string;
+  student_count?: number;
+  student_names?: string[];
   // camelCase fields
   guardianNo?: string;
   oldId?: string;
@@ -213,6 +215,8 @@ export interface Guardian {
   updatedAt?: string;
   fullName?: string;
   fullNameKana?: string;
+  studentCount?: number;
+  studentNames?: string[];
   // Common fields
   email?: string;
   phone?: string;

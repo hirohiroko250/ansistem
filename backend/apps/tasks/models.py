@@ -36,7 +36,11 @@ class Task(TenantModel):
         ('trial_registration', '体験登録'),
         ('enrollment', '入会申請'),
         ('withdrawal', '退会申請'),
+        ('suspension', '休会申請'),
         ('contract_change', '契約変更'),
+        ('debit_failure', '引落失敗'),
+        ('refund_request', '返金申請'),
+        ('bank_account_request', '口座申請'),
         ('other', 'その他'),
     ]
 

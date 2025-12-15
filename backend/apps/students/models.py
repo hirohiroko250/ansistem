@@ -31,13 +31,14 @@ class Student(TenantModel):
 
     @classmethod
     def generate_student_no(cls):
-        """8桁の生徒番号を自動生成"""
+        """2で始まる7桁の生徒番号を自動生成（2XXXXXX）"""
         import random
         while True:
-            # 8桁の数字を生成（10000000〜99999999）
-            student_no = str(random.randint(10000000, 99999999))
-            # 既存の番号と重複しないかチェック
-            if not cls.objects.filter(student_no=student_no).exists():
+            # 2で始まる7桁の数字を生成（2000000〜2999999）
+            student_no = str(random.randint(2000000, 2999999))
+            # 既存の番号と旧システムIDの両方と重複しないかチェック
+            if not cls.objects.filter(student_no=student_no).exists() and \
+               not cls.objects.filter(old_id=student_no).exists():
                 return student_no
 
     def save(self, *args, **kwargs):
@@ -187,13 +188,14 @@ class Guardian(TenantModel):
 
     @classmethod
     def generate_guardian_no(cls):
-        """8桁の保護者番号を自動生成"""
+        """8で始まる8桁の保護者番号を自動生成（8XXXXXXX）"""
         import random
         while True:
-            # 8桁の数字を生成（10000000〜99999999）
-            guardian_no = str(random.randint(10000000, 99999999))
-            # 既存の番号と重複しないかチェック
-            if not cls.objects.filter(guardian_no=guardian_no).exists():
+            # 8で始まる8桁の数字を生成（80000000〜89999999）
+            guardian_no = str(random.randint(80000000, 89999999))
+            # 既存の番号と旧システムIDの両方と重複しないかチェック
+            if not cls.objects.filter(guardian_no=guardian_no).exists() and \
+               not cls.objects.filter(old_id=guardian_no).exists():
                 return guardian_no
 
     def save(self, *args, **kwargs):
@@ -776,6 +778,7 @@ class BankAccount(TenantModel):
     # ステータス
     is_primary = models.BooleanField('メイン口座', default=False)
     is_active = models.BooleanField('有効', default=True)
+    notes = models.TextField('備考', blank=True)
 
     class Meta:
         db_table = 't15_bank_accounts'

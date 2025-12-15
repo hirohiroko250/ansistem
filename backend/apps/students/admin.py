@@ -123,15 +123,16 @@ class StudentAdmin(CSVImportExportMixin, admin.ModelAdmin):
 
     # カスタムインポーター使用
     csv_importer_class = StudentCSVImporter
-    list_display = ['student_no', 'last_name', 'first_name', 'grade', 'primary_school', 'status', 'enrollment_date', 'tenant_ref']
+    list_display = ['student_no', 'old_id', 'last_name', 'first_name', 'grade', 'primary_school', 'status', 'enrollment_date', 'tenant_ref']
     list_filter = ['tenant_ref', 'status', 'grade', 'primary_school', 'primary_brand']
-    search_fields = ['student_no', 'last_name', 'first_name', 'email']
+    search_fields = ['student_no', 'old_id', 'last_name', 'first_name', 'email']
     ordering = ['-created_at']
     raw_id_fields = ['grade', 'primary_school', 'primary_brand', 'user', 'tenant_ref']
 
     # CSV Import設定
     csv_import_fields = {
         '生徒番号': 'student_no',
+        '旧システムID': 'old_id',
         '姓': 'last_name',
         '名': 'first_name',
         '姓（カナ）': 'last_name_kana',
@@ -156,7 +157,7 @@ class StudentAdmin(CSVImportExportMixin, admin.ModelAdmin):
     csv_required_fields = ['姓', '名']  # 生徒番号は自動発番されるため必須ではない
     csv_unique_fields = ['student_no']
     csv_export_fields = [
-        'student_no', 'last_name', 'first_name', 'last_name_kana', 'first_name_kana',
+        'student_no', 'old_id', 'last_name', 'first_name', 'last_name_kana', 'first_name_kana',
         'display_name', 'email', 'phone', 'line_id', 'birth_date', 'gender',
         'school_name', 'school_type', 'primary_school.school_name', 'primary_brand.brand_name',
         'grade.grade_name', 'enrollment_date', 'withdrawal_date', 'withdrawal_reason',
@@ -164,6 +165,7 @@ class StudentAdmin(CSVImportExportMixin, admin.ModelAdmin):
     ]
     csv_export_headers = {
         'student_no': '生徒番号',
+        'old_id': '旧システムID',
         'last_name': '姓',
         'first_name': '名',
         'last_name_kana': '姓（カナ）',
@@ -189,16 +191,16 @@ class StudentAdmin(CSVImportExportMixin, admin.ModelAdmin):
 
 @admin.register(Guardian)
 class GuardianAdmin(CSVImportExportMixin, admin.ModelAdmin):
-    list_display = ['guardian_no', 'last_name', 'first_name', 'email', 'phone_mobile', 'prefecture', 'city', 'nearest_school', 'tenant_ref']
+    list_display = ['guardian_no', 'old_id', 'last_name', 'first_name', 'email', 'phone_mobile', 'prefecture', 'city', 'nearest_school', 'tenant_ref']
     list_display_links = ['guardian_no', 'last_name', 'first_name']
     list_filter = ['tenant_ref', 'prefecture', 'nearest_school']
-    search_fields = ['guardian_no', 'last_name', 'first_name', 'email', 'phone', 'phone_mobile', 'postal_code', 'city']
+    search_fields = ['guardian_no', 'old_id', 'last_name', 'first_name', 'email', 'phone', 'phone_mobile', 'postal_code', 'city']
     ordering = ['-created_at']
     raw_id_fields = ['tenant_ref', 'user', 'nearest_school']
 
     fieldsets = (
         ('基本情報', {
-            'fields': ('guardian_no', 'user', 'tenant_ref')
+            'fields': ('guardian_no', 'old_id', 'user', 'tenant_ref')
         }),
         ('氏名', {
             'fields': (('last_name', 'first_name'), ('last_name_kana', 'first_name_kana'))
@@ -239,6 +241,7 @@ class GuardianAdmin(CSVImportExportMixin, admin.ModelAdmin):
     # CSV Import設定
     csv_import_fields = {
         '保護者番号': 'guardian_no',
+        '旧システムID': 'old_id',
         '姓': 'last_name',
         '名': 'first_name',
         '姓（カナ）': 'last_name_kana',
@@ -260,13 +263,14 @@ class GuardianAdmin(CSVImportExportMixin, admin.ModelAdmin):
     csv_required_fields = ['姓', '名']
     csv_unique_fields = ['guardian_no']
     csv_export_fields = [
-        'guardian_no', 'last_name', 'first_name', 'last_name_kana', 'first_name_kana',
+        'guardian_no', 'old_id', 'last_name', 'first_name', 'last_name_kana', 'first_name_kana',
         'email', 'phone', 'phone_mobile', 'workplace', 'workplace_phone',
         'postal_code', 'prefecture', 'city', 'address1', 'address2',
         'nearest_school.school_name', 'referral_source', 'expectations', 'notes'
     ]
     csv_export_headers = {
         'guardian_no': '保護者番号',
+        'old_id': '旧システムID',
         'last_name': '姓',
         'first_name': '名',
         'last_name_kana': '姓（カナ）',
@@ -817,7 +821,11 @@ class WithdrawalRequestAdmin(admin.ModelAdmin):
 
 @admin.register(BankAccount)
 class BankAccountAdmin(admin.ModelAdmin):
-    """銀行口座Admin"""
+    """銀行口座履歴Admin
+
+    口座変更時に旧口座を履歴として保存するテーブル。
+    現在有効な口座はGuardianモデルに直接保存されています。
+    """
     list_display = [
         'get_guardian_name',
         'bank_name',
@@ -825,11 +833,11 @@ class BankAccountAdmin(admin.ModelAdmin):
         'account_type',
         'account_number',
         'account_holder',
-        'is_primary',
         'is_active',
+        'created_at',
     ]
     list_display_links = ['get_guardian_name', 'bank_name']
-    list_filter = ['is_primary', 'is_active', 'account_type']
+    list_filter = ['is_active', 'account_type', 'created_at']
     search_fields = [
         'guardian__guardian_no',
         'guardian__last_name',

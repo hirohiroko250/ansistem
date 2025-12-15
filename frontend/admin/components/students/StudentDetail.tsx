@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { Student, Guardian, Contract, Invoice, StudentDiscount } from "@/lib/api/types";
 import { ContactLog, ChatLog, ChatMessage } from "@/lib/api/staff";
 import { Button } from "@/components/ui/button";
@@ -28,8 +28,22 @@ import {
   Users,
   Calendar,
   Pencil,
+  ExternalLink,
 } from "lucide-react";
 import { ContractEditDialog } from "./ContractEditDialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Checkbox } from "@/components/ui/checkbox";
+import apiClient from "@/lib/api/client";
 
 interface ContractUpdate {
   discounts?: {
@@ -149,6 +163,67 @@ export function StudentDetail({ student, parents, contracts, invoices, contactLo
   const [editingContract, setEditingContract] = useState<Contract | null>(null);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
 
+  // 保護者編集ダイアログ
+  const [guardianEditDialogOpen, setGuardianEditDialogOpen] = useState(false);
+  const [editingGuardian, setEditingGuardian] = useState<Guardian | null>(null);
+  const [guardianForm, setGuardianForm] = useState({
+    last_name: '',
+    first_name: '',
+    last_name_kana: '',
+    first_name_kana: '',
+    phone: '',
+    phone_mobile: '',
+    email: '',
+    postal_code: '',
+    prefecture: '',
+    city: '',
+    address1: '',
+    address2: '',
+  });
+
+  // 休会・退会ダイアログ
+  const [suspensionDialogOpen, setSuspensionDialogOpen] = useState(false);
+  const [withdrawalDialogOpen, setWithdrawalDialogOpen] = useState(false);
+  const [suspensionForm, setSuspensionForm] = useState({
+    suspend_from: new Date().toISOString().split('T')[0],
+    suspend_until: '',
+    keep_seat: true,
+    reason: 'other',
+    reason_detail: '',
+  });
+  const [withdrawalForm, setWithdrawalForm] = useState({
+    withdrawal_date: new Date().toISOString().split('T')[0],
+    last_lesson_date: '',
+    reason: 'other',
+    reason_detail: '',
+  });
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // 休会・退会申請履歴
+  const [suspensionRequests, setSuspensionRequests] = useState<any[]>([]);
+  const [withdrawalRequests, setWithdrawalRequests] = useState<any[]>([]);
+
+  // 休会・退会申請を取得
+  useEffect(() => {
+    const fetchRequests = async () => {
+      try {
+        const [suspensions, withdrawals] = await Promise.all([
+          apiClient.get<{ results?: any[]; data?: any[] } | any[]>(`/students/suspension-requests/?student_id=${student.id}`),
+          apiClient.get<{ results?: any[]; data?: any[] } | any[]>(`/students/withdrawal-requests/?student_id=${student.id}`),
+        ]);
+        const suspensionData = Array.isArray(suspensions) ? suspensions : (suspensions.results || suspensions.data || []);
+        const withdrawalData = Array.isArray(withdrawals) ? withdrawals : (withdrawals.results || withdrawals.data || []);
+        setSuspensionRequests(suspensionData);
+        setWithdrawalRequests(withdrawalData);
+      } catch (error) {
+        console.error('Failed to fetch requests:', error);
+      }
+    };
+    if (student.id) {
+      fetchRequests();
+    }
+  }, [student.id]);
+
   // 契約フィルター用の年月選択
   const [contractYear, setContractYear] = useState<string>("all");
   const [contractMonth, setContractMonth] = useState<string>("all");
@@ -156,6 +231,38 @@ export function StudentDetail({ student, parents, contracts, invoices, contactLo
   // 請求フィルター用の年月選択
   const [invoiceYear, setInvoiceYear] = useState<string>("all");
   const [invoiceMonth, setInvoiceMonth] = useState<string>("all");
+
+  // やりとりタブのサブタブと日付フィルター
+  const [commTab, setCommTab] = useState<"logs" | "chat" | "requests">("logs");
+  const [commDateFrom, setCommDateFrom] = useState<string>("");
+  const [commDateTo, setCommDateTo] = useState<string>("");
+
+  // 日付フィルタリングされた対応ログ
+  const filteredContactLogs = useMemo(() => {
+    return contactLogs.filter((log) => {
+      const logDate = new Date(log.created_at);
+      if (commDateFrom && logDate < new Date(commDateFrom)) return false;
+      if (commDateTo && logDate > new Date(commDateTo + "T23:59:59")) return false;
+      return true;
+    });
+  }, [contactLogs, commDateFrom, commDateTo]);
+
+  // 日付フィルタリングされたメッセージ
+  const filteredMessages = useMemo(() => {
+    const allMessages = messages.length > 0 ? messages : chatLogs;
+    return allMessages.filter((msg: any) => {
+      const msgDate = new Date(msg.created_at || msg.timestamp);
+      if (commDateFrom && msgDate < new Date(commDateFrom)) return false;
+      if (commDateTo && msgDate > new Date(commDateTo + "T23:59:59")) return false;
+      return true;
+    });
+  }, [messages, chatLogs, commDateFrom, commDateTo]);
+
+  // 日付フィルターをクリア
+  const clearCommDateFilter = () => {
+    setCommDateFrom("");
+    setCommDateTo("");
+  };
 
   // 年の選択肢を生成（過去3年〜今年まで）
   const currentYear = new Date().getFullYear();
@@ -316,6 +423,91 @@ export function StudentDetail({ student, parents, contracts, invoices, contactLo
     return `${date.getFullYear()}年${date.getMonth() + 1}月${date.getDate()}日`;
   };
 
+  // 保護者編集ダイアログを開く
+  const openGuardianEditDialog = (g: Guardian) => {
+    setEditingGuardian(g);
+    setGuardianForm({
+      last_name: g.lastName || g.last_name || '',
+      first_name: g.firstName || g.first_name || '',
+      last_name_kana: g.lastNameKana || g.last_name_kana || '',
+      first_name_kana: g.firstNameKana || g.first_name_kana || '',
+      phone: g.phone || '',
+      phone_mobile: g.phoneMobile || g.phone_mobile || '',
+      email: g.email || '',
+      postal_code: g.postalCode || g.postal_code || '',
+      prefecture: g.prefecture || '',
+      city: g.city || '',
+      address1: g.address1 || '',
+      address2: g.address2 || '',
+    });
+    setGuardianEditDialogOpen(true);
+  };
+
+  // 保護者情報を更新
+  const handleGuardianUpdate = async () => {
+    if (!editingGuardian) return;
+    setIsSubmitting(true);
+    try {
+      await apiClient.patch(`/students/guardians/${editingGuardian.id}/`, guardianForm);
+      alert('保護者情報を更新しました');
+      setGuardianEditDialogOpen(false);
+      window.location.reload();
+    } catch (error: any) {
+      console.error('Guardian update error:', error);
+      alert(error.message || '保護者情報の更新に失敗しました');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  // 休会申請を送信
+  const handleSuspensionSubmit = async () => {
+    setIsSubmitting(true);
+    try {
+      const response = await apiClient.post<{ id: string }>('/students/suspension-requests/', {
+        student: student.id,
+        school: student.primary_school?.id || student.primary_school_id,
+        ...suspensionForm,
+      });
+
+      // 承認処理も同時に実行（管理者なので）
+      await apiClient.post(`/students/suspension-requests/${response.id}/approve/`, {});
+
+      alert('休会登録が完了しました');
+      setSuspensionDialogOpen(false);
+      window.location.reload(); // リロードして最新状態を取得
+    } catch (error: any) {
+      console.error('Suspension error:', error);
+      alert(error.message || '休会登録に失敗しました');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  // 退会申請を送信
+  const handleWithdrawalSubmit = async () => {
+    setIsSubmitting(true);
+    try {
+      const response = await apiClient.post<{ id: string }>('/students/withdrawal-requests/', {
+        student: student.id,
+        school: student.primary_school?.id || student.primary_school_id,
+        ...withdrawalForm,
+      });
+
+      // 承認処理も同時に実行（管理者なので）
+      await apiClient.post(`/students/withdrawal-requests/${response.id}/approve/`, {});
+
+      alert('退会登録が完了しました');
+      setWithdrawalDialogOpen(false);
+      window.location.reload(); // リロードして最新状態を取得
+    } catch (error: any) {
+      console.error('Withdrawal error:', error);
+      alert(error.message || '退会登録に失敗しました');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   // 保護者情報
   const guardian = parents[0] || student.guardian;
   const guardianNo = guardian?.guardianNo || guardian?.guardian_no || "";
@@ -335,9 +527,12 @@ export function StudentDetail({ student, parents, contracts, invoices, contactLo
             <p className="text-blue-100 text-sm">{lastNameKana} {firstNameKana}</p>
             <p className="text-blue-200 text-xs mt-1">No. {studentNo}</p>
           </div>
-          <Badge className={getStatusColor(student.status)}>
-            {getStatusLabel(student.status)}
-          </Badge>
+          <div className="flex items-center gap-2">
+            <Badge className={getStatusColor(student.status)}>
+              {getStatusLabel(student.status)}
+            </Badge>
+{/* 保護者画面ボタン - ユーザーアカウント作成後に有効化予定 */}
+          </div>
         </div>
       </div>
 
@@ -606,15 +801,25 @@ export function StudentDetail({ student, parents, contracts, invoices, contactLo
 
                   return (
                     <div key={g?.id || idx} className="border rounded-lg p-4">
-                      <div className="flex items-start gap-3 mb-4">
-                        <div className="w-12 h-12 bg-gray-200 rounded-full flex items-center justify-center">
-                          <User className="w-6 h-6 text-gray-500" />
+                      <div className="flex items-start justify-between mb-4">
+                        <div className="flex items-start gap-3">
+                          <div className="w-12 h-12 bg-gray-200 rounded-full flex items-center justify-center">
+                            <User className="w-6 h-6 text-gray-500" />
+                          </div>
+                          <div>
+                            <h3 className="font-bold text-lg">{gLastName} {gFirstName}</h3>
+                            <p className="text-sm text-gray-500">{gLastNameKana} {gFirstNameKana}</p>
+                            <p className="text-xs text-gray-400">No. {gNo}</p>
+                          </div>
                         </div>
-                        <div>
-                          <h3 className="font-bold text-lg">{gLastName} {gFirstName}</h3>
-                          <p className="text-sm text-gray-500">{gLastNameKana} {gFirstNameKana}</p>
-                          <p className="text-xs text-gray-400">No. {gNo}</p>
-                        </div>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => g && openGuardianEditDialog(g)}
+                        >
+                          <Pencil className="w-4 h-4 mr-1" />
+                          編集
+                        </Button>
                       </div>
 
                       <table className="w-full text-sm border">
@@ -1117,16 +1322,74 @@ export function StudentDetail({ student, parents, contracts, invoices, contactLo
 
         {/* やりとりタブ */}
         <TabsContent value="communications" className="flex-1 overflow-auto p-0 m-0">
-          <div className="p-4">
+          <div className="p-4 space-y-4">
+            {/* 日付範囲フィルター */}
+            <div className="flex items-center gap-2 flex-wrap bg-gray-50 p-2 rounded-lg">
+              <Calendar className="w-4 h-4 text-gray-500" />
+              <Input
+                type="date"
+                value={commDateFrom}
+                onChange={(e) => setCommDateFrom(e.target.value)}
+                className="w-36 h-8 text-sm"
+              />
+              <span className="text-gray-400">〜</span>
+              <Input
+                type="date"
+                value={commDateTo}
+                onChange={(e) => setCommDateTo(e.target.value)}
+                className="w-36 h-8 text-sm"
+              />
+              {(commDateFrom || commDateTo) && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={clearCommDateFilter}
+                  className="h-8 text-xs"
+                >
+                  クリア
+                </Button>
+              )}
+            </div>
+
+            {/* サブタブ切り替え */}
+            <div className="flex gap-1 border-b">
+              <button
+                className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+                  commTab === "logs"
+                    ? "border-blue-500 text-blue-600"
+                    : "border-transparent text-gray-500 hover:text-gray-700"
+                }`}
+                onClick={() => setCommTab("logs")}
+              >
+                対応履歴 ({filteredContactLogs.length})
+              </button>
+              <button
+                className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+                  commTab === "chat"
+                    ? "border-blue-500 text-blue-600"
+                    : "border-transparent text-gray-500 hover:text-gray-700"
+                }`}
+                onClick={() => setCommTab("chat")}
+              >
+                チャット ({filteredMessages.length})
+              </button>
+              <button
+                className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+                  commTab === "requests"
+                    ? "border-blue-500 text-blue-600"
+                    : "border-transparent text-gray-500 hover:text-gray-700"
+                }`}
+                onClick={() => setCommTab("requests")}
+              >
+                申請履歴 ({suspensionRequests.length + withdrawalRequests.length})
+              </button>
+            </div>
+
             {/* 対応履歴 */}
-            <div className="mb-6">
-              <h3 className="text-sm font-semibold text-gray-700 mb-3 flex items-center">
-                <History className="w-4 h-4 mr-1" />
-                対応履歴
-              </h3>
-              {contactLogs.length > 0 ? (
-                <div className="space-y-3">
-                  {contactLogs.map((log) => (
+            {commTab === "logs" && (
+              <div className="space-y-3">
+                {filteredContactLogs.length > 0 ? (
+                  filteredContactLogs.map((log) => (
                     <div key={log.id} className="border rounded-lg p-3 hover:bg-gray-50">
                       <div className="flex items-start justify-between mb-2">
                         <div className="flex items-center gap-2">
@@ -1142,35 +1405,33 @@ export function StudentDetail({ student, parents, contracts, invoices, contactLo
                         </span>
                       </div>
                       <h4 className="font-medium text-sm mb-1">{log.subject}</h4>
-                      <p className="text-xs text-gray-600 line-clamp-2">{log.content}</p>
+                      <p className="text-xs text-gray-600 whitespace-pre-wrap">{log.content}</p>
                       {log.handled_by_name && (
                         <p className="text-xs text-gray-400 mt-2">対応者: {log.handled_by_name}</p>
                       )}
                     </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="text-center text-gray-500 py-4 text-sm">
-                  対応履歴がありません
-                </div>
-              )}
-            </div>
+                  ))
+                ) : (
+                  <div className="text-center text-gray-500 py-8 text-sm">
+                    {contactLogs.length === 0
+                      ? "対応履歴がありません"
+                      : "該当する期間の対応履歴がありません"}
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* チャット履歴 */}
-            <div>
-              <h3 className="text-sm font-semibold text-gray-700 mb-3 flex items-center">
-                <MessageCircle className="w-4 h-4 mr-1" />
-                チャット履歴
-              </h3>
-              {messages.length > 0 ? (
-                <div className="space-y-2 max-h-96 overflow-y-auto border rounded-lg p-2 bg-gray-50">
-                  {messages.map((msg) => {
-                    const isGuardian = !!msg.sender_guardian_id || !!msg.sender_guardian_name;
-                    const isBot = msg.is_bot_message;
+            {commTab === "chat" && (
+              <div className="space-y-2 max-h-[60vh] overflow-y-auto border rounded-lg p-2 bg-gray-50">
+                {filteredMessages.length > 0 ? (
+                  filteredMessages.map((msg: any) => {
+                    const isGuardian = !!msg.sender_guardian_id || !!msg.sender_guardian_name || msg.sender_type === "GUARDIAN";
+                    const isBot = msg.is_bot_message || msg.sender_type === "BOT";
                     const senderLabel = isBot
                       ? "ボット"
                       : isGuardian
-                      ? (msg.sender_guardian_name || "保護者")
+                      ? (msg.sender_guardian_name || msg.guardian_name || "保護者")
                       : (msg.sender_name || "スタッフ");
 
                     return (
@@ -1189,8 +1450,7 @@ export function StudentDetail({ student, parents, contracts, invoices, contactLo
                             {senderLabel}
                           </span>
                           <span className="text-xs text-gray-400">
-                            {new Date(msg.created_at).toLocaleString("ja-JP", {
-                              year: "numeric",
+                            {new Date(msg.created_at || msg.timestamp).toLocaleString("ja-JP", {
                               month: "numeric",
                               day: "numeric",
                               hour: "2-digit",
@@ -1204,57 +1464,96 @@ export function StudentDetail({ student, parents, contracts, invoices, contactLo
                             添付: {msg.attachment_name}
                           </div>
                         )}
-                        {msg.is_edited && (
-                          <span className="text-xs text-gray-400 ml-2">(編集済み)</span>
-                        )}
                       </div>
                     );
-                  })}
-                </div>
-              ) : chatLogs.length > 0 ? (
-                <div className="space-y-2 max-h-96 overflow-y-auto border rounded-lg p-2 bg-gray-50">
-                  {chatLogs.map((chat) => (
-                    <div
-                      key={chat.id}
-                      className={`p-3 rounded-lg text-sm ${
-                        chat.sender_type === "GUARDIAN"
-                          ? "bg-blue-100 ml-0 mr-12"
-                          : chat.sender_type === "BOT"
-                          ? "bg-gray-200 ml-12 mr-0"
-                          : "bg-green-100 ml-12 mr-0"
-                      }`}
-                    >
-                      <div className="flex justify-between items-center mb-1">
-                        <span className="text-xs font-medium text-gray-600">
-                          {getSenderTypeLabel(chat.sender_type)}
-                          {chat.guardian_name && ` - ${chat.guardian_name}`}
-                        </span>
-                        <span className="text-xs text-gray-400">
-                          {new Date(chat.timestamp).toLocaleString("ja-JP", {
-                            year: "numeric",
-                            month: "numeric",
-                            day: "numeric",
-                            hour: "2-digit",
-                            minute: "2-digit",
-                          })}
-                        </span>
-                      </div>
-                      <p className="text-gray-800 whitespace-pre-wrap">{chat.content}</p>
-                      {(chat.brand_name || chat.school_name) && (
-                        <div className="mt-1 text-xs text-gray-500">
-                          {chat.brand_name && <span className="mr-2">{chat.brand_name}</span>}
-                          {chat.school_name && <span>{chat.school_name}</span>}
+                  })
+                ) : (
+                  <div className="text-center text-gray-500 py-8 text-sm">
+                    {messages.length === 0 && chatLogs.length === 0
+                      ? "チャット履歴がありません"
+                      : "該当する期間のチャットがありません"}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* 休会・退会申請履歴 */}
+            {commTab === "requests" && (
+              <div className="space-y-3">
+                {(suspensionRequests.length > 0 || withdrawalRequests.length > 0) ? (
+                  <>
+                    {/* 休会申請 */}
+                    {suspensionRequests.map((req) => (
+                      <div key={req.id} className="border rounded-lg p-3 hover:bg-orange-50 border-orange-200">
+                        <div className="flex items-start justify-between mb-2">
+                          <div className="flex items-center gap-2">
+                            <Badge className="bg-orange-100 text-orange-800 text-xs">
+                              休会申請
+                            </Badge>
+                            <Badge className={`text-xs ${
+                              req.status === 'approved' ? 'bg-green-100 text-green-800' :
+                              req.status === 'pending' ? 'bg-yellow-100 text-yellow-800' :
+                              req.status === 'rejected' ? 'bg-red-100 text-red-800' :
+                              req.status === 'resumed' ? 'bg-blue-100 text-blue-800' :
+                              'bg-gray-100 text-gray-800'
+                            }`}>
+                              {req.status === 'approved' ? '承認済' :
+                               req.status === 'pending' ? '申請中' :
+                               req.status === 'rejected' ? '却下' :
+                               req.status === 'resumed' ? '復会済' :
+                               req.status === 'cancelled' ? '取消' : req.status}
+                            </Badge>
+                          </div>
+                          <span className="text-xs text-gray-400">
+                            {req.requested_at && new Date(req.requested_at).toLocaleDateString("ja-JP")}
+                          </span>
                         </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="text-center text-gray-500 py-4 text-sm">
-                  チャット履歴がありません
-                </div>
-              )}
-            </div>
+                        <div className="text-sm text-gray-700">
+                          <p>休会期間: {req.suspend_from} 〜 {req.suspend_until || '未定'}</p>
+                          {req.keep_seat && <p className="text-xs text-orange-600">座席保持あり（休会費800円/月）</p>}
+                          {req.reason_detail && <p className="text-xs text-gray-500 mt-1">{req.reason_detail}</p>}
+                        </div>
+                      </div>
+                    ))}
+                    {/* 退会申請 */}
+                    {withdrawalRequests.map((req) => (
+                      <div key={req.id} className="border rounded-lg p-3 hover:bg-red-50 border-red-200">
+                        <div className="flex items-start justify-between mb-2">
+                          <div className="flex items-center gap-2">
+                            <Badge className="bg-red-100 text-red-800 text-xs">
+                              退会申請
+                            </Badge>
+                            <Badge className={`text-xs ${
+                              req.status === 'approved' ? 'bg-green-100 text-green-800' :
+                              req.status === 'pending' ? 'bg-yellow-100 text-yellow-800' :
+                              req.status === 'rejected' ? 'bg-red-100 text-red-800' :
+                              'bg-gray-100 text-gray-800'
+                            }`}>
+                              {req.status === 'approved' ? '承認済' :
+                               req.status === 'pending' ? '申請中' :
+                               req.status === 'rejected' ? '却下' :
+                               req.status === 'cancelled' ? '取消' : req.status}
+                            </Badge>
+                          </div>
+                          <span className="text-xs text-gray-400">
+                            {req.requested_at && new Date(req.requested_at).toLocaleDateString("ja-JP")}
+                          </span>
+                        </div>
+                        <div className="text-sm text-gray-700">
+                          <p>退会日: {req.withdrawal_date}</p>
+                          {req.last_lesson_date && <p className="text-xs">最終授業日: {req.last_lesson_date}</p>}
+                          {req.reason_detail && <p className="text-xs text-gray-500 mt-1">{req.reason_detail}</p>}
+                        </div>
+                      </div>
+                    ))}
+                  </>
+                ) : (
+                  <div className="text-center text-gray-500 py-8 text-sm">
+                    休会・退会申請履歴がありません
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </TabsContent>
       </Tabs>
@@ -1262,16 +1561,184 @@ export function StudentDetail({ student, parents, contracts, invoices, contactLo
       {/* フッターボタン */}
       <div className="border-t p-3 bg-gray-50">
         <div className="flex gap-2">
-          <Button size="sm" variant="outline" className="flex-1 text-orange-600 border-orange-300 hover:bg-orange-50">
+          <Button
+            size="sm"
+            variant="outline"
+            className="flex-1 text-orange-600 border-orange-300 hover:bg-orange-50"
+            onClick={() => setSuspensionDialogOpen(true)}
+            disabled={student.status === 'suspended' || student.status === 'withdrawn'}
+          >
             <PauseCircle className="w-4 h-4 mr-1" />
             休会登録
           </Button>
-          <Button size="sm" variant="outline" className="flex-1 text-red-600 border-red-300 hover:bg-red-50">
+          <Button
+            size="sm"
+            variant="outline"
+            className="flex-1 text-red-600 border-red-300 hover:bg-red-50"
+            onClick={() => setWithdrawalDialogOpen(true)}
+            disabled={student.status === 'withdrawn'}
+          >
             <XCircle className="w-4 h-4 mr-1" />
             退会登録
           </Button>
         </div>
       </div>
+
+      {/* 保護者編集ダイアログ */}
+      <Dialog open={guardianEditDialogOpen} onOpenChange={setGuardianEditDialogOpen}>
+        <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>保護者情報の編集</DialogTitle>
+            <DialogDescription>
+              保護者の連絡先・住所情報を編集します。
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            {/* 氏名 */}
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label className="text-right">氏名</Label>
+              <div className="col-span-3 flex gap-2">
+                <Input
+                  placeholder="姓"
+                  value={guardianForm.last_name}
+                  onChange={(e) => setGuardianForm({ ...guardianForm, last_name: e.target.value })}
+                  className="flex-1"
+                />
+                <Input
+                  placeholder="名"
+                  value={guardianForm.first_name}
+                  onChange={(e) => setGuardianForm({ ...guardianForm, first_name: e.target.value })}
+                  className="flex-1"
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label className="text-right">氏名（カナ）</Label>
+              <div className="col-span-3 flex gap-2">
+                <Input
+                  placeholder="セイ"
+                  value={guardianForm.last_name_kana}
+                  onChange={(e) => setGuardianForm({ ...guardianForm, last_name_kana: e.target.value })}
+                  className="flex-1"
+                />
+                <Input
+                  placeholder="メイ"
+                  value={guardianForm.first_name_kana}
+                  onChange={(e) => setGuardianForm({ ...guardianForm, first_name_kana: e.target.value })}
+                  className="flex-1"
+                />
+              </div>
+            </div>
+            {/* 連絡先 */}
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="guardian_phone" className="text-right">
+                電話番号
+              </Label>
+              <Input
+                id="guardian_phone"
+                value={guardianForm.phone}
+                onChange={(e) => setGuardianForm({ ...guardianForm, phone: e.target.value })}
+                className="col-span-3"
+                placeholder="0561-12-3456"
+              />
+            </div>
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="guardian_mobile" className="text-right">
+                携帯電話
+              </Label>
+              <Input
+                id="guardian_mobile"
+                value={guardianForm.phone_mobile}
+                onChange={(e) => setGuardianForm({ ...guardianForm, phone_mobile: e.target.value })}
+                className="col-span-3"
+                placeholder="090-1234-5678"
+              />
+            </div>
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="guardian_email" className="text-right">
+                メールアドレス
+              </Label>
+              <Input
+                id="guardian_email"
+                type="email"
+                value={guardianForm.email}
+                onChange={(e) => setGuardianForm({ ...guardianForm, email: e.target.value })}
+                className="col-span-3"
+                placeholder="example@email.com"
+              />
+            </div>
+            {/* 住所 */}
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="guardian_postal" className="text-right">
+                郵便番号
+              </Label>
+              <Input
+                id="guardian_postal"
+                value={guardianForm.postal_code}
+                onChange={(e) => setGuardianForm({ ...guardianForm, postal_code: e.target.value })}
+                className="col-span-3"
+                placeholder="488-0001"
+              />
+            </div>
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="guardian_prefecture" className="text-right">
+                都道府県
+              </Label>
+              <Input
+                id="guardian_prefecture"
+                value={guardianForm.prefecture}
+                onChange={(e) => setGuardianForm({ ...guardianForm, prefecture: e.target.value })}
+                className="col-span-3"
+                placeholder="愛知県"
+              />
+            </div>
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="guardian_city" className="text-right">
+                市区町村
+              </Label>
+              <Input
+                id="guardian_city"
+                value={guardianForm.city}
+                onChange={(e) => setGuardianForm({ ...guardianForm, city: e.target.value })}
+                className="col-span-3"
+                placeholder="尾張旭市"
+              />
+            </div>
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="guardian_address1" className="text-right">
+                住所1
+              </Label>
+              <Input
+                id="guardian_address1"
+                value={guardianForm.address1}
+                onChange={(e) => setGuardianForm({ ...guardianForm, address1: e.target.value })}
+                className="col-span-3"
+                placeholder="東印場町3-9-31"
+              />
+            </div>
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="guardian_address2" className="text-right">
+                住所2
+              </Label>
+              <Input
+                id="guardian_address2"
+                value={guardianForm.address2}
+                onChange={(e) => setGuardianForm({ ...guardianForm, address2: e.target.value })}
+                className="col-span-3"
+                placeholder="建物名・部屋番号"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setGuardianEditDialogOpen(false)}>
+              キャンセル
+            </Button>
+            <Button onClick={handleGuardianUpdate} disabled={isSubmitting}>
+              {isSubmitting ? '保存中...' : '保存'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* 契約編集ダイアログ */}
       <ContractEditDialog
@@ -1284,6 +1751,173 @@ export function StudentDetail({ student, parents, contracts, invoices, contactLo
           }
         }}
       />
+
+      {/* 休会登録ダイアログ */}
+      <Dialog open={suspensionDialogOpen} onOpenChange={setSuspensionDialogOpen}>
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle>休会登録</DialogTitle>
+            <DialogDescription>
+              {lastName} {firstName}さんの休会を登録します。
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="suspend_from" className="text-right">
+                休会開始日
+              </Label>
+              <Input
+                id="suspend_from"
+                type="date"
+                value={suspensionForm.suspend_from}
+                onChange={(e) => setSuspensionForm({ ...suspensionForm, suspend_from: e.target.value })}
+                className="col-span-3"
+              />
+            </div>
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="suspend_until" className="text-right">
+                休会終了日
+              </Label>
+              <Input
+                id="suspend_until"
+                type="date"
+                value={suspensionForm.suspend_until}
+                onChange={(e) => setSuspensionForm({ ...suspensionForm, suspend_until: e.target.value })}
+                className="col-span-3"
+                placeholder="未定の場合は空欄"
+              />
+            </div>
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label className="text-right">座席保持</Label>
+              <div className="col-span-3 flex items-center space-x-2">
+                <Checkbox
+                  id="keep_seat"
+                  checked={suspensionForm.keep_seat}
+                  onCheckedChange={(checked) => setSuspensionForm({ ...suspensionForm, keep_seat: !!checked })}
+                />
+                <label htmlFor="keep_seat" className="text-sm text-gray-600">
+                  座席を保持する（休会費800円/月が発生）
+                </label>
+              </div>
+            </div>
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="reason" className="text-right">
+                理由
+              </Label>
+              <select
+                id="reason"
+                value={suspensionForm.reason}
+                onChange={(e) => setSuspensionForm({ ...suspensionForm, reason: e.target.value })}
+                className="col-span-3 flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+              >
+                <option value="travel">旅行・帰省</option>
+                <option value="illness">病気・怪我</option>
+                <option value="exam">受験準備</option>
+                <option value="schedule">スケジュール都合</option>
+                <option value="other">その他</option>
+              </select>
+            </div>
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="reason_detail" className="text-right">
+                詳細
+              </Label>
+              <Textarea
+                id="reason_detail"
+                value={suspensionForm.reason_detail}
+                onChange={(e) => setSuspensionForm({ ...suspensionForm, reason_detail: e.target.value })}
+                className="col-span-3"
+                rows={3}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setSuspensionDialogOpen(false)}>
+              キャンセル
+            </Button>
+            <Button onClick={handleSuspensionSubmit} disabled={isSubmitting}>
+              {isSubmitting ? '処理中...' : '休会登録'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* 退会登録ダイアログ */}
+      <Dialog open={withdrawalDialogOpen} onOpenChange={setWithdrawalDialogOpen}>
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle>退会登録</DialogTitle>
+            <DialogDescription>
+              {lastName} {firstName}さんの退会を登録します。この操作は取り消せません。
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="withdrawal_date" className="text-right">
+                退会日
+              </Label>
+              <Input
+                id="withdrawal_date"
+                type="date"
+                value={withdrawalForm.withdrawal_date}
+                onChange={(e) => setWithdrawalForm({ ...withdrawalForm, withdrawal_date: e.target.value })}
+                className="col-span-3"
+              />
+            </div>
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="last_lesson_date" className="text-right">
+                最終授業日
+              </Label>
+              <Input
+                id="last_lesson_date"
+                type="date"
+                value={withdrawalForm.last_lesson_date}
+                onChange={(e) => setWithdrawalForm({ ...withdrawalForm, last_lesson_date: e.target.value })}
+                className="col-span-3"
+              />
+            </div>
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="withdrawal_reason" className="text-right">
+                理由
+              </Label>
+              <select
+                id="withdrawal_reason"
+                value={withdrawalForm.reason}
+                onChange={(e) => setWithdrawalForm({ ...withdrawalForm, reason: e.target.value })}
+                className="col-span-3 flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+              >
+                <option value="moving">転居</option>
+                <option value="school_change">学校変更</option>
+                <option value="graduation">卒業</option>
+                <option value="schedule">スケジュール都合</option>
+                <option value="financial">経済的理由</option>
+                <option value="satisfaction">満足度</option>
+                <option value="other_school">他塾への変更</option>
+                <option value="other">その他</option>
+              </select>
+            </div>
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="withdrawal_reason_detail" className="text-right">
+                詳細
+              </Label>
+              <Textarea
+                id="withdrawal_reason_detail"
+                value={withdrawalForm.reason_detail}
+                onChange={(e) => setWithdrawalForm({ ...withdrawalForm, reason_detail: e.target.value })}
+                className="col-span-3"
+                rows={3}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setWithdrawalDialogOpen(false)}>
+              キャンセル
+            </Button>
+            <Button variant="destructive" onClick={handleWithdrawalSubmit} disabled={isSubmitting}>
+              {isSubmitting ? '処理中...' : '退会登録'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

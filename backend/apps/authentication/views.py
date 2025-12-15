@@ -392,3 +392,54 @@ class MeView(GenericAPIView):
             user.save(update_fields=['first_name', 'last_name'])
 
         return self.get(request)
+
+
+class ImpersonateGuardianView(GenericAPIView):
+    """管理者が保護者としてログインするためのトークン生成"""
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        from apps.students.models import Guardian
+
+        # 管理者権限チェック
+        if not request.user.is_staff and not request.user.is_superuser:
+            return Response(
+                {'error': '管理者権限が必要です'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        guardian_id = request.data.get('guardian_id')
+        if not guardian_id:
+            return Response(
+                {'error': 'guardian_id is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+            guardian = Guardian.objects.get(id=guardian_id, deleted_at__isnull=True)
+        except Guardian.DoesNotExist:
+            return Response(
+                {'error': '保護者が見つかりません'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        # 保護者に紐づくユーザーを取得
+        if not guardian.user:
+            return Response(
+                {'error': 'この保護者にはログインアカウントがありません'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        user = guardian.user
+
+        # トークン生成
+        refresh = RefreshToken.for_user(user)
+
+        return Response({
+            'access': str(refresh.access_token),
+            'refresh': str(refresh),
+            'guardian': {
+                'id': str(guardian.id),
+                'name': f"{guardian.last_name} {guardian.first_name}",
+            }
+        }, status=status.HTTP_200_OK)

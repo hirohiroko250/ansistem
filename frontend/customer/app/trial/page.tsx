@@ -15,6 +15,7 @@ import { ja } from 'date-fns/locale';
 import { getChildren } from '@/lib/api/students';
 import type { Child as ApiChild } from '@/lib/api/types';
 import { getAccessToken } from '@/lib/api/client';
+import { getMe } from '@/lib/api/auth';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1';
 
@@ -139,6 +140,9 @@ export default function TrialPage() {
   const [schedules, setSchedules] = useState<DaySchedule[]>([]);
   const [loading, setLoading] = useState(false);
 
+  // ユーザーの近隣校舎ID
+  const [nearestSchoolId, setNearestSchoolId] = useState<string | null>(null);
+
   // 空き状況
   const [availability, setAvailability] = useState<AvailabilitySlot[]>([]);
   const [availabilityLoading, setAvailabilityLoading] = useState(false);
@@ -153,6 +157,21 @@ export default function TrialPage() {
   const [bookingError, setBookingError] = useState<string | null>(null);
   const [bookingSuccess, setBookingSuccess] = useState(false);
 
+
+  // ユーザープロファイル取得（近隣校舎ID）
+  useEffect(() => {
+    const fetchProfile = async () => {
+      try {
+        const profile = await getMe();
+        if (profile.nearestSchoolId) {
+          setNearestSchoolId(profile.nearestSchoolId);
+        }
+      } catch (error) {
+        console.error('Failed to fetch profile:', error);
+      }
+    };
+    fetchProfile();
+  }, []);
 
   // 子供一覧取得
   useEffect(() => {
@@ -553,6 +572,7 @@ export default function TrialPage() {
               selectedSchoolId={selectedSchoolId}
               onSelectSchool={handleSchoolSelect}
               isLoading={isLoadingSchools}
+              initialSchoolId={nearestSchoolId}
             />
 
             {selectedSchoolId && (

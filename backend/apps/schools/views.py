@@ -2724,12 +2724,32 @@ class PublicBanksView(APIView):
         ?aiueo_row=あ (あいうえお行フィルター)
         ?bank_type_id=xxx (金融機関種別フィルター)
         """
+        from django.db.models import Q
         queryset = Bank.objects.filter(is_active=True).select_related('bank_type')
 
-        # あいうえお行でフィルタリング
+        # あいうえお行でフィルタリング（ひらがなの先頭文字で判定）
         aiueo_row = request.query_params.get('aiueo_row')
         if aiueo_row:
-            queryset = queryset.filter(aiueo_row=aiueo_row)
+            # あいうえお行の範囲を定義
+            aiueo_ranges = {
+                'あ': ['あ', 'い', 'う', 'え', 'お'],
+                'か': ['か', 'き', 'く', 'け', 'こ', 'が', 'ぎ', 'ぐ', 'げ', 'ご'],
+                'さ': ['さ', 'し', 'す', 'せ', 'そ', 'ざ', 'じ', 'ず', 'ぜ', 'ぞ'],
+                'た': ['た', 'ち', 'つ', 'て', 'と', 'だ', 'ぢ', 'づ', 'で', 'ど'],
+                'な': ['な', 'に', 'ぬ', 'ね', 'の'],
+                'は': ['は', 'ひ', 'ふ', 'へ', 'ほ', 'ば', 'び', 'ぶ', 'べ', 'ぼ', 'ぱ', 'ぴ', 'ぷ', 'ぺ', 'ぽ'],
+                'ま': ['ま', 'み', 'む', 'め', 'も'],
+                'や': ['や', 'ゆ', 'よ'],
+                'ら': ['ら', 'り', 'る', 'れ', 'ろ'],
+                'わ': ['わ', 'を', 'ん'],
+            }
+            # bank_name_hiraganaの先頭文字でフィルタリング
+            chars = aiueo_ranges.get(aiueo_row, [])
+            if chars:
+                q_filter = Q()
+                for char in chars:
+                    q_filter |= Q(bank_name_hiragana__startswith=char)
+                queryset = queryset.filter(q_filter)
 
         # 金融機関種別でフィルタリング
         bank_type_id = request.query_params.get('bank_type_id')

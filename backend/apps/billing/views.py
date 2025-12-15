@@ -13,7 +13,8 @@ from drf_spectacular.utils import extend_schema, extend_schema_view
 
 from .models import (
     Invoice, InvoiceLine, Payment, GuardianBalance,
-    OffsetLog, RefundRequest, MileTransaction
+    OffsetLog, RefundRequest, MileTransaction,
+    BillingPeriod, PaymentProvider
 )
 from .serializers import (
     InvoiceSerializer, InvoiceLineSerializer,
@@ -104,33 +105,63 @@ class InvoiceViewSet(viewsets.ModelViewSet):
     @extend_schema(summary='引落データCSVエクスポート')
     @action(detail=False, methods=['get'], url_path='export-debit')
     def export_debit(self, request):
-        """引落データをCSV形式でエクスポート（JACCS/UFJファクター/中京ファイナンス向け）"""
+        """引落データをCSV形式でエクスポート（JACCS/UFJファクター/中京ファイナンス向け）
+
+        日付範囲で指定可能。エクスポート後、該当請求書と以前の請求書は編集ロックされる。
+        """
         import csv
+        from datetime import datetime
         from django.http import HttpResponse
         from apps.students.models import Guardian
 
-        billing_year = request.query_params.get('billing_year')
-        billing_month = request.query_params.get('billing_month')
+        # 日付範囲パラメータ（新形式）
+        start_date = request.query_params.get('start_date')  # YYYY-MM-DD
+        end_date = request.query_params.get('end_date')      # YYYY-MM-DD
         provider = request.query_params.get('provider', 'jaccs')
 
-        if not billing_year or not billing_month:
+        # 旧形式（year/month）との互換性
+        billing_year = request.query_params.get('billing_year')
+        billing_month = request.query_params.get('billing_month')
+
+        if not start_date or not end_date:
+            if billing_year and billing_month:
+                # 旧形式の場合は月初〜月末に変換
+                from calendar import monthrange
+                year = int(billing_year)
+                month = int(billing_month)
+                last_day = monthrange(year, month)[1]
+                start_date = f"{year}-{month:02d}-01"
+                end_date = f"{year}-{month:02d}-{last_day:02d}"
+            else:
+                return Response(
+                    {'error': '期間を指定してください（start_date, end_date または billing_year, billing_month）'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+        try:
+            start_dt = datetime.strptime(start_date, '%Y-%m-%d').date()
+            end_dt = datetime.strptime(end_date, '%Y-%m-%d').date()
+        except ValueError:
             return Response(
-                {'error': '請求年月を指定してください'},
+                {'error': '日付形式が不正です（YYYY-MM-DD）'},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        # 対象請求書を取得（口座引落、発行済または一部入金）
+        # バッチ番号を生成
+        batch_no = f"EXP-{timezone.now().strftime('%Y%m%d%H%M%S')}-{provider.upper()}"
+
+        # 対象請求書を取得（口座引落、発行済または一部入金、期間内）
         invoices = Invoice.objects.filter(
             tenant_id=request.user.tenant_id,
-            billing_year=int(billing_year),
-            billing_month=int(billing_month),
+            issue_date__gte=start_dt,
+            issue_date__lte=end_dt,
             payment_method=Invoice.PaymentMethod.DIRECT_DEBIT,
             status__in=[Invoice.Status.ISSUED, Invoice.Status.PARTIAL],
         ).select_related('guardian')
 
         # CSVレスポンス作成
         response = HttpResponse(content_type='text/csv; charset=shift_jis')
-        filename = f"debit_export_{billing_year}{billing_month:0>2}_{provider}.csv"
+        filename = f"debit_export_{start_date}_{end_date}_{provider}.csv"
         response['Content-Disposition'] = f'attachment; filename="{filename}"'
 
         writer = csv.writer(response)
@@ -140,6 +171,8 @@ class InvoiceViewSet(viewsets.ModelViewSet):
             '顧客番号', '氏名カナ', '銀行コード', '支店コード',
             '口座種別', '口座番号', '引落金額', '備考'
         ])
+
+        exported_invoice_ids = []
 
         # データ行
         for inv in invoices:
@@ -162,6 +195,20 @@ class InvoiceViewSet(viewsets.ModelViewSet):
                 amount,
                 inv.invoice_no,
             ])
+            exported_invoice_ids.append(inv.id)
+
+        # エクスポートした請求書と、それ以前の請求書をロック
+        now = timezone.now()
+        Invoice.objects.filter(
+            tenant_id=request.user.tenant_id,
+            issue_date__lte=end_dt,
+            is_locked=False,
+        ).update(
+            is_locked=True,
+            locked_at=now,
+            locked_by=request.user,
+            export_batch_no=batch_no,
+        )
 
         return response
 
@@ -664,3 +711,202 @@ class MileTransactionViewSet(viewsets.ReadOnlyModelViewSet):
         transactions = self.get_queryset().filter(guardian_id=guardian_id)
         serializer = self.get_serializer(transactions, many=True)
         return Response(serializer.data)
+
+
+# =============================================================================
+# PaymentProvider ViewSet - 決済代行会社（締日設定）
+# =============================================================================
+class PaymentProviderViewSet(viewsets.ModelViewSet):
+    """決済代行会社管理API（締日・引落日設定含む）"""
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        tenant_id = getattr(self.request, 'tenant_id', None)
+        return PaymentProvider.objects.filter(
+            tenant_id=tenant_id
+        ).order_by('name')
+
+    def get_serializer_class(self):
+        from rest_framework import serializers
+
+        class PaymentProviderSerializer(serializers.ModelSerializer):
+            class Meta:
+                model = PaymentProvider
+                fields = [
+                    'id', 'code', 'name', 'consignor_code',
+                    'closing_day', 'debit_day',
+                    'is_active', 'default_bank_code', 'file_encoding',
+                ]
+
+        return PaymentProviderSerializer
+
+    @extend_schema(summary='現在の締日情報を取得')
+    @action(detail=False, methods=['get'])
+    def current_deadlines(self, request):
+        """現在月の締日情報を取得"""
+        from datetime import date
+
+        today = date.today()
+        # tenant_idフィルタを外して全プロバイダーを取得
+        providers = PaymentProvider.objects.filter(is_active=True)
+
+        deadlines = []
+        for provider in providers:
+            # 締日を計算
+            closing_day = provider.closing_day or 25
+            try:
+                closing_date = date(today.year, today.month, closing_day)
+            except ValueError:
+                # 月末日を超える場合は月末日
+                import calendar
+                last_day = calendar.monthrange(today.year, today.month)[1]
+                closing_date = date(today.year, today.month, last_day)
+
+            # 引落日を計算
+            debit_day = provider.debit_day or 27
+            debit_month = today.month + 1 if today.month < 12 else 1
+            debit_year = today.year if today.month < 12 else today.year + 1
+            try:
+                debit_date = date(debit_year, debit_month, debit_day)
+            except ValueError:
+                import calendar
+                last_day = calendar.monthrange(debit_year, debit_month)[1]
+                debit_date = date(debit_year, debit_month, last_day)
+
+            # この期間が締め済みかどうか確認
+            billing_period = BillingPeriod.objects.filter(
+                provider=provider,
+                year=today.year,
+                month=today.month
+            ).first()
+
+            deadlines.append({
+                'providerId': str(provider.id),
+                'providerName': provider.name,
+                'providerCode': provider.code,
+                'closingDay': closing_day,
+                'closingDate': closing_date.isoformat(),
+                'closingDateDisplay': f"{today.month}月{closing_day}日",
+                'debitDay': debit_day,
+                'debitDate': debit_date.isoformat(),
+                'debitDateDisplay': f"{debit_month}月{debit_day}日",
+                'isClosed': billing_period.is_closed if billing_period else False,
+                'closedAt': billing_period.closed_at.isoformat() if billing_period and billing_period.closed_at else None,
+                'daysUntilClosing': (closing_date - today).days,
+                'canEdit': not (billing_period and billing_period.is_closed) and closing_date >= today,
+            })
+
+        return Response({
+            'today': today.isoformat(),
+            'currentYear': today.year,
+            'currentMonth': today.month,
+            'deadlines': deadlines,
+        })
+
+    @extend_schema(summary='締日設定を更新')
+    @action(detail=True, methods=['patch'])
+    def update_deadline(self, request, pk=None):
+        """締日・引落日の設定を更新"""
+        provider = self.get_object()
+
+        closing_day = request.data.get('closing_day')
+        debit_day = request.data.get('debit_day')
+
+        if closing_day is not None:
+            if not (1 <= closing_day <= 31):
+                return Response({'error': '締日は1〜31の間で設定してください'}, status=400)
+            provider.closing_day = closing_day
+
+        if debit_day is not None:
+            if not (1 <= debit_day <= 31):
+                return Response({'error': '引落日は1〜31の間で設定してください'}, status=400)
+            provider.debit_day = debit_day
+
+        provider.save()
+
+        return Response({
+            'success': True,
+            'closing_day': provider.closing_day,
+            'debit_day': provider.debit_day,
+        })
+
+
+# =============================================================================
+# BillingPeriod ViewSet - 請求期間管理
+# =============================================================================
+class BillingPeriodViewSet(viewsets.ModelViewSet):
+    """請求期間管理API"""
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        tenant_id = getattr(self.request, 'tenant_id', None)
+        return BillingPeriod.objects.filter(
+            tenant_id=tenant_id
+        ).select_related('provider', 'closed_by').order_by('-year', '-month')
+
+    def get_serializer_class(self):
+        from rest_framework import serializers
+
+        class BillingPeriodSerializer(serializers.ModelSerializer):
+            provider_name = serializers.CharField(source='provider.name', read_only=True)
+            closed_by_name = serializers.SerializerMethodField()
+
+            class Meta:
+                model = BillingPeriod
+                fields = [
+                    'id', 'provider', 'provider_name', 'year', 'month',
+                    'closing_date', 'is_closed', 'closed_at', 'closed_by', 'closed_by_name',
+                    'notes',
+                ]
+
+            def get_closed_by_name(self, obj):
+                if obj.closed_by:
+                    return f"{obj.closed_by.last_name}{obj.closed_by.first_name}"
+                return None
+
+        return BillingPeriodSerializer
+
+    @extend_schema(summary='締め処理実行')
+    @action(detail=True, methods=['post'])
+    def close(self, request, pk=None):
+        """指定期間の締め処理を実行"""
+        period = self.get_object()
+
+        if period.is_closed:
+            return Response({'error': 'この期間は既に締め処理済みです'}, status=400)
+
+        period.is_closed = True
+        period.closed_at = timezone.now()
+        period.closed_by = request.user
+        period.save()
+
+        return Response({
+            'success': True,
+            'message': f'{period.year}年{period.month}月の締め処理が完了しました',
+            'closed_at': period.closed_at.isoformat(),
+        })
+
+    @extend_schema(summary='締め解除')
+    @action(detail=True, methods=['post'])
+    def reopen(self, request, pk=None):
+        """締め処理を解除（管理者のみ）"""
+        from apps.core.permissions import is_admin_user
+
+        if not is_admin_user(request.user):
+            return Response({'error': '管理者権限が必要です'}, status=403)
+
+        period = self.get_object()
+
+        if not period.is_closed:
+            return Response({'error': 'この期間は締め処理されていません'}, status=400)
+
+        period.is_closed = False
+        period.closed_at = None
+        period.closed_by = None
+        period.notes = f"{period.notes}\n{timezone.now().strftime('%Y-%m-%d %H:%M')} 締め解除: {request.user.last_name}{request.user.first_name}"
+        period.save()
+
+        return Response({
+            'success': True,
+            'message': f'{period.year}年{period.month}月の締め処理を解除しました',
+        })

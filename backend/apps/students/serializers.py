@@ -242,13 +242,20 @@ class GuardianListSerializer(serializers.ModelSerializer):
     """保護者一覧"""
     full_name = serializers.CharField(read_only=True)
     student_count = serializers.IntegerField(read_only=True)
+    student_names = serializers.SerializerMethodField()
 
     class Meta:
         model = Guardian
         fields = [
             'id', 'guardian_no', 'full_name', 'last_name', 'first_name',
-            'email', 'phone', 'phone_mobile', 'student_count'
+            'last_name_kana', 'first_name_kana',
+            'email', 'phone', 'phone_mobile', 'student_count', 'student_names'
         ]
+
+    def get_student_names(self, obj):
+        """保護者に紐づく生徒名のリストを返す"""
+        children = obj.children.filter(deleted_at__isnull=True)[:5]  # 最大5人
+        return [f"{s.last_name}{s.first_name}" for s in children]
 
 
 class GuardianDetailSerializer(serializers.ModelSerializer):
@@ -540,6 +547,10 @@ class BankAccountChangeRequestSerializer(serializers.ModelSerializer):
     """銀行口座変更申請シリアライザ"""
     guardian_name = serializers.SerializerMethodField()
     guardian_no = serializers.CharField(source='guardian.guardian_no', read_only=True)
+    guardian_email = serializers.CharField(source='guardian.email', read_only=True)
+    guardian_phone = serializers.SerializerMethodField()
+    guardian_address = serializers.SerializerMethodField()
+    guardian_name_kana = serializers.SerializerMethodField()
     request_type_display = serializers.CharField(source='get_request_type_display', read_only=True)
     status_display = serializers.CharField(source='get_status_display', read_only=True)
     account_type_display = serializers.CharField(source='get_account_type_display', read_only=True)
@@ -550,6 +561,7 @@ class BankAccountChangeRequestSerializer(serializers.ModelSerializer):
         model = BankAccountChangeRequest
         fields = [
             'id', 'guardian', 'guardian_name', 'guardian_no',
+            'guardian_email', 'guardian_phone', 'guardian_address', 'guardian_name_kana',
             'existing_account',
             'request_type', 'request_type_display',
             'bank_name', 'bank_code', 'branch_name', 'branch_code',
@@ -563,6 +575,7 @@ class BankAccountChangeRequestSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = [
             'id', 'guardian_name', 'guardian_no',
+            'guardian_email', 'guardian_phone', 'guardian_address', 'guardian_name_kana',
             'request_type_display', 'status_display', 'account_type_display',
             'requested_at', 'requested_by', 'requested_by_name',
             'processed_at', 'processed_by', 'processed_by_name', 'process_notes',
@@ -572,6 +585,28 @@ class BankAccountChangeRequestSerializer(serializers.ModelSerializer):
     def get_guardian_name(self, obj):
         if obj.guardian:
             return f"{obj.guardian.last_name} {obj.guardian.first_name}"
+        return ""
+
+    def get_guardian_name_kana(self, obj):
+        if obj.guardian:
+            return f"{obj.guardian.last_name_kana} {obj.guardian.first_name_kana}".strip()
+        return ""
+
+    def get_guardian_phone(self, obj):
+        if obj.guardian:
+            return obj.guardian.phone_mobile or obj.guardian.phone or ""
+        return ""
+
+    def get_guardian_address(self, obj):
+        if obj.guardian:
+            parts = [
+                obj.guardian.postal_code,
+                obj.guardian.prefecture,
+                obj.guardian.city,
+                obj.guardian.address1,
+                obj.guardian.address2,
+            ]
+            return " ".join(p for p in parts if p)
         return ""
 
     def get_requested_by_name(self, obj):

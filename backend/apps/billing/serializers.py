@@ -47,8 +47,10 @@ class InvoiceSerializer(serializers.ModelSerializer):
             'subtotal', 'tax_amount', 'discount_total',
             'miles_used', 'miles_discount', 'total_amount',
             'paid_amount', 'balance_due',
+            'carry_over_amount', 'payment_method',
             'status', 'status_display',
             'confirmed_at', 'confirmed_by',
+            'is_locked', 'locked_at', 'export_batch_no',
             'notes', 'lines',
             'created_at', 'updated_at',
         ]
@@ -56,8 +58,15 @@ class InvoiceSerializer(serializers.ModelSerializer):
             'id', 'invoice_no', 'subtotal', 'tax_amount',
             'total_amount', 'paid_amount', 'balance_due',
             'confirmed_at', 'confirmed_by',
+            'is_locked', 'locked_at', 'export_batch_no',
             'created_at', 'updated_at',
         ]
+
+    def validate(self, attrs):
+        """ロック済み請求書の編集を禁止"""
+        if self.instance and self.instance.is_locked:
+            raise serializers.ValidationError('この請求書はエクスポート済みのため編集できません')
+        return attrs
 
 
 class InvoicePreviewSerializer(serializers.Serializer):

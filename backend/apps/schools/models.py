@@ -541,7 +541,17 @@ class SchoolSchedule(TenantModel):
     reserved_seats = models.IntegerField('予約済み席数', default=0)  # キャッシュ用
     pause_seat_fee = models.DecimalField('休会時座席料金', max_digits=10, decimal_places=0, default=0)
 
-    # カレンダーパターン（チケット消化に利用）
+    # カレンダーマスター参照（新規）
+    calendar_master = models.ForeignKey(
+        'CalendarMaster',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='class_schedules',
+        verbose_name='カレンダーマスター'
+    )
+
+    # カレンダーパターン（後方互換用）
     calendar_pattern = models.CharField(
         'カレンダーパターン',
         max_length=50,
@@ -719,7 +729,17 @@ class ClassSchedule(TenantModel):
         default=0
     )
 
-    # カレンダーパターン（チケット消化に利用）
+    # カレンダーマスター参照
+    calendar_master = models.ForeignKey(
+        'CalendarMaster',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='class_schedules_t14c',
+        verbose_name='カレンダーマスター'
+    )
+
+    # カレンダーパターン（後方互換用）
     calendar_pattern = models.CharField(
         'カレンダーパターン',
         max_length=50,
@@ -961,6 +981,95 @@ class SchoolClosure(TenantModel):
         return closures.exists()
 
 
+class CalendarMaster(TenantModel):
+    """T13m: カレンダーマスター（カレンダーコードの定義）
+
+    カレンダーコードの命名規則:
+    - {校舎番号}_{ブランドコード}_{パターン}: 例 1001_SKAEC_A, 1003_AEC_P
+    - {特殊コード}: 例 Int_24（インターナショナル）
+    """
+
+    class LessonType(models.TextChoices):
+        TYPE_A = 'A', 'Aパターン（外国人講師あり）'
+        TYPE_B = 'B', 'Bパターン（日本人講師のみ）'
+        TYPE_P = 'P', 'Pパターン（ペア）'
+        TYPE_Y = 'Y', 'Yパターン（インター）'
+        OTHER = 'other', 'その他'
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+
+    code = models.CharField(
+        'カレンダーコード',
+        max_length=50,
+        db_index=True,
+        help_text='例: 1001_SKAEC_A, 1003_AEC_P, Int_24'
+    )
+    name = models.CharField('カレンダー名', max_length=100, blank=True)
+
+    # ブランド紐付け
+    brand = models.ForeignKey(
+        Brand,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='calendar_masters',
+        verbose_name='ブランド'
+    )
+
+    # パターン
+    lesson_type = models.CharField(
+        '授業タイプ',
+        max_length=10,
+        choices=LessonType.choices,
+        default=LessonType.TYPE_A
+    )
+
+    description = models.TextField('説明', blank=True)
+    sort_order = models.IntegerField('表示順', default=0)
+    is_active = models.BooleanField('有効', default=True)
+
+    class Meta:
+        db_table = 't13m_calendar_masters'
+        verbose_name = 'T13m_カレンダーマスター'
+        verbose_name_plural = 'T13m_カレンダーマスター'
+        ordering = ['sort_order', 'code']
+        unique_together = ['tenant_id', 'code']
+
+    def __str__(self):
+        return f"{self.code} - {self.name or self.get_lesson_type_display()}"
+
+    @classmethod
+    def get_or_create_from_code(cls, tenant_id, code, brand=None):
+        """カレンダーコードからマスターを取得または作成"""
+        if not code:
+            return None
+
+        master, created = cls.objects.get_or_create(
+            tenant_id=tenant_id,
+            code=code,
+            defaults={
+                'brand': brand,
+                'lesson_type': cls._detect_lesson_type(code),
+                'name': code,
+            }
+        )
+        return master
+
+    @staticmethod
+    def _detect_lesson_type(code):
+        """コードからパターンを推測"""
+        code_upper = code.upper()
+        if code_upper.endswith('_A') or '_A_' in code_upper:
+            return CalendarMaster.LessonType.TYPE_A
+        elif code_upper.endswith('_B') or '_B_' in code_upper:
+            return CalendarMaster.LessonType.TYPE_B
+        elif code_upper.endswith('_P') or '_P_' in code_upper:
+            return CalendarMaster.LessonType.TYPE_P
+        elif 'INT' in code_upper or code_upper.endswith('_Y'):
+            return CalendarMaster.LessonType.TYPE_Y
+        return CalendarMaster.LessonType.OTHER
+
+
 class LessonCalendar(TenantModel):
     """T13: 開講カレンダー（日別の開講情報を管理）
 
@@ -981,7 +1090,17 @@ class LessonCalendar(TenantModel):
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
 
-    # カレンダー識別（テナント単位、校舎は不要）
+    # カレンダーマスター参照（新規）
+    calendar_master = models.ForeignKey(
+        CalendarMaster,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='lesson_calendars',
+        verbose_name='カレンダーマスター'
+    )
+
+    # カレンダー識別（後方互換用、calendar_masterから取得可能）
     calendar_code = models.CharField(
         'カレンダーコード',
         max_length=50,

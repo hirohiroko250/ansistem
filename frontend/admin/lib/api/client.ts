@@ -70,6 +70,12 @@ class ApiClient {
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
+      // 401エラーの場合、トークンをクリアしてログイン画面にリダイレクト
+      if (response.status === 401 && typeof window !== "undefined") {
+        this.setToken(null);
+        window.location.href = "/login";
+        throw new ApiError(response.status, "認証が必要です", errorData);
+      }
       throw new ApiError(response.status, errorData.detail || response.statusText, errorData);
     }
 

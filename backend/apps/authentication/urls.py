@@ -12,6 +12,7 @@ from .views import (
     CheckEmailView,
     CheckPhoneView,
     MeView,
+    ImpersonateGuardianView,
 )
 
 app_name = 'authentication'
@@ -27,4 +28,5 @@ urlpatterns = [
     path('password-reset/', PasswordResetRequestView.as_view(), name='password_reset'),
     path('password-reset/confirm/', PasswordResetConfirmView.as_view(), name='password_reset_confirm'),
     path('me/', MeView.as_view(), name='me'),
+    path('impersonate-guardian/', ImpersonateGuardianView.as_view(), name='impersonate_guardian'),
 ]

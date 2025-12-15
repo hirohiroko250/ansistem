@@ -19,6 +19,7 @@ import { getBrandCategories, getBrandSchools, getLessonCalendar, getClassSchedul
 import { previewPricing, confirmPricing } from '@/lib/api/pricing';
 import { getMyContracts, type MyContract } from '@/lib/api/contracts';
 import type { Child, ApiError, PricingPreviewResponse } from '@/lib/api/types';
+import { getMe } from '@/lib/api/auth';
 
 // 曜日番号を曜日名に変換
 const dayOfWeekNames: Record<number, string> = {
@@ -156,6 +157,9 @@ export default function FromClassPurchasePage() {
   const [isLoadingSchools, setIsLoadingSchools] = useState(false);
   const [schoolsError, setSchoolsError] = useState<string | null>(null);
 
+  // ユーザーの近隣校舎ID
+  const [nearestSchoolId, setNearestSchoolId] = useState<string | null>(null);
+
   // 開講時間割（APIから取得）
   const [classScheduleData, setClassScheduleData] = useState<ClassScheduleResponse | null>(null);
   const [isLoadingSchedules, setIsLoadingSchedules] = useState(false);
@@ -177,6 +181,21 @@ export default function FromClassPurchasePage() {
   const [isLoadingTickets, setIsLoadingTickets] = useState(false);
   const [ticketsError, setTicketsError] = useState<string | null>(null);
   const [selectedTicketId, setSelectedTicketId] = useState<string | null>(null);
+
+  // ユーザープロファイル取得（近隣校舎ID）
+  useEffect(() => {
+    const fetchProfile = async () => {
+      try {
+        const profile = await getMe();
+        if (profile.nearestSchoolId) {
+          setNearestSchoolId(profile.nearestSchoolId);
+        }
+      } catch (error) {
+        console.error('Failed to fetch profile:', error);
+      }
+    };
+    fetchProfile();
+  }, []);
 
   // 子ども一覧を取得
   useEffect(() => {
@@ -809,6 +828,7 @@ export default function FromClassPurchasePage() {
                   selectedSchoolId={selectedSchoolId}
                   onSelectSchool={handleSchoolSelect}
                   isLoading={isLoadingSchools}
+                  initialSchoolId={nearestSchoolId}
                 />
 
                 {/* 選択した校舎の確認と次へボタン */}

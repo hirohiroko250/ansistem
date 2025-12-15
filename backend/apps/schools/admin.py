@@ -4,7 +4,8 @@ from apps.core.csv_utils import CSVImporter
 from apps.tenants.models import Tenant
 from .models import (
     Brand, BrandCategory, School, Grade, Subject, Classroom, SchoolYear, GradeSchoolYear, BrandSchool,
-    TimeSlot, LessonCalendar, ClassSchedule, BankType, Bank, BankBranch, CalendarOperationLog
+    TimeSlot, LessonCalendar, ClassSchedule, BankType, Bank, BankBranch, CalendarOperationLog,
+    CalendarMaster
 )
 
 
@@ -722,6 +723,42 @@ class LessonCalendarCSVImporter(CSVImporter):
             'skipped': self.skipped_count,
             'errors': self.errors
         }
+
+
+@admin.register(CalendarMaster)
+class CalendarMasterAdmin(CSVImportExportMixin, admin.ModelAdmin):
+    """カレンダーマスター管理"""
+    list_display = ['code', 'name', 'brand', 'lesson_type', 'is_active', 'sort_order', 'tenant_ref']
+    list_filter = ['brand', 'lesson_type', 'is_active']
+    search_fields = ['code', 'name', 'description']
+    ordering = ['sort_order', 'code']
+    list_editable = ['sort_order', 'is_active']
+
+    fieldsets = (
+        ('基本情報', {
+            'fields': ('code', 'name', 'brand', 'lesson_type')
+        }),
+        ('設定', {
+            'fields': ('description', 'sort_order', 'is_active')
+        }),
+        ('システム', {
+            'fields': ('tenant_ref',),
+            'classes': ('collapse',)
+        }),
+    )
+
+    # CSV設定
+    csv_import_fields = ['code', 'name', 'brand.brand_code', 'lesson_type', 'description', 'sort_order', 'is_active']
+    csv_export_fields = ['code', 'name', 'brand.brand_code', 'lesson_type', 'description', 'sort_order', 'is_active']
+    csv_field_labels = {
+        'code': 'カレンダーコード',
+        'name': 'カレンダー名',
+        'brand.brand_code': 'ブランドコード',
+        'lesson_type': '授業タイプ',
+        'description': '説明',
+        'sort_order': '表示順',
+        'is_active': '有効',
+    }
 
 
 @admin.register(LessonCalendar)

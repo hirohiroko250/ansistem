@@ -50,6 +50,7 @@ import { getStaffLessonSchedules, type StaffLessonSchedule } from '@/lib/api/les
 import api from '@/lib/api/client';
 import type { Child, PublicCourse, PublicPack, PublicBrand, PublicBrandCategory } from '@/lib/api/types';
 import type { ApiError, PricingPreviewResponse } from '@/lib/api/types';
+import { getMe } from '@/lib/api/auth';
 
 // ブランドコードごとのアイコンとカラー設定
 const brandStyleMap: Record<string, { icon: LucideIcon; color: string }> = {
@@ -177,6 +178,9 @@ export default function FromTicketPurchasePage() {
   const [isLoadingSchools, setIsLoadingSchools] = useState(false);
   const [schoolsError, setSchoolsError] = useState<string | null>(null);
 
+  // ユーザーの近隣校舎ID
+  const [nearestSchoolId, setNearestSchoolId] = useState<string | null>(null);
+
   // コース・パック
   const [courses, setCourses] = useState<PublicCourse[]>([]);
   const [packs, setPacks] = useState<PublicPack[]>([]);
@@ -268,6 +272,21 @@ export default function FromTicketPurchasePage() {
     }
     return items;
   };
+
+  // ユーザープロファイル取得（近隣校舎ID）
+  useEffect(() => {
+    const fetchProfile = async () => {
+      try {
+        const profile = await getMe();
+        if (profile.nearestSchoolId) {
+          setNearestSchoolId(profile.nearestSchoolId);
+        }
+      } catch (error) {
+        console.error('Failed to fetch profile:', error);
+      }
+    };
+    fetchProfile();
+  }, []);
 
   // 子ども一覧を取得
   useEffect(() => {
@@ -1093,6 +1112,7 @@ export default function FromTicketPurchasePage() {
                   selectedSchoolId={selectedSchoolId}
                   onSelectSchool={handleSchoolSelect}
                   isLoading={isLoadingSchools}
+                  initialSchoolId={nearestSchoolId}
                 />
 
                 {/* 選択した校舎の確認と次へボタン */}
