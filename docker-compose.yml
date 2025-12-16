@@ -63,8 +63,8 @@ services:
       - DB_PASSWORD=${DB_PASSWORD:-oza_password}
       - REDIS_URL=redis://redis:6379/0
       - ALLOWED_HOSTS=${ALLOWED_HOSTS:-localhost,127.0.0.1,backend,162.43.33.37}
-      - CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS:-http://localhost:3000,http://localhost:3001,http://162.43.33.37:3000,http://162.43.33.37:3001}
-      - CSRF_TRUSTED_ORIGINS=${CSRF_TRUSTED_ORIGINS:-http://localhost:3000,http://localhost:3001,http://162.43.33.37:3000,http://162.43.33.37:3001}
+      - CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS:-http://localhost:3000,http://localhost:3001,http://localhost:3002,http://162.43.33.37:3000,http://162.43.33.37:3001,http://162.43.33.37:3002}
+      - CSRF_TRUSTED_ORIGINS=${CSRF_TRUSTED_ORIGINS:-http://localhost:3000,http://localhost:3001,http://localhost:3002,http://162.43.33.37:3000,http://162.43.33.37:3001,http://162.43.33.37:3002}
       - USE_SSL=False
     depends_on:
       db:
@@ -156,6 +156,23 @@ services:
     container_name: oza_frontend_syain
     ports:
       - "3001:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://162.43.33.37:8000/api/v1}
+    depends_on:
+      - backend
+    networks:
+      - oza_network
+
+  # Frontend Admin (Next.js)
+  frontend-admin:
+    build:
+      context: ./frontend/admin
+      dockerfile: Dockerfile
+      args:
+        - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://162.43.33.37:8000/api/v1}
+    container_name: oza_frontend_admin
+    ports:
+      - "3002:3000"
     environment:
       - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://162.43.33.37:8000/api/v1}
     depends_on:
