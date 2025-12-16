@@ -94,6 +94,7 @@ export async function getChannels(params?: {
   studentId?: string;
   schoolId?: string;
   isArchived?: boolean;
+  includeArchived?: boolean;
   search?: string;
 }): Promise<Channel[]> {
   const query = new URLSearchParams();
@@ -102,6 +103,7 @@ export async function getChannels(params?: {
   if (params?.studentId) query.set('student_id', params.studentId);
   if (params?.schoolId) query.set('school_id', params.schoolId);
   if (params?.isArchived !== undefined) query.set('is_archived', String(params.isArchived));
+  if (params?.includeArchived) query.set('include_archived', 'true');
   if (params?.search) query.set('search', params.search);
 
   const queryString = query.toString();
@@ -118,6 +120,15 @@ export async function getChannels(params?: {
  */
 export async function getChannel(id: string): Promise<Channel> {
   return apiClient.get<Channel>(`/communications/channels/${id}/`);
+}
+
+/**
+ * 保護者用チャンネルを取得または作成
+ */
+export async function getOrCreateChannelForGuardian(guardianId: string): Promise<Channel> {
+  return apiClient.post<Channel>('/communications/channels/get-or-create-for-guardian/', {
+    guardian_id: guardianId
+  });
 }
 
 // ============================================

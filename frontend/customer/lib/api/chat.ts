@@ -38,6 +38,16 @@ export async function getChannel(id: string): Promise<Channel> {
   return api.get<Channel>(`/communications/channels/${id}/`);
 }
 
+/**
+ * チャンネルをアーカイブ（削除）
+ *
+ * @param id - チャンネルID
+ * @returns アーカイブされたチャンネル
+ */
+export async function archiveChannel(id: string): Promise<Channel> {
+  return api.post<Channel>(`/communications/channels/${id}/archive/`);
+}
+
 // ============================================
 // メッセージ関連
 // ============================================
@@ -215,7 +225,7 @@ export interface BotChatResponse {
 }
 
 export async function chatWithBot(message: string, channelId?: string): Promise<BotChatResponse> {
-  return api.post<BotChatResponse>('/communications/bot-chat/chat/', {
+  return api.post<BotChatResponse>('/communications/bot/chat/chat/', {
     message,
     channel_id: channelId,
   });

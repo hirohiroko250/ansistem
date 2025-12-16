@@ -810,9 +810,18 @@ class ClassSchedule(TenantModel):
         return f"{self.school.school_name} {self.get_day_of_week_display()} {self.period}限 {self.class_name}"
 
     @property
+    def active_student_count(self):
+        """在籍中の生徒数（リアルタイム計算）"""
+        from apps.students.models import StudentSchool
+        return StudentSchool.objects.filter(
+            class_schedule=self,
+            enrollment_status=StudentSchool.EnrollmentStatus.ACTIVE
+        ).count()
+
+    @property
     def available_seats(self):
-        """空き席数"""
-        return max(0, self.capacity - self.reserved_seats)
+        """空き席数（リアルタイム計算）"""
+        return max(0, self.capacity - self.active_student_count)
 
     def is_available(self):
         """予約可能かどうか"""

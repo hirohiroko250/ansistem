@@ -5,20 +5,20 @@ import api from './client';
 
 export interface PaymentInfo {
   id: string;
-  guardian_no: string;
-  full_name: string;
-  bank_name: string;
-  bank_code: string;
-  branch_name: string;
-  branch_code: string;
-  account_type: 'ordinary' | 'current' | 'savings';
-  account_number: string;
-  account_number_masked: string;
-  account_holder: string;
-  account_holder_kana: string;
-  withdrawal_day: number | null;
-  payment_registered: boolean;
-  payment_registered_at: string | null;
+  guardianNo: string;
+  fullName: string;
+  bankName: string;
+  bankCode: string;
+  branchName: string;
+  branchCode: string;
+  accountType: 'ordinary' | 'current' | 'savings';
+  accountNumber: string;
+  accountNumberMasked: string;
+  accountHolder: string;
+  accountHolderKana: string;
+  withdrawalDay: number | null;
+  paymentRegistered: boolean;
+  paymentRegisteredAt: string | null;
 }
 
 export interface PaymentUpdateData {

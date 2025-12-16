@@ -39,25 +39,34 @@ class ChannelViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated, IsTenantUser]
 
     def get_queryset(self):
+        from apps.core.permissions import is_admin_user
+
         # tenant_idを取得（request.tenant_idまたはユーザーの保護者プロファイルから）
         tenant_id = getattr(self.request, 'tenant_id', None)
         if not tenant_id and hasattr(self.request.user, 'guardian_profile') and self.request.user.guardian_profile:
             tenant_id = self.request.user.guardian_profile.tenant_id
 
-        queryset = Channel.objects.filter(
-            tenant_id=tenant_id
-        ).select_related('student', 'guardian', 'school')
-
-        # 自分が参加しているチャンネルのみ
-        queryset = queryset.filter(members__user=self.request.user)
+        # 管理者は全チャンネルを閲覧可能
+        if is_admin_user(self.request.user):
+            queryset = Channel.objects.all().select_related('student', 'guardian', 'school')
+        else:
+            queryset = Channel.objects.filter(
+                tenant_id=tenant_id
+            ).select_related('student', 'guardian', 'school')
+            # 一般ユーザーは自分が参加しているチャンネルのみ
+            queryset = queryset.filter(members__user=self.request.user)
 
         channel_type = self.request.query_params.get('channel_type')
         if channel_type:
             queryset = queryset.filter(channel_type=channel_type)
 
         is_archived = self.request.query_params.get('is_archived')
+        include_archived = self.request.query_params.get('include_archived')
         if is_archived is not None:
             queryset = queryset.filter(is_archived=is_archived.lower() == 'true')
+        elif include_archived and include_archived.lower() == 'true':
+            # include_archived=true の場合は全てのチャンネルを返す（フィルタしない）
+            pass
         else:
             queryset = queryset.filter(is_archived=False)
 
@@ -160,6 +169,82 @@ class ChannelViewSet(viewsets.ModelViewSet):
         channel.save(update_fields=['is_archived'])
         return Response(ChannelDetailSerializer(channel).data)
 
+    @action(detail=False, methods=['post'], url_path='get-or-create-for-guardian')
+    def get_or_create_for_guardian(self, request):
+        """保護者用チャンネルを取得または作成"""
+        from apps.students.models import Guardian
+        from apps.core.permissions import is_admin_user
+
+        guardian_id = request.data.get('guardian_id')
+        if not guardian_id:
+            return Response(
+                {'error': 'guardian_id is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # 保護者を取得（管理者は全ての保護者にアクセス可能）
+        try:
+            if is_admin_user(request.user):
+                guardian = Guardian.objects.get(id=guardian_id)
+            else:
+                tenant_id = getattr(request, 'tenant_id', None)
+                if not tenant_id:
+                    return Response(
+                        {'error': 'tenant_id is required'},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+                guardian = Guardian.objects.get(id=guardian_id, tenant_id=tenant_id)
+        except Guardian.DoesNotExist:
+            return Response(
+                {'error': 'Guardian not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        # 保護者のtenant_idを使用
+        tenant_id = guardian.tenant_id
+
+        # 既存のチャンネルを探す
+        channel = Channel.objects.filter(
+            tenant_id=tenant_id,
+            guardian=guardian,
+            channel_type=Channel.ChannelType.EXTERNAL,
+            is_archived=False
+        ).first()
+
+        if not channel:
+            # 新規チャンネル作成
+            channel = Channel.objects.create(
+                tenant_id=tenant_id,
+                channel_type=Channel.ChannelType.EXTERNAL,
+                name=f"{guardian.full_name}",
+                guardian=guardian
+            )
+
+            # 現在のユーザーをメンバーとして追加
+            ChannelMember.objects.create(
+                channel=channel,
+                user=request.user,
+                role=ChannelMember.Role.ADMIN
+            )
+
+            # 保護者にユーザーアカウントがあれば追加
+            if guardian.user:
+                ChannelMember.objects.get_or_create(
+                    channel=channel,
+                    user=guardian.user,
+                    defaults={'role': ChannelMember.Role.MEMBER}
+                )
+
+        else:
+            # 既存チャンネルにユーザーをメンバーとして追加（まだの場合）
+            ChannelMember.objects.get_or_create(
+                channel=channel,
+                user=request.user,
+                defaults={'role': ChannelMember.Role.ADMIN}
+            )
+
+        return Response(ChannelDetailSerializer(channel).data)
+
 
 class MessageViewSet(viewsets.ModelViewSet):
     """メッセージビューセット"""
@@ -210,6 +295,15 @@ class MessageViewSet(viewsets.ModelViewSet):
             sender_guardian = self.request.user.guardian_profile
 
         tenant_id = self.get_tenant_id()
+
+        # tenant_idがない場合（管理者等）、チャンネルから取得
+        if not tenant_id:
+            channel_id = serializer.validated_data.get('channel')
+            if channel_id:
+                channel = Channel.objects.filter(id=channel_id.id if hasattr(channel_id, 'id') else channel_id).first()
+                if channel:
+                    tenant_id = channel.tenant_id
+
         serializer.save(
             tenant_id=tenant_id,
             sender=self.request.user,
@@ -552,8 +646,13 @@ class BotChatViewSet(viewsets.ViewSet):
         message = serializer.validated_data['message']
         channel_id = serializer.validated_data.get('channel_id')
 
+        # tenant_idを取得（request.tenant_idまたは保護者プロファイルから）
+        tenant_id = getattr(request, 'tenant_id', None)
+        if not tenant_id and hasattr(request.user, 'guardian_profile') and request.user.guardian_profile:
+            tenant_id = request.user.guardian_profile.tenant_id
+
         # ボットサービスで応答を生成
-        bot_service = BotService(tenant_id=request.tenant_id)
+        bot_service = BotService(tenant_id=tenant_id)
         response = bot_service.get_response(
             message=message,
             channel_id=channel_id,

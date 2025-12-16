@@ -228,6 +228,9 @@ export interface Guardian {
   workplace2?: string;
   workplace_phone?: string;
   workplace_phone2?: string;
+  // Account status
+  has_account?: boolean;
+  hasAccount?: boolean;
   // Computed/convenience fields for UI
   name?: string;
   relationship?: string;

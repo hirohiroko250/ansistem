@@ -964,6 +964,176 @@ class PackTicket(TenantModel):
 
 
 # =============================================================================
+# T10: 追加チケット (AdditionalTicket) - 入会月用チケット
+# =============================================================================
+class AdditionalTicket(TenantModel):
+    """T10: 追加チケット
+
+    入会月に購入する追加チケット。
+    月途中入会時の残り授業分として使用。
+    コースごとに管理し、対象日を明確に記録。
+    """
+
+    class Status(models.TextChoices):
+        PENDING = 'pending', '購入待ち'
+        PURCHASED = 'purchased', '購入済み'
+        PARTIALLY_USED = 'partially_used', '一部使用'
+        FULLY_USED = 'fully_used', '使用完了'
+        EXPIRED = 'expired', '期限切れ'
+        CANCELLED = 'cancelled', 'キャンセル'
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+
+    # 対象生徒・コース
+    student = models.ForeignKey(
+        'students.Student',
+        on_delete=models.CASCADE,
+        related_name='additional_tickets',
+        verbose_name='生徒'
+    )
+    course = models.ForeignKey(
+        'Course',
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='additional_tickets',
+        verbose_name='コース'
+    )
+    class_schedule = models.ForeignKey(
+        'schools.ClassSchedule',
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='additional_tickets',
+        verbose_name='クラススケジュール'
+    )
+
+    # 購入情報
+    purchase_date = models.DateField('購入日', null=True, blank=True)
+    quantity = models.IntegerField('購入枚数', default=0)
+    unit_price = models.DecimalField('単価', max_digits=10, decimal_places=0, default=0)
+    total_price = models.DecimalField('合計金額', max_digits=10, decimal_places=0, default=0)
+
+    # 消費状況
+    used_count = models.IntegerField('使用済み数', default=0)
+
+    @property
+    def remaining(self):
+        """残枚数"""
+        return max(0, self.quantity - self.used_count)
+
+    # 有効期限（入会月末）
+    valid_until = models.DateField('有効期限', null=True, blank=True)
+
+    # ステータス
+    status = models.CharField(
+        'ステータス',
+        max_length=20,
+        choices=Status.choices,
+        default=Status.PENDING
+    )
+
+    # 関連する契約・請求
+    student_item = models.ForeignKey(
+        'StudentItem',
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='additional_tickets',
+        verbose_name='生徒商品'
+    )
+
+    notes = models.TextField('備考', blank=True)
+    created_at = models.DateTimeField('作成日時', auto_now_add=True)
+    updated_at = models.DateTimeField('更新日時', auto_now=True)
+
+    class Meta:
+        db_table = 't10a_additional_tickets'
+        verbose_name = 'T10a_追加チケット'
+        verbose_name_plural = 'T10a_追加チケット'
+        ordering = ['-purchase_date', 'student']
+
+    def __str__(self):
+        return f"{self.student} - {self.course} ({self.quantity}枚)"
+
+    def use_ticket(self, count=1):
+        """チケットを使用"""
+        if self.remaining < count:
+            raise ValueError('残チケットが不足しています')
+        self.used_count += count
+        if self.remaining == 0:
+            self.status = self.Status.FULLY_USED
+        else:
+            self.status = self.Status.PARTIALLY_USED
+        self.save()
+
+    def check_expiry(self):
+        """有効期限をチェック"""
+        from django.utils import timezone
+        if self.valid_until and timezone.now().date() > self.valid_until:
+            if self.status not in [self.Status.FULLY_USED, self.Status.CANCELLED]:
+                self.status = self.Status.EXPIRED
+                self.save()
+                return True
+        return False
+
+
+# =============================================================================
+# T10b: 追加チケット対象日 (AdditionalTicketDate) - チケットの対象日
+# =============================================================================
+class AdditionalTicketDate(TenantModel):
+    """T10b: 追加チケット対象日
+
+    追加チケットの対象日を個別に管理。
+    消費追跡・出席との紐づけに使用。
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+
+    additional_ticket = models.ForeignKey(
+        AdditionalTicket,
+        on_delete=models.CASCADE,
+        related_name='target_dates',
+        verbose_name='追加チケット'
+    )
+    target_date = models.DateField('対象日')
+
+    # 消費状況
+    is_used = models.BooleanField('使用済み', default=False)
+    used_at = models.DateTimeField('使用日時', null=True, blank=True)
+
+    # 出席との紐づけ
+    attendance = models.ForeignKey(
+        'lessons.Attendance',
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='additional_ticket_dates',
+        verbose_name='出席'
+    )
+
+    notes = models.TextField('備考', blank=True)
+
+    class Meta:
+        db_table = 't10b_additional_ticket_dates'
+        verbose_name = 'T10b_追加チケット対象日'
+        verbose_name_plural = 'T10b_追加チケット対象日'
+        ordering = ['target_date']
+        unique_together = ['additional_ticket', 'target_date']
+
+    def __str__(self):
+        status = '済' if self.is_used else '未'
+        return f"{self.target_date} ({status})"
+
+    def mark_as_used(self, attendance=None):
+        """使用済みにする"""
+        from django.utils import timezone
+        self.is_used = True
+        self.used_at = timezone.now()
+        if attendance:
+            self.attendance = attendance
+        self.save()
+        # 親チケットの使用数を更新
+        self.additional_ticket.use_ticket(1)
+
+
+# =============================================================================
 # T09: パック (Pack) - 複数コースのセット
 # =============================================================================
 class Pack(TenantModel):

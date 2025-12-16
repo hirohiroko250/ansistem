@@ -170,47 +170,22 @@ export function MapSchoolSelector({
               el.style.filter = 'drop-shadow(0 1px 2px rgba(0,0,0,0.15))';
             });
 
-            // ポップアップ（ボタンは別のIDで管理）
-            const buttonId = `select-school-${school.id}`;
-            const popup = new maplibregl.Popup({ offset: 25, closeButton: true })
+            // シンプルなポップアップ（校舎名のみ表示、クリックで選択）
+            const popup = new maplibregl.Popup({
+              offset: [0, -10],
+              closeButton: false,
+              closeOnClick: false,
+              anchor: 'bottom'
+            })
               .setHTML(`
-                <div style="min-width: 180px; padding: 4px;">
-                  <h3 style="font-weight: bold; font-size: 14px; margin-bottom: 4px;">${school.name}</h3>
-                  <p style="font-size: 12px; color: #666; margin-bottom: 8px;">${school.address}</p>
-                  ${school.phone ? `<p style="font-size: 11px; color: #888;">TEL: ${school.phone}</p>` : ''}
-                  <button
-                    id="${buttonId}"
-                    style="
-                      margin-top: 8px;
-                      width: 100%;
-                      padding: 6px 12px;
-                      background-color: #3B82F6;
-                      color: white;
-                      border: none;
-                      border-radius: 4px;
-                      cursor: pointer;
-                      font-size: 12px;
-                    "
-                  >
-                    この校舎を選択
-                  </button>
+                <div style="padding: 6px 10px; font-weight: bold; font-size: 13px; white-space: nowrap;">
+                  ${school.name}
                 </div>
               `);
 
-            // ポップアップが開いた時にボタンにイベントリスナーを追加
-            popup.on('open', () => {
-              setTimeout(() => {
-                const btn = document.getElementById(buttonId);
-                if (btn) {
-                  btn.onclick = (e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    // refから最新の関数を呼び出す
-                    onSelectSchoolRef.current(school.id);
-                    popup.remove();
-                  };
-                }
-              }, 0);
+            // マーカークリックで選択
+            el.addEventListener('click', () => {
+              onSelectSchoolRef.current(school.id);
             });
 
             const marker = new maplibregl.Marker({
@@ -218,8 +193,15 @@ export function MapSchoolSelector({
               anchor: 'center'
             })
               .setLngLat([school.longitude!, school.latitude!])
-              .setPopup(popup)
               .addTo(mapInstance);
+
+            // ホバー時にポップアップを表示
+            el.addEventListener('mouseenter', () => {
+              popup.setLngLat([school.longitude!, school.latitude!]).addTo(mapInstance);
+            });
+            el.addEventListener('mouseleave', () => {
+              popup.remove();
+            });
 
             markersRef.current.push({ marker, schoolId: school.id, element: el });
           });
@@ -322,14 +304,14 @@ export function MapSchoolSelector({
   }
 
   return (
-    <div className="space-y-4">
+    <div className="h-full">
       {/* マップ */}
-      <Card className="rounded-xl shadow-md overflow-hidden">
-        <div className="relative">
+      <Card className="rounded-xl shadow-md overflow-hidden h-full">
+        <div className="relative h-full">
           <div
             ref={mapContainer}
-            className="w-full"
-            style={{ height: '400px' }}
+            className="w-full h-full"
+            style={{ minHeight: '200px' }}
           />
           {!mapLoaded && (
             <div className="absolute inset-0 flex items-center justify-center bg-gray-100 z-10">

@@ -1,14 +1,14 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { Search, Bot, MessageCircle, Pin, Loader2 } from 'lucide-react';
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { Search, Bot, MessageCircle, Pin, Loader2, Trash2 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { BottomTabBar } from '@/components/bottom-tab-bar';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import Link from 'next/link';
-import { getChannels, getActiveBotConfig, type BotConfig } from '@/lib/api/chat';
+import { getChannels, getActiveBotConfig, archiveChannel, type BotConfig } from '@/lib/api/chat';
 import type { Channel } from '@/lib/api/types';
 
 // デフォルトのAIチャットボット設定
@@ -49,12 +49,106 @@ function getAvatarText(name?: string): string {
   return name.substring(0, 2);
 }
 
+// スワイプ可能なアイテムコンポーネント
+interface SwipeableItemProps {
+  children: React.ReactNode;
+  onDelete: () => void;
+  isDeleting?: boolean;
+}
+
+function SwipeableItem({ children, onDelete, isDeleting }: SwipeableItemProps) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [translateX, setTranslateX] = useState(0);
+  const [isDragging, setIsDragging] = useState(false);
+  const startXRef = useRef(0);
+  const currentXRef = useRef(0);
+
+  const DELETE_THRESHOLD = -80;
+
+  const handleTouchStart = useCallback((e: React.TouchEvent) => {
+    startXRef.current = e.touches[0].clientX;
+    currentXRef.current = translateX;
+    setIsDragging(true);
+  }, [translateX]);
+
+  const handleTouchMove = useCallback((e: React.TouchEvent) => {
+    if (!isDragging) return;
+
+    const diff = e.touches[0].clientX - startXRef.current;
+    let newTranslateX = currentXRef.current + diff;
+
+    // 左スワイプのみ許可、最大-100pxまで
+    if (newTranslateX > 0) newTranslateX = 0;
+    if (newTranslateX < -100) newTranslateX = -100;
+
+    setTranslateX(newTranslateX);
+  }, [isDragging]);
+
+  const handleTouchEnd = useCallback(() => {
+    setIsDragging(false);
+
+    // 閾値を超えたら削除ボタンを表示、それ以外は元に戻す
+    if (translateX < DELETE_THRESHOLD) {
+      setTranslateX(-80);
+    } else {
+      setTranslateX(0);
+    }
+  }, [translateX]);
+
+  const handleDelete = useCallback(() => {
+    setTranslateX(0);
+    onDelete();
+  }, [onDelete]);
+
+  // タップで閉じる
+  const handleContainerClick = useCallback(() => {
+    if (translateX !== 0) {
+      setTranslateX(0);
+    }
+  }, [translateX]);
+
+  return (
+    <div className="relative overflow-hidden" ref={containerRef}>
+      {/* 削除ボタン背景 */}
+      <div className="absolute inset-y-0 right-0 flex items-center bg-red-500 w-20">
+        <button
+          onClick={handleDelete}
+          disabled={isDeleting}
+          className="w-full h-full flex items-center justify-center text-white"
+        >
+          {isDeleting ? (
+            <Loader2 className="h-5 w-5 animate-spin" />
+          ) : (
+            <Trash2 className="h-5 w-5" />
+          )}
+        </button>
+      </div>
+
+      {/* スワイプ可能なコンテンツ */}
+      <div
+        style={{
+          transform: `translateX(${translateX}px)`,
+          transition: isDragging ? 'none' : 'transform 0.2s ease-out',
+        }}
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
+        onClick={handleContainerClick}
+        className="relative bg-white"
+      >
+        {children}
+      </div>
+    </div>
+  );
+}
+
 export default function ChatListPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [channels, setChannels] = useState<Channel[]>([]);
   const [botConfig, setBotConfig] = useState<BotConfig>(DEFAULT_BOT);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   // チャンネル一覧とボット設定を取得
   useEffect(() => {
@@ -81,6 +175,20 @@ export default function ChatListPage() {
     }
 
     fetchData();
+  }, []);
+
+  // チャンネルを削除（アーカイブ）
+  const handleDeleteChannel = useCallback(async (channelId: string) => {
+    try {
+      setDeletingId(channelId);
+      await archiveChannel(channelId);
+      setChannels((prev) => prev.filter((ch) => ch.id !== channelId));
+    } catch (err) {
+      console.error('Failed to delete channel:', err);
+      alert('削除に失敗しました');
+    } finally {
+      setDeletingId(null);
+    }
   }, []);
 
   // 検索フィルタリング（通常のチャンネルのみ）
@@ -204,41 +312,47 @@ export default function ChatListPage() {
               <h2 className="text-sm font-semibold text-gray-600">すべてのチャット</h2>
             </div>
             {filteredChats.map((channel) => (
-              <Link key={channel.id} href={`/chat/${channel.id}`}>
-                <Card className="rounded-none border-x-0 border-t-0 shadow-none hover:bg-gray-50 transition-colors cursor-pointer">
-                  <CardContent className="p-4">
-                    <div className="flex items-center gap-3">
-                      <div className="relative">
-                        <Avatar className="bg-blue-100">
-                          <AvatarFallback className="text-blue-600 font-semibold">
-                            {getAvatarText(channel.name)}
-                          </AvatarFallback>
-                        </Avatar>
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center justify-between mb-1">
-                          <h3 className="font-semibold text-gray-800 truncate">
-                            {channel.name || 'チャット'}
-                          </h3>
-                          <span className="text-xs text-gray-500 shrink-0 ml-2">
-                            {formatTimestamp(channel.lastMessage?.createdAt || channel.updatedAt)}
-                          </span>
+              <SwipeableItem
+                key={channel.id}
+                onDelete={() => handleDeleteChannel(channel.id)}
+                isDeleting={deletingId === channel.id}
+              >
+                <Link href={`/chat/${channel.id}`}>
+                  <Card className="rounded-none border-x-0 border-t-0 shadow-none hover:bg-gray-50 transition-colors cursor-pointer">
+                    <CardContent className="p-4">
+                      <div className="flex items-center gap-3">
+                        <div className="relative">
+                          <Avatar className="bg-blue-100">
+                            <AvatarFallback className="text-blue-600 font-semibold">
+                              {getAvatarText(channel.name)}
+                            </AvatarFallback>
+                          </Avatar>
                         </div>
-                        <div className="flex items-center justify-between">
-                          <p className="text-sm text-gray-600 truncate">
-                            {channel.lastMessage?.content || 'メッセージはありません'}
-                          </p>
-                          {channel.unreadCount > 0 && (
-                            <Badge className="bg-blue-600 text-white shrink-0 ml-2">
-                              {channel.unreadCount}
-                            </Badge>
-                          )}
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between mb-1">
+                            <h3 className="font-semibold text-gray-800 truncate">
+                              {channel.name || 'チャット'}
+                            </h3>
+                            <span className="text-xs text-gray-500 shrink-0 ml-2">
+                              {formatTimestamp(channel.lastMessage?.createdAt || channel.updatedAt)}
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <p className="text-sm text-gray-600 truncate">
+                              {channel.lastMessage?.content || 'メッセージはありません'}
+                            </p>
+                            {channel.unreadCount > 0 && (
+                              <Badge className="bg-blue-600 text-white shrink-0 ml-2">
+                                {channel.unreadCount}
+                              </Badge>
+                            )}
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              </Link>
+                    </CardContent>
+                  </Card>
+                </Link>
+              </SwipeableItem>
             ))}
           </div>
         )}

@@ -42,7 +42,7 @@ export default function PaymentPage() {
     );
   }
 
-  const hasPaymentInfo = payment?.payment_registered && payment?.bank_name;
+  const hasPaymentInfo = payment?.paymentRegistered && payment?.bankName;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-blue-50">
@@ -85,25 +85,25 @@ export default function PaymentPage() {
                   <div className="space-y-2 bg-white rounded-lg p-3">
                     <div className="flex justify-between text-sm">
                       <span className="text-gray-600">金融機関</span>
-                      <span className="font-medium text-gray-800">{payment?.bank_name || '-'}</span>
+                      <span className="font-medium text-gray-800">{payment?.bankName || '-'}</span>
                     </div>
                     <div className="flex justify-between text-sm">
                       <span className="text-gray-600">支店名</span>
-                      <span className="font-medium text-gray-800">{payment?.branch_name || '-'}</span>
+                      <span className="font-medium text-gray-800">{payment?.branchName || '-'}</span>
                     </div>
                     <div className="flex justify-between text-sm">
                       <span className="text-gray-600">口座種別</span>
                       <span className="font-medium text-gray-800">
-                        {payment?.account_type ? getAccountTypeLabel(payment.account_type) : '-'}
+                        {payment?.accountType ? getAccountTypeLabel(payment.accountType) : '-'}
                       </span>
                     </div>
                     <div className="flex justify-between text-sm">
                       <span className="text-gray-600">口座番号</span>
-                      <span className="font-medium text-gray-800">{payment?.account_number_masked || '-'}</span>
+                      <span className="font-medium text-gray-800">{payment?.accountNumberMasked || '-'}</span>
                     </div>
                     <div className="flex justify-between text-sm">
                       <span className="text-gray-600">口座名義</span>
-                      <span className="font-medium text-gray-800">{payment?.account_holder_kana || payment?.account_holder || '-'}</span>
+                      <span className="font-medium text-gray-800">{payment?.accountHolderKana || payment?.accountHolder || '-'}</span>
                     </div>
                   </div>
                 </CardContent>
@@ -130,13 +130,13 @@ export default function PaymentPage() {
                 <div className="flex justify-between">
                   <span className="text-gray-600">引き落とし日</span>
                   <span className="font-medium text-gray-800">
-                    {payment?.withdrawal_day ? `毎月${payment.withdrawal_day}日` : '-'}
+                    {payment?.withdrawalDay ? `毎月${payment.withdrawalDay}日` : '-'}
                   </span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-gray-600">次回引き落とし</span>
                   <span className="font-medium text-gray-800">
-                    {getNextWithdrawalDate(payment?.withdrawal_day ?? null)}
+                    {getNextWithdrawalDate(payment?.withdrawalDay ?? null)}
                   </span>
                 </div>
               </div>

@@ -11,9 +11,10 @@ import { cn } from "@/lib/utils";
 import {
   User, Mail, Phone, MapPin, Building, CreditCard, Banknote,
   GraduationCap, Receipt, MessageSquare, Edit, ChevronDown, ChevronUp, Gift,
-  AlertTriangle, CheckCircle, Wallet, Calendar, Filter, ExternalLink
+  AlertTriangle, CheckCircle, Wallet, Calendar, Filter, ExternalLink, MessageCircle
 } from "lucide-react";
 import apiClient from "@/lib/api/client";
+import { getOrCreateChannelForGuardian } from "@/lib/api/chat";
 import type { ContactLog, ChatMessage } from "@/lib/api/staff";
 
 // Enrollment info type
@@ -245,6 +246,9 @@ export function GuardianDetail({
     setDateTo("");
   };
 
+  // チャット開始中フラグ
+  const [isStartingChat, setIsStartingChat] = useState(false);
+
   // 保護者画面を開く
   const openGuardianView = async () => {
     try {
@@ -258,6 +262,21 @@ export function GuardianDetail({
     } catch (error: any) {
       console.error('Failed to impersonate guardian:', error);
       alert(error.message || '保護者画面を開けませんでした。ログインアカウントが設定されていない可能性があります。');
+    }
+  };
+
+  // チャットを開始
+  const startChat = async () => {
+    setIsStartingChat(true);
+    try {
+      const channel = await getOrCreateChannelForGuardian(guardian.id);
+      // チャットページを新しいタブで開く
+      window.open(`/messages?channel=${channel.id}&guardian=${guardian.id}`, '_blank');
+    } catch (error: any) {
+      console.error('Failed to start chat:', error);
+      alert(error.message || 'チャットを開始できませんでした');
+    } finally {
+      setIsStartingChat(false);
     }
   };
 
@@ -275,15 +294,45 @@ export function GuardianDetail({
             {guardianNo && <p className="text-xs text-gray-400">保護者番号: {guardianNo}</p>}
           </div>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={openGuardianView}
-          className="flex items-center gap-1"
-        >
-          <ExternalLink className="w-4 h-4" />
-          保護者画面を開く
-        </Button>
+        <div className="flex items-center gap-2">
+          {/* チャットを開始ボタン */}
+          <Button
+            variant="default"
+            size="sm"
+            onClick={startChat}
+            disabled={isStartingChat}
+            className="flex items-center gap-1 bg-blue-600 hover:bg-blue-700"
+          >
+            <MessageCircle className="w-4 h-4" />
+            {isStartingChat ? '開始中...' : 'チャット'}
+          </Button>
+
+          {/* 保護者画面を開くボタン */}
+          {(guardian.has_account || guardian.hasAccount) ? (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={openGuardianView}
+              className="flex items-center gap-1"
+            >
+              <ExternalLink className="w-4 h-4" />
+              保護者画面を開く
+            </Button>
+          ) : (
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-gray-400">アカウント未設定</span>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled
+                className="flex items-center gap-1 opacity-50 cursor-not-allowed"
+              >
+                <ExternalLink className="w-4 h-4" />
+                保護者画面を開く
+              </Button>
+            </div>
+          )}
+        </div>
       </div>
 
       <Tabs defaultValue="children" className="w-full">

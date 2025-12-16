@@ -987,6 +987,16 @@ class BankAccountChangeRequestAdmin(admin.ModelAdmin):
         self.message_user(request, f'{count}件の銀行口座申請を却下しました。')
     reject_requests.short_description = '選択した申請を却下'
 
+    def save_model(self, request, obj, form, change):
+        """ステータスが承認済に変更されたらapproveメソッドを呼ぶ"""
+        if change and 'status' in form.changed_data:
+            old_status = BankAccountChangeRequest.objects.filter(pk=obj.pk).values_list('status', flat=True).first()
+            if old_status == 'pending' and obj.status == 'approved':
+                # save()は呼ばずにapprove()を呼ぶ（approve内でsaveされる）
+                obj.approve(request.user, notes=obj.process_notes or '')
+                return
+        super().save_model(request, obj, form, change)
+
 
 @admin.register(FriendshipRegistration)
 class FriendshipRegistrationAdmin(admin.ModelAdmin):

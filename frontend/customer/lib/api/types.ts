@@ -193,11 +193,31 @@ export interface PricingItem {
 }
 
 export interface PricingDiscount {
-  discountId: string;
+  discountId?: string;
   discountName: string;
   discountType: 'percentage' | 'fixed';
-  discountValue: number;
-  appliedAmount: number;
+  discountValue?: number;
+  discountAmount: number;  // 実際の割引額
+  appliedAmount?: number;  // 旧フィールド（互換性のため）
+}
+
+// 追加料金（入会金、設備費、教材費）
+export interface AdditionalFee {
+  productId: string;
+  productName: string;
+  price: number;
+  taxRate: number;
+  taxAmount: number;
+  total: number;
+  reason?: string;
+  originalPrice?: number;  // 設備費の元の価格
+  currentFee?: number;     // 設備費の現在支払い額
+}
+
+export interface AdditionalFees {
+  enrollmentFee?: AdditionalFee;  // 入会金
+  facilityFee?: AdditionalFee;    // 設備費
+  materialsFee?: AdditionalFee;   // 教材費
 }
 
 export interface PricingMile {
@@ -230,6 +250,7 @@ export interface PricingPreviewResponse {
     subsequentMonths: number;
   };
   enrollmentTuition?: PricingItem;  // 入会時授業料情報（月途中入会時のみ）
+  additionalFees?: AdditionalFees;  // 入会金、設備費、教材費
 }
 
 export interface PricingCalculateRequest {

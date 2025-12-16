@@ -14,6 +14,26 @@ import type { Channel, Message } from '@/lib/api/types';
 // AIアシスタントのID
 const AI_ASSISTANT_ID = 'ai-assistant';
 
+// クイックアクション（よくある質問カテゴリ）
+const QUICK_ACTIONS = [
+  { id: 'trial', label: '体験授業', query: '体験授業について教えてください' },
+  { id: 'makeup', label: '振替・欠席', query: '振替について教えてください' },
+  { id: 'fee', label: '料金', query: '授業料について教えてください' },
+  { id: 'course', label: '講習', query: '講習について教えてください' },
+  { id: 'exam', label: '検定', query: '検定試験について教えてください' },
+  { id: 'event', label: 'イベント', query: 'イベントについて教えてください' },
+];
+
+// ブランド選択
+const BRANDS = [
+  { id: 'english', label: 'アンイングリッシュクラブ', query: 'アンイングリッシュクラブについて教えてください' },
+  { id: 'soroban', label: 'アンそろばんクラブ', query: 'アンそろばんクラブについて教えてください' },
+  { id: 'bimoji', label: 'アン美文字クラブ', query: 'アン美文字クラブについて教えてください' },
+  { id: 'programming', label: 'アンプログラミング', query: 'アンプログラミングクラブについて教えてください' },
+  { id: 'juku', label: 'アン進学ジム', query: 'アン進学ジムについて教えてください' },
+  { id: 'international', label: 'インターナショナル', query: 'アンインターナショナルスクールについて教えてください' },
+];
+
 // タイムスタンプをフォーマット
 function formatMessageTime(dateString: string): string {
   const date = new Date(dateString);
@@ -52,6 +72,7 @@ export default function ChatConversationPage() {
   const [error, setError] = useState<string | null>(null);
   const [selectedMessageId, setSelectedMessageId] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [showQuickActions, setShowQuickActions] = useState(true); // クイックアクション表示
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const longPressTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -134,6 +155,58 @@ export default function ChatConversationPage() {
     scrollToBottom();
   }, [messages, scrollToBottom]);
 
+  // クイックアクションをクリック
+  const handleQuickAction = async (query: string) => {
+    if (isSending) return;
+    setShowQuickActions(false);
+    setIsSending(true);
+
+    // ユーザーメッセージを表示
+    const tempMessage: Message = {
+      id: `temp-${Date.now()}`,
+      channel: channelId,
+      channelId,
+      senderId: currentUserId,
+      senderName: 'あなた',
+      messageType: 'text',
+      content: query,
+      isRead: false,
+      createdAt: new Date().toISOString(),
+    };
+    setMessages((prev) => [...prev, tempMessage]);
+
+    try {
+      const botResponse = await chatWithBot(query);
+      // ユーザーメッセージを確定
+      setMessages((prev) =>
+        prev.map((msg) =>
+          msg.id === tempMessage.id
+            ? { ...tempMessage, id: `user-${Date.now()}`, isRead: true }
+            : msg
+        )
+      );
+      // ボットの応答を追加
+      const aiMessage: Message = {
+        id: `ai-${Date.now()}`,
+        channel: AI_ASSISTANT_ID,
+        channelId: AI_ASSISTANT_ID,
+        senderId: 'ai',
+        senderName: 'AIアシスタント',
+        messageType: 'text',
+        content: botResponse.response,
+        isRead: true,
+        createdAt: new Date().toISOString(),
+      };
+      setMessages((prev) => [...prev, aiMessage]);
+    } catch (err) {
+      console.error('Failed to send quick action:', err);
+      setMessages((prev) => prev.filter((msg) => msg.id !== tempMessage.id));
+      alert('メッセージの送信に失敗しました');
+    } finally {
+      setIsSending(false);
+    }
+  };
+
   // メッセージ送信
   const handleSendMessage = async () => {
     if (!inputValue.trim() || isSending) return;
@@ -141,6 +214,7 @@ export default function ChatConversationPage() {
     const messageContent = inputValue.trim();
     setInputValue('');
     setIsSending(true);
+    setShowQuickActions(false); // クイックアクションを非表示
 
     // 楽観的更新: 送信中のメッセージを仮表示
     const tempMessage: Message = {
@@ -398,6 +472,56 @@ export default function ChatConversationPage() {
               </div>
             );
           })}
+
+          {/* クイックアクションボタン（AIアシスタントの場合のみ） */}
+          {isAiAssistant && showQuickActions && messages.length <= 1 && (
+            <div className="mt-6 space-y-4">
+              {/* よくある質問 */}
+              <div>
+                <p className="text-xs text-gray-500 mb-2 font-medium">よくある質問</p>
+                <ul className="space-y-1">
+                  {QUICK_ACTIONS.map((action) => (
+                    <li key={action.id}>
+                      <button
+                        onClick={() => handleQuickAction(action.query)}
+                        className="w-full text-left px-3 py-2 text-sm text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                      >
+                        • {action.label}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+
+              {/* ブランド選択 */}
+              <div>
+                <p className="text-xs text-gray-500 mb-2 font-medium">コースについて</p>
+                <ul className="space-y-1">
+                  {BRANDS.map((brand) => (
+                    <li key={brand.id}>
+                      <button
+                        onClick={() => handleQuickAction(brand.query)}
+                        className="w-full text-left px-3 py-2 text-sm text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                      >
+                        • {brand.label}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+
+              {/* スタッフに相談 */}
+              <div className="pt-2">
+                <button
+                  onClick={() => handleQuickAction('スタッフと直接話したい')}
+                  className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-xl text-sm font-medium hover:from-blue-600 hover:to-blue-700 transition-all shadow-md"
+                >
+                  <span>スタッフに相談する</span>
+                </button>
+              </div>
+            </div>
+          )}
+
           <div ref={messagesEndRef} />
         </div>
       </main>

@@ -1,6 +1,7 @@
 """
 Schools Views
 """
+import sys
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -1140,32 +1141,48 @@ class PublicTrialScheduleView(APIView):
                 pass  # 無効な日付形式は無視
 
         # ClassScheduleから曜日・時間帯を取得（実際のクラス開講情報）
-        queryset = ClassSchedule.objects.filter(
+        class_schedules = ClassSchedule.objects.filter(
             school_id=school_id,
             is_active=True,
             deleted_at__isnull=True
         ).select_related('brand', 'grade')
 
         if brand_id:
-            queryset = queryset.filter(brand_id=brand_id)
+            class_schedules = class_schedules.filter(brand_id=brand_id)
 
-        # 学年フィルター: 子供の学年が対象学年に含まれるクラスのみ
-        if child_school_year:
-            # gradeがNULLのスケジュールは全学年対象として扱う
-            # gradeがある場合は、school_yearsに子供の学年が含まれるか確認
-            filtered_schedules = []
-            for sched in queryset:
-                if sched.grade is None:
-                    # 学年指定なし → 全学年対象
-                    filtered_schedules.append(sched)
-                else:
-                    # 学年指定あり → 子供の学年が含まれるか確認
-                    grade_school_years = sched.grade.school_years.all()
-                    if child_school_year in grade_school_years:
+        # ClassScheduleにデータがある場合はそれを使用
+        if class_schedules.exists():
+            # 学年フィルター: 子供の学年が対象学年に含まれるクラスのみ
+            if child_school_year:
+                # gradeがNULLのスケジュールは全学年対象として扱う
+                # gradeがある場合は、school_yearsに子供の学年が含まれるか確認
+                filtered_schedules = []
+                for sched in class_schedules:
+                    if sched.grade is None:
+                        # 学年指定なし → 全学年対象
                         filtered_schedules.append(sched)
-            queryset = filtered_schedules
+                    else:
+                        # 学年指定あり → 子供の学年が含まれるか確認
+                        grade_school_years = sched.grade.school_years.all()
+                        if child_school_year in grade_school_years:
+                            filtered_schedules.append(sched)
+                queryset = filtered_schedules
+            else:
+                queryset = list(class_schedules)
+            use_class_schedule = True
         else:
-            queryset = list(queryset)
+            # ClassScheduleがない場合はSchoolScheduleにフォールバック
+            school_schedules = SchoolSchedule.objects.filter(
+                school_id=school_id,
+                is_active=True,
+                deleted_at__isnull=True
+            ).select_related('brand', 'time_slot')
+
+            if brand_id:
+                school_schedules = school_schedules.filter(brand_id=brand_id)
+
+            queryset = list(school_schedules)
+            use_class_schedule = False
 
         # 曜日変換
         day_names = {1: '月曜日', 2: '火曜日', 3: '水曜日', 4: '木曜日', 5: '金曜日', 6: '土曜日', 7: '日曜日'}
@@ -1175,34 +1192,63 @@ class PublicTrialScheduleView(APIView):
         seen_slots = set()  # 同じ曜日+時間帯の重複を排除
 
         for sched in queryset:
-            day_name = day_names.get(sched.day_of_week, str(sched.day_of_week))
-            time_key = f"{sched.day_of_week}_{sched.start_time}_{sched.end_time}_{sched.brand_id}"
+            if use_class_schedule:
+                # ClassSchedule形式
+                day_name = day_names.get(sched.day_of_week, str(sched.day_of_week))
+                time_key = f"{sched.day_of_week}_{sched.start_time}_{sched.end_time}_{sched.brand_id}"
 
-            if time_key in seen_slots:
-                continue
-            seen_slots.add(time_key)
+                if time_key in seen_slots:
+                    continue
+                seen_slots.add(time_key)
 
-            if day_name not in schedule_by_day:
-                schedule_by_day[day_name] = []
+                if day_name not in schedule_by_day:
+                    schedule_by_day[day_name] = []
 
-            time_str = f"{sched.start_time.strftime('%H:%M')}-{sched.end_time.strftime('%H:%M')}"
+                time_str = f"{sched.start_time.strftime('%H:%M')}-{sched.end_time.strftime('%H:%M')}"
 
-            # 体験受入可能数（定員 - 既存予約数）
-            capacity = sched.max_students if hasattr(sched, 'max_students') and sched.max_students else 10
-            trial_capacity = getattr(sched, 'trial_capacity', 2) or 2
+                # 体験受入可能数（定員 - 既存予約数）
+                capacity = sched.max_students if hasattr(sched, 'max_students') and sched.max_students else 10
+                trial_capacity = getattr(sched, 'trial_capacity', 2) or 2
 
-            schedule_by_day[day_name].append({
-                'id': str(sched.id),
-                'time': time_str,
-                'startTime': sched.start_time.strftime('%H:%M'),
-                'endTime': sched.end_time.strftime('%H:%M'),
-                'className': sched.class_name,
-                'capacity': capacity,
-                'trialCapacity': trial_capacity,
-                'brandId': str(sched.brand.id),
-                'brandName': sched.brand.brand_name,
-                'gradeName': sched.grade.grade_name if sched.grade else None,
-            })
+                schedule_by_day[day_name].append({
+                    'id': str(sched.id),
+                    'time': time_str,
+                    'startTime': sched.start_time.strftime('%H:%M'),
+                    'endTime': sched.end_time.strftime('%H:%M'),
+                    'className': sched.class_name,
+                    'capacity': capacity,
+                    'trialCapacity': trial_capacity,
+                    'brandId': str(sched.brand.id),
+                    'brandName': sched.brand.brand_name,
+                    'gradeName': sched.grade.grade_name if sched.grade else None,
+                })
+            else:
+                # SchoolSchedule形式（フォールバック）
+                day_name = day_names.get(sched.day_of_week, str(sched.day_of_week))
+                time_slot = sched.time_slot
+                time_key = f"{sched.day_of_week}_{time_slot.start_time}_{time_slot.end_time}_{sched.brand_id}"
+
+                if time_key in seen_slots:
+                    continue
+                seen_slots.add(time_key)
+
+                if day_name not in schedule_by_day:
+                    schedule_by_day[day_name] = []
+
+                time_str = f"{time_slot.start_time.strftime('%H:%M')}-{time_slot.end_time.strftime('%H:%M')}"
+
+                schedule_by_day[day_name].append({
+                    'id': str(sched.id),
+                    'time': time_str,
+                    'startTime': time_slot.start_time.strftime('%H:%M'),
+                    'endTime': time_slot.end_time.strftime('%H:%M'),
+                    'className': None,  # SchoolScheduleには class_name がない
+                    'capacity': sched.capacity or 10,
+                    'trialCapacity': sched.trial_capacity or 2,
+                    'brandId': str(sched.brand.id),
+                    'brandName': sched.brand.brand_name,
+                    'gradeName': None,  # SchoolScheduleには grade がない
+                })
 
         # レスポンス形式（曜日順にソート）
         day_order = {'月曜日': 1, '火曜日': 2, '水曜日': 3, '木曜日': 4, '金曜日': 5, '土曜日': 6, '日曜日': 7}
@@ -1322,8 +1368,17 @@ class PublicTrialAvailabilityView(APIView):
                 'slots': []
             })
 
-        # SchoolScheduleから該当曜日のスケジュールを取得
-        schedules = SchoolSchedule.objects.filter(
+        # ClassScheduleから該当曜日のスケジュールを取得（学年情報付き）
+        class_schedules = ClassSchedule.objects.filter(
+            school_id=school_id,
+            brand_id=brand_id,
+            day_of_week=day_of_week,
+            is_active=True,
+            deleted_at__isnull=True
+        ).select_related('grade').order_by('start_time')
+
+        # SchoolScheduleも取得（体験予約数カウント用 / フォールバック用）
+        school_schedules = SchoolSchedule.objects.filter(
             school_id=school_id,
             brand_id=brand_id,
             day_of_week=day_of_week,
@@ -1331,25 +1386,70 @@ class PublicTrialAvailabilityView(APIView):
             deleted_at__isnull=True
         ).select_related('time_slot')
 
+        # SchoolScheduleを時間帯でマッピング
+        ss_by_time = {}
+        for ss in school_schedules:
+            time_key = f"{ss.time_slot.start_time.strftime('%H:%M')}"
+            ss_by_time[time_key] = ss
+
         slots = []
-        for sched in schedules:
-            # 体験予約済み数を取得
-            booked_count = TrialBooking.get_booked_count(sched.id, target_date)
-            trial_capacity = sched.trial_capacity or 2
-            available_count = max(0, trial_capacity - booked_count)
 
-            time_str = f"{sched.time_slot.start_time.strftime('%H:%M')}-{sched.time_slot.end_time.strftime('%H:%M')}"
+        # ClassScheduleがある場合はそれを使用
+        if class_schedules.exists():
+            for cs in class_schedules:
+                start_time_key = cs.start_time.strftime('%H:%M')
 
-            slots.append({
-                'scheduleId': str(sched.id),
-                'timeSlotId': str(sched.time_slot.id),
-                'timeSlotName': sched.time_slot.slot_name,
-                'time': time_str,
-                'trialCapacity': trial_capacity,
-                'bookedCount': booked_count,
-                'availableCount': available_count,
-                'isAvailable': available_count > 0,
-            })
+                # 対応するSchoolScheduleから予約数を取得
+                ss = ss_by_time.get(start_time_key)
+                if ss:
+                    booked_count = TrialBooking.get_booked_count(ss.id, target_date)
+                else:
+                    booked_count = 0
+
+                trial_capacity = cs.trial_capacity or 2
+                available_count = max(0, trial_capacity - booked_count)
+
+                time_str = f"{cs.start_time.strftime('%H:%M')}-{cs.end_time.strftime('%H:%M')}"
+
+                slots.append({
+                    'scheduleId': str(ss.id) if ss else str(cs.id),
+                    'classScheduleId': str(cs.id),
+                    'className': cs.class_name,
+                    'time': time_str,
+                    'startTime': cs.start_time.strftime('%H:%M'),
+                    'endTime': cs.end_time.strftime('%H:%M'),
+                    'trialCapacity': trial_capacity,
+                    'bookedCount': booked_count,
+                    'availableCount': available_count,
+                    'isAvailable': available_count > 0,
+                    'gradeName': cs.grade.grade_name if cs.grade else None,
+                    'gradeId': str(cs.grade.id) if cs.grade else None,
+                    'displayCourseName': cs.display_course_name,
+                })
+        else:
+            # ClassScheduleがない場合はSchoolScheduleを使用（フォールバック）
+            for ss in school_schedules:
+                booked_count = TrialBooking.get_booked_count(ss.id, target_date)
+                trial_capacity = ss.trial_capacity or 2
+                available_count = max(0, trial_capacity - booked_count)
+
+                time_str = f"{ss.time_slot.start_time.strftime('%H:%M')}-{ss.time_slot.end_time.strftime('%H:%M')}"
+
+                slots.append({
+                    'scheduleId': str(ss.id),
+                    'classScheduleId': None,
+                    'className': None,
+                    'time': time_str,
+                    'startTime': ss.time_slot.start_time.strftime('%H:%M'),
+                    'endTime': ss.time_slot.end_time.strftime('%H:%M'),
+                    'trialCapacity': trial_capacity,
+                    'bookedCount': booked_count,
+                    'availableCount': available_count,
+                    'isAvailable': available_count > 0,
+                    'gradeName': None,
+                    'gradeId': None,
+                    'displayCourseName': None,
+                })
 
         return Response({
             'date': date_str,
@@ -1502,6 +1602,45 @@ class PublicTrialBookingView(APIView):
             student.status = Student.Status.TRIAL
             student.trial_date = trial_date
             student.save()
+
+        # チャット通知を送信
+        try:
+            from apps.communications.models import Channel, Message
+
+            # 保護者のチャンネルを取得または作成
+            channel = None
+            if guardian:
+                channel = Channel.objects.filter(
+                    guardian=guardian,
+                    channel_type=Channel.ChannelType.EXTERNAL
+                ).first()
+
+                if not channel:
+                    channel = Channel.objects.create(
+                        tenant_id=tenant_id,
+                        channel_type=Channel.ChannelType.EXTERNAL,
+                        name=f'{guardian.full_name}',
+                        guardian=guardian,
+                    )
+
+            if channel:
+                # システムメッセージを作成
+                Message.objects.create(
+                    tenant_id=tenant_id,
+                    channel=channel,
+                    message_type=Message.MessageType.SYSTEM,
+                    content=f'体験授業のご予約ありがとうございます。\n\n'
+                           f'【予約内容】\n'
+                           f'お子様: {student.full_name}\n'
+                           f'校舎: {schedule.school.school_name}\n'
+                           f'ブランド: {schedule.brand.brand_name}\n'
+                           f'日時: {trial_date.strftime("%Y年%m月%d日")} {time_str}\n\n'
+                           f'当日お待ちしております。',
+                    is_bot_message=True,
+                )
+        except Exception as e:
+            # チャット通知が失敗しても予約は成功とする
+            print(f"[TrialBooking] Failed to send chat notification: {e}", file=sys.stderr)
 
         return Response({
             'id': str(booking.id),
@@ -1811,20 +1950,43 @@ class PublicTrialMonthlyAvailabilityView(APIView):
         first_day = date(year, month, 1)
         last_day = date(year, month, cal.monthrange(year, month)[1])
 
-        # 校舎・ブランドのスケジュールを取得
-        schedules = SchoolSchedule.objects.filter(
+        # 校舎・ブランドのスケジュールを取得（ClassSchedule優先、なければSchoolSchedule）
+        class_schedules = ClassSchedule.objects.filter(
             school_id=school_id,
             brand_id=brand_id,
             is_active=True,
             deleted_at__isnull=True
-        ).select_related('time_slot')
+        ).select_related('grade')
 
-        # 曜日ごとのスケジュールをまとめる
-        schedules_by_day = {}
-        for sched in schedules:
-            if sched.day_of_week not in schedules_by_day:
-                schedules_by_day[sched.day_of_week] = []
-            schedules_by_day[sched.day_of_week].append(sched)
+        if class_schedules.exists():
+            # ClassScheduleを使用
+            schedules_by_day = {}
+            for sched in class_schedules:
+                if sched.day_of_week not in schedules_by_day:
+                    schedules_by_day[sched.day_of_week] = []
+                schedules_by_day[sched.day_of_week].append({
+                    'id': sched.id,
+                    'trial_capacity': sched.trial_capacity or 2,
+                })
+            use_class_schedule = True
+        else:
+            # SchoolScheduleにフォールバック
+            school_schedules = SchoolSchedule.objects.filter(
+                school_id=school_id,
+                brand_id=brand_id,
+                is_active=True,
+                deleted_at__isnull=True
+            ).select_related('time_slot')
+
+            schedules_by_day = {}
+            for sched in school_schedules:
+                if sched.day_of_week not in schedules_by_day:
+                    schedules_by_day[sched.day_of_week] = []
+                schedules_by_day[sched.day_of_week].append({
+                    'id': sched.id,
+                    'trial_capacity': sched.trial_capacity or 2,
+                })
+            use_class_schedule = False
 
         # LessonCalendarで休講日を取得
         closures = LessonCalendar.objects.filter(
@@ -1835,6 +1997,29 @@ class PublicTrialMonthlyAvailabilityView(APIView):
             is_open=False
         ).values_list('lesson_date', flat=True)
         closure_dates = set(closures)
+
+        # 日本人講師のみの日を取得（lesson_type='B'）
+        # brand_id/school_idでの検索
+        japanese_only_entries = LessonCalendar.objects.filter(
+            brand_id=brand_id,
+            school_id=school_id,
+            lesson_date__gte=first_day,
+            lesson_date__lte=last_day,
+            lesson_type='B'
+        ).values_list('lesson_date', flat=True)
+        japanese_only_dates = set(japanese_only_entries)
+
+        # ClassScheduleのcalendar_patternでも検索
+        if use_class_schedule:
+            calendar_patterns = set(cs.calendar_pattern for cs in class_schedules if cs.calendar_pattern)
+            if calendar_patterns:
+                pattern_entries = LessonCalendar.objects.filter(
+                    calendar_code__in=calendar_patterns,
+                    lesson_date__gte=first_day,
+                    lesson_date__lte=last_day,
+                    lesson_type='B'
+                ).values_list('lesson_date', flat=True)
+                japanese_only_dates.update(pattern_entries)
 
         # 日付ごとの空き状況を計算
         daily_availability = []
@@ -1857,10 +2042,17 @@ class PublicTrialMonthlyAvailabilityView(APIView):
                 day_data['isOpen'] = False
                 day_data['reason'] = 'closed'
                 daily_availability.append(day_data)
-                current_date = date(current_date.year, current_date.month, current_date.day + 1) if current_date.day < last_day.day else last_day
-                if current_date > last_day:
+                next_day = current_date.day + 1
+                if next_day > cal.monthrange(year, month)[1]:
                     break
-                # 次の日に進む
+                current_date = date(year, month, next_day)
+                continue
+
+            # 日本人講師のみの日チェック（体験不可）
+            if current_date in japanese_only_dates:
+                day_data['isOpen'] = False
+                day_data['reason'] = 'japanese_only'
+                daily_availability.append(day_data)
                 next_day = current_date.day + 1
                 if next_day > cal.monthrange(year, month)[1]:
                     break
@@ -1873,17 +2065,20 @@ class PublicTrialMonthlyAvailabilityView(APIView):
                 total_capacity = 0
                 total_booked = 0
 
-                for sched in day_schedules:
-                    trial_cap = sched.trial_capacity or 2
+                for sched_info in day_schedules:
+                    trial_cap = sched_info['trial_capacity']
                     total_capacity += trial_cap
-                    booked = TrialBooking.get_booked_count(sched.id, current_date)
-                    total_booked += booked
+                    # ClassScheduleの場合はSchoolScheduleのIDで予約数を取得できないので0とする
+                    # （実際の予約数は日次APIで正確に取得）
+                    if not use_class_schedule:
+                        booked = TrialBooking.get_booked_count(sched_info['id'], current_date)
+                        total_booked += booked
 
                 available = max(0, total_capacity - total_booked)
                 day_data['totalCapacity'] = total_capacity
                 day_data['bookedCount'] = total_booked
                 day_data['availableCount'] = available
-                day_data['isAvailable'] = available > 0
+                day_data['isAvailable'] = available > 0 or total_capacity > 0
             else:
                 # 開講曜日ではない
                 day_data['isOpen'] = False

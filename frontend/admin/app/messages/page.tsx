@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useRef, useCallback } from "react";
+import { useSearchParams } from "next/navigation";
 import { ThreePaneLayout } from "@/components/layout/ThreePaneLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -27,11 +28,15 @@ import {
   RefreshCw,
   Archive,
   BarChart3,
+  Maximize2,
+  Minimize2,
+  X,
 } from "lucide-react";
 import { format } from "date-fns";
 import { ja } from "date-fns/locale";
 import {
   getChannels,
+  getChannel,
   getMessages,
   sendMessage,
   getChatLogs,
@@ -42,6 +47,9 @@ import {
 } from "@/lib/api/chat";
 
 export default function MessagesPage() {
+  const searchParams = useSearchParams();
+  const channelIdParam = searchParams.get('channel');
+  const guardianIdParam = searchParams.get('guardian');
   const [activeTab, setActiveTab] = useState<"channels" | "logs" | "stats">("channels");
   const [channels, setChannels] = useState<Channel[]>([]);
   const [chatLogs, setChatLogs] = useState<ChatLog[]>([]);
@@ -60,6 +68,10 @@ export default function MessagesPage() {
   } | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
+  // フォーカスモード（URLパラメータで開いた場合）
+  const isFocusMode = !!channelIdParam;
+  const [windowSize, setWindowSize] = useState<"compact" | "normal" | "fullscreen">("normal");
+
   // チャンネル一覧を取得
   useEffect(() => {
     if (activeTab === "channels") {
@@ -70,6 +82,21 @@ export default function MessagesPage() {
       loadStatistics();
     }
   }, [activeTab, channelTypeFilter]);
+
+  // URLパラメータからチャンネルを自動選択
+  useEffect(() => {
+    const loadChannelFromParam = async () => {
+      if (channelIdParam && !selectedChannel) {
+        try {
+          const channel = await getChannel(channelIdParam);
+          setSelectedChannel(channel);
+        } catch (error) {
+          console.error("Failed to load channel from param:", error);
+        }
+      }
+    };
+    loadChannelFromParam();
+  }, [channelIdParam]);
 
   // 選択したチャンネルのメッセージを取得
   useEffect(() => {
@@ -90,7 +117,7 @@ export default function MessagesPage() {
   const loadChannels = async () => {
     try {
       setIsLoading(true);
-      const params: { channelType?: string; isArchived?: boolean } = { isArchived: false };
+      const params: { channelType?: string; includeArchived?: boolean } = { includeArchived: true };
       if (channelTypeFilter !== "all") {
         params.channelType = channelTypeFilter;
       }
@@ -210,6 +237,85 @@ export default function MessagesPage() {
     );
   });
 
+  // フォーカスモード（特定のチャンネルだけを表示）- シンプルUI
+  if (isFocusMode) {
+    // チャンネル読み込み中
+    if (!selectedChannel) {
+      return (
+        <div className="flex items-center justify-center h-screen bg-gray-50">
+          <Loader2 className="w-6 h-6 animate-spin text-blue-600" />
+        </div>
+      );
+    }
+
+    return (
+      <div className="flex flex-col h-screen bg-gray-50">
+        {/* シンプルヘッダー */}
+        <div className="flex items-center gap-3 p-3 bg-white border-b">
+          <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center">
+            <User className="w-4 h-4 text-blue-600" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="font-medium text-sm truncate">
+              {selectedChannel.guardian?.fullName || selectedChannel.name}
+            </p>
+          </div>
+          <Button variant="ghost" size="sm" onClick={() => window.close()}>
+            <X className="w-4 h-4" />
+          </Button>
+        </div>
+
+        {/* メッセージエリア */}
+        <div className="flex-1 overflow-auto p-3">
+          {messages.length === 0 ? (
+            <p className="text-center text-gray-400 text-sm py-8">メッセージがありません</p>
+          ) : (
+            <div className="space-y-2">
+              {messages.map((message) => {
+                const isFromGuardian = !!message.senderGuardian;
+                return (
+                  <div key={message.id} className={`flex ${isFromGuardian ? "justify-start" : "justify-end"}`}>
+                    <div className={`max-w-[75%] px-3 py-2 rounded-lg text-sm ${
+                      isFromGuardian ? "bg-white shadow-sm" : "bg-blue-500 text-white"
+                    }`}>
+                      <p className="whitespace-pre-wrap">{message.content}</p>
+                      <p className={`text-xs mt-1 ${isFromGuardian ? "text-gray-400" : "text-blue-200"}`}>
+                        {format(new Date(message.createdAt), "HH:mm", { locale: ja })}
+                      </p>
+                    </div>
+                  </div>
+                );
+              })}
+              <div ref={messagesEndRef} />
+            </div>
+          )}
+        </div>
+
+        {/* 入力エリア */}
+        <div className="p-3 bg-white border-t">
+          <div className="flex gap-2">
+            <Input
+              placeholder="メッセージ..."
+              value={newMessage}
+              onChange={(e) => setNewMessage(e.target.value)}
+              onKeyPress={handleKeyPress}
+              disabled={isSending}
+              className="flex-1 h-9 text-sm"
+            />
+            <Button
+              onClick={handleSendMessage}
+              disabled={!newMessage.trim() || isSending}
+              size="sm"
+              className="bg-blue-600 hover:bg-blue-700 h-9"
+            >
+              {isSending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <ThreePaneLayout>
       <div className="p-6 h-full flex flex-col">
@@ -288,28 +394,39 @@ export default function MessagesPage() {
                           className={`p-2 rounded cursor-pointer transition-colors ${
                             selectedChannel?.id === channel.id
                               ? "bg-blue-100 border-blue-300"
+                              : channel.isArchived
+                              ? "bg-gray-50 opacity-60"
                               : "hover:bg-gray-50"
                           }`}
                           onClick={() => setSelectedChannel(channel)}
                         >
                           <div className="flex items-center gap-2">
-                            <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center">
+                            <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
+                              channel.isArchived ? "bg-gray-200" : "bg-blue-100"
+                            }`}>
                               {channel.channelType === "group" ? (
-                                <Users className="w-4 h-4 text-blue-600" />
+                                <Users className={`w-4 h-4 ${channel.isArchived ? "text-gray-400" : "text-blue-600"}`} />
                               ) : (
-                                <User className="w-4 h-4 text-blue-600" />
+                                <User className={`w-4 h-4 ${channel.isArchived ? "text-gray-400" : "text-blue-600"}`} />
                               )}
                             </div>
                             <div className="flex-1 min-w-0">
-                              <div className="flex items-center justify-between">
-                                <p className="text-sm font-medium truncate">
+                              <div className="flex items-center justify-between gap-1">
+                                <p className={`text-sm font-medium truncate ${channel.isArchived ? "text-gray-500" : ""}`}>
                                   {channel.guardian?.fullName || channel.name}
                                 </p>
-                                {channel.unreadCount > 0 && (
-                                  <Badge className="bg-red-500 text-white text-xs">
-                                    {channel.unreadCount}
-                                  </Badge>
-                                )}
+                                <div className="flex items-center gap-1 shrink-0">
+                                  {channel.isArchived && (
+                                    <Badge variant="outline" className="text-xs border-gray-400 text-gray-500">
+                                      削除済み
+                                    </Badge>
+                                  )}
+                                  {channel.unreadCount > 0 && !channel.isArchived && (
+                                    <Badge className="bg-red-500 text-white text-xs">
+                                      {channel.unreadCount}
+                                    </Badge>
+                                  )}
+                                </div>
                               </div>
                               {channel.lastMessage && (
                                 <p className="text-xs text-gray-500 truncate">
@@ -331,13 +448,22 @@ export default function MessagesPage() {
                   <>
                     <CardHeader className="py-3 px-4 border-b">
                       <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center">
-                          <User className="w-5 h-5 text-blue-600" />
+                        <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
+                          selectedChannel.isArchived ? "bg-gray-200" : "bg-blue-100"
+                        }`}>
+                          <User className={`w-5 h-5 ${selectedChannel.isArchived ? "text-gray-400" : "text-blue-600"}`} />
                         </div>
-                        <div>
-                          <CardTitle className="text-base">
-                            {selectedChannel.guardian?.fullName || selectedChannel.name}
-                          </CardTitle>
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2">
+                            <CardTitle className="text-base">
+                              {selectedChannel.guardian?.fullName || selectedChannel.name}
+                            </CardTitle>
+                            {selectedChannel.isArchived && (
+                              <Badge variant="outline" className="text-xs border-gray-400 text-gray-500">
+                                削除済み
+                              </Badge>
+                            )}
+                          </div>
                           <div className="flex items-center gap-2 text-xs text-gray-500">
                             {selectedChannel.student && (
                               <span className="flex items-center gap-1">

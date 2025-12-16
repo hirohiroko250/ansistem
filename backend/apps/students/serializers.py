@@ -243,13 +243,15 @@ class GuardianListSerializer(serializers.ModelSerializer):
     full_name = serializers.CharField(read_only=True)
     student_count = serializers.IntegerField(read_only=True)
     student_names = serializers.SerializerMethodField()
+    has_account = serializers.SerializerMethodField()
 
     class Meta:
         model = Guardian
         fields = [
             'id', 'guardian_no', 'full_name', 'last_name', 'first_name',
             'last_name_kana', 'first_name_kana',
-            'email', 'phone', 'phone_mobile', 'student_count', 'student_names'
+            'email', 'phone', 'phone_mobile', 'student_count', 'student_names',
+            'has_account'
         ]
 
     def get_student_names(self, obj):
@@ -257,10 +259,15 @@ class GuardianListSerializer(serializers.ModelSerializer):
         children = obj.children.filter(deleted_at__isnull=True)[:5]  # 最大5人
         return [f"{s.last_name}{s.first_name}" for s in children]
 
+    def get_has_account(self, obj):
+        """保護者にログインアカウントが紐付いているか"""
+        return obj.user_id is not None
+
 
 class GuardianDetailSerializer(serializers.ModelSerializer):
     """保護者詳細"""
     full_name = serializers.CharField(read_only=True)
+    has_account = serializers.SerializerMethodField()
 
     class Meta:
         model = Guardian
@@ -275,9 +282,14 @@ class GuardianDetailSerializer(serializers.ModelSerializer):
             'account_type', 'account_number', 'account_holder', 'account_holder_kana',
             'withdrawal_day', 'payment_registered', 'payment_registered_at',
             'notes',
+            'has_account',
             'created_at', 'updated_at'
         ]
-        read_only_fields = ['id', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'created_at', 'updated_at', 'has_account']
+
+    def get_has_account(self, obj):
+        """保護者にログインアカウントが紐付いているか"""
+        return obj.user_id is not None
 
 
 class GuardianPaymentSerializer(serializers.ModelSerializer):

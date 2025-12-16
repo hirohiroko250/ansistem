@@ -79,12 +79,18 @@ type ScheduleTime = {
 
 type AvailabilitySlot = {
   scheduleId: string;
-  timeSlotId: string;
+  classScheduleId: string;
+  className: string;
   time: string;
+  startTime: string;
+  endTime: string;
   trialCapacity: number;
   bookedCount: number;
   availableCount: number;
   isAvailable: boolean;
+  gradeName: string | null;
+  gradeId: string | null;
+  displayCourseName: string | null;
 };
 
 type DaySchedule = {
@@ -100,7 +106,7 @@ type DailyAvailability = {
   bookedCount: number;
   availableCount: number;
   isAvailable: boolean;
-  reason?: string;
+  reason?: 'closed' | 'japanese_only' | 'no_schedule' | string;
 };
 
 
@@ -125,7 +131,6 @@ export default function TrialPage() {
   const [selectedCategory, setSelectedCategory] = useState<BrandCategory | null>(null);
   const [selectedBrand, setSelectedBrand] = useState<Brand | null>(null);  // 内部で自動選択
   const [selectedDate, setSelectedDate] = useState<Date>();
-  const [selectedTime, setSelectedTime] = useState<ScheduleTime | null>(null);
   const [selectedAvailability, setSelectedAvailability] = useState<AvailabilitySlot | null>(null);
 
 
@@ -147,6 +152,7 @@ export default function TrialPage() {
   const [availability, setAvailability] = useState<AvailabilitySlot[]>([]);
   const [availabilityLoading, setAvailabilityLoading] = useState(false);
   const [isClosed, setIsClosed] = useState(false);
+  const [unavailableReason, setUnavailableReason] = useState<string | null>(null);
 
   // 月間空き状況
   const [monthlyAvailability, setMonthlyAvailability] = useState<Record<string, DailyAvailability>>({});
@@ -334,6 +340,7 @@ export default function TrialPage() {
     setSelectedDate(date);
     setSelectedAvailability(null);
     setIsClosed(false);
+    setUnavailableReason(null);
 
     if (date && selectedSchoolId && selectedBrand) {
       // 空き状況を取得
@@ -345,12 +352,18 @@ export default function TrialPage() {
         );
         const data = await res.json();
 
-        if (data.isClosed) {
+        if (data.reason === 'closed') {
           setIsClosed(true);
           setAvailability([]);
+          setUnavailableReason(data.holidayName || '休講日');
+        } else if (data.reason === 'japanese_only') {
+          setIsClosed(false);
+          setAvailability([]);
+          setUnavailableReason(data.message || 'この日は日本人講師のみのため体験授業は受け付けておりません');
         } else if (data.slots) {
           setAvailability(data.slots);
           setIsClosed(false);
+          setUnavailableReason(null);
         }
       } catch (error) {
         console.error('Failed to fetch availability:', error);
@@ -359,11 +372,6 @@ export default function TrialPage() {
       }
       setStep('time');
     }
-  };
-
-  const handleTimeSelect = (time: ScheduleTime, avail: AvailabilitySlot | null) => {
-    setSelectedTime(time);
-    setSelectedAvailability(avail);
   };
 
   const handleConfirm = async () => {
@@ -631,7 +639,13 @@ export default function TrialPage() {
                   disabled={(date) => {
                     const today = new Date();
                     today.setHours(0, 0, 0, 0);
-                    return date < today || !isDateAvailable(date);
+                    if (date < today) return true;
+                    if (!isDateAvailable(date)) return true;
+                    // 月間空き状況で体験不可の日を無効化（休講日、日本人講師のみ等）
+                    const dateStr = format(date, 'yyyy-MM-dd');
+                    const dayInfo = monthlyAvailability[dateStr];
+                    if (dayInfo && dayInfo.isOpen === false) return true;
+                    return false;
                   }}
                   locale={ja}
                   className="rounded-md"
@@ -651,11 +665,17 @@ export default function TrialPage() {
                       const dayInfo = monthlyAvailability[dateStr];
                       return (dayInfo?.bookedCount ?? 0) > 0;
                     },
+                    japaneseOnly: (date) => {
+                      const dateStr = format(date, 'yyyy-MM-dd');
+                      const dayInfo = monthlyAvailability[dateStr];
+                      return dayInfo?.reason === 'japanese_only';
+                    },
                   }}
                   modifiersClassNames={{
                     hasAvailability: 'bg-green-100 hover:bg-green-200',
                     full: 'bg-red-100 hover:bg-red-200',
                     hasBookings: 'font-bold',
+                    japaneseOnly: 'bg-yellow-100 text-yellow-700',
                   }}
                   components={{
                     DayContent: ({ date }) => {
@@ -724,11 +744,13 @@ export default function TrialPage() {
 
             <h2 className="text-lg font-semibold text-gray-800 mb-4">時間帯を選択</h2>
 
-            {isClosed && (
+            {(isClosed || unavailableReason) && (
               <Card className="rounded-xl shadow-md bg-red-50 border-red-200 mb-4">
                 <CardContent className="p-4 flex items-center gap-3">
                   <AlertCircle className="h-5 w-5 text-red-600" />
-                  <p className="text-red-700">この日は休講日です。別の日を選択してください。</p>
+                  <p className="text-red-700">
+                    {isClosed ? 'この日は休講日です。別の日を選択してください。' : unavailableReason}
+                  </p>
                 </CardContent>
               </Card>
             )}
@@ -737,47 +759,76 @@ export default function TrialPage() {
               <div className="flex justify-center py-8">
                 <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
               </div>
+            ) : availability.length === 0 ? (
+              <Card className="rounded-xl shadow-md bg-gray-50">
+                <CardContent className="p-4 text-center text-gray-600">
+                  この日は体験枠がありません
+                </CardContent>
+              </Card>
             ) : (
               <div className="space-y-3">
-                {getAvailableTimesForDate(selectedDate).map((timeSlot) => {
-                  const avail = availability.find(a => a.scheduleId === timeSlot.id);
-                  const isAvailable = avail ? avail.isAvailable : true;
-                  const bookedCount = avail ? avail.bookedCount : 0;
-                  const availableCount = avail ? avail.availableCount : timeSlot.trialCapacity;
+                {/* 学年順→時間順にソート */}
+                {[...availability]
+                  .sort((a, b) => {
+                    // まず学年でソート（nullは後ろ）
+                    if (a.gradeName && !b.gradeName) return -1;
+                    if (!a.gradeName && b.gradeName) return 1;
+                    if (a.gradeName && b.gradeName) {
+                      const cmp = a.gradeName.localeCompare(b.gradeName, 'ja');
+                      if (cmp !== 0) return cmp;
+                    }
+                    // 次に時間でソート
+                    return a.startTime.localeCompare(b.startTime);
+                  })
+                  .map((slot) => {
+                    const isAvailable = slot.isAvailable;
 
-                  return (
-                    <Card
-                      key={timeSlot.id}
-                      className={`rounded-xl shadow-md transition-all ${
-                        !isAvailable
-                          ? 'opacity-50 cursor-not-allowed bg-gray-100'
-                          : 'hover:shadow-lg cursor-pointer'
-                      } ${selectedTime?.id === timeSlot.id ? 'border-2 border-blue-500 bg-blue-50' : ''}`}
-                      onClick={() => isAvailable && handleTimeSelect(timeSlot, avail || null)}
-                    >
-                      <CardContent className="p-4 flex items-center gap-4">
-                        <div className={`w-12 h-12 rounded-full flex items-center justify-center ${
-                          isAvailable ? 'bg-blue-100' : 'bg-gray-200'
-                        }`}>
-                          <Clock className={`h-6 w-6 ${isAvailable ? 'text-blue-600' : 'text-gray-400'}`} />
-                        </div>
-                        <div className="flex-1">
-                          <p className={`font-semibold ${isAvailable ? 'text-gray-800' : 'text-gray-500'}`}>
-                            {timeSlot.time}
-                          </p>
-                          <div className="flex items-center gap-2">
-                            <p className={`text-sm ${isAvailable ? 'text-gray-600' : 'text-gray-400'}`}>
-                              残り {availableCount} / {timeSlot.trialCapacity} 名
-                            </p>
-                            {!isAvailable && (
-                              <Badge variant="secondary" className="bg-red-100 text-red-700">満席</Badge>
-                            )}
+                    return (
+                      <Card
+                        key={slot.classScheduleId}
+                        className={`rounded-xl shadow-md transition-all ${
+                          !isAvailable
+                            ? 'opacity-50 cursor-not-allowed bg-gray-100'
+                            : 'hover:shadow-lg cursor-pointer'
+                        } ${selectedAvailability?.classScheduleId === slot.classScheduleId ? 'border-2 border-blue-500 bg-blue-50' : ''}`}
+                        onClick={() => isAvailable && setSelectedAvailability(slot)}
+                      >
+                        <CardContent className="p-4 flex items-center gap-4">
+                          <div className={`w-12 h-12 rounded-full flex items-center justify-center ${
+                            isAvailable ? 'bg-blue-100' : 'bg-gray-200'
+                          }`}>
+                            <Clock className={`h-6 w-6 ${isAvailable ? 'text-blue-600' : 'text-gray-400'}`} />
                           </div>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  );
-                })}
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2 mb-1">
+                              <p className={`font-semibold ${isAvailable ? 'text-gray-800' : 'text-gray-500'}`}>
+                                {slot.time}
+                              </p>
+                              {slot.gradeName && (
+                                <Badge variant="outline" className="text-xs">
+                                  {slot.gradeName}
+                                </Badge>
+                              )}
+                            </div>
+                            {(slot.className || slot.displayCourseName) && (
+                              <p className={`text-sm mb-1 ${isAvailable ? 'text-gray-700' : 'text-gray-400'}`}>
+                                {slot.className || slot.displayCourseName}
+                              </p>
+                            )}
+                            <div className="flex items-center gap-2">
+                              {isAvailable ? (
+                                <p className="text-sm text-green-600">
+                                  残り {slot.availableCount} / {slot.trialCapacity} 名
+                                </p>
+                              ) : (
+                                <Badge variant="secondary" className="bg-red-100 text-red-700">満席</Badge>
+                              )}
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    );
+                  })}
               </div>
             )}
 
@@ -790,7 +841,7 @@ export default function TrialPage() {
               </Card>
             )}
 
-            {selectedTime && selectedAvailability && (
+            {selectedAvailability && (
               <Button
                 onClick={handleConfirm}
                 disabled={bookingLoading}
@@ -833,9 +884,18 @@ export default function TrialPage() {
                     <p className="font-semibold text-gray-800">
                       {selectedDate && format(selectedDate, 'yyyy年MM月dd日 (E)', { locale: ja })}
                       {' '}
-                      {selectedTime?.time}
+                      {selectedAvailability?.time}
                     </p>
                   </div>
+                  {selectedAvailability?.className && (
+                    <div>
+                      <p className="text-sm text-gray-500">クラス</p>
+                      <p className="font-semibold text-gray-800">
+                        {selectedAvailability.className}
+                        {selectedAvailability.gradeName && ` (${selectedAvailability.gradeName})`}
+                      </p>
+                    </div>
+                  )}
                 </div>
               </CardContent>
             </Card>

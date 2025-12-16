@@ -11,11 +11,15 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 
-from apps.contracts.models import Course, StudentItem, Product
+from apps.contracts.models import Course, Pack, StudentItem, Product
 from apps.students.models import Student, StudentSchool, StudentEnrollment
 from apps.tasks.models import Task
 from apps.schools.models import Brand, School, ClassSchedule
 from apps.billing.models import MileTransaction
+from apps.pricing.calculations import (
+    calculate_all_fees_and_discounts,
+    calculate_fs_discount_amount,
+)
 
 
 def calculate_enrollment_tuition_tickets(start_date: date) -> int:
@@ -91,13 +95,17 @@ class PricingPreviewView(APIView):
         """
         料金のプレビューを返す
         """
+        import logging
+        logger = logging.getLogger(__name__)
+
         # djangorestframework-camel-case がリクエストのcamelCaseをsnake_caseに変換する
         student_id = request.data.get('student_id')
         product_ids = request.data.get('product_ids', [])
         course_id = request.data.get('course_id')
         start_date_str = request.data.get('start_date')  # 開始日（入会時授業料計算用）
 
-        print(f"[PricingPreview] student_id={student_id}, course_id={course_id}, product_ids={product_ids}, start_date={start_date_str}", file=sys.stderr)
+        logger.warning(f"[PricingPreview] POST received - student_id={student_id}, course_id={course_id}")
+        print(f"[PricingPreview] student_id={student_id}, course_id={course_id}, product_ids={product_ids}, start_date={start_date_str}", file=sys.stderr, flush=True)
 
         items = []
         subtotal = Decimal('0')
@@ -133,9 +141,11 @@ class PricingPreviewView(APIView):
             except ValueError:
                 pass
 
-        # コースIDから料金を取得
+        # コースIDから料金を取得（Courseまたは Pack）
         course = None
+        pack = None
         if course_id:
+            # まずCourseを検索
             try:
                 course = Course.objects.get(id=course_id)
                 price = course.get_price()
@@ -183,7 +193,57 @@ class PricingPreviewView(APIView):
                         print(f"[PricingPreview] No enrollment tuition product found for {tickets} tickets", file=sys.stderr)
 
             except Course.DoesNotExist:
-                pass
+                # Courseが見つからない場合はPackを検索
+                try:
+                    pack = Pack.objects.get(id=course_id)
+                    price = pack.pack_price or Decimal('0')
+                    print(f"[PricingPreview] Found pack: {pack.pack_name}, price={price}", file=sys.stderr)
+                    item = {
+                        'productId': str(pack.id),
+                        'productName': pack.pack_name,
+                        'productType': 'pack',
+                        'unitPrice': int(price),
+                        'quantity': 1,
+                        'subtotal': int(price),
+                        'taxRate': 0.1,
+                        'taxAmount': int(price * Decimal('0.1')),
+                        'discountAmount': 0,
+                        'total': int(price * Decimal('1.1')),
+                    }
+                    items.append(item)
+                    subtotal += price
+
+                    # パック内のコースごとの入会時授業料を計算（月途中入会の場合）
+                    if start_date and start_date.day > 1:
+                        pack_courses = pack.pack_courses.filter(is_active=True).select_related('course')
+                        for pack_course in pack_courses:
+                            pc_course = pack_course.course
+                            if pc_course:
+                                tickets = calculate_enrollment_tuition_tickets(start_date)
+                                enrollment_product = get_enrollment_tuition_product(pc_course, tickets)
+
+                                if enrollment_product:
+                                    enrollment_price = enrollment_product.base_price
+                                    enrollment_tuition_item = {
+                                        'productId': str(enrollment_product.id),
+                                        'productName': f'{pc_course.course_name} - {enrollment_product.product_name}',
+                                        'productType': 'enrollment_tuition',
+                                        'unitPrice': int(enrollment_price),
+                                        'quantity': 1,
+                                        'subtotal': int(enrollment_price),
+                                        'taxRate': 0.1,
+                                        'taxAmount': int(enrollment_price * Decimal('0.1')),
+                                        'discountAmount': 0,
+                                        'total': int(enrollment_price * Decimal('1.1')),
+                                        'tickets': tickets,
+                                        'isEnrollmentTuition': True,
+                                    }
+                                    items.append(enrollment_tuition_item)
+                                    subtotal += enrollment_price
+                                    print(f"[PricingPreview] Added pack course enrollment tuition: {enrollment_product.product_name}, tickets={tickets}, price={enrollment_price}", file=sys.stderr)
+
+                except Pack.DoesNotExist:
+                    print(f"[PricingPreview] Neither Course nor Pack found for id={course_id}", file=sys.stderr)
 
         # 商品IDから料金を取得
         for product_id in product_ids:
@@ -209,19 +269,111 @@ class PricingPreviewView(APIView):
             except Product.DoesNotExist:
                 pass
 
-        tax_total = int(subtotal * Decimal('0.1'))
-        grand_total = int(subtotal) + tax_total
+        # 追加料金と割引を計算
+        additional_fees = {}
+        discounts = []
+        discount_total = Decimal('0')
+
+        # CourseItemからコースに紐づく商品を取得
+        from apps.contracts.models import CourseItem
+
+        if course:
+            course_items = CourseItem.objects.filter(
+                course=course,
+                is_active=True
+            ).select_related('product')
+
+            for ci in course_items:
+                product = ci.product
+                if not product or not product.is_active:
+                    continue
+
+                base_price = product.base_price or Decimal('0')
+                tax_rate = product.tax_rate or Decimal('0.1')
+                tax_amount = int(base_price * tax_rate)
+                price_with_tax = int(base_price) + tax_amount  # 税込価格
+
+                # 入会金
+                if product.item_type == Product.ItemType.ENROLLMENT:
+                    additional_fees['enrollmentFee'] = {
+                        'productId': str(product.id),
+                        'productName': product.product_name,
+                        'price': price_with_tax,  # 税込
+                        'priceExcludingTax': int(base_price),  # 税抜
+                        'taxRate': float(tax_rate),
+                        'taxAmount': tax_amount,
+                    }
+                    subtotal += Decimal(str(price_with_tax))
+
+                # 設備費
+                elif product.item_type == Product.ItemType.FACILITY:
+                    additional_fees['facilityFee'] = {
+                        'productId': str(product.id),
+                        'productName': product.product_name,
+                        'price': price_with_tax,  # 税込
+                        'priceExcludingTax': int(base_price),  # 税抜
+                        'taxRate': float(tax_rate),
+                        'taxAmount': tax_amount,
+                    }
+                    subtotal += Decimal(str(price_with_tax))
+
+                # 教材費（入会時）
+                elif product.item_type == Product.ItemType.ENROLLMENT_TEXTBOOK:
+                    additional_fees['materialsFee'] = {
+                        'productId': str(product.id),
+                        'productName': product.product_name,
+                        'price': price_with_tax,  # 税込
+                        'priceExcludingTax': int(base_price),  # 税抜
+                        'taxRate': float(tax_rate),
+                        'taxAmount': tax_amount,
+                    }
+                    subtotal += Decimal(str(price_with_tax))
+
+                # 月会費
+                elif product.item_type == Product.ItemType.MONTHLY_FEE:
+                    additional_fees['monthlyFee'] = {
+                        'productId': str(product.id),
+                        'productName': product.product_name,
+                        'price': price_with_tax,  # 税込
+                        'priceExcludingTax': int(base_price),  # 税抜
+                        'taxRate': float(tax_rate),
+                        'taxAmount': tax_amount,
+                    }
+                    subtotal += Decimal(str(price_with_tax))
+
+        # マイル割引の計算（兄弟全員の合計マイル数ベース）
+        if guardian and course:
+            from apps.pricing.calculations import calculate_mile_discount
+            try:
+                mile_discount_amount, total_miles, mile_discount_name = calculate_mile_discount(
+                    guardian=guardian,
+                    new_course=course,
+                    new_pack=pack
+                )
+                if mile_discount_amount > 0:
+                    discounts.append({
+                        'discountName': mile_discount_name,
+                        'discountType': 'fixed',
+                        'discountAmount': int(mile_discount_amount),
+                    })
+                    discount_total += mile_discount_amount
+            except Exception as e:
+                print(f"[PricingPreview] Error in calculate_mile_discount: {e}", file=sys.stderr)
+
+        # subtotalは税込価格なので、そのまま合計に使用
+        grand_total = int(subtotal) - int(discount_total)
 
         return Response({
             'items': items,
-            'subtotal': int(subtotal),
-            'taxTotal': tax_total,
-            'discounts': [],
-            'discountTotal': 0,
+            'subtotal': int(subtotal),  # 税込合計
+            'taxTotal': 0,  # 税込価格のため別途税額なし
+            'discounts': discounts,
+            'discountTotal': int(discount_total),
             'companyContribution': 0,
             'schoolContribution': 0,
             'grandTotal': grand_total,
             'enrollmentTuition': enrollment_tuition_item,  # 入会時授業料情報
+            'additionalFees': additional_fees,  # 入会金、設備費、教材費
             'mileInfo': mile_info,  # マイル情報
         })
 
@@ -266,6 +418,7 @@ class PricingConfirmView(APIView):
 
         student = None
         course = None
+        pack = None  # パック購入の場合
         brand = None
         school = None
         start_date = None
@@ -299,19 +452,28 @@ class PricingConfirmView(APIView):
             mile_discount = MileTransaction.calculate_discount(miles_to_use)
             print(f"[PricingConfirm] Mile discount: {miles_to_use}pt -> ¥{mile_discount}", file=sys.stderr)
 
-        # コースを取得
+        # コースを取得（Courseまたは Pack）
         if course_id:
             try:
                 course = Course.objects.get(id=course_id)
             except Course.DoesNotExist:
-                pass
+                # Courseが見つからない場合はPackを検索
+                try:
+                    pack = Pack.objects.get(id=course_id)
+                    print(f"[PricingConfirm] Found pack: {pack.pack_name}", file=sys.stderr)
+                except Pack.DoesNotExist:
+                    pass
 
         # preview_idがコースIDの場合
-        if not course and preview_id:
+        if not course and not pack and preview_id:
             try:
                 course = Course.objects.get(id=preview_id)
             except Course.DoesNotExist:
-                pass
+                try:
+                    pack = Pack.objects.get(id=preview_id)
+                    print(f"[PricingConfirm] Found pack from preview_id: {pack.pack_name}", file=sys.stderr)
+                except Pack.DoesNotExist:
+                    pass
 
         # ブランドを取得
         if brand_id:
@@ -386,10 +548,11 @@ class PricingConfirmView(APIView):
             except Exception as e:
                 print(f"[PricingConfirm] Failed to get ticket: {e}", file=sys.stderr)
 
-        # StudentItemを作成（コースの商品構成から）
-        print(f"[PricingConfirm] student={student}, course={course}, brand={brand}, school={school}, start_date={start_date}", file=sys.stderr)
+        # StudentItemを作成（コースまたはパックの商品構成から）
+        print(f"[PricingConfirm] student={student}, course={course}, pack={pack}, brand={brand}, school={school}, start_date={start_date}", file=sys.stderr)
         enrollment_tuition_info = None  # 入会時授業料情報（タスク表示用）
         created_student_items = []
+        product_name_for_task = None  # タスク表示用のコース/パック名
 
         if student and course:
             # コースに紐づく商品を取得して StudentItem を作成
@@ -538,11 +701,181 @@ class PricingConfirmView(APIView):
                     'mile_discount': int(mile_discount) if mile_discount > 0 else 0,
                 },
             )
+            product_name_for_task = course.course_name
+
+        # パック購入の場合
+        elif student and pack:
+            # パック内のコースをすべて処理
+            pack_courses = pack.pack_courses.filter(is_active=True).select_related('course')
+            print(f"[PricingConfirm] Found pack with {pack_courses.count()} courses", file=sys.stderr)
+
+            for pack_course in pack_courses:
+                pc_course = pack_course.course
+                if not pc_course:
+                    continue
+
+                # コースに紐づく商品を取得して StudentItem を作成
+                course_items = pc_course.course_items.filter(is_active=True)
+                for course_item in course_items:
+                    product = course_item.product
+                    unit_price = course_item.get_price()
+
+                    StudentItem.objects.create(
+                        tenant_id=student.tenant_id,
+                        student=student,
+                        product=product,
+                        billing_month=billing_month,
+                        quantity=course_item.quantity,
+                        unit_price=unit_price,
+                        discount_amount=0,
+                        final_price=unit_price * course_item.quantity,
+                        notes=f'注文番号: {order_id} / パック: {pack.pack_name} / コース: {pc_course.course_name}',
+                        brand=brand or pc_course.brand,
+                        school=school or pc_course.school,
+                        course=pc_course,
+                        start_date=start_date,
+                        day_of_week=schedule_day_of_week,
+                        start_time=schedule_start_time,
+                        end_time=schedule_end_time,
+                        class_schedule=selected_class_schedule,
+                    )
+
+                # 入会時授業料（追加チケット）
+                if start_date and start_date.day > 1:
+                    tickets = calculate_enrollment_tuition_tickets(start_date)
+                    enrollment_product = get_enrollment_tuition_product(pc_course, tickets)
+
+                    if enrollment_product:
+                        enrollment_price = enrollment_product.base_price
+                        StudentItem.objects.create(
+                            tenant_id=student.tenant_id,
+                            student=student,
+                            product=enrollment_product,
+                            billing_month=billing_month,
+                            quantity=1,
+                            unit_price=enrollment_price,
+                            discount_amount=0,
+                            final_price=enrollment_price,
+                            notes=f'注文番号: {order_id} / 入会時授業料（{tickets}回分）/ コース: {pc_course.course_name}',
+                            brand=brand or pc_course.brand,
+                            school=school or pc_course.school,
+                            course=pc_course,
+                            start_date=start_date,
+                        )
+                        if enrollment_tuition_info:
+                            enrollment_tuition_info += f' / {enrollment_product.product_name} ¥{int(enrollment_price):,}'
+                        else:
+                            enrollment_tuition_info = f'{enrollment_product.product_name} ¥{int(enrollment_price):,}'
+
+            # パック直接商品（PackItem）を処理
+            pack_items = pack.pack_items.filter(is_active=True).select_related('product')
+            for pack_item in pack_items:
+                product = pack_item.product
+                unit_price = pack_item.get_price()
+
+                StudentItem.objects.create(
+                    tenant_id=student.tenant_id,
+                    student=student,
+                    product=product,
+                    billing_month=billing_month,
+                    quantity=pack_item.quantity,
+                    unit_price=unit_price,
+                    discount_amount=0,
+                    final_price=unit_price * pack_item.quantity,
+                    notes=f'注文番号: {order_id} / パック: {pack.pack_name}',
+                    brand=brand or pack.brand,
+                    school=school or pack.school,
+                    start_date=start_date,
+                )
+
+            # StudentSchool（生徒所属）を作成/更新
+            use_brand = brand or pack.brand
+            use_school = school or pack.school
+            if use_school and use_brand:
+                student_school, ss_created = StudentSchool.objects.get_or_create(
+                    tenant_id=student.tenant_id,
+                    student=student,
+                    school=use_school,
+                    brand=use_brand,
+                    defaults={
+                        'enrollment_status': 'active',
+                        'start_date': start_date or date.today(),
+                        'is_primary': not StudentSchool.objects.filter(
+                            student=student, is_primary=True
+                        ).exists(),
+                    }
+                )
+                if ss_created:
+                    print(f"[PricingConfirm] Created StudentSchool for pack: student={student}, school={use_school}, brand={use_brand}", file=sys.stderr)
+
+            # StudentEnrollment（受講履歴）を作成
+            if use_school and use_brand:
+                enrollment = StudentEnrollment.create_enrollment(
+                    student=student,
+                    school=use_school,
+                    brand=use_brand,
+                    class_schedule=selected_class_schedule,
+                    change_type=StudentEnrollment.ChangeType.NEW_ENROLLMENT,
+                    effective_date=start_date or date.today(),
+                    notes=f'注文番号: {order_id} / パック: {pack.pack_name}',
+                    day_of_week_override=schedule_day_of_week,
+                    start_time_override=schedule_start_time,
+                    end_time_override=schedule_end_time,
+                )
+                print(f"[PricingConfirm] Created StudentEnrollment for pack: student={student}, school={use_school}, brand={use_brand}", file=sys.stderr)
+
+                # 生徒のステータスを「入会」に更新
+                if student.status in [Student.Status.REGISTERED, Student.Status.TRIAL]:
+                    student.status = Student.Status.ENROLLED
+                    student.save(update_fields=['status', 'updated_at'])
+                    print(f"[PricingConfirm] Updated student status to ENROLLED: {student}", file=sys.stderr)
+
+            # Taskを作成
+            student_name = f'{student.last_name}{student.first_name}'
+            task_description = f'保護者からの購入申請です。\n\n' \
+                              f'生徒: {student_name}\n' \
+                              f'パック: {pack.pack_name}\n' \
+                              f'注文番号: {order_id}\n' \
+                              f'支払方法: {payment_method or "未指定"}\n' \
+                              f'請求月: {billing_month}'
+
+            if enrollment_tuition_info:
+                task_description += f'\n入会時授業料: {enrollment_tuition_info}'
+
+            if mile_discount > 0:
+                task_description += f'\nマイル割引: {miles_to_use}pt使用 → ¥{int(mile_discount):,}引'
+
+            Task.objects.create(
+                tenant_id=student.tenant_id,
+                task_type='request',
+                title=f'【購入申請】{student_name} - {pack.pack_name}',
+                description=task_description,
+                status='new',
+                priority='normal',
+                student=student,
+                guardian=student.guardian if hasattr(student, 'guardian') else None,
+                school=use_school,
+                brand=use_brand,
+                source_type='purchase',
+                source_id=uuid.UUID(order_id.replace('ORD-', '').ljust(32, '0')[:32]) if len(order_id) > 4 else None,
+                metadata={
+                    'order_id': order_id,
+                    'pack_id': str(pack.id),
+                    'student_id': str(student.id),
+                    'payment_method': payment_method,
+                    'billing_month': billing_month,
+                    'enrollment_tuition': enrollment_tuition_info,
+                    'miles_used': miles_to_use if mile_discount > 0 else 0,
+                    'mile_discount': int(mile_discount) if mile_discount > 0 else 0,
+                },
+            )
+            product_name_for_task = pack.pack_name
 
         # マイル使用の記録
-        if miles_to_use > 0 and mile_discount > 0 and guardian:
+        if miles_to_use > 0 and mile_discount > 0 and guardian and student:
             current_balance = MileTransaction.get_balance(guardian)
             new_balance = current_balance - miles_to_use
+            product_name = product_name_for_task or (course.course_name if course else (pack.pack_name if pack else "不明"))
             MileTransaction.objects.create(
                 tenant_id=student.tenant_id,
                 guardian=guardian,
@@ -550,7 +883,7 @@ class PricingConfirmView(APIView):
                 miles=-miles_to_use,
                 balance_after=new_balance,
                 discount_amount=mile_discount,
-                notes=f'注文番号: {order_id} / コース: {course.course_name if course else "不明"}',
+                notes=f'注文番号: {order_id} / {product_name}',
             )
             print(f"[PricingConfirm] Created MileTransaction: -{miles_to_use}pt, discount=¥{mile_discount}, new_balance={new_balance}", file=sys.stderr)
 

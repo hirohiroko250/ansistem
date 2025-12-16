@@ -661,8 +661,8 @@ export default function FromClassPurchasePage() {
   const totalPrice = pricingPreview?.grandTotal ?? (regularPrice + additionalTicketPrice);
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-blue-50">
-      <header className="sticky top-0 z-40 bg-white shadow-sm">
+    <div className="h-screen flex flex-col bg-gradient-to-br from-blue-50 via-white to-blue-50">
+      <header className="flex-shrink-0 bg-white shadow-sm z-40">
         <div className="max-w-[390px] mx-auto px-4 h-16 flex items-center">
           <Link href="/ticket-purchase" className="mr-3">
             <ChevronLeft className="h-6 w-6 text-gray-700" />
@@ -671,7 +671,8 @@ export default function FromClassPurchasePage() {
         </div>
       </header>
 
-      <main className="max-w-[390px] mx-auto px-4 py-6 pb-24">
+      <main className="flex-1 overflow-y-auto">
+        <div className="max-w-[390px] mx-auto px-4 py-6 pb-24">
         {step > 1 && (
           <Button
             variant="ghost"
@@ -801,19 +802,18 @@ export default function FromClassPurchasePage() {
         )}
 
         {step === 3 && (
-          <div>
-            <div className="mb-4">
-              <Card className="rounded-xl shadow-sm bg-green-50 border-green-200">
-                <CardContent className="p-3">
-                  <p className="text-xs text-gray-600 mb-1">選択中</p>
-                  <p className="font-semibold text-gray-800">{selectedChild?.fullName} → {selectedCategory?.categoryName}</p>
-                </CardContent>
-              </Card>
+          <div className="flex flex-col h-full">
+            {/* コンパクトな選択状況表示 */}
+            <div className="flex items-center gap-2 mb-3 text-sm">
+              <span className="text-gray-500">選択中:</span>
+              <span className="font-medium text-gray-800">{selectedChild?.fullName}</span>
+              <span className="text-gray-400">›</span>
+              <span className="text-green-600">{selectedCategory?.categoryName}</span>
             </div>
 
-            <h2 className="text-lg font-semibold text-gray-800 mb-4">マップから校舎を選択</h2>
-            <p className="text-sm text-gray-600 mb-4">
-              地図上のピンをタップして校舎を選択してください
+            <h2 className="text-lg font-semibold text-gray-800 mb-1">校舎を選択</h2>
+            <p className="text-xs text-gray-500 mb-2">
+              地図上のピンをタップして校舎を選択
             </p>
 
             {schoolsError ? (
@@ -822,37 +822,43 @@ export default function FromClassPurchasePage() {
                 <p className="text-sm text-red-800">{schoolsError}</p>
               </div>
             ) : (
-              <>
-                <MapSchoolSelector
-                  schools={schools}
-                  selectedSchoolId={selectedSchoolId}
-                  onSelectSchool={handleSchoolSelect}
-                  isLoading={isLoadingSchools}
-                  initialSchoolId={nearestSchoolId}
-                />
+              <div className="flex-1 flex flex-col min-h-0">
+                {/* マップコンテナ - 正方形 */}
+                <div className="w-full aspect-square max-w-[350px] mx-auto">
+                  <MapSchoolSelector
+                    schools={schools}
+                    selectedSchoolId={selectedSchoolId}
+                    onSelectSchool={handleSchoolSelect}
+                    isLoading={isLoadingSchools}
+                    initialSchoolId={nearestSchoolId}
+                  />
+                </div>
 
-                {/* 選択した校舎の確認と次へボタン */}
-                {selectedSchool && (
-                  <div className="mt-4 space-y-4">
-                    <Card className="rounded-xl shadow-sm bg-green-50 border-green-200">
-                      <CardContent className="p-4">
-                        <p className="text-xs text-gray-600 mb-1">選択した校舎</p>
-                        <h3 className="font-bold text-gray-800">{selectedSchool.name}</h3>
-                        <p className="text-sm text-gray-600 mt-1">{selectedSchool.address}</p>
-                        {selectedSchool.phone && (
-                          <p className="text-xs text-gray-500 mt-1">TEL: {selectedSchool.phone}</p>
-                        )}
-                      </CardContent>
-                    </Card>
-                    <Button
-                      onClick={handleConfirmSchool}
-                      className="w-full h-14 rounded-full bg-blue-600 hover:bg-blue-700 text-white font-semibold text-lg"
-                    >
-                      次へ
-                    </Button>
-                  </div>
-                )}
-              </>
+                {/* 選択した校舎の確認と次へボタン - 常に表示 */}
+                <div className="mt-3 space-y-2">
+                  {selectedSchool ? (
+                    <>
+                      <div className="flex items-center justify-between p-3 bg-green-50 rounded-lg border border-green-200">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs text-gray-500">選択した校舎</p>
+                          <p className="font-semibold text-gray-800 truncate">{selectedSchool.name}</p>
+                          <p className="text-xs text-gray-500 truncate">{selectedSchool.address}</p>
+                        </div>
+                      </div>
+                      <Button
+                        onClick={handleConfirmSchool}
+                        className="w-full h-12 rounded-full bg-green-600 hover:bg-green-700 text-white font-semibold"
+                      >
+                        次へ
+                      </Button>
+                    </>
+                  ) : (
+                    <div className="p-3 bg-gray-50 rounded-lg border border-gray-200 text-center">
+                      <p className="text-sm text-gray-500">地図から校舎を選択してください</p>
+                    </div>
+                  )}
+                </div>
+              </div>
             )}
 
           </div>
@@ -1562,25 +1568,96 @@ export default function FromClassPurchasePage() {
                     ))}
                   </div>
                 </div>
-                <div className="border-t pt-4 space-y-2">
-                  <div className="flex justify-between items-center text-sm">
-                    <span className="text-gray-600">月額料金</span>
-                    <span className="font-semibold">
-                      ¥{regularPrice.toLocaleString()} ({selectedSchedules.length}クラス × 月4回)
-                    </span>
+                {/* 料金詳細 */}
+                <div className="border-t pt-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <h4 className="font-semibold text-gray-800">料金詳細</h4>
                   </div>
-                  {additionalTicketCount > 0 && (
-                    <div className="flex justify-between items-center text-sm">
-                      <span className="text-gray-600">単品チケット</span>
-                      <span className="font-semibold">
-                        ¥{additionalTicketPrice.toLocaleString()} ({additionalTicketCount}回分)
-                      </span>
+
+                  {pricingPreview && pricingPreview.items.length > 0 ? (
+                    <div className="space-y-2">
+                      {/* 料金項目 */}
+                      {pricingPreview.items.map((item, idx) => (
+                        <div key={idx} className="flex justify-between items-center text-sm">
+                          <div className="flex items-center gap-2">
+                            <span className="text-gray-700">{item.productName}</span>
+                            {item.quantity > 1 && (
+                              <span className="text-xs text-gray-500">×{item.quantity}</span>
+                            )}
+                          </div>
+                          <span className="font-medium">¥{item.total.toLocaleString()}</span>
+                        </div>
+                      ))}
+
+                      {/* 割引 */}
+                      {pricingPreview.discounts.length > 0 && (
+                        <>
+                          {pricingPreview.discounts.map((discount, idx) => (
+                            <div key={`discount-${idx}`} className="flex justify-between items-center text-sm text-green-600">
+                              <span>{discount.discountName}</span>
+                              <span className="font-medium">-¥{(discount.discountAmount || discount.appliedAmount || 0).toLocaleString()}</span>
+                            </div>
+                          ))}
+                        </>
+                      )}
+
+                      {/* 追加チケット（手動選択分） */}
+                      {additionalTicketCount > 0 && (
+                        <div className="flex justify-between items-center text-sm">
+                          <span className="text-gray-700">追加チケット ({additionalTicketCount}回分)</span>
+                          <span className="font-medium">¥{additionalTicketPrice.toLocaleString()}</span>
+                        </div>
+                      )}
+
+                      {/* 小計・税 */}
+                      <div className="border-t pt-2 mt-2 space-y-1">
+                        <div className="flex justify-between items-center text-xs text-gray-500">
+                          <span>小計</span>
+                          <span>¥{pricingPreview.subtotal.toLocaleString()}</span>
+                        </div>
+                        {pricingPreview.taxTotal > 0 && (
+                          <div className="flex justify-between items-center text-xs text-gray-500">
+                            <span>消費税</span>
+                            <span>¥{pricingPreview.taxTotal.toLocaleString()}</span>
+                          </div>
+                        )}
+                        {pricingPreview.discountTotal > 0 && (
+                          <div className="flex justify-between items-center text-xs text-green-600">
+                            <span>割引合計</span>
+                            <span>-¥{pricingPreview.discountTotal.toLocaleString()}</span>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* 合計 */}
+                      <div className="flex justify-between items-center text-lg font-bold pt-2 border-t">
+                        <span>合計金額</span>
+                        <span className="text-green-600">¥{(pricingPreview.grandTotal + additionalTicketPrice).toLocaleString()}</span>
+                      </div>
+                    </div>
+                  ) : (
+                    /* pricingPreviewがない場合は従来の表示 */
+                    <div className="space-y-2">
+                      <div className="flex justify-between items-center text-sm">
+                        <span className="text-gray-600">月額料金</span>
+                        <span className="font-semibold">
+                          ¥{regularPrice.toLocaleString()} ({selectedSchedules.length}クラス × 月4回)
+                        </span>
+                      </div>
+                      {additionalTicketCount > 0 && (
+                        <div className="flex justify-between items-center text-sm">
+                          <span className="text-gray-600">単品チケット</span>
+                          <span className="font-semibold">
+                            ¥{additionalTicketPrice.toLocaleString()} ({additionalTicketCount}回分)
+                          </span>
+                        </div>
+                      )}
+                      <div className="flex justify-between items-center text-lg font-bold pt-2 border-t">
+                        <span>合計金額</span>
+                        <span className="text-green-600">¥{totalPrice.toLocaleString()}</span>
+                      </div>
                     </div>
                   )}
-                  <div className="flex justify-between items-center text-lg font-bold pt-2 border-t">
-                    <span>合計金額</span>
-                    <span className="text-green-600">¥{totalPrice.toLocaleString()}</span>
-                  </div>
                 </div>
               </CardContent>
             </Card>
@@ -1601,6 +1678,7 @@ export default function FromClassPurchasePage() {
             </Button>
           </div>
         )}
+        </div>
       </main>
 
       <BottomTabBar />

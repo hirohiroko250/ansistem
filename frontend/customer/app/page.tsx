@@ -63,7 +63,7 @@ export default function Home() {
 
       // 支払い情報を確認
       const paymentInfo = await getMyPayment();
-      if (!paymentInfo || !paymentInfo.payment_registered) {
+      if (!paymentInfo || !paymentInfo.paymentRegistered) {
         pendingTasks.push({
           id: 'payment-registration',
           title: '銀行口座を登録してください',

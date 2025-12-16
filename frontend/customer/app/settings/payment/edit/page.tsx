@@ -10,9 +10,11 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
   getMyPayment,
+  getMyBankAccounts,
   createBankAccountRequest,
   type PaymentInfo,
-  type BankAccountRequestData
+  type BankAccountRequestData,
+  type BankAccount
 } from '@/lib/api/payment';
 import { BankSelector } from '@/components/bank-selector';
 
@@ -75,6 +77,7 @@ export default function PaymentEditPage() {
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState('');
   const [hasExistingAccount, setHasExistingAccount] = useState(false);
+  const [existingAccountId, setExistingAccountId] = useState<string | null>(null);
 
   const [formData, setFormData] = useState({
     bank_name: '',
@@ -94,19 +97,29 @@ export default function PaymentEditPage() {
   const fetchPayment = async () => {
     try {
       setLoading(true);
-      const data = await getMyPayment();
-      if (data && data.payment_registered && data.bank_name) {
+      const [paymentData, bankAccounts] = await Promise.all([
+        getMyPayment(),
+        getMyBankAccounts()
+      ]);
+
+      if (paymentData && paymentData.paymentRegistered && paymentData.bankName) {
         setHasExistingAccount(true);
         setFormData({
-          bank_name: data.bank_name || '',
-          bank_code: data.bank_code || '',
-          branch_name: data.branch_name || '',
-          branch_code: data.branch_code || '',
-          account_type: data.account_type || 'ordinary',
-          account_number: data.account_number || '',
-          account_holder: data.account_holder || '',
-          account_holder_kana: data.account_holder_kana || '',
+          bank_name: paymentData.bankName || '',
+          bank_code: paymentData.bankCode || '',
+          branch_name: paymentData.branchName || '',
+          branch_code: paymentData.branchCode || '',
+          account_type: paymentData.accountType || 'ordinary',
+          account_number: paymentData.accountNumber || '',
+          account_holder: paymentData.accountHolder || '',
+          account_holder_kana: paymentData.accountHolderKana || '',
         });
+
+        // 既存口座IDを取得（プライマリ口座を優先）
+        const primaryAccount = bankAccounts.find(acc => acc.is_primary) || bankAccounts[0];
+        if (primaryAccount) {
+          setExistingAccountId(primaryAccount.id);
+        }
       }
     } catch (error) {
       console.error('Failed to fetch payment:', error);
@@ -142,6 +155,8 @@ export default function PaymentEditPage() {
 
     try {
       setSaving(true);
+      // 送信時に半角カタカナに変換
+      const kanaConverted = toHalfWidthKatakana(formData.account_holder_kana);
       const requestData: BankAccountRequestData = {
         request_type: hasExistingAccount ? 'update' : 'new',
         bank_name: formData.bank_name,
@@ -151,13 +166,19 @@ export default function PaymentEditPage() {
         account_type: formData.account_type,
         account_number: formData.account_number,
         account_holder: formData.account_holder,
-        account_holder_kana: formData.account_holder_kana,
+        account_holder_kana: kanaConverted,
         is_primary: true,
       };
+      // 変更の場合は既存口座IDを含める
+      if (hasExistingAccount && existingAccountId) {
+        requestData.existing_account = existingAccountId;
+      }
       await createBankAccountRequest(requestData);
       setSuccess(true);
-    } catch (err) {
-      setError('申請に失敗しました。もう一度お試しください。');
+    } catch (err: any) {
+      console.error('Bank account request error:', err);
+      const errorMessage = err?.data?.existing_account || err?.data?.detail || err?.message || '申請に失敗しました。もう一度お試しください。';
+      setError(typeof errorMessage === 'string' ? errorMessage : '申請に失敗しました。もう一度お試しください。');
     } finally {
       setSaving(false);
     }
@@ -278,14 +299,6 @@ export default function PaymentEditPage() {
                   placeholder="例: 田中 太郎"
                   value={formData.account_holder}
                   onChange={(e) => setFormData({ ...formData, account_holder: e.target.value })}
-                  onCompositionUpdate={(e) => {
-                    // IME入力中のひらがなを半角カタカナに変換してカナフィールドに反映
-                    const hiragana = (e as React.CompositionEvent).data;
-                    if (hiragana) {
-                      const halfKana = toHalfWidthKatakana(hiragana);
-                      setFormData(prev => ({ ...prev, account_holder_kana: halfKana }));
-                    }
-                  }}
                   className="rounded-xl h-12"
                 />
               </div>
@@ -296,18 +309,17 @@ export default function PaymentEditPage() {
                 </Label>
                 <Input
                   id="account_holder_kana"
-                  placeholder="例: ﾀﾅｶ ﾀﾛｳ"
+                  placeholder="例: ｶﾂﾉ ﾋﾛﾅｵ"
                   value={formData.account_holder_kana}
                   onChange={(e) => {
-                    // 入力を半角カタカナに変換してフィルター
+                    // 入力を半角カタカナに自動変換
                     const converted = toHalfWidthKatakana(e.target.value);
-                    const filtered = filterHalfWidthKatakana(converted);
-                    setFormData({ ...formData, account_holder_kana: filtered });
+                    setFormData({ ...formData, account_holder_kana: converted });
                   }}
                   className="rounded-xl h-12"
                   required
                 />
-                <p className="text-xs text-gray-500 mt-1">半角カタカナで入力（漢字入力で自動変換されます）</p>
+                <p className="text-xs text-gray-500 mt-1">ひらがな・カタカナ入力で半角カナに自動変換されます</p>
               </div>
 
             </CardContent>

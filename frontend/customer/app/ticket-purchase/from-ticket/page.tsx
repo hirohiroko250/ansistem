@@ -872,6 +872,7 @@ export default function FromTicketPurchasePage() {
   const packAdditionalTotal = packAdditionalTicketCalcs.reduce((sum, calc) => sum + calc.total, 0);
 
   // 料金計算（API レスポンスがあればそれを使用、なければローカル価格 + 追加チケット料金）
+  // grandTotalには入会金、設備費、教材費、割引が全て含まれている
   const baseAmount = pricingPreview?.grandTotal ?? (selectedCourse?.price || 0);
   // enrollmentTuitionがpricingPreviewに既に含まれていればそのまま、なければ追加チケットを加算
   // パックの場合はpackAdditionalTotal、単品の場合はadditionalTicketCalc.totalを使用
@@ -881,9 +882,11 @@ export default function FromTicketPurchasePage() {
   const mileDiscountAmount = useMiles && milesToUse >= 4 && pricingPreview?.mileInfo?.canUse
     ? Math.floor((milesToUse - 2) / 2) * 500  // 4pt以上で500円引、以後2ptごとに500円引
     : 0;
-  const totalAmount = pricingPreview?.enrollmentTuition
-    ? baseAmount - mileDiscountAmount  // APIで既に計算済み（マイル割引を引く）
-    : baseAmount + additionalAmount - mileDiscountAmount;  // フロントエンドで追加計算
+  // 合計金額: APIのgrandTotalを使用（入会金、設備費、教材費、割引を全て含む）
+  // マイル割引はフロントエンドで計算して引く
+  const totalAmount = pricingPreview?.grandTotal
+    ? pricingPreview.grandTotal - mileDiscountAmount  // APIで全て計算済み（マイル割引を引く）
+    : baseAmount + additionalAmount - mileDiscountAmount;  // フロントエンドでの代替計算
 
   // コース名を取得するヘルパー関数
   const getCourseName = (course: PublicCourse | PublicPack): string => {
@@ -901,8 +904,8 @@ export default function FromTicketPurchasePage() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-blue-50">
-      <header className="sticky top-0 z-40 bg-white shadow-sm">
+    <div className="h-screen flex flex-col bg-gradient-to-br from-blue-50 via-white to-blue-50">
+      <header className="flex-shrink-0 bg-white shadow-sm z-40">
         <div className="max-w-[390px] mx-auto px-4 h-16 flex items-center">
           <Link href="/ticket-purchase" className="mr-3">
             <ChevronLeft className="h-6 w-6 text-gray-700" />
@@ -911,7 +914,8 @@ export default function FromTicketPurchasePage() {
         </div>
       </header>
 
-      <main className="max-w-[390px] mx-auto px-4 py-6 pb-24">
+      <main className="flex-1 overflow-y-auto">
+        <div className="max-w-[390px] mx-auto px-4 py-6 pb-24">
         {step > 1 && (
           <Button
             variant="ghost"
@@ -1073,18 +1077,17 @@ export default function FromTicketPurchasePage() {
 
         {/* Step 3: 校舎選択 */}
         {step === 3 && (
-          <div>
-            <div className="mb-4">
-              <Card className="rounded-xl shadow-sm bg-blue-50 border-blue-200">
-                <CardContent className="p-3">
-                  <p className="text-xs text-gray-600 mb-1">選択中</p>
-                  <p className="font-semibold text-gray-800">{selectedChild?.fullName}</p>
-                  <p className="text-sm text-gray-700 mt-1">{selectedCategory?.categoryName}</p>
-                </CardContent>
-              </Card>
+          <div className="flex flex-col h-full">
+            {/* コンパクトな選択状況表示 */}
+            <div className="flex items-center gap-2 mb-3 text-sm">
+              <span className="text-gray-500">選択中:</span>
+              <span className="font-medium text-gray-800">{selectedChild?.fullName}</span>
+              <span className="text-gray-400">›</span>
+              <span className="text-blue-600">{selectedCategory?.categoryName}</span>
             </div>
-            <h2 className="text-lg font-semibold text-gray-800 mb-2">校舎を選択</h2>
-            <p className="text-sm text-gray-600 mb-4">
+
+            <h2 className="text-lg font-semibold text-gray-800 mb-1">校舎を選択</h2>
+            <p className="text-xs text-gray-500 mb-2">
               通いたい校舎を選択してください
             </p>
 
@@ -1106,37 +1109,43 @@ export default function FromTicketPurchasePage() {
                 </p>
               </div>
             ) : (
-              <>
-                <MapSchoolSelector
-                  schools={schools}
-                  selectedSchoolId={selectedSchoolId}
-                  onSelectSchool={handleSchoolSelect}
-                  isLoading={isLoadingSchools}
-                  initialSchoolId={nearestSchoolId}
-                />
+              <div className="flex-1 flex flex-col min-h-0">
+                {/* マップコンテナ - 正方形 */}
+                <div className="w-full aspect-square max-w-[350px] mx-auto">
+                  <MapSchoolSelector
+                    schools={schools}
+                    selectedSchoolId={selectedSchoolId}
+                    onSelectSchool={handleSchoolSelect}
+                    isLoading={isLoadingSchools}
+                    initialSchoolId={nearestSchoolId}
+                  />
+                </div>
 
-                {/* 選択した校舎の確認と次へボタン */}
-                {selectedSchool && (
-                  <div className="mt-4 space-y-4">
-                    <Card className="rounded-xl shadow-sm bg-blue-50 border-blue-200">
-                      <CardContent className="p-4">
-                        <p className="text-xs text-gray-600 mb-1">選択した校舎</p>
-                        <h3 className="font-bold text-gray-800">{selectedSchool.name}</h3>
-                        <p className="text-sm text-gray-600 mt-1">{selectedSchool.address}</p>
-                        {selectedSchool.phone && (
-                          <p className="text-xs text-gray-500 mt-1">TEL: {selectedSchool.phone}</p>
-                        )}
-                      </CardContent>
-                    </Card>
-                    <Button
-                      onClick={handleConfirmSchool}
-                      className="w-full h-14 rounded-full bg-blue-600 hover:bg-blue-700 text-white font-semibold text-lg"
-                    >
-                      次へ
-                    </Button>
-                  </div>
-                )}
-              </>
+                {/* 選択した校舎の確認と次へボタン - 常に表示 */}
+                <div className="mt-3 space-y-2">
+                  {selectedSchool ? (
+                    <>
+                      <div className="flex items-center justify-between p-3 bg-blue-50 rounded-lg border border-blue-200">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs text-gray-500">選択した校舎</p>
+                          <p className="font-semibold text-gray-800 truncate">{selectedSchool.name}</p>
+                          <p className="text-xs text-gray-500 truncate">{selectedSchool.address}</p>
+                        </div>
+                      </div>
+                      <Button
+                        onClick={handleConfirmSchool}
+                        className="w-full h-12 rounded-full bg-blue-600 hover:bg-blue-700 text-white font-semibold"
+                      >
+                        次へ
+                      </Button>
+                    </>
+                  ) : (
+                    <div className="p-3 bg-gray-50 rounded-lg border border-gray-200 text-center">
+                      <p className="text-sm text-gray-500">地図から校舎を選択してください</p>
+                    </div>
+                  )}
+                </div>
+              </div>
             )}
 
           </div>
@@ -1285,26 +1294,19 @@ export default function FromTicketPurchasePage() {
 
         {step === 6 && (
           <div>
-            <div className="mb-4">
-              <Card className="rounded-xl shadow-sm bg-blue-50 border-blue-200">
-                <CardContent className="p-3">
-                  <p className="text-xs text-gray-600 mb-1">選択中</p>
-                  <p className="font-semibold text-gray-800">{selectedChild?.fullName}</p>
-                  <p className="text-sm text-gray-700 mt-1">{selectedCategory?.categoryName} → {selectedSchool?.name}</p>
-                  <p className="text-sm text-gray-700 mt-1">{selectedCourse && getCourseName(selectedCourse)}</p>
-                </CardContent>
-              </Card>
+            {/* コンパクトな選択状況表示 */}
+            <div className="flex items-center gap-1 mb-3 text-xs text-gray-500 flex-wrap">
+              <span className="font-medium text-gray-700">{selectedChild?.fullName}</span>
+              <span>›</span>
+              <span className="text-blue-600">{selectedSchool?.name}</span>
+              <span>›</span>
+              <span className="text-blue-600">{selectedCourse && getCourseName(selectedCourse)}</span>
             </div>
 
-            <h2 className="text-lg font-semibold text-gray-800 mb-4">契約開始日を選択</h2>
-            <p className="text-sm text-gray-600 mb-4">
-              {selectedCourse && isMonthlyItem(selectedCourse)
-                ? 'レッスンを開始する日付を選択してください。月額コースは翌月1日から開始されます。'
-                : 'チケットを利用開始する日付を選択してください。'}
-            </p>
+            <h2 className="text-lg font-semibold text-gray-800 mb-2">開始日を選択</h2>
 
-            <Card className="rounded-xl shadow-md mb-4">
-              <CardContent className="p-4">
+            <Card className="rounded-xl shadow-md mb-3">
+              <CardContent className="p-2">
                 <Calendar
                   mode="single"
                   selected={startDate}
@@ -1336,13 +1338,13 @@ export default function FromTicketPurchasePage() {
             </Card>
 
             {startDate && (
-              <div className="mb-4 p-4 bg-green-50 border border-green-200 rounded-lg">
+              <div className="mb-3 p-3 bg-green-50 border border-green-200 rounded-lg">
                 <p className="text-sm text-green-800">
                   <CalendarIcon className="inline h-4 w-4 mr-1" />
-                  選択した開始日: {format(startDate, 'yyyy年MM月dd日（E）', { locale: ja })}
+                  開始日: {format(startDate, 'yyyy年MM月dd日（E）', { locale: ja })}
                 </p>
                 {selectedCourse && isMonthlyItem(selectedCourse) && (
-                  <p className="text-xs text-green-700 mt-2">
+                  <p className="text-xs text-green-700 mt-1">
                     ※月額コースは{format(addDays(startDate, 30), 'yyyy年MM月1日', { locale: ja })}から本格的に開始されます
                   </p>
                 )}
@@ -1351,28 +1353,24 @@ export default function FromTicketPurchasePage() {
 
             {/* 入会時授業料の表示（月途中入会の場合） */}
             {startDate && pricingPreview?.enrollmentTuition && (
-              <Card className="rounded-xl shadow-md mb-4 border-orange-200 bg-orange-50">
-                <CardContent className="p-4">
-                  <h3 className="font-semibold text-orange-800 mb-2">入会時授業料（当月分）</h3>
-                  <p className="text-sm text-gray-700">
-                    {pricingPreview.enrollmentTuition.productName}
-                  </p>
-                  <p className="text-sm text-gray-600 mt-1">
-                    月途中入会のため、追加チケット{pricingPreview.enrollmentTuition.tickets}回分が必要です。
-                  </p>
-                  <p className="text-lg font-bold text-orange-600 mt-2">
+              <div className="mb-3 p-3 bg-orange-50 border border-orange-200 rounded-lg">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-orange-800">入会時授業料（{pricingPreview.enrollmentTuition.tickets}回分）</p>
+                    <p className="text-xs text-gray-600">月途中入会のため追加</p>
+                  </div>
+                  <p className="text-lg font-bold text-orange-600">
                     ¥{pricingPreview.enrollmentTuition.total.toLocaleString()}
-                    <span className="text-xs text-gray-500 ml-1">(税込)</span>
                   </p>
-                </CardContent>
-              </Card>
+                </div>
+              </div>
             )}
 
             {/* 料金読み込み中 */}
             {isLoadingPricing && (
-              <div className="flex items-center justify-center py-4">
-                <Loader2 className="h-5 w-5 animate-spin text-blue-500 mr-2" />
-                <span className="text-sm text-gray-600">料金計算中...</span>
+              <div className="flex items-center justify-center py-2">
+                <Loader2 className="h-4 w-4 animate-spin text-blue-500 mr-2" />
+                <span className="text-xs text-gray-600">料金計算中...</span>
               </div>
             )}
 
@@ -1676,24 +1674,6 @@ export default function FromTicketPurchasePage() {
                       : '曜日・時間帯を選択してください'}
                 </Button>
 
-                {classScheduleData && classScheduleData.timeSlots.length > 0 && !selectedTime && (
-                  <Button
-                    variant="outline"
-                    onClick={() => {
-                      setSelectedTime(null);
-                      setSelectedDayOfWeek(null);
-                      setSelectedScheduleItem(null);
-                      if (hasPackItems) {
-                        handleNextItem();
-                      } else {
-                        setStep(8);
-                      }
-                    }}
-                    className="w-full h-12 rounded-full font-medium"
-                  >
-                    {hasPackItems && !isLastItem ? '後で予約する（次のコースへ）' : '後で予約する（スキップ）'}
-                  </Button>
-                )}
               </div>
             </div>
           );
@@ -1977,7 +1957,7 @@ export default function FromTicketPurchasePage() {
                     {pricingPreview.discounts.map((discount, index) => (
                       <div key={index} className="flex justify-between text-sm">
                         <span className="text-green-700">{discount.discountName}</span>
-                        <span className="text-green-700">-¥{discount.appliedAmount.toLocaleString()}</span>
+                        <span className="text-green-700">-¥{(discount.discountAmount || discount.appliedAmount || 0).toLocaleString()}</span>
                       </div>
                     ))}
                   </div>
@@ -2056,10 +2036,12 @@ export default function FromTicketPurchasePage() {
                 <div className="border-t pt-4 space-y-3">
                   {/* 料金内訳 */}
                   <div className="space-y-2">
+                    {/* コース料金 */}
                     <div className="flex justify-between text-sm">
                       <span className="text-gray-600">コース料金</span>
-                      <span className="text-gray-800">¥{((pricingPreview?.grandTotal ?? (selectedCourse?.price || 0)) - (pricingPreview?.enrollmentTuition?.total || 0)).toLocaleString()}</span>
+                      <span className="text-gray-800">¥{(selectedCourse?.price || 0).toLocaleString()}</span>
                     </div>
+
                     {/* APIからのenrollmentTuition */}
                     {pricingPreview?.enrollmentTuition && (
                       <div className="flex justify-between text-sm">
@@ -2067,6 +2049,7 @@ export default function FromTicketPurchasePage() {
                         <span className="text-orange-600">¥{pricingPreview.enrollmentTuition.total.toLocaleString()}</span>
                       </div>
                     )}
+
                     {/* フロントエンド計算の追加チケット */}
                     {!pricingPreview?.enrollmentTuition && additionalTicketCalc.count > 0 && (
                       <div className="flex justify-between text-sm">
@@ -2074,7 +2057,56 @@ export default function FromTicketPurchasePage() {
                         <span className="text-orange-600">¥{additionalTicketCalc.total.toLocaleString()}</span>
                       </div>
                     )}
+
+                    {/* 入会金 */}
+                    {pricingPreview?.additionalFees?.enrollmentFee && (
+                      <div className="flex justify-between text-sm">
+                        <span className="text-gray-600">{pricingPreview.additionalFees.enrollmentFee.productName}</span>
+                        <span className="text-gray-800">¥{pricingPreview.additionalFees.enrollmentFee.price.toLocaleString()}</span>
+                      </div>
+                    )}
+
+                    {/* 設備費 */}
+                    {pricingPreview?.additionalFees?.facilityFee && (
+                      <div className="flex justify-between text-sm">
+                        <span className="text-gray-600">
+                          {pricingPreview.additionalFees.facilityFee.productName}
+                          {pricingPreview.additionalFees.facilityFee.reason === '差額請求' && (
+                            <span className="text-xs text-gray-400 ml-1">（差額）</span>
+                          )}
+                        </span>
+                        <span className="text-gray-800">¥{pricingPreview.additionalFees.facilityFee.price.toLocaleString()}</span>
+                      </div>
+                    )}
+
+                    {/* 教材費 */}
+                    {pricingPreview?.additionalFees?.materialsFee && (
+                      <div className="flex justify-between text-sm">
+                        <span className="text-gray-600">{pricingPreview.additionalFees.materialsFee.productName}</span>
+                        <span className="text-gray-800">¥{pricingPreview.additionalFees.materialsFee.price.toLocaleString()}</span>
+                      </div>
+                    )}
                   </div>
+
+                  {/* 割引セクション */}
+                  {pricingPreview?.discounts && pricingPreview.discounts.length > 0 && (
+                    <div className="space-y-2 pt-2 border-t border-dashed">
+                      {pricingPreview.discounts.map((discount: { discountName: string; discountAmount: number }, index: number) => (
+                        <div key={index} className="flex justify-between text-sm">
+                          <span className="text-green-600">{discount.discountName}</span>
+                          <span className="text-green-600">-¥{discount.discountAmount.toLocaleString()}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* マイル割引表示 */}
+                  {milesToUse > 0 && mileDiscountAmount > 0 && (
+                    <div className="flex justify-between text-sm pt-2 border-t border-dashed">
+                      <span className="text-amber-600">マイル割引（{milesToUse}pt使用）</span>
+                      <span className="text-amber-600">-¥{mileDiscountAmount.toLocaleString()}</span>
+                    </div>
+                  )}
 
                   {/* 合計 */}
                   <div className="flex justify-between items-center pt-2 border-t">
@@ -2085,7 +2117,7 @@ export default function FromTicketPurchasePage() {
                   </div>
                   {pricingPreview && (
                     <p className="text-xs text-gray-500 text-right">
-                      （税込 ¥{(pricingPreview.taxTotal || 0).toLocaleString()}）
+                      （税込）
                     </p>
                   )}
                 </div>
@@ -2108,7 +2140,7 @@ export default function FromTicketPurchasePage() {
             </Button>
           </div>
         )}
-
+        </div>
       </main>
 
       <BottomTabBar />
