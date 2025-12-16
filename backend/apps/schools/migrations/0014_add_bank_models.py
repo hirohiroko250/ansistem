@@ -16,7 +16,7 @@ class Migration(migrations.Migration):
         migrations.CreateModel(
             name='BankType',
             fields=[
-                ('tenant_id', models.BigIntegerField(db_index=True, default=0, editable=False, verbose_name='テナントID')),
+                ('tenant_id', models.UUIDField(db_index=True, verbose_name='テナントID')),
                 ('tenant_ref', models.ForeignKey(blank=True, db_column='tenant_ref_id', null=True, on_delete=django.db.models.deletion.CASCADE, related_name='+', to='tenants.tenant', verbose_name='テナント')),
                 ('id', models.UUIDField(default=uuid.uuid4, editable=False, primary_key=True, serialize=False)),
                 ('type_code', models.CharField(max_length=10, verbose_name='種別コード')),
@@ -35,7 +35,7 @@ class Migration(migrations.Migration):
         migrations.CreateModel(
             name='Bank',
             fields=[
-                ('tenant_id', models.BigIntegerField(db_index=True, default=0, editable=False, verbose_name='テナントID')),
+                ('tenant_id', models.UUIDField(db_index=True, verbose_name='テナントID')),
                 ('tenant_ref', models.ForeignKey(blank=True, db_column='tenant_ref_id', null=True, on_delete=django.db.models.deletion.CASCADE, related_name='+', to='tenants.tenant', verbose_name='テナント')),
                 ('id', models.UUIDField(default=uuid.uuid4, editable=False, primary_key=True, serialize=False)),
                 ('bank_code', models.CharField(db_index=True, max_length=10, verbose_name='金融機関コード')),
@@ -58,7 +58,7 @@ class Migration(migrations.Migration):
         migrations.CreateModel(
             name='BankBranch',
             fields=[
-                ('tenant_id', models.BigIntegerField(db_index=True, default=0, editable=False, verbose_name='テナントID')),
+                ('tenant_id', models.UUIDField(db_index=True, verbose_name='テナントID')),
                 ('tenant_ref', models.ForeignKey(blank=True, db_column='tenant_ref_id', null=True, on_delete=django.db.models.deletion.CASCADE, related_name='+', to='tenants.tenant', verbose_name='テナント')),
                 ('id', models.UUIDField(default=uuid.uuid4, editable=False, primary_key=True, serialize=False)),
                 ('bank', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='branches', to='schools.bank', verbose_name='金融機関')),

@@ -13,7 +13,7 @@ class Migration(migrations.Migration):
         ("schools", "0018_add_discount_operation_log"),
         ("tenants", "0001_initial"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
-        ("students", "0012_merge_20251213_1427"),
+        ("students", "0011_add_fs_discount_models"),
         ("contracts", "0023_add_contract_history_audit_log"),
     ]
 

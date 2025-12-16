@@ -9,7 +9,7 @@ class Migration(migrations.Migration):
     dependencies = [
         ('lessons', '0004_add_tenant_ref'),
         ('students', '0001_initial'),
-        ('contracts', '0001_initial'),
+        ('contracts', '0017_add_ticket_models'),
         ('schools', '0001_initial'),
     ]
 
@@ -18,7 +18,7 @@ class Migration(migrations.Migration):
             name='AbsenceTicket',
             fields=[
                 ('id', models.UUIDField(default=uuid.uuid4, editable=False, primary_key=True, serialize=False)),
-                ('tenant_id', models.IntegerField(db_index=True, default=100000, verbose_name='テナントID')),
+                ('tenant_id', models.UUIDField(db_index=True, verbose_name='テナントID')),
                 ('created_at', models.DateTimeField(auto_now_add=True, verbose_name='作成日時')),
                 ('updated_at', models.DateTimeField(auto_now=True, verbose_name='更新日時')),
                 ('deleted_at', models.DateTimeField(blank=True, null=True, verbose_name='削除日時')),

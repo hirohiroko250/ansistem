@@ -12,7 +12,8 @@ class Migration(migrations.Migration):
         ("tenants", "0001_initial"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
         ("billing", "0005_add_discount_operation_log"),
-        ("students", "0012_merge_20251213_1427"),
+        ("students", "0011_add_fs_discount_models"),
+        ("students", "0007_add_bank_account_models"),
     ]
 
     operations = [

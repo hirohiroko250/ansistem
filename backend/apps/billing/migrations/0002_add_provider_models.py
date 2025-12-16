@@ -9,7 +9,7 @@ class Migration(migrations.Migration):
 
     dependencies = [
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
-        ('students', '0012_merge_20251213_1427'),
+        ('students', '0011_add_fs_discount_models'),
         ('tenants', '0001_initial'),
         ('billing', '0001_initial'),
     ]

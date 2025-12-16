@@ -12,7 +12,7 @@ class Migration(migrations.Migration):
         ("schools", "0017_add_calendar_operation_log"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
         ("tenants", "0001_initial"),
-        ("students", "0012_merge_20251213_1427"),
+        ("students", "0011_add_fs_discount_models"),
         ("contracts", "0022_add_class_schedule_to_student_item"),
     ]
 
