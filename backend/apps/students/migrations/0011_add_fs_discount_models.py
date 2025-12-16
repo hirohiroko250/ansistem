@@ -16,18 +16,18 @@ class Migration(migrations.Migration):
         migrations.RunSQL(
             sql="""
             CREATE TABLE IF NOT EXISTS t17_friendship_registrations (
-                id CHAR(32) PRIMARY KEY,
-                tenant_id INTEGER NOT NULL,
-                tenant_ref_id CHAR(32) NULL,
-                requester_id CHAR(32) NOT NULL REFERENCES t01_guardians(id),
-                target_id CHAR(32) NOT NULL REFERENCES t01_guardians(id),
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                tenant_id BIGINT NOT NULL,
+                tenant_ref_id UUID NULL,
+                requester_id UUID NOT NULL REFERENCES t01_guardians(id),
+                target_id UUID NOT NULL REFERENCES t01_guardians(id),
                 status VARCHAR(20) NOT NULL DEFAULT 'pending',
-                requested_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                accepted_at DATETIME NULL,
+                requested_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                accepted_at TIMESTAMP NULL,
                 friend_code VARCHAR(20) DEFAULT '',
                 notes TEXT DEFAULT '',
-                created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 UNIQUE(requester_id, target_id)
             );
             """,
@@ -50,22 +50,22 @@ class Migration(migrations.Migration):
         migrations.RunSQL(
             sql="""
             CREATE TABLE IF NOT EXISTS t18_fs_discounts (
-                id CHAR(32) PRIMARY KEY,
-                tenant_id INTEGER NOT NULL,
-                tenant_ref_id CHAR(32) NULL,
-                guardian_id CHAR(32) NOT NULL REFERENCES t01_guardians(id),
-                friendship_id CHAR(32) NOT NULL REFERENCES t17_friendship_registrations(id),
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                tenant_id BIGINT NOT NULL,
+                tenant_ref_id UUID NULL,
+                guardian_id UUID NOT NULL REFERENCES t01_guardians(id),
+                friendship_id UUID NOT NULL REFERENCES t17_friendship_registrations(id),
                 discount_type VARCHAR(20) NOT NULL DEFAULT 'fixed',
                 discount_value DECIMAL(10,2) NOT NULL DEFAULT 0,
                 status VARCHAR(20) NOT NULL DEFAULT 'active',
                 valid_from DATE NOT NULL,
                 valid_until DATE NULL,
-                used_at DATETIME NULL,
-                used_invoice_id CHAR(32) NULL,
+                used_at TIMESTAMP NULL,
+                used_invoice_id UUID NULL,
                 applied_amount DECIMAL(10,0) NULL,
                 notes TEXT DEFAULT '',
-                created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
             );
             """,
             reverse_sql="DROP TABLE IF EXISTS t18_fs_discounts;",

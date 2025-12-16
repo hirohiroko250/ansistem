@@ -12,13 +12,6 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.AddField(
-            model_name="student",
-            name="grade_text",
-            field=models.CharField(
-                blank=True, max_length=50, verbose_name="学年（テキスト）"
-            ),
-        ),
         migrations.AlterField(
             model_name="student",
             name="grade",
