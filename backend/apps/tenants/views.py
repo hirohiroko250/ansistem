@@ -12,7 +12,7 @@ class TenantViewSet(viewsets.ReadOnlyModelViewSet):
     """テナント一覧・詳細API（読み取り専用）"""
     queryset = Tenant.objects.filter(is_active=True).order_by('tenant_code')
     serializer_class = TenantSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.AllowAny]  # テナント一覧は公開
 
     def get_serializer_class(self):
         if self.action == 'retrieve':
