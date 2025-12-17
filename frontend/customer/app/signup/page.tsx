@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -13,6 +13,18 @@ import { useRouter } from 'next/navigation';
 import { register, checkEmail, checkPhone } from '@/lib/api/auth';
 import { getPrefectures, getAreas, getSchoolsByArea } from '@/lib/api/schools';
 import type { ApiError, Area, PublicSchool } from '@/lib/api/types';
+
+// ひらがなをカタカナに変換
+const hiraganaToKatakana = (str: string): string => {
+  return str.replace(/[\u3041-\u3096]/g, (char) => {
+    return String.fromCharCode(char.charCodeAt(0) + 0x60);
+  });
+};
+
+// 電話番号をハイフンなしの数字のみに変換
+const formatPhoneNumber = (value: string): string => {
+  return value.replace(/[^0-9]/g, '');
+};
 
 const brands = [
   { id: 'soroban', name: 'そろばん' },
@@ -67,6 +79,44 @@ export default function SignupPage() {
   });
   const [errors, setErrors] = useState({ email: '', phone: '', password: '', api: '' });
   const [isLoading, setIsLoading] = useState(false);
+
+  // IME入力追跡用
+  const lastNameCompositionRef = useRef<string>('');
+  const firstNameCompositionRef = useRef<string>('');
+
+  // 姓のIME入力ハンドラー
+  const handleLastNameComposition = (e: React.CompositionEvent<HTMLInputElement>) => {
+    if (e.type === 'compositionupdate') {
+      lastNameCompositionRef.current = e.data;
+    } else if (e.type === 'compositionend') {
+      // IME確定時にカタカナに変換してセット
+      const katakana = hiraganaToKatakana(lastNameCompositionRef.current);
+      if (katakana) {
+        setFormData(prev => ({ ...prev, lastNameKana: katakana }));
+      }
+      lastNameCompositionRef.current = '';
+    }
+  };
+
+  // 名のIME入力ハンドラー
+  const handleFirstNameComposition = (e: React.CompositionEvent<HTMLInputElement>) => {
+    if (e.type === 'compositionupdate') {
+      firstNameCompositionRef.current = e.data;
+    } else if (e.type === 'compositionend') {
+      // IME確定時にカタカナに変換してセット
+      const katakana = hiraganaToKatakana(firstNameCompositionRef.current);
+      if (katakana) {
+        setFormData(prev => ({ ...prev, firstNameKana: katakana }));
+      }
+      firstNameCompositionRef.current = '';
+    }
+  };
+
+  // 電話番号入力ハンドラー（数字のみ）
+  const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const formatted = formatPhoneNumber(e.target.value);
+    setFormData({ ...formData, phone: formatted });
+  };
 
   // 都道府県・市区町村・校舎データを取得
   const [prefectures, setPrefectures] = useState<string[]>([]);
@@ -345,6 +395,8 @@ export default function SignupPage() {
                       placeholder="山田"
                       value={formData.lastName}
                       onChange={(e) => setFormData({ ...formData, lastName: e.target.value })}
+                      onCompositionUpdate={handleLastNameComposition}
+                      onCompositionEnd={handleLastNameComposition}
                       className="rounded-xl h-12"
                       required
                     />
@@ -358,6 +410,8 @@ export default function SignupPage() {
                       placeholder="太郎"
                       value={formData.firstName}
                       onChange={(e) => setFormData({ ...formData, firstName: e.target.value })}
+                      onCompositionUpdate={handleFirstNameComposition}
+                      onCompositionEnd={handleFirstNameComposition}
                       className="rounded-xl h-12"
                       required
                     />
@@ -400,12 +454,15 @@ export default function SignupPage() {
                   <Input
                     id="phone"
                     type="tel"
-                    placeholder="090-1234-5678"
+                    inputMode="numeric"
+                    placeholder="09012345678"
                     value={formData.phone}
-                    onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                    onChange={handlePhoneChange}
                     className={`rounded-xl h-12 ${errors.phone ? 'border-red-500' : ''}`}
+                    maxLength={11}
                     required
                   />
+                  <p className="text-xs text-gray-500 mt-1">ハイフンなしで入力してください</p>
                   {errors.phone && (
                     <p className="text-xs text-red-600 mt-1">{errors.phone}</p>
                   )}
