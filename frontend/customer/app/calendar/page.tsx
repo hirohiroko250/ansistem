@@ -443,7 +443,7 @@ export default function CalendarPage() {
         </header>
         <main className="max-w-[390px] mx-auto px-4 py-6 pb-24 flex flex-col items-center justify-center min-h-[60vh]">
           <p className="text-gray-600 mb-4">登録されているお子様がいません</p>
-          <Button onClick={() => router.push('/children/add')}>お子様を登録する</Button>
+          <Button onClick={() => router.push('/children')}>お子様を登録する</Button>
         </main>
         <BottomTabBar />
       </div>

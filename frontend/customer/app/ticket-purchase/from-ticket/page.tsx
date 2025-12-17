@@ -973,7 +973,7 @@ export default function FromTicketPurchasePage() {
             ) : children.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-12">
                 <p className="text-gray-600 mb-4">登録されているお子様がいません</p>
-                <Link href="/children/add">
+                <Link href="/children">
                   <Button>お子様を登録する</Button>
                 </Link>
               </div>

@@ -12,7 +12,7 @@ os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'config.settings.development')
 django.setup()
 
 import pandas as pd
-from apps.schools.models import Brand, School
+from apps.schools.models import School
 from apps.tenants.models import Tenant
 
 
@@ -35,20 +35,6 @@ def import_schools(excel_path: str, tenant_code: str = None):
 
     print(f"テナント: {tenant.tenant_name} ({tenant.tenant_code})")
 
-    # デフォルトブランド作成（なければ）
-    brand, created = Brand.objects.get_or_create(
-        tenant_id=tenant.id,
-        brand_code='DEFAULT',
-        defaults={
-            'brand_name': 'デフォルトブランド',
-            'brand_name_short': 'DEFAULT',
-            'is_active': True,
-        }
-    )
-    if created:
-        print(f"ブランド作成: {brand.brand_name}")
-    else:
-        print(f"既存ブランド使用: {brand.brand_name}")
 
     # Excelファイル読み込み
     df = pd.read_excel(excel_path, sheet_name='T10_校舎情報_CSV書き出し用DATAもと')
@@ -149,7 +135,6 @@ def import_schools(excel_path: str, tenant_code: str = None):
             # 校舎作成
             school = School.objects.create(
                 tenant_id=tenant.id,
-                brand=brand,
                 school_code=school_code,
                 school_name=school_name,
                 school_name_short=str(row.get('短縮名', '')).strip() if not pd.isna(row.get('短縮名')) else '',

@@ -466,7 +466,7 @@ export default function TrialPage() {
               ) : children.length === 0 ? (
                 <div className="text-center py-8">
                   <p className="text-gray-600 mb-4">お子様が登録されていません</p>
-                  <Link href="/settings/children/new">
+                  <Link href="/children">
                     <Button>お子様を登録する</Button>
                   </Link>
                 </div>
