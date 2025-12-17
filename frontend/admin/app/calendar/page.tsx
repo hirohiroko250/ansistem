@@ -794,7 +794,7 @@ export default function CalendarPage() {
                 <SelectItem value="all">全テナント</SelectItem>
                 {tenants.map((tenant) => (
                   <SelectItem key={tenant.id} value={tenant.id}>
-                    {tenant.tenant_name}
+                    {tenant.tenantName || tenant.tenant_name}
                   </SelectItem>
                 ))}
               </SelectContent>

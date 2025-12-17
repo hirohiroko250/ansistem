@@ -95,10 +95,14 @@ export type BrandCategory = {
 
 export type Tenant = {
   id: string;
-  tenant_code: string;
-  tenant_name: string;
+  tenant_code?: string;
+  tenantCode?: string;
+  tenant_name?: string;
+  tenantName?: string;
   plan_type?: string;
+  planType?: string;
   is_active?: boolean;
+  isActive?: boolean;
 };
 
 export async function getTenants(): Promise<Tenant[]> {
