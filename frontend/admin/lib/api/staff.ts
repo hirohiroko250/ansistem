@@ -93,6 +93,34 @@ export type BrandCategory = {
   code: string;
 };
 
+export type Tenant = {
+  id: string;
+  tenant_code: string;
+  tenant_name: string;
+  plan_type?: string;
+  is_active?: boolean;
+};
+
+export async function getTenants(): Promise<Tenant[]> {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const response = await apiClient.get<any>("/tenants/");
+    if (Array.isArray(response)) {
+      return response;
+    }
+    if (response.data && Array.isArray(response.data)) {
+      return response.data;
+    }
+    if (response.results && Array.isArray(response.results)) {
+      return response.results;
+    }
+    return [];
+  } catch (error) {
+    console.error("Error fetching tenants:", error);
+    return [];
+  }
+}
+
 export async function getBrandCategories(): Promise<BrandCategory[]> {
   try {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any

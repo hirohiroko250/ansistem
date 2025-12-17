@@ -56,7 +56,9 @@ import {
   exportCalendarCSV,
   importCalendarCSV,
   markAttendance,
+  getTenants,
   Brand,
+  Tenant,
   CalendarDay,
   CalendarEvent,
   CalendarEventDetail,
@@ -89,6 +91,7 @@ const menuItems = [
 export default function CalendarPage() {
   const pathname = usePathname();
   const [brands, setBrands] = useState<Brand[]>([]);
+  const [tenants, setTenants] = useState<Tenant[]>([]);
   const [schools, setSchools] = useState<School[]>([]);
   const [selectedSchool, setSelectedSchool] = useState<string>("");
   const [selectedBrand, setSelectedBrand] = useState<string>("all");
@@ -117,20 +120,6 @@ export default function CalendarPage() {
     Array<{ event: CalendarEvent; date: string; calendarPattern?: string }>
   >([]);
 
-  // テナントリスト（APIから取得するか、ブランドをベースに構築）
-  // 今後テナントAPIができたら置き換え
-  const tenants = useMemo(() => {
-    // ブランドからユニークなテナントを生成（暫定）
-    // sortOrderでソート
-    const uniqueTenants = brands
-      .map((brand) => ({
-        id: brand.id,
-        name: brand.brandName || brand.brand_name || "",
-        sortOrder: brand.sortOrder || brand.sort_order || 0,
-      }))
-      .sort((a, b) => a.sortOrder - b.sortOrder);
-    return uniqueTenants;
-  }, [brands]);
 
   // 時間スロット（週表示用）
   const timeSlots = useMemo(() => {
@@ -146,14 +135,16 @@ export default function CalendarPage() {
     async function loadInitialData() {
       setDataLoading(true);
       try {
-        const [brandsData, schoolsData, calendarsData] = await Promise.all([
+        const [brandsData, schoolsData, calendarsData, tenantsData] = await Promise.all([
           getBrands(),
           getCampuses(),
           getGoogleCalendars(),
+          getTenants(),
         ]);
         setBrands(brandsData);
         setSchools(schoolsData);
         setGoogleCalendars(calendarsData);
+        setTenants(tenantsData);
         if (schoolsData.length > 0) {
           setSelectedSchool(schoolsData[0].id);
         }
@@ -803,7 +794,7 @@ export default function CalendarPage() {
                 <SelectItem value="all">全テナント</SelectItem>
                 {tenants.map((tenant) => (
                   <SelectItem key={tenant.id} value={tenant.id}>
-                    {tenant.name}
+                    {tenant.tenant_name}
                   </SelectItem>
                 ))}
               </SelectContent>
