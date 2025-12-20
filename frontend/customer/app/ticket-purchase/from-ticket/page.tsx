@@ -1390,6 +1390,8 @@ export default function FromTicketPurchasePage() {
                           }),
                           getEnrollmentBillingInfo(dateStr).catch(() => null),
                         ]);
+                        console.log('[Debug] pricingPreview:', preview);
+                        console.log('[Debug] billingByMonth:', preview.billingByMonth);
                         setPricingPreview(preview);
                         setBillingInfo(billing);
                       } catch (err) {

@@ -213,7 +213,7 @@ export interface EnrollmentBillingInfo {
  */
 export async function getTicketBillingMonth(purchaseDate?: string): Promise<BillingMonthInfo> {
   const params = purchaseDate ? `?purchase_date=${purchaseDate}` : '';
-  return api.get<BillingMonthInfo>(`/billing/billing-periods/ticket_billing_info/${params}`);
+  return api.get<BillingMonthInfo>(`/billing/periods/ticket_billing_info/${params}`);
 }
 
 /**
@@ -225,5 +225,5 @@ export async function getTicketBillingMonth(purchaseDate?: string): Promise<Bill
  */
 export async function getEnrollmentBillingInfo(enrollmentDate?: string): Promise<EnrollmentBillingInfo> {
   const params = enrollmentDate ? `?enrollment_date=${enrollmentDate}` : '';
-  return api.get<EnrollmentBillingInfo>(`/billing/billing-periods/enrollment_billing_info/${params}`);
+  return api.get<EnrollmentBillingInfo>(`/billing/periods/enrollment_billing_info/${params}`);
 }

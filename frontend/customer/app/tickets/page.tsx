@@ -1,14 +1,18 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { ChevronLeft, Ticket, Calendar, RefreshCw, Clock, Loader2 } from 'lucide-react';
+import { useState, useEffect, useCallback } from 'react';
+import { ChevronLeft, Ticket, Calendar, RefreshCw, Clock, Loader2, MapPin, X, ChevronRight } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { BottomTabBar } from '@/components/bottom-tab-bar';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { getAllStudentItems, type PurchasedItem } from '@/lib/api/students';
-import { getAbsenceTickets, type AbsenceTicket } from '@/lib/api/lessons';
+import { getAbsenceTickets, getTransferAvailableClasses, useAbsenceTicket, type AbsenceTicket, type TransferAvailableClass } from '@/lib/api/lessons';
+import { getBrandSchools, type BrandSchool } from '@/lib/api/schools';
+import { format, addDays, startOfWeek, isSameDay } from 'date-fns';
+import { ja } from 'date-fns/locale';
 
 type TicketType = {
   id: string;
@@ -25,6 +29,8 @@ type TicketType = {
   absenceDate?: string;
   consumptionSymbol?: string;
   originalTicketName?: string;
+  brandId?: string;
+  schoolId?: string;
 };
 
 // チケットとして表示すべき商品タイプかどうか判定
@@ -61,6 +67,22 @@ export default function TicketsPage() {
   const [tickets, setTickets] = useState<TicketType[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // 振替予約モーダル用の状態
+  const [showTransferModal, setShowTransferModal] = useState(false);
+  const [transferStep, setTransferStep] = useState<'school' | 'calendar'>('school');
+  const [selectedTicket, setSelectedTicket] = useState<TicketType | null>(null);
+  const [schools, setSchools] = useState<BrandSchool[]>([]);
+  const [selectedSchool, setSelectedSchool] = useState<BrandSchool | null>(null);
+  const [availableClasses, setAvailableClasses] = useState<TransferAvailableClass[]>([]);
+  const [loadingSchools, setLoadingSchools] = useState(false);
+  const [loadingClasses, setLoadingClasses] = useState(false);
+  const [selectedDate, setSelectedDate] = useState<Date | null>(null);
+  const [selectedClass, setSelectedClass] = useState<TransferAvailableClass | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [transferError, setTransferError] = useState<string | null>(null);
+  const [transferSuccess, setTransferSuccess] = useState(false);
+  const [currentWeekStart, setCurrentWeekStart] = useState(() => startOfWeek(new Date(), { weekStartsOn: 1 }));
 
   useEffect(() => {
     const fetchTickets = async () => {
@@ -108,6 +130,8 @@ export default function TicketsPage() {
           absenceDate: ticket.absenceDate || undefined,
           consumptionSymbol: ticket.consumptionSymbol,
           originalTicketName: ticket.originalTicketName,
+          brandId: ticket.brandId || undefined,
+          schoolId: ticket.schoolId || undefined,
         }));
 
         setTickets([...convertedTickets, ...transferTicketsConverted]);
@@ -130,6 +154,145 @@ export default function TicketsPage() {
 
     fetchTickets();
   }, [router]);
+
+  // 振替予約モーダルを開く
+  const openTransferModal = useCallback(async (ticket: TicketType) => {
+    setSelectedTicket(ticket);
+    setShowTransferModal(true);
+    setTransferStep('school');
+    setSelectedSchool(null);
+    setSelectedDate(null);
+    setSelectedClass(null);
+    setTransferError(null);
+    setTransferSuccess(false);
+    setCurrentWeekStart(startOfWeek(new Date(), { weekStartsOn: 1 }));
+
+    // ブランドの校舎一覧を取得
+    if (ticket.brandId) {
+      setLoadingSchools(true);
+      try {
+        const brandSchools = await getBrandSchools(ticket.brandId);
+        setSchools(brandSchools);
+        // デフォルトで通っている校舎を選択
+        if (ticket.schoolId) {
+          const currentSchool = brandSchools.find(s => s.id === ticket.schoolId);
+          if (currentSchool) {
+            setSelectedSchool(currentSchool);
+          }
+        }
+      } catch (err) {
+        console.error('Failed to fetch schools:', err);
+        setTransferError('校舎情報の取得に失敗しました');
+      } finally {
+        setLoadingSchools(false);
+      }
+    }
+  }, []);
+
+  // 校舎選択後、カレンダーステップへ
+  const goToCalendarStep = useCallback(async () => {
+    if (!selectedSchool || !selectedTicket) return;
+
+    setTransferStep('calendar');
+    setLoadingClasses(true);
+    setTransferError(null);
+
+    try {
+      const classes = await getTransferAvailableClasses(selectedTicket.id);
+      // 選択した校舎のクラスのみフィルタ
+      const filteredClasses = classes.filter(c => c.schoolId === selectedSchool.id);
+      setAvailableClasses(filteredClasses);
+    } catch (err) {
+      console.error('Failed to fetch available classes:', err);
+      setTransferError('振替可能クラスの取得に失敗しました');
+    } finally {
+      setLoadingClasses(false);
+    }
+  }, [selectedSchool, selectedTicket]);
+
+  // 振替予約を実行
+  const submitTransfer = useCallback(async () => {
+    if (!selectedTicket || !selectedDate || !selectedClass) return;
+
+    setIsSubmitting(true);
+    setTransferError(null);
+
+    try {
+      await useAbsenceTicket({
+        absenceTicketId: selectedTicket.id,
+        targetDate: format(selectedDate, 'yyyy-MM-dd'),
+        targetClassScheduleId: selectedClass.id,
+      });
+      setTransferSuccess(true);
+      // チケット一覧を再取得
+      const [items, absenceTickets] = await Promise.all([
+        getAllStudentItems(),
+        getAbsenceTickets('issued').catch(() => [] as AbsenceTicket[]),
+      ]);
+      const ticketItems = items.filter((item: PurchasedItem) => isTicketType(item.productType));
+      const convertedTickets: TicketType[] = ticketItems.map((item: PurchasedItem) => {
+        const expiryDate = calculateExpiryDate(item.billingMonth);
+        return {
+          id: item.id,
+          type: getTicketType(item.productType),
+          school: item.schoolName || '未指定',
+          brand: item.brandName || item.productName,
+          count: item.quantity,
+          expiryDate,
+          status: isExpiringSoon(expiryDate) ? 'expiring' : 'active',
+          studentName: item.studentName,
+          productName: item.productName,
+          billingMonth: item.billingMonth,
+        };
+      });
+      const transferTicketsConverted: TicketType[] = absenceTickets.map((ticket: AbsenceTicket) => ({
+        id: ticket.id,
+        type: 'transfer' as const,
+        school: ticket.schoolName || '未指定',
+        brand: ticket.brandName || '振替チケット',
+        count: 1,
+        expiryDate: ticket.validUntil || '',
+        status: ticket.validUntil && isExpiringSoon(ticket.validUntil) ? 'expiring' : 'active',
+        studentName: ticket.studentName,
+        productName: ticket.originalTicketName || '振替チケット',
+        absenceDate: ticket.absenceDate || undefined,
+        consumptionSymbol: ticket.consumptionSymbol,
+        originalTicketName: ticket.originalTicketName,
+        brandId: ticket.brandId || undefined,
+        schoolId: ticket.schoolId || undefined,
+      }));
+      setTickets([...convertedTickets, ...transferTicketsConverted]);
+    } catch (err) {
+      console.error('Failed to submit transfer:', err);
+      const apiError = err as { message?: string };
+      setTransferError(apiError.message || '振替予約に失敗しました');
+    } finally {
+      setIsSubmitting(false);
+    }
+  }, [selectedTicket, selectedDate, selectedClass]);
+
+  // モーダルを閉じる
+  const closeTransferModal = useCallback(() => {
+    setShowTransferModal(false);
+    setSelectedTicket(null);
+    setTransferStep('school');
+    setSelectedSchool(null);
+    setSelectedDate(null);
+    setSelectedClass(null);
+    setTransferError(null);
+    setTransferSuccess(false);
+  }, []);
+
+  // 週の日付を取得
+  const getWeekDays = useCallback(() => {
+    return Array.from({ length: 7 }, (_, i) => addDays(currentWeekStart, i));
+  }, [currentWeekStart]);
+
+  // 曜日名を取得
+  const getDayOfWeekName = (dayOfWeek: number) => {
+    const days = ['日', '月', '火', '水', '木', '金', '土'];
+    return days[dayOfWeek];
+  };
 
   const courseTickets = tickets.filter(t => t.type === 'course');
   const transferTickets = tickets.filter(t => t.type === 'transfer');
@@ -312,10 +475,17 @@ export default function TicketsPage() {
                         <span>欠席日: {ticket.absenceDate}</span>
                       </div>
                     )}
-                    <div className="flex items-center gap-2 text-sm text-gray-600">
+                    <div className="flex items-center gap-2 text-sm text-gray-600 mb-3">
                       <Clock className="h-4 w-4" />
                       <span>有効期限: {ticket.expiryDate}</span>
                     </div>
+                    <Button
+                      onClick={() => openTransferModal(ticket)}
+                      className="w-full bg-amber-500 hover:bg-amber-600 text-white"
+                    >
+                      <RefreshCw className="h-4 w-4 mr-2" />
+                      振替予約する
+                    </Button>
                   </CardContent>
                 </Card>
               ))}
@@ -379,6 +549,255 @@ export default function TicketsPage() {
           </CardContent>
         </Card>
       </main>
+
+      {/* 振替予約モーダル */}
+      {showTransferModal && (
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl w-full max-w-md max-h-[90vh] overflow-hidden flex flex-col">
+            {/* ヘッダー */}
+            <div className="flex items-center justify-between p-4 border-b">
+              <h2 className="text-lg font-bold text-gray-800">
+                {transferStep === 'school' ? '校舎を選択' : '日時を選択'}
+              </h2>
+              <button onClick={closeTransferModal} className="p-1 hover:bg-gray-100 rounded-full">
+                <X className="h-5 w-5 text-gray-500" />
+              </button>
+            </div>
+
+            {/* コンテンツ */}
+            <div className="flex-1 overflow-y-auto p-4">
+              {transferSuccess ? (
+                <div className="text-center py-8">
+                  <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                    <RefreshCw className="h-8 w-8 text-green-600" />
+                  </div>
+                  <h3 className="text-xl font-bold text-gray-800 mb-2">振替予約完了</h3>
+                  <p className="text-gray-600 mb-4">
+                    {selectedDate && format(selectedDate, 'M月d日(E)', { locale: ja })}の授業に振替予約しました
+                  </p>
+                  <Button onClick={closeTransferModal} className="bg-blue-500 hover:bg-blue-600">
+                    閉じる
+                  </Button>
+                </div>
+              ) : transferStep === 'school' ? (
+                <>
+                  {/* 校舎選択ステップ */}
+                  {loadingSchools ? (
+                    <div className="flex items-center justify-center py-8">
+                      <Loader2 className="h-8 w-8 animate-spin text-amber-500" />
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      <p className="text-sm text-gray-600 mb-4">
+                        振替先の校舎を選択してください。他校舎への振替も可能です。
+                      </p>
+                      {schools.map((school) => (
+                        <button
+                          key={school.id}
+                          onClick={() => setSelectedSchool(school)}
+                          className={`w-full p-4 rounded-lg border-2 text-left transition-all ${
+                            selectedSchool?.id === school.id
+                              ? 'border-amber-500 bg-amber-50'
+                              : 'border-gray-200 hover:border-amber-300'
+                          }`}
+                        >
+                          <div className="flex items-start gap-3">
+                            <MapPin className={`h-5 w-5 mt-0.5 ${
+                              selectedSchool?.id === school.id ? 'text-amber-500' : 'text-gray-400'
+                            }`} />
+                            <div className="flex-1">
+                              <p className="font-semibold text-gray-800">{school.name}</p>
+                              {school.address && (
+                                <p className="text-sm text-gray-500 mt-1">{school.address}</p>
+                              )}
+                              {selectedTicket?.schoolId === school.id && (
+                                <Badge className="mt-2 bg-blue-500 text-white text-xs">通常校舎</Badge>
+                              )}
+                            </div>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </>
+              ) : (
+                <>
+                  {/* カレンダーステップ */}
+                  {loadingClasses ? (
+                    <div className="flex items-center justify-center py-8">
+                      <Loader2 className="h-8 w-8 animate-spin text-amber-500" />
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      <div className="flex items-center justify-between mb-2">
+                        <button
+                          onClick={() => setCurrentWeekStart(addDays(currentWeekStart, -7))}
+                          className="p-2 hover:bg-gray-100 rounded-lg"
+                        >
+                          <ChevronLeft className="h-5 w-5" />
+                        </button>
+                        <span className="font-semibold">
+                          {format(currentWeekStart, 'yyyy年M月', { locale: ja })}
+                        </span>
+                        <button
+                          onClick={() => setCurrentWeekStart(addDays(currentWeekStart, 7))}
+                          className="p-2 hover:bg-gray-100 rounded-lg"
+                        >
+                          <ChevronRight className="h-5 w-5" />
+                        </button>
+                      </div>
+
+                      {/* 週間カレンダー */}
+                      <div className="grid grid-cols-7 gap-1 text-center text-sm mb-4">
+                        {['月', '火', '水', '木', '金', '土', '日'].map((day, i) => (
+                          <div key={day} className={`py-1 font-semibold ${
+                            i === 5 ? 'text-blue-600' : i === 6 ? 'text-red-600' : 'text-gray-600'
+                          }`}>
+                            {day}
+                          </div>
+                        ))}
+                        {getWeekDays().map((date, i) => {
+                          const dayOfWeek = date.getDay();
+                          // この日に振替可能なクラスがあるか確認
+                          const classesOnDay = availableClasses.filter(c => c.dayOfWeek === dayOfWeek);
+                          const hasAvailable = classesOnDay.some(c => c.availableSeats > 0);
+                          const isSelected = selectedDate && isSameDay(date, selectedDate);
+                          const isPast = date < new Date(new Date().setHours(0, 0, 0, 0));
+
+                          return (
+                            <button
+                              key={date.toISOString()}
+                              onClick={() => !isPast && hasAvailable && setSelectedDate(date)}
+                              disabled={isPast || !hasAvailable}
+                              className={`py-2 rounded-lg text-sm ${
+                                isSelected
+                                  ? 'bg-amber-500 text-white font-bold'
+                                  : isPast
+                                  ? 'text-gray-300 cursor-not-allowed'
+                                  : hasAvailable
+                                  ? 'hover:bg-amber-100 text-gray-800'
+                                  : 'text-gray-300 cursor-not-allowed'
+                              } ${i === 5 ? 'text-blue-600' : i === 6 ? 'text-red-600' : ''}`}
+                            >
+                              {format(date, 'd')}
+                            </button>
+                          );
+                        })}
+                      </div>
+
+                      {/* 選択日のクラス一覧 */}
+                      {selectedDate && (
+                        <div className="space-y-2">
+                          <h4 className="font-semibold text-gray-700">
+                            {format(selectedDate, 'M月d日(E)', { locale: ja })}の授業
+                          </h4>
+                          {availableClasses
+                            .filter(c => c.dayOfWeek === selectedDate.getDay())
+                            .map((cls) => (
+                              <button
+                                key={cls.id}
+                                onClick={() => cls.availableSeats > 0 && setSelectedClass(cls)}
+                                disabled={cls.availableSeats <= 0}
+                                className={`w-full p-3 rounded-lg border-2 text-left transition-all ${
+                                  selectedClass?.id === cls.id
+                                    ? 'border-amber-500 bg-amber-50'
+                                    : cls.availableSeats > 0
+                                    ? 'border-gray-200 hover:border-amber-300'
+                                    : 'border-gray-100 bg-gray-50 cursor-not-allowed'
+                                }`}
+                              >
+                                <div className="flex items-center justify-between">
+                                  <div>
+                                    <p className="font-semibold text-gray-800">{cls.className}</p>
+                                    <p className="text-sm text-gray-500">
+                                      {cls.periodDisplay}
+                                    </p>
+                                  </div>
+                                  <div className="text-right">
+                                    <Badge className={`${
+                                      cls.availableSeats > 3
+                                        ? 'bg-green-500'
+                                        : cls.availableSeats > 0
+                                        ? 'bg-yellow-500'
+                                        : 'bg-red-500'
+                                    } text-white`}>
+                                      残り{cls.availableSeats}席
+                                    </Badge>
+                                    <p className="text-xs text-gray-400 mt-1">
+                                      {cls.currentSeat}/{cls.maxSeat}
+                                    </p>
+                                  </div>
+                                </div>
+                              </button>
+                            ))}
+                          {availableClasses.filter(c => c.dayOfWeek === selectedDate.getDay()).length === 0 && (
+                            <p className="text-center text-gray-500 py-4">
+                              この日に振替可能なクラスはありません
+                            </p>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </>
+              )}
+
+              {transferError && (
+                <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg">
+                  <p className="text-sm text-red-600">{transferError}</p>
+                </div>
+              )}
+            </div>
+
+            {/* フッター */}
+            {!transferSuccess && (
+              <div className="p-4 border-t flex gap-3">
+                {transferStep === 'school' ? (
+                  <>
+                    <Button
+                      variant="outline"
+                      onClick={closeTransferModal}
+                      className="flex-1"
+                    >
+                      キャンセル
+                    </Button>
+                    <Button
+                      onClick={goToCalendarStep}
+                      disabled={!selectedSchool}
+                      className="flex-1 bg-amber-500 hover:bg-amber-600"
+                    >
+                      次へ
+                      <ChevronRight className="h-4 w-4 ml-1" />
+                    </Button>
+                  </>
+                ) : (
+                  <>
+                    <Button
+                      variant="outline"
+                      onClick={() => setTransferStep('school')}
+                      className="flex-1"
+                    >
+                      <ChevronLeft className="h-4 w-4 mr-1" />
+                      戻る
+                    </Button>
+                    <Button
+                      onClick={submitTransfer}
+                      disabled={!selectedClass || isSubmitting}
+                      className="flex-1 bg-amber-500 hover:bg-amber-600"
+                    >
+                      {isSubmitting ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        '振替予約する'
+                      )}
+                    </Button>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       <BottomTabBar />
     </div>

@@ -600,6 +600,7 @@ class PricingPreviewView(APIView):
                 course=course,
                 is_active=True
             ).select_related('product')
+            print(f"[PricingPreview] CourseItems count: {course_items.count()}, ProductSet: {course.product_set}", file=sys.stderr, flush=True)
 
             # 商品セット（ProductSet）の商品も追加
             if course.product_set:
@@ -615,7 +616,7 @@ class PricingPreviewView(APIView):
                     tax_rate = product.tax_rate or Decimal('0.1')
                     tax_amount = int(base_price * tax_rate)
                     price_with_tax = int(base_price) + tax_amount
-                    course_items_list.append({
+                    item_data = {
                         'productId': str(product.id),
                         'productName': product.product_name,
                         'itemType': product.item_type,
@@ -624,8 +625,33 @@ class PricingPreviewView(APIView):
                         'priceWithTax': price_with_tax,
                         'taxRate': float(tax_rate),
                         'source': 'product_set',
-                    })
+                    }
+                    course_items_list.append(item_data)
                     subtotal += Decimal(str(price_with_tax))
+
+                    # 月別グループに振り分け
+                    item_type = product.item_type
+                    print(f"[PricingPreview] ProductSet Product: {product.product_name}, item_type: '{item_type}'", file=sys.stderr, flush=True)
+                    if item_type in ['enrollment', 'enrollment_textbook', 'textbook', 'bag']:
+                        billing_by_month['enrollment']['items'].append(item_data.copy())
+                        billing_by_month['enrollment']['total'] += price_with_tax
+                        print(f"[PricingPreview]   -> Added to enrollment", file=sys.stderr)
+                    elif item_type in ['enrollment_monthly_fee', 'enrollment_facility']:
+                        # 当月分（月会費・設備費のみ）
+                        billing_by_month['currentMonth']['items'].append(item_data.copy())
+                        billing_by_month['currentMonth']['total'] += price_with_tax
+                        print(f"[PricingPreview]   -> Added to currentMonth", file=sys.stderr)
+                    elif item_type == 'enrollment_tuition':
+                        # 当月分授業料バリエーションはスキップ
+                        print(f"[PricingPreview]   -> Skipped (enrollment_tuition variant)", file=sys.stderr)
+                    elif item_type in ['tuition', 'monthly_fee', 'facility']:
+                        billing_by_month['month1']['items'].append(item_data.copy())
+                        billing_by_month['month1']['total'] += price_with_tax
+                        billing_by_month['month2']['items'].append(item_data.copy())
+                        billing_by_month['month2']['total'] += price_with_tax
+                        print(f"[PricingPreview]   -> Added to month1 and month2", file=sys.stderr)
+                    else:
+                        print(f"[PricingPreview]   -> NOT MATCHED (item_type not in any group)", file=sys.stderr)
 
             for ci in course_items:
                 product = ci.product
@@ -652,20 +678,29 @@ class PricingPreviewView(APIView):
 
                 # 月別グループに振り分け
                 item_type = product.item_type
+                print(f"[PricingPreview] Product: {product.product_name}, item_type: '{item_type}'", file=sys.stderr, flush=True)
                 if item_type in ['enrollment', 'enrollment_textbook', 'textbook', 'bag']:
                     # 入会時費用（一回のみ）
                     billing_by_month['enrollment']['items'].append(item_data)
                     billing_by_month['enrollment']['total'] += price_with_tax
-                elif item_type in ['enrollment_tuition', 'enrollment_monthly_fee', 'enrollment_facility']:
-                    # 当月分（回数割）
+                    print(f"[PricingPreview]   -> Added to enrollment", file=sys.stderr)
+                elif item_type in ['enrollment_monthly_fee', 'enrollment_facility']:
+                    # 当月分（月会費・設備費のみ）- enrollment_tuitionは後で計算したものを追加
                     billing_by_month['currentMonth']['items'].append(item_data)
                     billing_by_month['currentMonth']['total'] += price_with_tax
+                    print(f"[PricingPreview]   -> Added to currentMonth", file=sys.stderr)
+                elif item_type == 'enrollment_tuition':
+                    # 当月分授業料バリエーションはスキップ（後で計算したものを追加）
+                    print(f"[PricingPreview]   -> Skipped (enrollment_tuition variant)", file=sys.stderr)
                 elif item_type in ['tuition', 'monthly_fee', 'facility']:
                     # 月額料金（翌月・翌々月）
                     billing_by_month['month1']['items'].append(item_data.copy())
                     billing_by_month['month1']['total'] += price_with_tax
                     billing_by_month['month2']['items'].append(item_data.copy())
                     billing_by_month['month2']['total'] += price_with_tax
+                    print(f"[PricingPreview]   -> Added to month1 and month2", file=sys.stderr)
+                else:
+                    print(f"[PricingPreview]   -> NOT MATCHED (item_type not in any group)", file=sys.stderr)
 
                 # 入会金
                 if product.item_type == Product.ItemType.ENROLLMENT:
@@ -756,6 +791,19 @@ class PricingPreviewView(APIView):
             billing_by_month['month1']['month'] = monthly_tuition['month1']
             billing_by_month['month2']['label'] = f'{monthly_tuition["month2"]}月分〜'
             billing_by_month['month2']['month'] = monthly_tuition['month2']
+        else:
+            # start_dateがない場合のデフォルトラベル
+            from datetime import date as date_type
+            today = date_type.today()
+            current_month = today.month
+            next_month = (current_month % 12) + 1
+            following_month = ((current_month + 1) % 12) + 1
+            billing_by_month['currentMonth']['label'] = f'{current_month}月分（当月）'
+            billing_by_month['currentMonth']['month'] = current_month
+            billing_by_month['month1']['label'] = f'{next_month}月分'
+            billing_by_month['month1']['month'] = next_month
+            billing_by_month['month2']['label'] = f'{following_month}月分〜'
+            billing_by_month['month2']['month'] = following_month
 
         # 当月分の回数割料金を計算（曜日が指定された場合）
         current_month_prorated = None
@@ -817,7 +865,21 @@ class PricingPreviewView(APIView):
             int(discount_total)
         )
 
+        # 入会時授業料（計算されたもの）をcurrentMonthに追加
+        if enrollment_tuition_item:
+            billing_by_month['currentMonth']['items'].insert(0, {
+                'productId': enrollment_tuition_item['productId'],
+                'productName': enrollment_tuition_item['productName'],
+                'itemType': 'enrollment_tuition',
+                'quantity': 1,
+                'unitPrice': enrollment_tuition_item['unitPrice'],
+                'priceWithTax': enrollment_tuition_item['total'],
+                'taxRate': enrollment_tuition_item['taxRate'],
+            })
+            billing_by_month['currentMonth']['total'] += enrollment_tuition_item['total']
+
         print(f"[PricingPreview] grandTotal calculation: enrollment_tuition={enrollment_tuition_total}, enrollment_fee={enrollment_fee}, materials_fee={materials_fee}, month1={month1_total}, month2={month2_total}, discount={discount_total}, total={grand_total}", file=sys.stderr)
+        print(f"[PricingPreview] billingByMonth: enrollment={len(billing_by_month['enrollment']['items'])} items, currentMonth={len(billing_by_month['currentMonth']['items'])} items, month1={len(billing_by_month['month1']['items'])} items, month2={len(billing_by_month['month2']['items'])} items", file=sys.stderr)
 
         return Response({
             'items': items,
@@ -1022,7 +1084,7 @@ class PricingConfirmView(APIView):
                 tenant_id=student.tenant_id,
                 contract_no=contract_no,
                 student=student,
-                guardian=student.guardians.first() if student.guardians.exists() else None,
+                guardian=student.guardian if student.guardian else None,
                 school=school,
                 brand=brand,
                 course=course,
@@ -1279,7 +1341,7 @@ class PricingConfirmView(APIView):
                 tenant_id=student.tenant_id,
                 contract_no=contract_no,
                 student=student,
-                guardian=student.guardians.first() if student.guardians.exists() else None,
+                guardian=student.guardian if student.guardian else None,
                 school=school,
                 brand=brand,
                 course=None,  # パックの場合はコースなし
