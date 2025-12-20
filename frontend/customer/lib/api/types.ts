@@ -175,6 +175,7 @@ export interface PricingPreviewRequest {
   additionalTickets?: number;
   promoCode?: string;
   startDate?: string;  // 入会時授業料計算用（YYYY-MM-DD形式）
+  dayOfWeek?: number;  // 曜日（1=月〜7=日）- 当月分回数割計算用
 }
 
 export interface PricingItem {
@@ -245,6 +246,25 @@ export interface MonthlyTuition {
   monthlyFee: number;   // 月会費（税込）
 }
 
+// 当月分回数割料金
+export interface ProratedFeeItem {
+  productId: string;
+  productName: string;
+  fullPrice: number;     // 満額
+  proratedPrice: number; // 回数割後の金額
+}
+
+export interface CurrentMonthProrated {
+  tuition?: ProratedFeeItem;       // 授業料
+  facilityFee?: ProratedFeeItem;   // 設備費
+  monthlyFee?: ProratedFeeItem;    // 月会費
+  totalProrated: number;           // 当月分合計
+  remainingCount: number;          // 残り回数
+  totalCount: number;              // 月の合計回数
+  ratio: number;                   // 比率
+  dates: string[];                 // 対象日（YYYY-MM-DD）
+}
+
 export interface PricingPreviewResponse {
   items: PricingItem[];
   subtotal: number;
@@ -263,6 +283,7 @@ export interface PricingPreviewResponse {
   enrollmentTuition?: PricingItem;  // 入会時授業料情報（月途中入会時のみ）
   additionalFees?: AdditionalFees;  // 入会金、設備費、教材費
   monthlyTuition?: MonthlyTuition;  // 月別授業料（ProductPriceから取得）
+  currentMonthProrated?: CurrentMonthProrated;  // 当月分回数割料金
 }
 
 export interface PricingCalculateRequest {

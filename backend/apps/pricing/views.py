@@ -3,7 +3,7 @@ Pricing views - 料金計算・購入確認API
 """
 import sys
 import uuid
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from calendar import monthrange
 from rest_framework import status
@@ -122,6 +122,167 @@ def get_enrollment_tuition_product(course: Course, tickets: int) -> Product:
             return product
 
     return None
+
+
+def calculate_prorated_by_day_of_week(start_date: date, day_of_week: int) -> dict:
+    """
+    曜日ベースの回数割計算
+
+    開始日から月末までの指定曜日の回数と、月全体での回数から比率を計算。
+
+    Args:
+        start_date: 開始日
+        day_of_week: 曜日（1=月, 2=火, 3=水, 4=木, 5=金, 6=土, 7=日）
+
+    Returns:
+        {
+            'remaining_count': int,  # 開始日から月末までの回数
+            'total_count': int,      # 月全体の回数
+            'ratio': Decimal,        # 比率（remaining / total）
+            'dates': list[date],     # 対象日のリスト
+        }
+    """
+    if not start_date or day_of_week is None:
+        return {
+            'remaining_count': 0,
+            'total_count': 0,
+            'ratio': Decimal('0'),
+            'dates': [],
+        }
+
+    # Python weekday: 0=月, 1=火, ... 6=日
+    # 入力: 1=月, 2=火, ... 7=日
+    python_weekday = day_of_week - 1 if day_of_week >= 1 else 6
+
+    # 月初と月末を取得
+    first_day = start_date.replace(day=1)
+    last_day = start_date.replace(day=monthrange(start_date.year, start_date.month)[1])
+
+    # 月全体での該当曜日をカウント
+    total_dates = []
+    current = first_day
+    while current <= last_day:
+        if current.weekday() == python_weekday:
+            total_dates.append(current)
+        current += timedelta(days=1)
+
+    # 開始日以降の該当曜日をカウント
+    remaining_dates = [d for d in total_dates if d >= start_date]
+
+    total_count = len(total_dates)
+    remaining_count = len(remaining_dates)
+
+    ratio = Decimal(str(remaining_count)) / Decimal(str(total_count)) if total_count > 0 else Decimal('0')
+
+    return {
+        'remaining_count': remaining_count,
+        'total_count': total_count,
+        'ratio': ratio,
+        'dates': remaining_dates,
+    }
+
+
+def calculate_prorated_current_month_fees(
+    course: Course,
+    start_date: date,
+    day_of_week: int
+) -> dict:
+    """
+    当月分の回数割料金を計算
+
+    Args:
+        course: コース
+        start_date: 開始日
+        day_of_week: 曜日（1=月, 2=火, 3=水, 4=木, 5=金, 6=土, 7=日）
+
+    Returns:
+        {
+            'tuition': {
+                'product': Product,
+                'full_price': int,       # 満額
+                'prorated_price': int,   # 回数割後の金額
+                'remaining_count': int,
+                'total_count': int,
+            },
+            'facility_fee': {...},
+            'monthly_fee': {...},
+            'total_prorated': int,      # 当月分合計
+        }
+    """
+    from apps.contracts.models import CourseItem
+
+    result = {
+        'tuition': None,
+        'facility_fee': None,
+        'monthly_fee': None,
+        'total_prorated': 0,
+    }
+
+    if not course or not start_date or day_of_week is None:
+        return result
+
+    # 回数割比率を計算
+    proration = calculate_prorated_by_day_of_week(start_date, day_of_week)
+
+    # 月初なら回数割不要
+    if proration['ratio'] >= Decimal('1'):
+        return result
+
+    # CourseItemから商品を取得
+    course_items = CourseItem.objects.filter(
+        course=course,
+        is_active=True
+    ).select_related('product').prefetch_related('product__prices')
+
+    for ci in course_items:
+        product = ci.product
+        if not product or not product.is_active:
+            continue
+
+        tax_rate = product.tax_rate or Decimal('0.1')
+        base_price = product.base_price or Decimal('0')
+
+        # ProductPriceから入会月別料金を取得
+        try:
+            product_price = product.prices.filter(is_active=True).first()
+            if product_price:
+                price = product_price.get_enrollment_price(start_date.month)
+                if price is not None:
+                    base_price = Decimal(str(price))
+        except Exception:
+            pass
+
+        full_price_with_tax = int(base_price * (1 + tax_rate))
+        prorated_price = int(Decimal(str(full_price_with_tax)) * proration['ratio'])
+
+        fee_info = {
+            'product': product,
+            'product_id': str(product.id),
+            'product_name': product.product_name,
+            'full_price': full_price_with_tax,
+            'prorated_price': prorated_price,
+            'remaining_count': proration['remaining_count'],
+            'total_count': proration['total_count'],
+            'ratio': float(proration['ratio']),
+            'dates': [d.isoformat() for d in proration['dates']],
+        }
+
+        # 授業料
+        if product.item_type == Product.ItemType.TUITION:
+            result['tuition'] = fee_info
+            result['total_prorated'] += prorated_price
+
+        # 設備費
+        elif product.item_type == Product.ItemType.FACILITY:
+            result['facility_fee'] = fee_info
+            result['total_prorated'] += prorated_price
+
+        # 月会費
+        elif product.item_type == Product.ItemType.MONTHLY_FEE:
+            result['monthly_fee'] = fee_info
+            result['total_prorated'] += prorated_price
+
+    return result
 
 
 def get_monthly_tuition_prices(course: Course, start_date: date) -> dict:
@@ -253,9 +414,10 @@ class PricingPreviewView(APIView):
         product_ids = request.data.get('product_ids', [])
         course_id = request.data.get('course_id')
         start_date_str = request.data.get('start_date')  # 開始日（入会時授業料計算用）
+        day_of_week = request.data.get('day_of_week')  # 曜日（1=月〜7=日）
 
         logger.warning(f"[PricingPreview] POST received - student_id={student_id}, course_id={course_id}")
-        print(f"[PricingPreview] student_id={student_id}, course_id={course_id}, product_ids={product_ids}, start_date={start_date_str}", file=sys.stderr, flush=True)
+        print(f"[PricingPreview] student_id={student_id}, course_id={course_id}, product_ids={product_ids}, start_date={start_date_str}, day_of_week={day_of_week}", file=sys.stderr, flush=True)
 
         items = []
         subtotal = Decimal('0')
@@ -526,6 +688,43 @@ class PricingPreviewView(APIView):
             }
             print(f"[PricingPreview] Monthly tuition: {monthly_tuition}", file=sys.stderr)
 
+        # 当月分の回数割料金を計算（曜日が指定された場合）
+        current_month_prorated = None
+        if course and start_date and day_of_week:
+            try:
+                dow_int = int(day_of_week) if day_of_week else None
+                if dow_int and 1 <= dow_int <= 7:
+                    prorated_data = calculate_prorated_current_month_fees(course, start_date, dow_int)
+                    if prorated_data['total_prorated'] > 0:
+                        current_month_prorated = {
+                            'tuition': {
+                                'productId': prorated_data['tuition']['product_id'],
+                                'productName': prorated_data['tuition']['product_name'],
+                                'fullPrice': prorated_data['tuition']['full_price'],
+                                'proratedPrice': prorated_data['tuition']['prorated_price'],
+                            } if prorated_data['tuition'] else None,
+                            'facilityFee': {
+                                'productId': prorated_data['facility_fee']['product_id'],
+                                'productName': prorated_data['facility_fee']['product_name'],
+                                'fullPrice': prorated_data['facility_fee']['full_price'],
+                                'proratedPrice': prorated_data['facility_fee']['prorated_price'],
+                            } if prorated_data['facility_fee'] else None,
+                            'monthlyFee': {
+                                'productId': prorated_data['monthly_fee']['product_id'],
+                                'productName': prorated_data['monthly_fee']['product_name'],
+                                'fullPrice': prorated_data['monthly_fee']['full_price'],
+                                'proratedPrice': prorated_data['monthly_fee']['prorated_price'],
+                            } if prorated_data['monthly_fee'] else None,
+                            'totalProrated': prorated_data['total_prorated'],
+                            'remainingCount': prorated_data['tuition']['remaining_count'] if prorated_data['tuition'] else 0,
+                            'totalCount': prorated_data['tuition']['total_count'] if prorated_data['tuition'] else 0,
+                            'ratio': prorated_data['tuition']['ratio'] if prorated_data['tuition'] else 0,
+                            'dates': prorated_data['tuition']['dates'] if prorated_data['tuition'] else [],
+                        }
+                        print(f"[PricingPreview] Current month prorated: {current_month_prorated}", file=sys.stderr)
+            except (ValueError, TypeError) as e:
+                print(f"[PricingPreview] Error calculating prorated fees: {e}", file=sys.stderr)
+
         # grandTotalを正しく計算（表示項目に基づく）
         # = 追加チケット + 入会金 + 教材費 + (月1授業料+設備費+月会費) + (月2授業料+設備費+月会費) - 割引
         enrollment_tuition_total = enrollment_tuition_item['total'] if enrollment_tuition_item else 0
@@ -563,6 +762,7 @@ class PricingPreviewView(APIView):
             'enrollmentTuition': enrollment_tuition_item,  # 入会時授業料情報
             'additionalFees': additional_fees,  # 入会金、設備費、教材費
             'monthlyTuition': monthly_tuition,  # 月別授業料
+            'currentMonthProrated': current_month_prorated,  # 当月分回数割料金
             'mileInfo': mile_info,  # マイル情報
         })
 
@@ -868,6 +1068,90 @@ class PricingConfirmView(APIView):
                     enrollment_tuition_info = f'{enrollment_product.product_name} ¥{int(enrollment_price):,}'
                     print(f"[PricingConfirm] Created enrollment tuition StudentItem: {enrollment_product.product_name}, price={enrollment_price}", file=sys.stderr)
 
+            # 当月分の回数割料金をStudentItemに追加（曜日が指定された場合）
+            current_month_prorated_info = None
+            if start_date and schedule_day_of_week and start_date.day > 1:
+                prorated_data = calculate_prorated_current_month_fees(course, start_date, schedule_day_of_week)
+                if prorated_data['total_prorated'] > 0:
+                    prorated_items = []
+                    # 授業料（回数割）
+                    if prorated_data['tuition']:
+                        StudentItem.objects.create(
+                            tenant_id=student.tenant_id,
+                            student=student,
+                            contract=created_contract,
+                            product=prorated_data['tuition']['product'],
+                            billing_month=billing_month,
+                            quantity=1,
+                            unit_price=prorated_data['tuition']['prorated_price'],
+                            discount_amount=0,
+                            final_price=prorated_data['tuition']['prorated_price'],
+                            notes=f'注文番号: {order_id} / 当月分授業料（回数割 {prorated_data["tuition"]["remaining_count"]}/{prorated_data["tuition"]["total_count"]}回）',
+                            brand=brand,
+                            school=school,
+                            course=course,
+                            start_date=start_date,
+                            day_of_week=schedule_day_of_week,
+                            start_time=schedule_start_time,
+                            end_time=schedule_end_time,
+                            class_schedule=selected_class_schedule,
+                        )
+                        prorated_items.append(f'授業料 ¥{prorated_data["tuition"]["prorated_price"]:,}')
+                        print(f"[PricingConfirm] Created prorated tuition StudentItem: ¥{prorated_data['tuition']['prorated_price']}", file=sys.stderr)
+
+                    # 設備費（回数割）
+                    if prorated_data['facility_fee']:
+                        StudentItem.objects.create(
+                            tenant_id=student.tenant_id,
+                            student=student,
+                            contract=created_contract,
+                            product=prorated_data['facility_fee']['product'],
+                            billing_month=billing_month,
+                            quantity=1,
+                            unit_price=prorated_data['facility_fee']['prorated_price'],
+                            discount_amount=0,
+                            final_price=prorated_data['facility_fee']['prorated_price'],
+                            notes=f'注文番号: {order_id} / 当月分設備費（回数割 {prorated_data["facility_fee"]["remaining_count"]}/{prorated_data["facility_fee"]["total_count"]}回）',
+                            brand=brand,
+                            school=school,
+                            course=course,
+                            start_date=start_date,
+                            day_of_week=schedule_day_of_week,
+                            start_time=schedule_start_time,
+                            end_time=schedule_end_time,
+                            class_schedule=selected_class_schedule,
+                        )
+                        prorated_items.append(f'設備費 ¥{prorated_data["facility_fee"]["prorated_price"]:,}')
+                        print(f"[PricingConfirm] Created prorated facility fee StudentItem: ¥{prorated_data['facility_fee']['prorated_price']}", file=sys.stderr)
+
+                    # 月会費（回数割）
+                    if prorated_data['monthly_fee']:
+                        StudentItem.objects.create(
+                            tenant_id=student.tenant_id,
+                            student=student,
+                            contract=created_contract,
+                            product=prorated_data['monthly_fee']['product'],
+                            billing_month=billing_month,
+                            quantity=1,
+                            unit_price=prorated_data['monthly_fee']['prorated_price'],
+                            discount_amount=0,
+                            final_price=prorated_data['monthly_fee']['prorated_price'],
+                            notes=f'注文番号: {order_id} / 当月分月会費（回数割 {prorated_data["monthly_fee"]["remaining_count"]}/{prorated_data["monthly_fee"]["total_count"]}回）',
+                            brand=brand,
+                            school=school,
+                            course=course,
+                            start_date=start_date,
+                            day_of_week=schedule_day_of_week,
+                            start_time=schedule_start_time,
+                            end_time=schedule_end_time,
+                            class_schedule=selected_class_schedule,
+                        )
+                        prorated_items.append(f'月会費 ¥{prorated_data["monthly_fee"]["prorated_price"]:,}')
+                        print(f"[PricingConfirm] Created prorated monthly fee StudentItem: ¥{prorated_data['monthly_fee']['prorated_price']}", file=sys.stderr)
+
+                    if prorated_items:
+                        current_month_prorated_info = ' / '.join(prorated_items) + f' (合計 ¥{prorated_data["total_prorated"]:,})'
+
             # Taskを作成（作業一覧に追加）
             student_name = f'{student.last_name}{student.first_name}'
             task_description = f'保護者からの購入申請です。\n\n' \
@@ -880,6 +1164,10 @@ class PricingConfirmView(APIView):
             # 入会時授業料がある場合は追加
             if enrollment_tuition_info:
                 task_description += f'\n入会時授業料: {enrollment_tuition_info}'
+
+            # 当月分回数割料金がある場合は追加
+            if current_month_prorated_info:
+                task_description += f'\n当月分回数割: {current_month_prorated_info}'
 
             # マイル割引がある場合は追加
             if mile_discount > 0:
@@ -905,6 +1193,7 @@ class PricingConfirmView(APIView):
                     'payment_method': payment_method,
                     'billing_month': billing_month,
                     'enrollment_tuition': enrollment_tuition_info,
+                    'current_month_prorated': current_month_prorated_info,
                     'miles_used': miles_to_use if mile_discount > 0 else 0,
                     'mile_discount': int(mile_discount) if mile_discount > 0 else 0,
                 },

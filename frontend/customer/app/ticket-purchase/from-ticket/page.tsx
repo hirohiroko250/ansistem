@@ -10,10 +10,10 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { BottomTabBar } from '@/components/bottom-tab-bar';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { format, addDays, lastDayOfMonth, eachDayOfInterval, getDay } from 'date-fns';
+import { format, addDays, lastDayOfMonth, eachDayOfInterval, getDay, startOfMonth } from 'date-fns';
 import { ja } from 'date-fns/locale';
 
-// 曜日名を数値に変換（日曜=0, 月曜=1, ...）
+// 曜日名を数値に変換（日曜=0, 月曜=1, ...）- JavaScript getDay形式
 const dayOfWeekToNumber: Record<string, number> = {
   '日': 0,
   '月': 1,
@@ -22,6 +22,23 @@ const dayOfWeekToNumber: Record<string, number> = {
   '木': 4,
   '金': 5,
   '土': 6,
+};
+
+// 曜日名をバックエンド形式に変換（月=1, 火=2, ... 日=7）
+const dayOfWeekToBackendNumber = (dayOfWeekName: string | null): number | undefined => {
+  if (!dayOfWeekName) return undefined;
+  // "水曜日" → "水"
+  const dayChar = dayOfWeekName.replace('曜日', '').charAt(0);
+  const mapping: Record<string, number> = {
+    '月': 1,
+    '火': 2,
+    '水': 3,
+    '木': 4,
+    '金': 5,
+    '土': 6,
+    '日': 7,
+  };
+  return mapping[dayChar];
 };
 
 // 開始日から月末までの指定曜日の回数を計算
@@ -856,76 +873,9 @@ export default function FromTicketPurchasePage() {
     return sortByMultipleCriteria(afterTicketFilter);
   })();
 
-  // 追加チケット計算（開始日から月末までの指定曜日回数）
-  // 単品購入の場合
-  const additionalTicketCalc = (() => {
-    if (!startDate || !selectedDayOfWeek) return { count: 0, dates: [], total: 0, unitPrice: 0 };
-    // selectedDayOfWeekは「土曜日」形式の場合があるので、単一文字に変換
-    const dayChar = selectedDayOfWeek.replace('曜日', '').charAt(0);
-    const { count, dates } = countDayOfWeekOccurrences(startDate, dayChar);
-    // チケット単価（pricingPreviewのenrollmentTuitionから逆算、なければコース価格/4で概算）
-    const unitPrice = pricingPreview?.enrollmentTuition?.total && pricingPreview?.enrollmentTuition?.tickets
-      ? Math.round(pricingPreview.enrollmentTuition.total / pricingPreview.enrollmentTuition.tickets)
-      : (selectedCourse?.price ? Math.round(selectedCourse.price / 4) : 0);
-    return { count, dates, total: count * unitPrice, unitPrice };
-  })();
-
-  // パック購入の場合：各チケットごとの追加チケット計算
-  type TicketAdditionalCalc = {
-    ticketId: string;
-    ticketName: string;
-    dayOfWeek: string;
-    count: number;
-    dates: Date[];
-    unitPrice: number;
-    total: number;
-  };
-  const packAdditionalTicketCalcs: TicketAdditionalCalc[] = (() => {
-    if (!startDate) return [];
-    const isPack = selectedCourse && 'tickets' in selectedCourse;
-    if (!isPack) return [];
-
-    const packTickets = (selectedCourse as PublicPack).tickets || [];
-    const results: TicketAdditionalCalc[] = [];
-
-    // パック価格をチケット数で割って単価を計算
-    const packPrice = (selectedCourse as PublicPack).price || 0;
-    const totalTicketCount = packTickets.reduce((sum, t) => sum + (t.perWeek || 1), 0);
-    const baseUnitPrice = totalTicketCount > 0 ? Math.round(packPrice / totalTicketCount / 4) : 0;
-
-    for (const ticket of packTickets) {
-      const selection = selectedClassesPerTicket.get(ticket.ticketId);
-      if (!selection) continue;
-
-      const dayChar = selection.dayOfWeek.replace('曜日', '').charAt(0);
-      const { count, dates } = countDayOfWeekOccurrences(startDate, dayChar);
-      // チケット単価（パック価格/チケット数/4で概算）
-      const unitPrice = baseUnitPrice * (ticket.perWeek || 1);
-
-      results.push({
-        ticketId: ticket.ticketId,
-        ticketName: ticket.ticketName,
-        dayOfWeek: selection.dayOfWeek,
-        count,
-        dates,
-        unitPrice,
-        total: count * unitPrice,
-      });
-    }
-
-    return results;
-  })();
-
-  // パック追加チケットの合計
-  const packAdditionalTotal = packAdditionalTicketCalcs.reduce((sum, calc) => sum + calc.total, 0);
-
-  // 料金計算（API レスポンスがあればそれを使用、なければローカル価格 + 追加チケット料金）
+  // 料金計算（API レスポンスがあればそれを使用）
   // grandTotalには入会金、設備費、教材費、割引が全て含まれている
-  const baseAmount = pricingPreview?.grandTotal ?? (selectedCourse?.price || 0);
-  // enrollmentTuitionがpricingPreviewに既に含まれていればそのまま、なければ追加チケットを加算
-  // パックの場合はpackAdditionalTotal、単品の場合はadditionalTicketCalc.totalを使用
   const isPack = selectedCourse && 'tickets' in selectedCourse;
-  const additionalAmount = isPack ? packAdditionalTotal : additionalTicketCalc.total;
   // マイル割引を計算
   const mileDiscountAmount = useMiles && milesToUse >= 4 && pricingPreview?.mileInfo?.canUse
     ? Math.floor((milesToUse - 2) / 2) * 500  // 4pt以上で500円引、以後2ptごとに500円引
@@ -934,7 +884,7 @@ export default function FromTicketPurchasePage() {
   // マイル割引はフロントエンドで計算して引く
   const totalAmount = pricingPreview?.grandTotal
     ? pricingPreview.grandTotal - mileDiscountAmount  // APIで全て計算済み（マイル割引を引く）
-    : baseAmount + additionalAmount - mileDiscountAmount;  // フロントエンドでの代替計算
+    : (selectedCourse?.price || 0) - mileDiscountAmount;  // フォールバック: コース価格のみ
 
   // コース名を取得するヘルパー関数
   const getCourseName = (course: PublicCourse | PublicPack): string => {
@@ -1436,6 +1386,7 @@ export default function FromTicketPurchasePage() {
                             productIds: [selectedCourse.id],
                             courseId: selectedCourse.id,
                             startDate: dateStr,
+                            dayOfWeek: dayOfWeekToBackendNumber(selectedDayOfWeek),
                           }),
                           getEnrollmentBillingInfo(dateStr).catch(() => null),
                         ]);
@@ -1448,7 +1399,7 @@ export default function FromTicketPurchasePage() {
                       }
                     }
                   }}
-                  disabled={(date) => date < new Date()}
+                  disabled={(date) => date < startOfMonth(new Date())}
                   locale={ja}
                   className="rounded-md"
                 />
@@ -1976,97 +1927,13 @@ export default function FromTicketPurchasePage() {
                     <p className="text-sm text-gray-600 mb-1">選択クラス</p>
                     <div className="bg-blue-50 rounded-lg p-3">
                       <p className="font-semibold text-gray-800">
-                        {selectedDayOfWeek}曜日 {selectedTime}～
+                        {selectedDayOfWeek} {selectedTime}～
                       </p>
                       {selectedScheduleItem && (
                         <p className="text-sm text-gray-600 mt-1">
                           {selectedScheduleItem.className}
                         </p>
                       )}
-                    </div>
-                  </div>
-                )}
-
-                {/* 追加チケット（当月分）の計算 - 単品購入の場合 */}
-                {!pricingPreview?.enrollmentTuition && !isPack && startDate && selectedDayOfWeek && additionalTicketCalc.count > 0 && (
-                  <div className="border-t pt-4">
-                    <p className="text-sm text-gray-600 mb-2">
-                      追加チケット（{billingInfo?.current_month ? `${billingInfo.current_month.month}月分` : '当月分'}）
-                    </p>
-                    <div className="bg-orange-50 rounded-lg p-3 space-y-2">
-                      <div className="flex justify-between items-center">
-                        <span className="text-sm text-gray-700">
-                          {selectedDayOfWeek}曜日 × {additionalTicketCalc.count}回
-                        </span>
-                        <span className="font-semibold text-orange-600">
-                          ¥{additionalTicketCalc.total.toLocaleString()}
-                        </span>
-                      </div>
-                      <div className="text-xs text-gray-500 space-y-1">
-                        <p>対象日:</p>
-                        <div className="flex flex-wrap gap-1">
-                          {additionalTicketCalc.dates.map((date, idx) => (
-                            <span key={idx} className="bg-white px-2 py-0.5 rounded border text-gray-700">
-                              {format(date, 'M/d', { locale: ja })}
-                            </span>
-                          ))}
-                        </div>
-                      </div>
-                      {additionalTicketCalc.unitPrice > 0 && (
-                        <p className="text-xs text-gray-500 pt-1 border-t border-orange-200">
-                          単価: ¥{additionalTicketCalc.unitPrice.toLocaleString()}/回
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                )}
-
-                {/* 追加チケット（当月分）の計算 - パック購入の場合（各コースごと） */}
-                {!pricingPreview?.enrollmentTuition && isPack && packAdditionalTicketCalcs.length > 0 && (
-                  <div className="border-t pt-4">
-                    <p className="text-sm text-gray-600 mb-2">
-                      追加チケット（{billingInfo?.current_month ? `${billingInfo.current_month.month}月分` : '当月分'}）
-                    </p>
-                    <div className="space-y-3">
-                      {packAdditionalTicketCalcs.map((calc) => (
-                        <div key={calc.ticketId} className="bg-orange-50 rounded-lg p-3 space-y-2">
-                          <p className="text-xs font-medium text-gray-700 border-b border-orange-200 pb-1">
-                            {calc.ticketName}
-                          </p>
-                          <div className="flex justify-between items-center">
-                            <span className="text-sm text-gray-700">
-                              {calc.dayOfWeek}曜日 × {calc.count}回
-                            </span>
-                            <span className="font-semibold text-orange-600">
-                              ¥{calc.total.toLocaleString()}
-                            </span>
-                          </div>
-                          <div className="text-xs text-gray-500 space-y-1">
-                            <p>対象日:</p>
-                            <div className="flex flex-wrap gap-1">
-                              {calc.dates.map((date, idx) => (
-                                <span key={idx} className="bg-white px-2 py-0.5 rounded border text-gray-700">
-                                  {format(date, 'M/d', { locale: ja })}
-                                </span>
-                              ))}
-                            </div>
-                          </div>
-                          {calc.unitPrice > 0 && (
-                            <p className="text-xs text-gray-500 pt-1 border-t border-orange-200">
-                              単価: ¥{calc.unitPrice.toLocaleString()}/回
-                            </p>
-                          )}
-                        </div>
-                      ))}
-                      {/* パック追加チケット合計 */}
-                      <div className="bg-orange-100 rounded-lg p-3">
-                        <div className="flex justify-between items-center">
-                          <span className="text-sm font-medium text-gray-700">追加チケット合計</span>
-                          <span className="font-bold text-orange-600">
-                            ¥{packAdditionalTotal.toLocaleString()}
-                          </span>
-                        </div>
-                      </div>
                     </div>
                   </div>
                 )}
@@ -2160,84 +2027,114 @@ export default function FromTicketPurchasePage() {
 
                 <div className="border-t pt-4 space-y-2">
                   {/* 料金内訳（シンプルなリスト形式） */}
-                  <div className="bg-gray-50 rounded-lg p-3 space-y-2">
-                    {/* 当月分追加チケット */}
-                    {(pricingPreview?.enrollmentTuition || additionalTicketCalc.count > 0) && (
-                      <div className="flex justify-between text-sm">
-                        <span className="text-gray-700">
-                          {billingInfo?.current_month?.month || '当'}月分追加チケット
-                          {pricingPreview?.enrollmentTuition
-                            ? `（${pricingPreview.enrollmentTuition.tickets}回）`
-                            : additionalTicketCalc.count > 0
-                            ? `（${additionalTicketCalc.count}回）`
-                            : ''}
-                        </span>
-                        <span className="text-gray-800">
-                          ¥{(pricingPreview?.enrollmentTuition?.total || additionalTicketCalc.total || 0).toLocaleString()}
-                        </span>
+                  <div className="bg-gray-50 rounded-lg p-3 space-y-3">
+                    {/* 入会時費用（入会金・教材費） */}
+                    {(pricingPreview?.additionalFees?.enrollmentFee || pricingPreview?.additionalFees?.materialsFee) && (
+                      <div className="space-y-1">
+                        <p className="text-xs font-medium text-gray-500">入会時費用</p>
+                        {pricingPreview?.additionalFees?.enrollmentFee && (
+                          <div className="flex justify-between text-sm pl-2">
+                            <span className="text-gray-700">入会金</span>
+                            <span className="text-gray-800">¥{pricingPreview.additionalFees.enrollmentFee.price.toLocaleString()}</span>
+                          </div>
+                        )}
+                        {pricingPreview?.additionalFees?.materialsFee && (
+                          <div className="flex justify-between text-sm pl-2">
+                            <span className="text-gray-700">教材費</span>
+                            <span className="text-gray-800">¥{pricingPreview.additionalFees.materialsFee.price.toLocaleString()}</span>
+                          </div>
+                        )}
                       </div>
                     )}
 
-                    {/* 入会金 */}
-                    {pricingPreview?.additionalFees?.enrollmentFee && (
-                      <div className="flex justify-between text-sm">
-                        <span className="text-gray-700">入会金</span>
-                        <span className="text-gray-800">¥{pricingPreview.additionalFees.enrollmentFee.price.toLocaleString()}</span>
+                    {/* 当月分（回数割） */}
+                    {pricingPreview?.currentMonthProrated && pricingPreview.currentMonthProrated.totalProrated > 0 && (
+                      <div className="pt-2 border-t border-gray-200">
+                        <div className="flex justify-between items-center mb-1">
+                          <span className="text-sm font-medium text-orange-700">
+                            【当月分】{billingInfo?.current_month?.month || new Date().getMonth() + 1}月（回数割 {pricingPreview.currentMonthProrated.remainingCount}/{pricingPreview.currentMonthProrated.totalCount}回）
+                          </span>
+                          <span className="text-sm font-semibold text-orange-700">
+                            ¥{pricingPreview.currentMonthProrated.totalProrated.toLocaleString()}
+                          </span>
+                        </div>
+                        <div className="pl-2 space-y-0.5 text-xs text-gray-500">
+                          {pricingPreview.currentMonthProrated.tuition && (
+                            <div className="flex justify-between">
+                              <span>授業料</span>
+                              <span>¥{pricingPreview.currentMonthProrated.tuition.proratedPrice.toLocaleString()}</span>
+                            </div>
+                          )}
+                          {pricingPreview.currentMonthProrated.facilityFee && (
+                            <div className="flex justify-between">
+                              <span>設備費</span>
+                              <span>¥{pricingPreview.currentMonthProrated.facilityFee.proratedPrice.toLocaleString()}</span>
+                            </div>
+                          )}
+                          {pricingPreview.currentMonthProrated.monthlyFee && (
+                            <div className="flex justify-between">
+                              <span>月会費</span>
+                              <span>¥{pricingPreview.currentMonthProrated.monthlyFee.proratedPrice.toLocaleString()}</span>
+                            </div>
+                          )}
+                        </div>
                       </div>
                     )}
 
-                    {/* 教材費 */}
-                    {pricingPreview?.additionalFees?.materialsFee && (
-                      <div className="flex justify-between text-sm">
-                        <span className="text-gray-700">教材費</span>
-                        <span className="text-gray-800">¥{pricingPreview.additionalFees.materialsFee.price.toLocaleString()}</span>
-                      </div>
-                    )}
-
-                    {/* 月謝（月ごとに授業料・設備費・月会費を表示） */}
+                    {/* 月謝（初月・2ヶ月目以降） */}
                     {pricingPreview?.monthlyTuition && (
                       <>
-                        {/* 1つ目の月 */}
+                        {/* 初月料金 */}
                         <div className="pt-2 border-t border-gray-200">
-                          <p className="text-sm font-medium text-gray-800 mb-1">{pricingPreview.monthlyTuition.month1}月月謝</p>
-                          <div className="pl-3 space-y-1">
-                            <div className="flex justify-between text-sm">
-                              <span className="text-gray-600">授業料</span>
-                              <span className="text-gray-800">¥{pricingPreview.monthlyTuition.month1Price.toLocaleString()}</span>
+                          <div className="flex justify-between items-center mb-1">
+                            <span className="text-sm font-medium text-blue-700">【初月】{pricingPreview.monthlyTuition.month1}月</span>
+                            <span className="text-sm font-semibold text-blue-700">
+                              ¥{(pricingPreview.monthlyTuition.month1Price + pricingPreview.monthlyTuition.facilityFee + pricingPreview.monthlyTuition.monthlyFee).toLocaleString()}
+                            </span>
+                          </div>
+                          <div className="pl-2 space-y-0.5 text-xs text-gray-500">
+                            <div className="flex justify-between">
+                              <span>授業料</span>
+                              <span>¥{pricingPreview.monthlyTuition.month1Price.toLocaleString()}</span>
                             </div>
                             {pricingPreview.monthlyTuition.facilityFee > 0 && (
-                              <div className="flex justify-between text-sm">
-                                <span className="text-gray-600">設備費</span>
-                                <span className="text-gray-800">¥{pricingPreview.monthlyTuition.facilityFee.toLocaleString()}</span>
+                              <div className="flex justify-between">
+                                <span>設備費</span>
+                                <span>¥{pricingPreview.monthlyTuition.facilityFee.toLocaleString()}</span>
                               </div>
                             )}
                             {pricingPreview.monthlyTuition.monthlyFee > 0 && (
-                              <div className="flex justify-between text-sm">
-                                <span className="text-gray-600">月会費</span>
-                                <span className="text-gray-800">¥{pricingPreview.monthlyTuition.monthlyFee.toLocaleString()}</span>
+                              <div className="flex justify-between">
+                                <span>月会費</span>
+                                <span>¥{pricingPreview.monthlyTuition.monthlyFee.toLocaleString()}</span>
                               </div>
                             )}
                           </div>
                         </div>
 
-                        {/* 2つ目の月 */}
+                        {/* 2ヶ月目以降 */}
                         <div className="pt-2 border-t border-gray-200">
-                          <p className="text-sm font-medium text-gray-800 mb-1">{pricingPreview.monthlyTuition.month2}月月謝</p>
-                          <div className="pl-3 space-y-1">
-                            <div className="flex justify-between text-sm">
-                              <span className="text-gray-600">授業料</span>
-                              <span className="text-gray-800">¥{pricingPreview.monthlyTuition.month2Price.toLocaleString()}</span>
+                          <div className="flex justify-between items-center mb-1">
+                            <span className="text-sm font-medium text-gray-700">【2ヶ月目以降】{pricingPreview.monthlyTuition.month2}月〜</span>
+                            <span className="text-sm font-semibold text-gray-700">
+                              ¥{(pricingPreview.monthlyTuition.month2Price + pricingPreview.monthlyTuition.facilityFee + pricingPreview.monthlyTuition.monthlyFee).toLocaleString()}
+                            </span>
+                          </div>
+                          <div className="pl-2 space-y-0.5 text-xs text-gray-500">
+                            <div className="flex justify-between">
+                              <span>授業料</span>
+                              <span>¥{pricingPreview.monthlyTuition.month2Price.toLocaleString()}</span>
                             </div>
                             {pricingPreview.monthlyTuition.facilityFee > 0 && (
-                              <div className="flex justify-between text-sm">
-                                <span className="text-gray-600">設備費</span>
-                                <span className="text-gray-800">¥{pricingPreview.monthlyTuition.facilityFee.toLocaleString()}</span>
+                              <div className="flex justify-between">
+                                <span>設備費</span>
+                                <span>¥{pricingPreview.monthlyTuition.facilityFee.toLocaleString()}</span>
                               </div>
                             )}
                             {pricingPreview.monthlyTuition.monthlyFee > 0 && (
-                              <div className="flex justify-between text-sm">
-                                <span className="text-gray-600">月会費</span>
-                                <span className="text-gray-800">¥{pricingPreview.monthlyTuition.monthlyFee.toLocaleString()}</span>
+                              <div className="flex justify-between">
+                                <span>月会費</span>
+                                <span>¥{pricingPreview.monthlyTuition.monthlyFee.toLocaleString()}</span>
                               </div>
                             )}
                           </div>
@@ -2248,7 +2145,7 @@ export default function FromTicketPurchasePage() {
                     {/* 割引 */}
                     {pricingPreview?.discounts && pricingPreview.discounts.length > 0 && (
                       pricingPreview.discounts.map((discount: { discountName: string; discountAmount: number }, index: number) => (
-                        <div key={index} className="flex justify-between text-sm">
+                        <div key={index} className="flex justify-between text-sm pt-2 border-t border-gray-200">
                           <span className="text-green-600">{discount.discountName}</span>
                           <span className="text-green-600">-¥{discount.discountAmount.toLocaleString()}</span>
                         </div>

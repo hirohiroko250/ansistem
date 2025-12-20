@@ -29,6 +29,7 @@ export async function previewPricing(data: PricingPreviewRequest): Promise<Prici
     additionalTickets: data.additionalTickets,
     promoCode: data.promoCode,
     startDate: data.startDate,  // 入会時授業料計算用
+    dayOfWeek: data.dayOfWeek,  // 当月分回数割計算用
   };
   console.log('[previewPricing] Sending request with body:', requestBody);
   return api.post<PricingPreviewResponse>('/pricing/preview/', requestBody);
