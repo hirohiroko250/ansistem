@@ -2040,7 +2040,7 @@ export default function FromTicketPurchasePage() {
                           </div>
                           {pricingPreview.billingByMonth.enrollment.items.map((item, index) => (
                             <div key={index} className="flex justify-between text-sm">
-                              <span className="text-gray-700">{item.productName}</span>
+                              <span className="text-gray-700">{item.billingCategoryName || item.productName}</span>
                               <span className="text-gray-800">¥{item.priceWithTax.toLocaleString()}</span>
                             </div>
                           ))}
@@ -2056,7 +2056,7 @@ export default function FromTicketPurchasePage() {
                           </div>
                           {pricingPreview.billingByMonth.currentMonth.items.map((item, index) => (
                             <div key={index} className="flex justify-between text-sm">
-                              <span className="text-gray-700">{item.productName}</span>
+                              <span className="text-gray-700">{item.billingCategoryName || item.productName}</span>
                               <span className="text-gray-800">¥{item.priceWithTax.toLocaleString()}</span>
                             </div>
                           ))}
@@ -2072,7 +2072,7 @@ export default function FromTicketPurchasePage() {
                           </div>
                           {pricingPreview.billingByMonth.month1.items.map((item, index) => (
                             <div key={index} className="flex justify-between text-sm">
-                              <span className="text-gray-700">{item.productName}</span>
+                              <span className="text-gray-700">{item.billingCategoryName || item.productName}</span>
                               <span className="text-gray-800">¥{item.priceWithTax.toLocaleString()}</span>
                             </div>
                           ))}
@@ -2088,7 +2088,7 @@ export default function FromTicketPurchasePage() {
                           </div>
                           {pricingPreview.billingByMonth.month2.items.map((item, index) => (
                             <div key={index} className="flex justify-between text-sm">
-                              <span className="text-gray-700">{item.productName}</span>
+                              <span className="text-gray-700">{item.billingCategoryName || item.productName}</span>
                               <span className="text-gray-800">¥{item.priceWithTax.toLocaleString()}</span>
                             </div>
                           ))}

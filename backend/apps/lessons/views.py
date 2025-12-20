@@ -575,6 +575,54 @@ class StudentCalendarView(APIView):
 
             current_date += timedelta(days=1)
 
+        # 振替予約（Attendance with status='makeup'）を追加
+        from .models import Attendance
+        makeup_attendances = Attendance.objects.filter(
+            student=student,
+            status=Attendance.Status.MAKEUP,
+            schedule__date__gte=date_from,
+            schedule__date__lte=date_to,
+        ).select_related('schedule', 'schedule__school')
+
+        for attendance in makeup_attendances:
+            lesson_schedule = attendance.schedule
+            if not lesson_schedule:
+                continue
+
+            start_datetime = dt.combine(lesson_schedule.date, lesson_schedule.start_time)
+            end_datetime = dt.combine(lesson_schedule.date, lesson_schedule.end_time)
+
+            events.append({
+                'id': f'makeup_{attendance.id}',
+                'classScheduleId': None,
+                'title': '振替授業',
+                'start': start_datetime.isoformat(),
+                'end': end_datetime.isoformat(),
+                'date': lesson_schedule.date.isoformat(),
+                'dayOfWeek': lesson_schedule.date.weekday() + 1,  # Python weekday -> DB day_of_week
+                'period': None,
+                'type': 'makeup',
+                'status': 'makeup',
+                'lessonType': 'A',
+                'isClosed': False,
+                'isAbsent': False,
+                'isNativeDay': False,
+                'holidayName': '',
+                'noticeMessage': attendance.notes or '',
+                'schoolId': str(lesson_schedule.school_id) if lesson_schedule.school_id else None,
+                'schoolName': lesson_schedule.school.school_name if lesson_schedule.school else '',
+                'brandId': None,
+                'brandName': '',
+                'brandCategoryName': '',
+                'roomName': '',
+                'className': '振替授業',
+                'displayCourseName': '振替授業',
+                'displayPairName': '',
+                'transferGroup': '',
+                'calendarPattern': '',
+                'absenceTicketId': None,
+            })
+
         return Response({
             'studentId': str(student.id),
             'studentName': f'{student.last_name}{student.first_name}',
@@ -853,9 +901,24 @@ class UseAbsenceTicketView(APIView):
         if target_date_obj < date.today():
             return Response({'error': '過去の日付には振替できません'}, status=400)
 
+        # 当日振替の場合、授業開始30分前までかチェック
+        if target_date_obj == date.today():
+            from datetime import datetime as dt
+            now = dt.now()
+            class_start_datetime = dt.combine(target_date_obj, target_schedule.start_time)
+            minutes_until_class = (class_start_datetime - now).total_seconds() / 60
+
+            if minutes_until_class < 30:
+                return Response({
+                    'error': '当日の振替予約は授業開始30分前までです'
+                }, status=400)
+
         # 曜日チェック（振替先のクラスの曜日と一致するか）
-        if target_schedule.day_of_week != target_date_obj.weekday():
-            day_names = ['月', '火', '水', '木', '金', '土', '日']
+        # day_of_weekは日曜=0の形式で格納されている（JavaScript互換）
+        # Pythonのweekday()は月曜=0なので変換が必要
+        js_weekday = (target_date_obj.weekday() + 1) % 7  # 月曜=1, ..., 日曜=0に変換
+        if target_schedule.day_of_week != js_weekday:
+            day_names = ['日', '月', '火', '水', '木', '金', '土']
             return Response({
                 'error': f'このクラスは{day_names[target_schedule.day_of_week]}曜日のみ開講しています'
             }, status=400)
@@ -866,13 +929,26 @@ class UseAbsenceTicketView(APIView):
         absence_ticket.used_class_schedule = target_schedule
         absence_ticket.save()
 
-        # 振替先の出席記録を作成（予約済みステータス）
+        # 振替先のLessonScheduleを取得または作成
+        from .models import LessonSchedule
+        lesson_schedule, created = LessonSchedule.objects.get_or_create(
+            tenant_id=absence_ticket.tenant_id,
+            school=target_schedule.school,
+            date=target_date_obj,
+            start_time=target_schedule.start_time,
+            end_time=target_schedule.end_time,
+            defaults={
+                'lesson_type': LessonSchedule.LessonType.GROUP,
+                'status': LessonSchedule.Status.SCHEDULED,
+            }
+        )
+
+        # 振替先の出席記録を作成（振替ステータス）
         Attendance.objects.create(
             tenant_id=absence_ticket.tenant_id,
+            schedule=lesson_schedule,
             student=absence_ticket.student,
-            class_schedule=target_schedule,
-            lesson_date=target_date_obj,
-            status='reserved',  # 振替予約
+            status=Attendance.Status.MAKEUP,
             notes=f'振替予約（元: {absence_ticket.absence_date}）'
         )
 
@@ -931,17 +1007,45 @@ class TransferAvailableClassesView(APIView):
         # 同じconsumption_symbolを持つClassScheduleを検索
         available_classes = ClassSchedule.objects.filter(
             is_active=True
-        ).select_related('school', 'brand', 'ticket')
+        ).select_related('school', 'brand')
 
-        # consumption_symbolでフィルタ（ticketを通じて）
+        import sys
+        print(f"[TransferAvailableClasses] absence_ticket.consumption_symbol={absence_ticket.consumption_symbol}", file=sys.stderr, flush=True)
+        print(f"[TransferAvailableClasses] Total active ClassSchedules: {available_classes.count()}", file=sys.stderr, flush=True)
+
+        # consumption_symbolでフィルタ（Ticketテーブルを経由）
         if absence_ticket.consumption_symbol:
-            available_classes = available_classes.filter(
-                ticket__consumption_symbol=absence_ticket.consumption_symbol
-            )
+            from apps.contracts.models import Ticket
+            # 同じconsumption_symbolを持つTicketのticket_codeを取得
+            matching_ticket_codes = list(Ticket.objects.filter(
+                consumption_symbol=absence_ticket.consumption_symbol
+            ).values_list('ticket_code', flat=True))
+            print(f"[TransferAvailableClasses] matching_ticket_codes={matching_ticket_codes}", file=sys.stderr, flush=True)
 
-        day_names = ['月', '火', '水', '木', '金', '土', '日']
+            if matching_ticket_codes:
+                # ClassScheduleのticket_idでフィルタ
+                available_classes = available_classes.filter(
+                    ticket_id__in=matching_ticket_codes
+                )
+            print(f"[TransferAvailableClasses] After filter: {available_classes.count()} classes", file=sys.stderr, flush=True)
+        else:
+            print(f"[TransferAvailableClasses] No consumption_symbol, returning all classes", file=sys.stderr, flush=True)
+
+        day_names = ['日', '月', '火', '水', '木', '金', '土']
         classes = []
         for cs in available_classes:
+            # 席数計算
+            max_seat = cs.capacity or 10
+            current_seat = cs.reserved_seats or 0
+            available_seats = max(0, max_seat - current_seat)
+
+            # 時間表示
+            period_display = ''
+            if cs.start_time and cs.end_time:
+                period_display = f"{cs.start_time.strftime('%H:%M')}〜{cs.end_time.strftime('%H:%M')}"
+            elif cs.start_time:
+                period_display = cs.start_time.strftime('%H:%M')
+
             classes.append({
                 'id': str(cs.id),
                 'schoolId': str(cs.school_id) if cs.school_id else None,
@@ -949,21 +1053,14 @@ class TransferAvailableClassesView(APIView):
                 'brandId': str(cs.brand_id) if cs.brand_id else None,
                 'brandName': cs.brand.brand_name if cs.brand else '',
                 'dayOfWeek': cs.day_of_week,
-                'dayOfWeekLabel': day_names[cs.day_of_week] if cs.day_of_week is not None else '',
-                'startTime': cs.start_time.strftime('%H:%M') if cs.start_time else '',
-                'endTime': cs.end_time.strftime('%H:%M') if cs.end_time else '',
+                'dayOfWeekDisplay': day_names[cs.day_of_week] if cs.day_of_week is not None and 0 <= cs.day_of_week <= 6 else '',
+                'period': cs.period or 1,
+                'periodDisplay': period_display,
                 'className': cs.class_name or '',
-                'roomName': cs.room.room_name if cs.room else '',
-                'maxStudents': cs.max_students,
-                'currentStudents': cs.current_students,
+                'currentSeat': current_seat,
+                'maxSeat': max_seat,
+                'availableSeats': available_seats,
             })
 
-        return Response({
-            'absenceTicket': {
-                'id': str(absence_ticket.id),
-                'consumptionSymbol': absence_ticket.consumption_symbol or '',
-                'absenceDate': absence_ticket.absence_date.isoformat() if absence_ticket.absence_date else None,
-                'validUntil': absence_ticket.valid_until.isoformat() if absence_ticket.valid_until else None,
-            },
-            'availableClasses': classes
-        })
+        # フロントエンドは配列を期待しているので配列で返す
+        return Response(classes)

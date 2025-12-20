@@ -280,6 +280,7 @@ export interface CourseItem {
 export interface BillingMonthItem {
   productId: string;
   productName: string;
+  billingCategoryName?: string;  // 請求カテゴリ名（例: 教材費、入会金）
   itemType: string;
   quantity: number;
   unitPrice: number;

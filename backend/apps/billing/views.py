@@ -353,6 +353,182 @@ class InvoiceViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
+    @extend_schema(summary='請求データCSVエクスポート（締日期間）')
+    @action(detail=False, methods=['get'], url_path='export_csv')
+    def export_csv(self, request):
+        """請求データをCSV形式でエクスポート（締日期間指定）
+
+        start_date, end_date で期間を指定
+        billing_year, billing_month で請求月を指定
+        close_period=true で締め確定も同時に実行
+        """
+        import csv
+        from datetime import datetime
+        from django.http import HttpResponse
+
+        start_date = request.query_params.get('start_date')
+        end_date = request.query_params.get('end_date')
+        billing_year = request.query_params.get('billing_year')
+        billing_month = request.query_params.get('billing_month')
+        close_period = request.query_params.get('close_period', 'false').lower() == 'true'
+
+        if not start_date or not end_date:
+            return Response(
+                {'error': '期間を指定してください（start_date, end_date）'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+            start_dt = datetime.strptime(start_date, '%Y-%m-%d').date()
+            end_dt = datetime.strptime(end_date, '%Y-%m-%d').date()
+        except ValueError:
+            return Response(
+                {'error': '日付形式が不正です（YYYY-MM-DD）'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        tenant_id = request.user.tenant_id
+
+        # 対象請求書を取得
+        invoices = Invoice.objects.filter(
+            tenant_id=tenant_id,
+        ).select_related('guardian').prefetch_related('lines')
+
+        # billing_year, billing_month が指定されている場合はそれでフィルタ
+        if billing_year and billing_month:
+            invoices = invoices.filter(
+                billing_year=int(billing_year),
+                billing_month=int(billing_month)
+            )
+        else:
+            # 期間ベースでフィルタ
+            from django.db.models import Q
+            start_year, start_month = start_dt.year, start_dt.month
+            end_year, end_month = end_dt.year, end_dt.month
+
+            year_month_conditions = Q()
+            current_year, current_month = start_year, start_month
+            while (current_year < end_year) or (current_year == end_year and current_month <= end_month):
+                year_month_conditions |= Q(billing_year=current_year, billing_month=current_month)
+                if current_month == 12:
+                    current_year += 1
+                    current_month = 1
+                else:
+                    current_month += 1
+
+            invoices = invoices.filter(year_month_conditions)
+
+        invoices = invoices.order_by('billing_year', 'billing_month', 'invoice_no')
+
+        # CSVレスポンス作成
+        response = HttpResponse(content_type='text/csv; charset=utf-8-sig')
+        filename = f"請求データ_{start_date}_{end_date}.csv"
+        response['Content-Disposition'] = f'attachment; filename="{filename}"'
+
+        writer = csv.writer(response)
+
+        # ヘッダー行
+        writer.writerow([
+            '請求番号', '請求年', '請求月', '保護者番号', '保護者名', '保護者名カナ',
+            'ステータス', '支払方法', '発行日', '請求額', '入金額', '未払額',
+            '生徒名', '商品名', '商品タイプ', '数量', '単価', '税込金額', '税率'
+        ])
+
+        # データ行（請求明細ごとに1行）
+        for inv in invoices:
+            guardian = inv.guardian
+            guardian_no = guardian.guardian_no if guardian else ''
+            guardian_name = guardian.full_name if guardian else ''
+            guardian_name_kana = guardian.full_name_kana if guardian else ''
+
+            status_display = dict(Invoice.Status.choices).get(inv.status, inv.status)
+            method_display = dict(Invoice.PaymentMethod.choices).get(inv.payment_method, inv.payment_method)
+
+            lines = inv.lines.all()
+            if lines:
+                for line in lines:
+                    writer.writerow([
+                        inv.invoice_no or '',
+                        inv.billing_year,
+                        inv.billing_month,
+                        guardian_no,
+                        guardian_name,
+                        guardian_name_kana,
+                        status_display,
+                        method_display,
+                        inv.issue_date.strftime('%Y-%m-%d') if inv.issue_date else '',
+                        int(inv.total_amount or 0),
+                        int(inv.paid_amount or 0),
+                        int(inv.balance_due or 0),
+                        line.student.full_name if line.student else '',
+                        line.product_name or '',
+                        line.product_type or '',
+                        line.quantity or 1,
+                        int(line.unit_price or 0),
+                        int(line.price_with_tax or 0),
+                        f"{int((line.tax_rate or 0) * 100)}%",
+                    ])
+            else:
+                # 明細がない場合は請求書のみ出力
+                writer.writerow([
+                    inv.invoice_no or '',
+                    inv.billing_year,
+                    inv.billing_month,
+                    guardian_no,
+                    guardian_name,
+                    guardian_name_kana,
+                    status_display,
+                    method_display,
+                    inv.issue_date.strftime('%Y-%m-%d') if inv.issue_date else '',
+                    int(inv.total_amount or 0),
+                    int(inv.paid_amount or 0),
+                    int(inv.balance_due or 0),
+                    '', '', '', '', '', '', ''
+                ])
+
+        # 締め確定処理
+        if close_period and billing_year and billing_month:
+            try:
+                # MonthlyBillingDeadlineを締め状態に更新
+                deadline, created = MonthlyBillingDeadline.objects.get_or_create(
+                    tenant_id=tenant_id,
+                    year=int(billing_year),
+                    month=int(billing_month),
+                    defaults={
+                        'closing_day': PaymentProvider.objects.filter(
+                            tenant_id=tenant_id, is_active=True
+                        ).first().closing_day if PaymentProvider.objects.filter(
+                            tenant_id=tenant_id, is_active=True
+                        ).exists() else 25
+                    }
+                )
+                if not deadline.is_closed:
+                    deadline.is_closed = True
+                    deadline.is_manually_closed = True
+                    deadline.closed_at = timezone.now()
+                    deadline.closed_by = request.user
+                    deadline.notes = f'CSVエクスポート時に自動締め（{start_date}〜{end_date}）'
+                    deadline.save()
+
+                # 対象請求書をロック
+                Invoice.objects.filter(
+                    tenant_id=tenant_id,
+                    billing_year=int(billing_year),
+                    billing_month=int(billing_month),
+                    is_locked=False,
+                ).update(
+                    is_locked=True,
+                    locked_at=timezone.now(),
+                    locked_by=request.user,
+                )
+            except Exception as e:
+                # 締め処理に失敗してもCSVは返す（ログのみ）
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.error(f'Failed to close period: {e}')
+
+        return response
+
 
 # =============================================================================
 # Payment ViewSet
@@ -1502,8 +1678,9 @@ class MonthlyBillingDeadlineViewSet(viewsets.ModelViewSet):
             # PaymentProviderがない場合は作成
             provider = PaymentProvider.objects.create(
                 tenant_id=tenant_id,
-                provider_name='default',
-                provider_code='default',
+                code='default',
+                name='デフォルト',
+                consignor_code='0000000000',
                 closing_day=closing_day,
                 is_active=True
             )

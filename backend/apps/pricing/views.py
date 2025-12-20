@@ -619,6 +619,7 @@ class PricingPreviewView(APIView):
                     item_data = {
                         'productId': str(product.id),
                         'productName': product.product_name,
+                        'billingCategoryName': product.get_item_type_display(),  # 請求カテゴリ名
                         'itemType': product.item_type,
                         'quantity': si.quantity,
                         'unitPrice': int(base_price),
@@ -667,6 +668,7 @@ class PricingPreviewView(APIView):
                 item_data = {
                     'productId': str(product.id),
                     'productName': product.product_name,
+                    'billingCategoryName': product.get_item_type_display(),  # 請求カテゴリ名
                     'itemType': product.item_type,
                     'quantity': ci.quantity,
                     'unitPrice': int(base_price),
@@ -870,6 +872,7 @@ class PricingPreviewView(APIView):
             billing_by_month['currentMonth']['items'].insert(0, {
                 'productId': enrollment_tuition_item['productId'],
                 'productName': enrollment_tuition_item['productName'],
+                'billingCategoryName': '入会時授業料',
                 'itemType': 'enrollment_tuition',
                 'quantity': 1,
                 'unitPrice': enrollment_tuition_item['unitPrice'],
@@ -880,6 +883,35 @@ class PricingPreviewView(APIView):
 
         print(f"[PricingPreview] grandTotal calculation: enrollment_tuition={enrollment_tuition_total}, enrollment_fee={enrollment_fee}, materials_fee={materials_fee}, month1={month1_total}, month2={month2_total}, discount={discount_total}, total={grand_total}", file=sys.stderr)
         print(f"[PricingPreview] billingByMonth: enrollment={len(billing_by_month['enrollment']['items'])} items, currentMonth={len(billing_by_month['currentMonth']['items'])} items, month1={len(billing_by_month['month1']['items'])} items, month2={len(billing_by_month['month2']['items'])} items", file=sys.stderr)
+
+        # 入会時費用の項目を0円で追加（項目がない場合）
+        enrollment_item_types = [item.get('itemType') for item in billing_by_month['enrollment']['items']]
+
+        # 入会金が含まれていない場合、0円で追加
+        if 'enrollment' not in enrollment_item_types:
+            billing_by_month['enrollment']['items'].insert(0, {
+                'productId': None,
+                'productName': '入会金',
+                'billingCategoryName': '入会金',
+                'itemType': 'enrollment',
+                'quantity': 1,
+                'unitPrice': 0,
+                'priceWithTax': 0,
+                'taxRate': 0.1,
+            })
+
+        # 教材費が含まれていない場合、0円で追加
+        if 'enrollment_textbook' not in enrollment_item_types and 'textbook' not in enrollment_item_types:
+            billing_by_month['enrollment']['items'].append({
+                'productId': None,
+                'productName': '教材費',
+                'billingCategoryName': '入会時教材費',
+                'itemType': 'enrollment_textbook',
+                'quantity': 1,
+                'unitPrice': 0,
+                'priceWithTax': 0,
+                'taxRate': 0.1,
+            })
 
         return Response({
             'items': items,

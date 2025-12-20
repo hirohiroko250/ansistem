@@ -144,6 +144,10 @@ export default function BillingPage() {
   const [reopenReason, setReopenReason] = useState("");
   const [closeNotes, setCloseNotes] = useState("");
 
+  // 締日期間CSVエクスポート
+  const [closingPeriodExporting, setClosingPeriodExporting] = useState(false);
+  const [selectedClosingPeriod, setSelectedClosingPeriod] = useState<string>("");
+
   // 年月のオプション
   const years = useMemo(() => {
     const currentYear = new Date().getFullYear();
@@ -151,6 +155,70 @@ export default function BillingPage() {
   }, []);
 
   const months = useMemo(() => Array.from({ length: 12 }, (_, i) => i + 1), []);
+
+  // 締日期間の選択肢を生成（過去6ヶ月分 + 来月分）
+  // 締日〜締日の期間で、請求月は締日の翌月
+  // 例: 締日15日の場合、12/16〜1/15 は「2月分」
+  const closingPeriods = useMemo(() => {
+    const periods: { value: string; label: string; startDate: string; endDate: string; billingYear: number; billingMonth: number }[] = [];
+    const now = new Date();
+    const closingDay = defaultClosingDay;
+
+    for (let i = -1; i <= 6; i++) {
+      // 請求月を基準に計算（現在月からのオフセット）
+      const billingDate = new Date(now.getFullYear(), now.getMonth() + 1 - i, 1);
+      const billingYear = billingDate.getFullYear();
+      const billingMonth = billingDate.getMonth() + 1;
+
+      // 期間の開始日: 2ヶ月前の締日+1日
+      // 例: 2月分なら、12/16開始（12月の締日15日の翌日）
+      const startMonthDate = new Date(billingYear, billingMonth - 3, 1); // 2ヶ月前
+      const startYear = startMonthDate.getFullYear();
+      const startMonth = startMonthDate.getMonth() + 1;
+      let startDate = new Date(startYear, startMonth - 1, closingDay + 1);
+
+      // 期間の終了日: 前月の締日
+      // 例: 2月分なら、1/15終了（1月の締日15日）
+      const endMonthDate = new Date(billingYear, billingMonth - 2, 1); // 1ヶ月前
+      const endYear = endMonthDate.getFullYear();
+      const endMonth = endMonthDate.getMonth() + 1;
+      let endDate = new Date(endYear, endMonth - 1, closingDay);
+
+      // 日付が月末を超える場合の調整
+      const lastDayOfStartMonth = new Date(startYear, startMonth, 0).getDate();
+      if (closingDay >= lastDayOfStartMonth) {
+        // 締日が月末を超える場合、翌月1日を開始日に
+        startDate = new Date(startYear, startMonth, 1);
+      }
+
+      const lastDayOfEndMonth = new Date(endYear, endMonth, 0).getDate();
+      if (closingDay > lastDayOfEndMonth) {
+        endDate = new Date(endYear, endMonth - 1, lastDayOfEndMonth);
+      }
+
+      const formatDate = (d: Date) => {
+        const y = d.getFullYear();
+        const m = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        return `${y}-${m}-${day}`;
+      };
+
+      const formatDisplay = (d: Date) => {
+        return `${d.getMonth() + 1}/${d.getDate()}`;
+      };
+
+      periods.push({
+        value: `${billingYear}-${billingMonth}`,
+        label: `${billingYear}年${billingMonth}月分 (${formatDisplay(startDate)}〜${formatDisplay(endDate)})`,
+        startDate: formatDate(startDate),
+        endDate: formatDate(endDate),
+        billingYear,
+        billingMonth,
+      });
+    }
+
+    return periods;
+  }, [defaultClosingDay]);
 
   useEffect(() => {
     loadInvoices();
@@ -369,6 +437,49 @@ export default function BillingPage() {
     }
   }
 
+  // 締日期間CSVエクスポート（締め確定も同時に実行）
+  async function handleClosingPeriodExport() {
+    if (!selectedClosingPeriod) return;
+
+    const period = closingPeriods.find(p => p.value === selectedClosingPeriod);
+    if (!period) return;
+
+    // 確認ダイアログ
+    const confirmed = window.confirm(
+      `${period.label}のデータをエクスポートし、この期間を締め確定しますか？\n\n` +
+      `締め確定後は、この期間の請求データは編集できなくなります。`
+    );
+    if (!confirmed) return;
+
+    setClosingPeriodExporting(true);
+    try {
+      // 請求データCSVをエクスポート（締め確定も含む）
+      const response = await apiClient.getBlob(
+        `/billing/invoices/export_csv/?start_date=${period.startDate}&end_date=${period.endDate}&billing_year=${period.billingYear}&billing_month=${period.billingMonth}&close_period=true`
+      );
+
+      if (response) {
+        const url = URL.createObjectURL(response);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `請求データ_${period.billingYear}年${period.billingMonth}月分.csv`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      }
+
+      // 締日情報を再読み込み
+      loadDeadlines();
+      alert(`${period.label}のエクスポートと締め確定が完了しました。`);
+    } catch (error) {
+      console.error("Export error:", error);
+      alert("エクスポートに失敗しました");
+    } finally {
+      setClosingPeriodExporting(false);
+    }
+  }
+
   const startResult = (result.page - 1) * result.pageSize + 1;
   const endResult = Math.min(result.page * result.pageSize, result.count);
 
@@ -459,6 +570,35 @@ export default function BillingPage() {
               </Button>
             );
           })()}
+
+          {/* 締日期間CSVエクスポート */}
+          <div className="ml-auto flex items-center gap-2">
+            <Select
+              value={selectedClosingPeriod}
+              onValueChange={setSelectedClosingPeriod}
+            >
+              <SelectTrigger className="w-[280px]">
+                <SelectValue placeholder="締日期間を選択..." />
+              </SelectTrigger>
+              <SelectContent>
+                {closingPeriods.map((period) => (
+                  <SelectItem key={period.value} value={period.value}>
+                    {period.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button
+              variant="default"
+              size="sm"
+              onClick={handleClosingPeriodExport}
+              disabled={!selectedClosingPeriod || closingPeriodExporting}
+              className="bg-green-600 hover:bg-green-700"
+            >
+              <Download className="w-4 h-4 mr-1" />
+              {closingPeriodExporting ? "出力中..." : "CSVエクスポート"}
+            </Button>
+          </div>
         </div>
 
 

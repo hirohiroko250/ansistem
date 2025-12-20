@@ -11,7 +11,7 @@ import { useRouter } from 'next/navigation';
 import { getAllStudentItems, type PurchasedItem } from '@/lib/api/students';
 import { getAbsenceTickets, getTransferAvailableClasses, useAbsenceTicket, type AbsenceTicket, type TransferAvailableClass } from '@/lib/api/lessons';
 import { getBrandSchools, type BrandSchool } from '@/lib/api/schools';
-import { format, addDays, startOfWeek, isSameDay } from 'date-fns';
+import { format, addDays, startOfWeek, isSameDay, startOfMonth, endOfMonth, eachDayOfInterval, getDay, addMonths, subMonths } from 'date-fns';
 import { ja } from 'date-fns/locale';
 
 type TicketType = {
@@ -82,7 +82,7 @@ export default function TicketsPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [transferError, setTransferError] = useState<string | null>(null);
   const [transferSuccess, setTransferSuccess] = useState(false);
-  const [currentWeekStart, setCurrentWeekStart] = useState(() => startOfWeek(new Date(), { weekStartsOn: 1 }));
+  const [currentMonth, setCurrentMonth] = useState(() => new Date());
 
   useEffect(() => {
     const fetchTickets = async () => {
@@ -165,7 +165,7 @@ export default function TicketsPage() {
     setSelectedClass(null);
     setTransferError(null);
     setTransferSuccess(false);
-    setCurrentWeekStart(startOfWeek(new Date(), { weekStartsOn: 1 }));
+    setCurrentMonth(new Date());
 
     // ブランドの校舎一覧を取得
     if (ticket.brandId) {
@@ -283,10 +283,27 @@ export default function TicketsPage() {
     setTransferSuccess(false);
   }, []);
 
-  // 週の日付を取得
-  const getWeekDays = useCallback(() => {
-    return Array.from({ length: 7 }, (_, i) => addDays(currentWeekStart, i));
-  }, [currentWeekStart]);
+  // 月のカレンダー日付を取得（前月・翌月の日付も含む）
+  const getMonthCalendarDays = useCallback(() => {
+    const monthStart = startOfMonth(currentMonth);
+    const monthEnd = endOfMonth(currentMonth);
+    const days = eachDayOfInterval({ start: monthStart, end: monthEnd });
+
+    // 月初の曜日に合わせて前月の日付を追加（月曜始まり）
+    const startDayOfWeek = getDay(monthStart);
+    // 日曜日(0)なら6日分、月曜日(1)なら0日分...を追加
+    const prefixDays = startDayOfWeek === 0 ? 6 : startDayOfWeek - 1;
+
+    const prefix: (Date | null)[] = Array(prefixDays).fill(null);
+
+    // 月末の曜日に合わせて翌月の日付を追加
+    const endDayOfWeek = getDay(monthEnd);
+    // 日曜日(0)なら0日分、月曜日(1)なら6日分...を追加
+    const suffixDays = endDayOfWeek === 0 ? 0 : 7 - endDayOfWeek;
+    const suffix: (Date | null)[] = Array(suffixDays).fill(null);
+
+    return [...prefix, ...days, ...suffix];
+  }, [currentMonth]);
 
   // 曜日名を取得
   const getDayOfWeekName = (dayOfWeek: number) => {
@@ -629,112 +646,167 @@ export default function TicketsPage() {
                     </div>
                   ) : (
                     <div className="space-y-4">
-                      <div className="flex items-center justify-between mb-2">
-                        <button
-                          onClick={() => setCurrentWeekStart(addDays(currentWeekStart, -7))}
-                          className="p-2 hover:bg-gray-100 rounded-lg"
-                        >
-                          <ChevronLeft className="h-5 w-5" />
-                        </button>
-                        <span className="font-semibold">
-                          {format(currentWeekStart, 'yyyy年M月', { locale: ja })}
-                        </span>
-                        <button
-                          onClick={() => setCurrentWeekStart(addDays(currentWeekStart, 7))}
-                          className="p-2 hover:bg-gray-100 rounded-lg"
-                        >
-                          <ChevronRight className="h-5 w-5" />
-                        </button>
+                      {/* 選択中の校舎表示 */}
+                      <div className="flex items-center gap-2 p-2 bg-amber-50 rounded-lg">
+                        <MapPin className="h-4 w-4 text-amber-600" />
+                        <span className="text-sm font-medium text-amber-800">{selectedSchool?.name}</span>
                       </div>
 
-                      {/* 週間カレンダー */}
-                      <div className="grid grid-cols-7 gap-1 text-center text-sm mb-4">
-                        {['月', '火', '水', '木', '金', '土', '日'].map((day, i) => (
-                          <div key={day} className={`py-1 font-semibold ${
-                            i === 5 ? 'text-blue-600' : i === 6 ? 'text-red-600' : 'text-gray-600'
-                          }`}>
-                            {day}
-                          </div>
-                        ))}
-                        {getWeekDays().map((date, i) => {
-                          const dayOfWeek = date.getDay();
-                          // この日に振替可能なクラスがあるか確認
-                          const classesOnDay = availableClasses.filter(c => c.dayOfWeek === dayOfWeek);
-                          const hasAvailable = classesOnDay.some(c => c.availableSeats > 0);
-                          const isSelected = selectedDate && isSameDay(date, selectedDate);
-                          const isPast = date < new Date(new Date().setHours(0, 0, 0, 0));
-
-                          return (
-                            <button
-                              key={date.toISOString()}
-                              onClick={() => !isPast && hasAvailable && setSelectedDate(date)}
-                              disabled={isPast || !hasAvailable}
-                              className={`py-2 rounded-lg text-sm ${
-                                isSelected
-                                  ? 'bg-amber-500 text-white font-bold'
-                                  : isPast
-                                  ? 'text-gray-300 cursor-not-allowed'
-                                  : hasAvailable
-                                  ? 'hover:bg-amber-100 text-gray-800'
-                                  : 'text-gray-300 cursor-not-allowed'
-                              } ${i === 5 ? 'text-blue-600' : i === 6 ? 'text-red-600' : ''}`}
-                            >
-                              {format(date, 'd')}
-                            </button>
-                          );
-                        })}
+                      {/* 注意事項 */}
+                      <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                        <p className="text-sm text-blue-700">
+                          <Clock className="h-4 w-4 inline-block mr-1 -mt-0.5" />
+                          当日の振替予約は<span className="font-semibold">授業開始30分前まで</span>となります。
+                        </p>
                       </div>
 
-                      {/* 選択日のクラス一覧 */}
+                      {/* 月間カレンダー */}
+                      <div className="bg-white rounded-xl border shadow-sm p-4">
+                        <div className="flex items-center justify-between mb-4">
+                          <button
+                            onClick={() => setCurrentMonth(subMonths(currentMonth, 1))}
+                            className="p-2 hover:bg-gray-100 rounded-lg"
+                          >
+                            <ChevronLeft className="h-5 w-5" />
+                          </button>
+                          <span className="font-semibold text-lg">
+                            {format(currentMonth, 'yyyy年M月', { locale: ja })}
+                          </span>
+                          <button
+                            onClick={() => setCurrentMonth(addMonths(currentMonth, 1))}
+                            className="p-2 hover:bg-gray-100 rounded-lg"
+                          >
+                            <ChevronRight className="h-5 w-5" />
+                          </button>
+                        </div>
+
+                        <div className="grid grid-cols-7 gap-1 text-center text-sm mb-2">
+                          {['日', '月', '火', '水', '木', '金', '土'].map((day, i) => (
+                            <div key={day} className={`py-1 font-semibold ${
+                              i === 0 ? 'text-red-500' : i === 6 ? 'text-blue-500' : 'text-gray-600'
+                            }`}>
+                              {day}
+                            </div>
+                          ))}
+                        </div>
+
+                        <div className="grid grid-cols-7 gap-1">
+                          {(() => {
+                            // 日曜始まりのカレンダーを生成
+                            const monthStart = startOfMonth(currentMonth);
+                            const monthEnd = endOfMonth(currentMonth);
+                            const days = eachDayOfInterval({ start: monthStart, end: monthEnd });
+                            const startDayOfWeek = getDay(monthStart); // 0=日曜
+                            const prefix: (Date | null)[] = Array(startDayOfWeek).fill(null);
+                            const endDayOfWeek = getDay(monthEnd);
+                            const suffixDays = endDayOfWeek === 6 ? 0 : 6 - endDayOfWeek;
+                            const suffix: (Date | null)[] = Array(suffixDays).fill(null);
+                            const calendarDays = [...prefix, ...days, ...suffix];
+
+                            return calendarDays.map((date, i) => {
+                              if (!date) {
+                                return <div key={`empty-${i}`} className="aspect-square" />;
+                              }
+
+                              const dayOfWeek = date.getDay();
+                              const classesOnDay = availableClasses.filter(c => c.dayOfWeek === dayOfWeek);
+                              const hasAvailable = classesOnDay.some(c => c.availableSeats > 0);
+                              const isSelected = selectedDate && isSameDay(date, selectedDate);
+                              const isPast = date < new Date(new Date().setHours(0, 0, 0, 0));
+                              const isCurrentMonth = date.getMonth() === currentMonth.getMonth();
+                              const colIndex = i % 7; // 0=日, 6=土
+
+                              return (
+                                <button
+                                  key={date.toISOString()}
+                                  onClick={() => {
+                                    if (!isPast && hasAvailable && isCurrentMonth) {
+                                      setSelectedDate(date);
+                                      setSelectedClass(null);
+                                    }
+                                  }}
+                                  disabled={isPast || !hasAvailable || !isCurrentMonth}
+                                  className={`aspect-square flex items-center justify-center rounded-lg text-sm transition-all ${
+                                    isSelected
+                                      ? 'bg-amber-500 text-white font-bold'
+                                      : !isCurrentMonth
+                                      ? 'text-gray-200'
+                                      : isPast
+                                      ? 'text-gray-300'
+                                      : hasAvailable
+                                      ? 'hover:bg-amber-100 text-gray-800 font-medium bg-amber-50'
+                                      : 'text-gray-300'
+                                  } ${colIndex === 0 && !isSelected && isCurrentMonth && !isPast ? 'text-red-500' : ''} ${colIndex === 6 && !isSelected && isCurrentMonth && !isPast ? 'text-blue-500' : ''}`}
+                                >
+                                  {format(date, 'd')}
+                                </button>
+                              );
+                            });
+                          })()}
+                        </div>
+                      </div>
+
+                      {/* 選択日の時間割一覧 */}
                       {selectedDate && (
-                        <div className="space-y-2">
-                          <h4 className="font-semibold text-gray-700">
-                            {format(selectedDate, 'M月d日(E)', { locale: ja })}の授業
+                        <div className="space-y-3">
+                          <h4 className="font-semibold text-gray-700 flex items-center gap-2">
+                            <Clock className="h-4 w-4" />
+                            {format(selectedDate, 'M月d日(E)', { locale: ja })}の時間割
                           </h4>
-                          {availableClasses
-                            .filter(c => c.dayOfWeek === selectedDate.getDay())
-                            .map((cls) => (
-                              <button
-                                key={cls.id}
-                                onClick={() => cls.availableSeats > 0 && setSelectedClass(cls)}
-                                disabled={cls.availableSeats <= 0}
-                                className={`w-full p-3 rounded-lg border-2 text-left transition-all ${
-                                  selectedClass?.id === cls.id
-                                    ? 'border-amber-500 bg-amber-50'
-                                    : cls.availableSeats > 0
-                                    ? 'border-gray-200 hover:border-amber-300'
-                                    : 'border-gray-100 bg-gray-50 cursor-not-allowed'
-                                }`}
-                              >
-                                <div className="flex items-center justify-between">
-                                  <div>
-                                    <p className="font-semibold text-gray-800">{cls.className}</p>
-                                    <p className="text-sm text-gray-500">
-                                      {cls.periodDisplay}
-                                    </p>
+                          <div className="space-y-2">
+                            {availableClasses
+                              .filter(c => c.dayOfWeek === selectedDate.getDay())
+                              .sort((a, b) => a.period - b.period)
+                              .map((cls) => (
+                                <button
+                                  key={cls.id}
+                                  onClick={() => cls.availableSeats > 0 && setSelectedClass(cls)}
+                                  disabled={cls.availableSeats <= 0}
+                                  className={`w-full p-4 rounded-xl border-2 text-left transition-all ${
+                                    selectedClass?.id === cls.id
+                                      ? 'border-amber-500 bg-amber-50 shadow-md'
+                                      : cls.availableSeats > 0
+                                      ? 'border-gray-200 hover:border-amber-300 hover:shadow-sm bg-white'
+                                      : 'border-gray-100 bg-gray-50 cursor-not-allowed opacity-60'
+                                  }`}
+                                >
+                                  <div className="flex items-center justify-between">
+                                    <div className="flex items-center gap-3">
+                                      <div className={`w-12 h-12 rounded-lg flex items-center justify-center ${
+                                        selectedClass?.id === cls.id ? 'bg-amber-500 text-white' : 'bg-gray-100 text-gray-600'
+                                      }`}>
+                                        <Clock className="h-5 w-5" />
+                                      </div>
+                                      <div>
+                                        <p className="font-semibold text-gray-800">{cls.periodDisplay}</p>
+                                        <p className="text-sm text-gray-500">{cls.className}</p>
+                                      </div>
+                                    </div>
+                                    <div className="text-right">
+                                      {cls.availableSeats <= 0 ? (
+                                        <Badge className="bg-gray-400 text-white">満席</Badge>
+                                      ) : cls.availableSeats <= 3 ? (
+                                        <Badge className="bg-orange-500 text-white">
+                                          残り{cls.availableSeats}席
+                                        </Badge>
+                                      ) : null}
+                                    </div>
                                   </div>
-                                  <div className="text-right">
-                                    <Badge className={`${
-                                      cls.availableSeats > 3
-                                        ? 'bg-green-500'
-                                        : cls.availableSeats > 0
-                                        ? 'bg-yellow-500'
-                                        : 'bg-red-500'
-                                    } text-white`}>
-                                      残り{cls.availableSeats}席
-                                    </Badge>
-                                    <p className="text-xs text-gray-400 mt-1">
-                                      {cls.currentSeat}/{cls.maxSeat}
-                                    </p>
-                                  </div>
-                                </div>
-                              </button>
-                            ))}
-                          {availableClasses.filter(c => c.dayOfWeek === selectedDate.getDay()).length === 0 && (
-                            <p className="text-center text-gray-500 py-4">
-                              この日に振替可能なクラスはありません
-                            </p>
-                          )}
+                                </button>
+                              ))}
+                            {availableClasses.filter(c => c.dayOfWeek === selectedDate.getDay()).length === 0 && (
+                              <div className="text-center py-8 bg-gray-50 rounded-xl">
+                                <p className="text-gray-500">この日に振替可能な時間割はありません</p>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
+
+                      {!selectedDate && (
+                        <div className="text-center py-4">
+                          <p className="text-sm text-gray-500">カレンダーから振替希望日を選択してください</p>
+                          <p className="text-xs text-gray-400 mt-1">色付きの日が振替可能日です</p>
                         </div>
                       )}
                     </div>

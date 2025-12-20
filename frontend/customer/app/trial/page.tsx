@@ -90,6 +90,7 @@ type AvailabilitySlot = {
   isAvailable: boolean;
   gradeName: string | null;
   gradeId: string | null;
+  gradeSortOrder: number;
   displayCourseName: string | null;
 };
 
@@ -347,8 +348,10 @@ export default function TrialPage() {
       setAvailabilityLoading(true);
       try {
         const dateStr = format(date, 'yyyy-MM-dd');
+        // 生年月日パラメータを追加（対象学年フィルター用）
+        const birthDateParam = selectedChild?.birthDate ? `&birth_date=${selectedChild.birthDate}` : '';
         const res = await fetch(
-          `${API_BASE_URL}/schools/public/trial-availability/?school_id=${selectedSchoolId}&brand_id=${selectedBrand.id}&date=${dateStr}`
+          `${API_BASE_URL}/schools/public/trial-availability/?school_id=${selectedSchoolId}&brand_id=${selectedBrand.id}&date=${dateStr}${birthDateParam}`
         );
         const data = await res.json();
 
@@ -767,15 +770,12 @@ export default function TrialPage() {
               </Card>
             ) : (
               <div className="space-y-3">
-                {/* 学年順→時間順にソート */}
+                {/* 対象学年の表示順（gradeSortOrder）→時間順にソート */}
                 {[...availability]
                   .sort((a, b) => {
-                    // まず学年でソート（nullは後ろ）
-                    if (a.gradeName && !b.gradeName) return -1;
-                    if (!a.gradeName && b.gradeName) return 1;
-                    if (a.gradeName && b.gradeName) {
-                      const cmp = a.gradeName.localeCompare(b.gradeName, 'ja');
-                      if (cmp !== 0) return cmp;
+                    // まず対象学年の表示順でソート
+                    if (a.gradeSortOrder !== b.gradeSortOrder) {
+                      return a.gradeSortOrder - b.gradeSortOrder;
                     }
                     // 次に時間でソート
                     return a.startTime.localeCompare(b.startTime);
