@@ -265,6 +265,44 @@ export interface CurrentMonthProrated {
   dates: string[];                 // 対象日（YYYY-MM-DD）
 }
 
+// コース商品（そのまま表示用）
+export interface CourseItem {
+  productId: string;
+  productName: string;
+  itemType: string;  // tuition, monthly_fee, enrollment, enrollment_tuition, etc.
+  quantity: number;
+  unitPrice: number;     // 税抜
+  priceWithTax: number;  // 税込
+  taxRate: number;
+}
+
+// 月別料金グループのアイテム
+export interface BillingMonthItem {
+  productId: string;
+  productName: string;
+  itemType: string;
+  quantity: number;
+  unitPrice: number;
+  priceWithTax: number;
+  taxRate: number;
+}
+
+// 月別料金グループ
+export interface BillingMonthGroup {
+  label: string;       // 表示ラベル（例: "1月分", "入会時費用"）
+  month?: number;      // 月（1-12）
+  items: BillingMonthItem[];
+  total: number;       // グループの合計金額
+}
+
+// 月別料金グループ全体
+export interface BillingByMonth {
+  enrollment: BillingMonthGroup;    // 入会時費用（一回のみ）
+  currentMonth: BillingMonthGroup;  // 当月分（回数割）
+  month1: BillingMonthGroup;        // 翌月分
+  month2: BillingMonthGroup;        // 翌々月分〜
+}
+
 export interface PricingPreviewResponse {
   items: PricingItem[];
   subtotal: number;
@@ -284,6 +322,8 @@ export interface PricingPreviewResponse {
   additionalFees?: AdditionalFees;  // 入会金、設備費、教材費
   monthlyTuition?: MonthlyTuition;  // 月別授業料（ProductPriceから取得）
   currentMonthProrated?: CurrentMonthProrated;  // 当月分回数割料金
+  courseItems?: CourseItem[];  // コース商品一覧（そのまま表示用）
+  billingByMonth?: BillingByMonth;  // 月別料金グループ
 }
 
 export interface PricingCalculateRequest {

@@ -322,19 +322,12 @@ def get_monthly_tuition_prices(course: Course, start_date: date) -> dict:
     if not course:
         return result
 
-    # 締日基準で請求月を計算（締日20日）
+    # 月謝は翌月から開始（当月分は回数割で別途計算）
+    # month1 = 翌月（最初の満額月謝）
+    # month2 = 翌々月以降（通常月謝）
     current_month = start_date.month
-    day = start_date.day
-    is_after_closing = day > 20
-
-    if is_after_closing:
-        # 締日以降：翌月と翌々月
-        result['month1'] = (current_month % 12) + 1
-        result['month2'] = ((current_month + 1) % 12) + 1
-    else:
-        # 締日以前：当月と翌月
-        result['month1'] = current_month
-        result['month2'] = (current_month % 12) + 1
+    result['month1'] = (current_month % 12) + 1  # 翌月
+    result['month2'] = ((current_month + 1) % 12) + 1  # 翌々月
 
     # CourseItemから授業料商品を取得
     course_items = CourseItem.objects.filter(
@@ -589,13 +582,50 @@ class PricingPreviewView(APIView):
         discount_total = Decimal('0')
 
         # CourseItemからコースに紐づく商品を取得
-        from apps.contracts.models import CourseItem
+        from apps.contracts.models import CourseItem, ProductSetItem
+
+        # コース商品一覧（そのまま表示用）
+        course_items_list = []
+
+        # 月別料金グループ
+        billing_by_month = {
+            'enrollment': {'label': '入会時費用', 'items': [], 'total': 0},
+            'currentMonth': {'label': '', 'month': 0, 'items': [], 'total': 0},
+            'month1': {'label': '', 'month': 0, 'items': [], 'total': 0},
+            'month2': {'label': '', 'month': 0, 'items': [], 'total': 0},
+        }
 
         if course:
             course_items = CourseItem.objects.filter(
                 course=course,
                 is_active=True
             ).select_related('product')
+
+            # 商品セット（ProductSet）の商品も追加
+            if course.product_set:
+                set_items = ProductSetItem.objects.filter(
+                    product_set=course.product_set,
+                    is_active=True
+                ).select_related('product')
+                for si in set_items:
+                    product = si.product
+                    if not product or not product.is_active:
+                        continue
+                    base_price = product.base_price or Decimal('0')
+                    tax_rate = product.tax_rate or Decimal('0.1')
+                    tax_amount = int(base_price * tax_rate)
+                    price_with_tax = int(base_price) + tax_amount
+                    course_items_list.append({
+                        'productId': str(product.id),
+                        'productName': product.product_name,
+                        'itemType': product.item_type,
+                        'quantity': si.quantity,
+                        'unitPrice': int(base_price),
+                        'priceWithTax': price_with_tax,
+                        'taxRate': float(tax_rate),
+                        'source': 'product_set',
+                    })
+                    subtotal += Decimal(str(price_with_tax))
 
             for ci in course_items:
                 product = ci.product
@@ -606,6 +636,36 @@ class PricingPreviewView(APIView):
                 tax_rate = product.tax_rate or Decimal('0.1')
                 tax_amount = int(base_price * tax_rate)
                 price_with_tax = int(base_price) + tax_amount  # 税込価格
+
+                # コース商品一覧に追加（そのまま表示用）
+                item_data = {
+                    'productId': str(product.id),
+                    'productName': product.product_name,
+                    'itemType': product.item_type,
+                    'quantity': ci.quantity,
+                    'unitPrice': int(base_price),
+                    'priceWithTax': price_with_tax,
+                    'taxRate': float(tax_rate),
+                    'source': 'course_item',
+                }
+                course_items_list.append(item_data)
+
+                # 月別グループに振り分け
+                item_type = product.item_type
+                if item_type in ['enrollment', 'enrollment_textbook', 'textbook', 'bag']:
+                    # 入会時費用（一回のみ）
+                    billing_by_month['enrollment']['items'].append(item_data)
+                    billing_by_month['enrollment']['total'] += price_with_tax
+                elif item_type in ['enrollment_tuition', 'enrollment_monthly_fee', 'enrollment_facility']:
+                    # 当月分（回数割）
+                    billing_by_month['currentMonth']['items'].append(item_data)
+                    billing_by_month['currentMonth']['total'] += price_with_tax
+                elif item_type in ['tuition', 'monthly_fee', 'facility']:
+                    # 月額料金（翌月・翌々月）
+                    billing_by_month['month1']['items'].append(item_data.copy())
+                    billing_by_month['month1']['total'] += price_with_tax
+                    billing_by_month['month2']['items'].append(item_data.copy())
+                    billing_by_month['month2']['total'] += price_with_tax
 
                 # 入会金
                 if product.item_type == Product.ItemType.ENROLLMENT:
@@ -688,6 +748,15 @@ class PricingPreviewView(APIView):
             }
             print(f"[PricingPreview] Monthly tuition: {monthly_tuition}", file=sys.stderr)
 
+            # 月別料金グループのラベルを設定
+            current_month = start_date.month
+            billing_by_month['currentMonth']['label'] = f'{current_month}月分（当月）'
+            billing_by_month['currentMonth']['month'] = current_month
+            billing_by_month['month1']['label'] = f'{monthly_tuition["month1"]}月分'
+            billing_by_month['month1']['month'] = monthly_tuition['month1']
+            billing_by_month['month2']['label'] = f'{monthly_tuition["month2"]}月分〜'
+            billing_by_month['month2']['month'] = monthly_tuition['month2']
+
         # 当月分の回数割料金を計算（曜日が指定された場合）
         current_month_prorated = None
         if course and start_date and day_of_week:
@@ -763,6 +832,8 @@ class PricingPreviewView(APIView):
             'additionalFees': additional_fees,  # 入会金、設備費、教材費
             'monthlyTuition': monthly_tuition,  # 月別授業料
             'currentMonthProrated': current_month_prorated,  # 当月分回数割料金
+            'courseItems': course_items_list,  # コース商品一覧（そのまま表示用）
+            'billingByMonth': billing_by_month,  # 月別料金グループ
             'mileInfo': mile_info,  # マイル情報
         })
 

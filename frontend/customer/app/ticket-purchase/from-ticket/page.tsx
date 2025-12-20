@@ -2025,133 +2025,97 @@ export default function FromTicketPurchasePage() {
                   </div>
                 )}
 
-                <div className="border-t pt-4 space-y-2">
-                  {/* 料金内訳（シンプルなリスト形式） */}
-                  <div className="bg-gray-50 rounded-lg p-3 space-y-3">
-                    {/* 入会時費用（入会金・教材費） */}
-                    {(pricingPreview?.additionalFees?.enrollmentFee || pricingPreview?.additionalFees?.materialsFee) && (
-                      <div className="space-y-1">
-                        <p className="text-xs font-medium text-gray-500">入会時費用</p>
-                        {pricingPreview?.additionalFees?.enrollmentFee && (
-                          <div className="flex justify-between text-sm pl-2">
-                            <span className="text-gray-700">入会金</span>
-                            <span className="text-gray-800">¥{pricingPreview.additionalFees.enrollmentFee.price.toLocaleString()}</span>
+                <div className="border-t pt-4 space-y-3">
+                  {/* 月別料金グループ表示 */}
+                  {pricingPreview?.billingByMonth ? (
+                    <>
+                      {/* 入会時費用 */}
+                      {pricingPreview.billingByMonth.enrollment.items.length > 0 && (
+                        <div className="bg-blue-50 rounded-lg p-3 space-y-2">
+                          <div className="flex justify-between items-center border-b border-blue-200 pb-2 mb-2">
+                            <span className="font-semibold text-blue-800">{pricingPreview.billingByMonth.enrollment.label}</span>
+                            <span className="font-semibold text-blue-800">¥{pricingPreview.billingByMonth.enrollment.total.toLocaleString()}</span>
                           </div>
-                        )}
-                        {pricingPreview?.additionalFees?.materialsFee && (
-                          <div className="flex justify-between text-sm pl-2">
-                            <span className="text-gray-700">教材費</span>
-                            <span className="text-gray-800">¥{pricingPreview.additionalFees.materialsFee.price.toLocaleString()}</span>
-                          </div>
-                        )}
-                      </div>
-                    )}
-
-                    {/* 当月分（回数割） */}
-                    {pricingPreview?.currentMonthProrated && pricingPreview.currentMonthProrated.totalProrated > 0 && (
-                      <div className="pt-2 border-t border-gray-200">
-                        <div className="flex justify-between items-center mb-1">
-                          <span className="text-sm font-medium text-orange-700">
-                            【当月分】{billingInfo?.current_month?.month || new Date().getMonth() + 1}月（回数割 {pricingPreview.currentMonthProrated.remainingCount}/{pricingPreview.currentMonthProrated.totalCount}回）
-                          </span>
-                          <span className="text-sm font-semibold text-orange-700">
-                            ¥{pricingPreview.currentMonthProrated.totalProrated.toLocaleString()}
-                          </span>
+                          {pricingPreview.billingByMonth.enrollment.items.map((item, index) => (
+                            <div key={index} className="flex justify-between text-sm">
+                              <span className="text-gray-700">{item.productName}</span>
+                              <span className="text-gray-800">¥{item.priceWithTax.toLocaleString()}</span>
+                            </div>
+                          ))}
                         </div>
-                        <div className="pl-2 space-y-0.5 text-xs text-gray-500">
-                          {pricingPreview.currentMonthProrated.tuition && (
-                            <div className="flex justify-between">
-                              <span>授業料</span>
-                              <span>¥{pricingPreview.currentMonthProrated.tuition.proratedPrice.toLocaleString()}</span>
-                            </div>
-                          )}
-                          {pricingPreview.currentMonthProrated.facilityFee && (
-                            <div className="flex justify-between">
-                              <span>設備費</span>
-                              <span>¥{pricingPreview.currentMonthProrated.facilityFee.proratedPrice.toLocaleString()}</span>
-                            </div>
-                          )}
-                          {pricingPreview.currentMonthProrated.monthlyFee && (
-                            <div className="flex justify-between">
-                              <span>月会費</span>
-                              <span>¥{pricingPreview.currentMonthProrated.monthlyFee.proratedPrice.toLocaleString()}</span>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    )}
+                      )}
 
-                    {/* 月謝（初月・2ヶ月目以降） */}
-                    {pricingPreview?.monthlyTuition && (
-                      <>
-                        {/* 初月料金 */}
-                        <div className="pt-2 border-t border-gray-200">
-                          <div className="flex justify-between items-center mb-1">
-                            <span className="text-sm font-medium text-blue-700">【初月】{pricingPreview.monthlyTuition.month1}月</span>
-                            <span className="text-sm font-semibold text-blue-700">
-                              ¥{(pricingPreview.monthlyTuition.month1Price + pricingPreview.monthlyTuition.facilityFee + pricingPreview.monthlyTuition.monthlyFee).toLocaleString()}
-                            </span>
+                      {/* 当月分（回数割） */}
+                      {pricingPreview.billingByMonth.currentMonth.items.length > 0 && (
+                        <div className="bg-amber-50 rounded-lg p-3 space-y-2">
+                          <div className="flex justify-between items-center border-b border-amber-200 pb-2 mb-2">
+                            <span className="font-semibold text-amber-800">{pricingPreview.billingByMonth.currentMonth.label}</span>
+                            <span className="font-semibold text-amber-800">¥{pricingPreview.billingByMonth.currentMonth.total.toLocaleString()}</span>
                           </div>
-                          <div className="pl-2 space-y-0.5 text-xs text-gray-500">
-                            <div className="flex justify-between">
-                              <span>授業料</span>
-                              <span>¥{pricingPreview.monthlyTuition.month1Price.toLocaleString()}</span>
+                          {pricingPreview.billingByMonth.currentMonth.items.map((item, index) => (
+                            <div key={index} className="flex justify-between text-sm">
+                              <span className="text-gray-700">{item.productName}</span>
+                              <span className="text-gray-800">¥{item.priceWithTax.toLocaleString()}</span>
                             </div>
-                            {pricingPreview.monthlyTuition.facilityFee > 0 && (
-                              <div className="flex justify-between">
-                                <span>設備費</span>
-                                <span>¥{pricingPreview.monthlyTuition.facilityFee.toLocaleString()}</span>
-                              </div>
-                            )}
-                            {pricingPreview.monthlyTuition.monthlyFee > 0 && (
-                              <div className="flex justify-between">
-                                <span>月会費</span>
-                                <span>¥{pricingPreview.monthlyTuition.monthlyFee.toLocaleString()}</span>
-                              </div>
-                            )}
-                          </div>
+                          ))}
                         </div>
+                      )}
 
-                        {/* 2ヶ月目以降 */}
-                        <div className="pt-2 border-t border-gray-200">
-                          <div className="flex justify-between items-center mb-1">
-                            <span className="text-sm font-medium text-gray-700">【2ヶ月目以降】{pricingPreview.monthlyTuition.month2}月〜</span>
-                            <span className="text-sm font-semibold text-gray-700">
-                              ¥{(pricingPreview.monthlyTuition.month2Price + pricingPreview.monthlyTuition.facilityFee + pricingPreview.monthlyTuition.monthlyFee).toLocaleString()}
-                            </span>
+                      {/* 翌月分 */}
+                      {pricingPreview.billingByMonth.month1.items.length > 0 && (
+                        <div className="bg-green-50 rounded-lg p-3 space-y-2">
+                          <div className="flex justify-between items-center border-b border-green-200 pb-2 mb-2">
+                            <span className="font-semibold text-green-800">{pricingPreview.billingByMonth.month1.label}</span>
+                            <span className="font-semibold text-green-800">¥{pricingPreview.billingByMonth.month1.total.toLocaleString()}</span>
                           </div>
-                          <div className="pl-2 space-y-0.5 text-xs text-gray-500">
-                            <div className="flex justify-between">
-                              <span>授業料</span>
-                              <span>¥{pricingPreview.monthlyTuition.month2Price.toLocaleString()}</span>
+                          {pricingPreview.billingByMonth.month1.items.map((item, index) => (
+                            <div key={index} className="flex justify-between text-sm">
+                              <span className="text-gray-700">{item.productName}</span>
+                              <span className="text-gray-800">¥{item.priceWithTax.toLocaleString()}</span>
                             </div>
-                            {pricingPreview.monthlyTuition.facilityFee > 0 && (
-                              <div className="flex justify-between">
-                                <span>設備費</span>
-                                <span>¥{pricingPreview.monthlyTuition.facilityFee.toLocaleString()}</span>
-                              </div>
-                            )}
-                            {pricingPreview.monthlyTuition.monthlyFee > 0 && (
-                              <div className="flex justify-between">
-                                <span>月会費</span>
-                                <span>¥{pricingPreview.monthlyTuition.monthlyFee.toLocaleString()}</span>
-                              </div>
-                            )}
-                          </div>
+                          ))}
                         </div>
-                      </>
-                    )}
+                      )}
 
-                    {/* 割引 */}
-                    {pricingPreview?.discounts && pricingPreview.discounts.length > 0 && (
-                      pricingPreview.discounts.map((discount: { discountName: string; discountAmount: number }, index: number) => (
-                        <div key={index} className="flex justify-between text-sm pt-2 border-t border-gray-200">
+                      {/* 翌々月分〜 */}
+                      {pricingPreview.billingByMonth.month2.items.length > 0 && (
+                        <div className="bg-purple-50 rounded-lg p-3 space-y-2">
+                          <div className="flex justify-between items-center border-b border-purple-200 pb-2 mb-2">
+                            <span className="font-semibold text-purple-800">{pricingPreview.billingByMonth.month2.label}</span>
+                            <span className="font-semibold text-purple-800">¥{pricingPreview.billingByMonth.month2.total.toLocaleString()}</span>
+                          </div>
+                          {pricingPreview.billingByMonth.month2.items.map((item, index) => (
+                            <div key={index} className="flex justify-between text-sm">
+                              <span className="text-gray-700">{item.productName}</span>
+                              <span className="text-gray-800">¥{item.priceWithTax.toLocaleString()}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    /* フォールバック: courseItemsを表示 */
+                    <div className="bg-gray-50 rounded-lg p-3 space-y-2">
+                      {pricingPreview?.courseItems && pricingPreview.courseItems.map((item, index) => (
+                        <div key={index} className="flex justify-between text-sm">
+                          <span className="text-gray-700">{item.productName}</span>
+                          <span className="text-gray-800">¥{item.priceWithTax.toLocaleString()}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* 割引 */}
+                  {pricingPreview?.discounts && pricingPreview.discounts.length > 0 && (
+                    <div className="bg-green-50 rounded-lg p-3 space-y-2">
+                      {pricingPreview.discounts.map((discount: { discountName: string; discountAmount: number }, index: number) => (
+                        <div key={`discount-${index}`} className="flex justify-between text-sm">
                           <span className="text-green-600">{discount.discountName}</span>
                           <span className="text-green-600">-¥{discount.discountAmount.toLocaleString()}</span>
                         </div>
-                      ))
-                    )}
-                  </div>
+                      ))}
+                    </div>
+                  )}
 
                   {/* マイル割引表示 */}
                   {milesToUse > 0 && mileDiscountAmount > 0 && (
