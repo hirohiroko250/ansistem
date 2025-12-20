@@ -42,9 +42,11 @@ import {
   Search,
   User,
   Check,
+  CreditCard,
+  Receipt,
+  PlusCircle,
 } from "lucide-react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import apiClient from "@/lib/api/client";
 import {
   getUnmatchedPayments,
@@ -53,6 +55,7 @@ import {
   type PaymentData,
   type MatchCandidate,
 } from "@/lib/api/staff";
+import type { Invoice, Guardian, Student } from "@/lib/api/types";
 
 // 振込データ型
 interface BankTransfer {
@@ -104,14 +107,39 @@ interface ImportBatch {
   transfers?: BankTransfer[];
 }
 
+// 手動検索結果の型
+interface SearchResult {
+  type: 'guardian' | 'student';
+  id: string;
+  name: string;
+  kana?: string;
+  guardianId?: string;
+  guardianName?: string;
+  phone?: string;
+  invoices: Invoice[];
+}
+
+// 入金登録リクエスト
+interface PaymentRequest {
+  guardian_id: string;
+  invoice_id?: string;
+  payment_date: string;
+  amount: number;
+  method: string;
+  payer_name?: string;
+  bank_name?: string;
+  notes?: string;
+}
+
 export default function PaymentMatchingPage() {
   const searchParams = useSearchParams();
-  const router = useRouter();
 
   // タブ状態
   const [activeTab, setActiveTab] = useState<string>(() => {
     const tab = searchParams.get("tab");
-    return tab === "import" ? "import" : "unmatched";
+    if (tab === "import") return "import";
+    if (tab === "manual") return "manual";
+    return "unmatched";
   });
 
   // === 未消込入金タブ ===
@@ -155,25 +183,40 @@ export default function PaymentMatchingPage() {
   const [selectedGuardian, setSelectedGuardian] = useState<CandidateGuardian | null>(null);
   const [selectedMatchInvoice, setSelectedMatchInvoice] = useState<string | null>(null);
   const [matching, setMatching] = useState(false);
+  const [matchError, setMatchError] = useState<string | null>(null);
+
+  // === 手動入金タブ ===
+  const [manualSearchQuery, setManualSearchQuery] = useState("");
+  const [manualSearchResults, setManualSearchResults] = useState<SearchResult[]>([]);
+  const [manualSearching, setManualSearching] = useState(false);
+  const [selectedResult, setSelectedResult] = useState<SearchResult | null>(null);
+  const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
+
+  // 手動入金登録ダイアログ
+  const [manualPaymentDialogOpen, setManualPaymentDialogOpen] = useState(false);
+  const [paymentDate, setPaymentDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [paymentAmount, setPaymentAmount] = useState<string>("");
+  const [payerName, setPayerName] = useState("");
+  const [bankName, setBankName] = useState("");
+  const [paymentNotes, setPaymentNotes] = useState("");
+  const [registering, setRegistering] = useState(false);
+  const [registerResult, setRegisterResult] = useState<{ success: boolean; message: string } | null>(null);
 
   // URLパラメータの変更を監視
   useEffect(() => {
     const tab = searchParams.get("tab");
-    if (tab === "import") {
-      setActiveTab("import");
-    }
+    if (tab === "import") setActiveTab("import");
+    else if (tab === "manual") setActiveTab("manual");
   }, [searchParams]);
 
-  // 未消込入金を読み込み（Payment + 未確認BankTransfer）
+  // 未消込入金を読み込み
   async function loadUnmatchedPayments() {
     setLoadingPayments(true);
     try {
-      // 既存のPaymentデータを取得
       const data = await getUnmatchedPayments();
       setPayments(data.payments);
       setPaymentCount(data.count);
 
-      // 未確認のBankTransferも取得
       const transferRes = await apiClient.get<{ results?: BankTransfer[]; count?: number }>('/billing/transfers/', {
         status: 'pending',
       });
@@ -189,16 +232,12 @@ export default function PaymentMatchingPage() {
 
   // インポートバッチ一覧を読み込み
   const loadImportBatches = useCallback(async () => {
-    console.log('[loadImportBatches] Starting...');
     setLoadingBatches(true);
     try {
       const res = await apiClient.get<{ results?: ImportBatch[]; data?: ImportBatch[] }>('/billing/transfer-imports/');
-      console.log('[loadImportBatches] Response:', res);
-      const batches = res.results || res.data || [];
-      console.log('[loadImportBatches] Batches count:', batches.length);
-      setImportBatches(batches);
+      setImportBatches(res.results || res.data || []);
     } catch (error) {
-      console.error('[loadImportBatches] Failed:', error);
+      console.error('Failed to load import batches:', error);
     } finally {
       setLoadingBatches(false);
     }
@@ -206,24 +245,18 @@ export default function PaymentMatchingPage() {
 
   // バッチ詳細を読み込み
   const loadBatchDetail = useCallback(async (batchId: string) => {
-    console.log('[loadBatchDetail] Loading batch:', batchId);
     try {
       const res = await apiClient.get<ImportBatch>(`/billing/transfer-imports/${batchId}/`);
-      console.log('[loadBatchDetail] Response:', res);
-      console.log('[loadBatchDetail] Transfers count:', res.transfers?.length);
       setSelectedBatch(res);
     } catch (error) {
-      console.error('[loadBatchDetail] Failed to load batch detail:', error);
+      console.error('Failed to load batch detail:', error);
     }
   }, []);
 
   useEffect(() => {
-    console.log('[useEffect] activeTab changed:', activeTab);
     if (activeTab === "unmatched") {
-      console.log('[useEffect] Loading unmatched payments...');
       loadUnmatchedPayments();
     } else if (activeTab === "import") {
-      console.log('[useEffect] Loading import batches...');
       loadImportBatches();
     }
   }, [activeTab, loadImportBatches]);
@@ -291,10 +324,7 @@ export default function PaymentMatchingPage() {
       });
 
       loadImportBatches();
-
-      if (res.batch_id) {
-        loadBatchDetail(res.batch_id);
-      }
+      if (res.batch_id) loadBatchDetail(res.batch_id);
     } catch (error) {
       console.error('Import error:', error);
       setImportResult({ success: false });
@@ -327,6 +357,7 @@ export default function PaymentMatchingPage() {
     setGuardianSearchResults(transfer.candidateGuardians || []);
     setSelectedGuardian(null);
     setSelectedMatchInvoice(null);
+    setMatchError(null);
     setTransferMatchDialogOpen(true);
   };
 
@@ -335,49 +366,21 @@ export default function PaymentMatchingPage() {
     if (!matchingTransfer || !selectedGuardian) return;
 
     setMatching(true);
+    setMatchError(null);
     try {
       await apiClient.post(`/billing/transfers/${matchingTransfer.id}/match/`, {
         guardian_id: selectedGuardian.guardianId,
       });
-
-      if (selectedMatchInvoice) {
-        await apiClient.post(`/billing/transfers/${matchingTransfer.id}/apply/`, {
-          invoice_id: selectedMatchInvoice,
-        });
-      }
+      await apiClient.post(`/billing/transfers/${matchingTransfer.id}/apply/`, {
+        invoice_id: selectedMatchInvoice || undefined,
+      });
 
       setTransferMatchDialogOpen(false);
-
-      if (selectedBatch) {
-        loadBatchDetail(selectedBatch.id);
-      }
-      // 未消込入金タブも更新
+      if (selectedBatch) loadBatchDetail(selectedBatch.id);
       loadUnmatchedPayments();
     } catch (error) {
       console.error('Match error:', error);
-    } finally {
-      setMatching(false);
-    }
-  };
-
-  // 入金確認のみ（未消込として確定）
-  const handleConfirmPaymentOnly = async () => {
-    if (!matchingTransfer) return;
-
-    setMatching(true);
-    try {
-      // 請求書なしで入金確認
-      await apiClient.post(`/billing/transfers/${matchingTransfer.id}/apply/`, {});
-
-      setTransferMatchDialogOpen(false);
-
-      if (selectedBatch) {
-        loadBatchDetail(selectedBatch.id);
-      }
-      // 未消込入金タブも更新
-      loadUnmatchedPayments();
-    } catch (error) {
-      console.error('Confirm payment error:', error);
+      setMatchError(error instanceof Error ? error.message : '照合に失敗しました');
     } finally {
       setMatching(false);
     }
@@ -386,7 +389,6 @@ export default function PaymentMatchingPage() {
   // バッチ確定
   const handleConfirmBatch = async () => {
     if (!selectedBatch) return;
-
     try {
       await apiClient.post(`/billing/transfer-imports/${selectedBatch.id}/confirm/`);
       loadBatchDetail(selectedBatch.id);
@@ -396,28 +398,160 @@ export default function PaymentMatchingPage() {
     }
   };
 
-  // ID番号クリック時に保護者ページへ遷移（別タブで開く）
+  // ID番号クリック時
   const handleIdClick = async (guardianNo: string) => {
     if (!guardianNo) return;
+    window.open(`/parents?search=${guardianNo}`, '_blank');
+  };
+
+  // === 手動入金の処理 ===
+  const handleManualSearch = useCallback(async () => {
+    if (!manualSearchQuery.trim()) return;
+
+    setManualSearching(true);
+    setManualSearchResults([]);
+    setSelectedResult(null);
+    setSelectedInvoice(null);
 
     try {
-      // guardian_noで保護者を検索
-      const res = await apiClient.get<{ results?: { id: string }[] }>('/students/guardians/', {
-        guardian_no: guardianNo,
-      });
+      const [guardiansRes, studentsRes] = await Promise.all([
+        apiClient.get<{ results?: Guardian[]; data?: Guardian[] }>('/students/guardians/', {
+          search: manualSearchQuery,
+          page_size: 20,
+        }),
+        apiClient.get<{ results?: Student[]; data?: Student[] }>('/students/', {
+          search: manualSearchQuery,
+          page_size: 20,
+        }),
+      ]);
 
-      const guardians = res.results || [];
-      if (guardians.length > 0) {
-        // 保護者が見つかったらそのページを別タブで開く
-        window.open(`/parents?selected=${guardians[0].id}`, '_blank');
-      } else {
-        // 見つからない場合は検索クエリで別タブを開く
-        window.open(`/parents?search=${guardianNo}`, '_blank');
+      const guardians = guardiansRes.results || guardiansRes.data || [];
+      const students = studentsRes.results || studentsRes.data || [];
+
+      const guardianIds = new Set<string>();
+      const results: SearchResult[] = [];
+
+      for (const guardian of guardians) {
+        guardianIds.add(guardian.id);
+        results.push({
+          type: 'guardian',
+          id: guardian.id,
+          name: guardian.full_name || `${guardian.last_name || ''}${guardian.first_name || ''}`,
+          kana: guardian.full_name_kana || `${guardian.last_name_kana || ''}${guardian.first_name_kana || ''}`,
+          phone: guardian.phone || '',
+          invoices: [],
+        });
       }
+
+      for (const student of students) {
+        const guardianId = student.guardianId || student.guardian_id || student.guardian?.id;
+        if (guardianId) guardianIds.add(guardianId);
+        results.push({
+          type: 'student',
+          id: student.id,
+          name: student.full_name || `${student.last_name || ''}${student.first_name || ''}`,
+          kana: student.full_name_kana || `${student.last_name_kana || ''}${student.first_name_kana || ''}`,
+          guardianId: guardianId,
+          guardianName: student.guardian?.full_name || '',
+          invoices: [],
+        });
+      }
+
+      if (guardianIds.size > 0) {
+        const invoicePromises = Array.from(guardianIds).map(async (gId) => {
+          try {
+            const res = await apiClient.get<{ results?: Invoice[]; data?: Invoice[] }>('/billing/invoices/', {
+              guardian_id: gId,
+              page_size: 50,
+            });
+            return { guardianId: gId, invoices: res.results || res.data || [] };
+          } catch {
+            return { guardianId: gId, invoices: [] };
+          }
+        });
+
+        const invoiceResults = await Promise.all(invoicePromises);
+        const invoiceMap = new Map<string, Invoice[]>();
+        for (const { guardianId, invoices } of invoiceResults) {
+          invoiceMap.set(guardianId, invoices);
+        }
+
+        for (const result of results) {
+          const gId = result.type === 'guardian' ? result.id : result.guardianId;
+          if (gId) result.invoices = invoiceMap.get(gId) || [];
+        }
+      }
+
+      setManualSearchResults(results);
     } catch (error) {
-      console.error('Guardian search error:', error);
-      // エラー時も検索クエリで別タブを開く
-      window.open(`/parents?search=${guardianNo}`, '_blank');
+      console.error('Search error:', error);
+    } finally {
+      setManualSearching(false);
+    }
+  }, [manualSearchQuery]);
+
+  const handleSelectResult = (result: SearchResult) => {
+    setSelectedResult(result);
+    setSelectedInvoice(null);
+  };
+
+  const openManualPaymentDialog = (invoice: Invoice) => {
+    setSelectedInvoice(invoice);
+    const balanceDue = Number(invoice.balance_due || invoice.balanceDue || invoice.total_amount || invoice.totalAmount || 0);
+    setPaymentAmount(String(balanceDue));
+    setPayerName(selectedResult?.name || '');
+    setBankName('');
+    setPaymentNotes('');
+    setRegisterResult(null);
+    setManualPaymentDialogOpen(true);
+  };
+
+  const handleRegisterPayment = async () => {
+    if (!selectedResult || !paymentAmount) return;
+
+    setRegistering(true);
+    setRegisterResult(null);
+
+    try {
+      const guardianId = selectedResult.type === 'guardian' ? selectedResult.id : selectedResult.guardianId;
+      if (!guardianId) {
+        setRegisterResult({ success: false, message: '保護者情報が見つかりません' });
+        return;
+      }
+
+      const request: PaymentRequest = {
+        guardian_id: guardianId,
+        invoice_id: selectedInvoice?.id,
+        payment_date: paymentDate,
+        amount: Number(paymentAmount),
+        method: 'bank_transfer',
+        payer_name: payerName || undefined,
+        bank_name: bankName || undefined,
+        notes: paymentNotes || undefined,
+      };
+
+      await apiClient.post('/billing/payments/register/', request);
+      setRegisterResult({ success: true, message: '振込入金を登録しました' });
+
+      // 請求書一覧を更新
+      const gId = selectedResult.type === 'guardian' ? selectedResult.id : selectedResult.guardianId;
+      if (gId) {
+        const res = await apiClient.get<{ results?: Invoice[]; data?: Invoice[] }>('/billing/invoices/', {
+          guardian_id: gId,
+          page_size: 50,
+        });
+        setSelectedResult({ ...selectedResult, invoices: res.results || res.data || [] });
+      }
+
+      setTimeout(() => {
+        setManualPaymentDialogOpen(false);
+        setRegisterResult(null);
+      }, 1500);
+    } catch (error) {
+      console.error('Payment registration error:', error);
+      setRegisterResult({ success: false, message: '入金登録に失敗しました' });
+    } finally {
+      setRegistering(false);
     }
   };
 
@@ -437,13 +571,18 @@ export default function PaymentMatchingPage() {
     return `¥${num.toLocaleString()}`;
   };
 
-  const getTransferStatusBadge = (status: string) => {
+  const getStatusBadge = (status: string) => {
     const config: Record<string, { label: string; color: string }> = {
+      draft: { label: '下書き', color: 'bg-gray-100 text-gray-700' },
+      issued: { label: '発行済', color: 'bg-blue-100 text-blue-700' },
+      paid: { label: '支払済', color: 'bg-green-100 text-green-700' },
+      partial: { label: '一部入金', color: 'bg-yellow-100 text-yellow-700' },
+      overdue: { label: '滞納', color: 'bg-red-100 text-red-700' },
+      cancelled: { label: '取消', color: 'bg-gray-100 text-gray-500' },
       pending: { label: '未確認', color: 'bg-yellow-100 text-yellow-700' },
       matched: { label: '確認済', color: 'bg-blue-100 text-blue-700' },
       applied: { label: '入金済', color: 'bg-green-100 text-green-700' },
       unmatched: { label: '不明', color: 'bg-red-100 text-red-700' },
-      cancelled: { label: '取消', color: 'bg-gray-100 text-gray-500' },
     };
     const conf = config[status] || { label: status, color: 'bg-gray-100 text-gray-700' };
     return <Badge className={conf.color}>{conf.label}</Badge>;
@@ -464,7 +603,7 @@ export default function PaymentMatchingPage() {
           </div>
           <h1 className="text-3xl font-bold text-gray-900 mb-2">入金消込</h1>
           <p className="text-gray-600">
-            振込データの取込と入金消込を行います
+            振込データの取込・照合・手動入金登録を行います
           </p>
         </div>
 
@@ -482,12 +621,15 @@ export default function PaymentMatchingPage() {
               <Upload className="w-4 h-4" />
               振込取込
             </TabsTrigger>
+            <TabsTrigger value="manual" className="flex items-center gap-2">
+              <PlusCircle className="w-4 h-4" />
+              手動入金
+            </TabsTrigger>
           </TabsList>
 
           {/* 未消込入金タブ */}
           <TabsContent value="unmatched" className="flex-1 flex flex-col overflow-auto">
-            {/* 説明カード */}
-            <Card className="mb-6 bg-blue-50 border-blue-200">
+            <Card className="mb-4 bg-blue-50 border-blue-200">
               <CardContent className="p-4">
                 <div className="flex items-start gap-3">
                   <AlertCircle className="w-5 h-5 text-blue-600 mt-0.5" />
@@ -495,7 +637,6 @@ export default function PaymentMatchingPage() {
                     <p className="font-medium text-blue-900">入金消込について</p>
                     <p className="text-sm text-blue-700 mt-1">
                       銀行振込などで入金された金額を、対応する請求書と紐付けます。
-                      振込名義と金額をもとに自動で候補を表示します。
                     </p>
                   </div>
                 </div>
@@ -518,12 +659,10 @@ export default function PaymentMatchingPage() {
                 <div className="flex flex-col items-center justify-center h-64 text-gray-500">
                   <CheckCircle className="w-12 h-12 text-green-400 mb-4" />
                   <p className="text-lg font-medium">未消込の入金はありません</p>
-                  <p className="text-sm">全ての入金が請求書に紐付けられています</p>
                 </div>
               </Card>
             ) : (
               <div className="space-y-6">
-                {/* 未確認の振込データ（インポート分） */}
                 {pendingTransferCount > 0 && (
                   <Card>
                     <CardHeader className="pb-2">
@@ -546,34 +685,22 @@ export default function PaymentMatchingPage() {
                         </TableHeader>
                         <TableBody>
                           {pendingTransfers.map((transfer) => (
-                            <TableRow key={transfer.id} className="hover:bg-gray-50">
-                              <TableCell className="text-sm">
-                                {formatDate(transfer.transferDate)}
-                              </TableCell>
-                              <TableCell className="font-mono text-sm">
+                            <TableRow key={transfer.id}>
+                              <TableCell>{formatDate(transfer.transferDate)}</TableCell>
+                              <TableCell>
                                 {transfer.guardianNoHint ? (
                                   <button
                                     onClick={() => handleIdClick(transfer.guardianNoHint!)}
-                                    className="text-blue-600 hover:text-blue-800 hover:underline cursor-pointer"
+                                    className="text-blue-600 hover:underline"
                                   >
                                     {transfer.guardianNoHint}
                                   </button>
-                                ) : (
-                                  <span className="text-gray-400">-</span>
-                                )}
+                                ) : '-'}
                               </TableCell>
-                              <TableCell className="font-medium">
-                                {transfer.payerName || "-"}
-                              </TableCell>
-                              <TableCell className="text-right font-medium">
-                                {formatAmount(transfer.amount)}
-                              </TableCell>
+                              <TableCell className="font-medium">{transfer.payerName || "-"}</TableCell>
+                              <TableCell className="text-right font-medium">{formatAmount(transfer.amount)}</TableCell>
                               <TableCell>
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  onClick={() => openTransferMatchDialog(transfer)}
-                                >
+                                <Button size="sm" variant="outline" onClick={() => openTransferMatchDialog(transfer)}>
                                   <LinkIcon className="w-3 h-3 mr-1" />
                                   照合
                                 </Button>
@@ -586,70 +713,31 @@ export default function PaymentMatchingPage() {
                   </Card>
                 )}
 
-                {/* 既存の未消込入金（Paymentデータ） */}
                 {paymentCount > 0 && (
                   <Card>
                     <CardHeader className="pb-2">
-                      <CardTitle className="text-lg">
-                        その他の未消込入金
-                        <Badge variant="outline" className="ml-2">{paymentCount}件</Badge>
-                      </CardTitle>
+                      <CardTitle className="text-lg">その他の未消込入金 <Badge variant="outline">{paymentCount}件</Badge></CardTitle>
                     </CardHeader>
                     <div className="overflow-auto">
                       <Table>
                         <TableHeader>
                           <TableRow>
-                            <TableHead className="w-[120px]">入金番号</TableHead>
-                            <TableHead className="w-[100px]">入金日</TableHead>
+                            <TableHead>入金番号</TableHead>
+                            <TableHead>入金日</TableHead>
                             <TableHead>振込名義</TableHead>
-                            <TableHead className="w-[120px] text-right">金額</TableHead>
-                            <TableHead className="w-[100px]">入金方法</TableHead>
-                            <TableHead className="w-[100px]">ステータス</TableHead>
-                            <TableHead className="w-[100px]">操作</TableHead>
+                            <TableHead className="text-right">金額</TableHead>
+                            <TableHead>操作</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
                           {payments.map((payment) => (
-                            <TableRow key={payment.id} className="hover:bg-gray-50">
-                              <TableCell className="font-mono text-sm">
-                                {payment.payment_no}
-                              </TableCell>
+                            <TableRow key={payment.id}>
+                              <TableCell className="font-mono text-sm">{payment.payment_no}</TableCell>
                               <TableCell>{formatDate(payment.payment_date)}</TableCell>
-                              <TableCell className="font-medium">
-                                {payment.payer_name || "-"}
-                                {payment.bank_name && (
-                                  <span className="text-sm text-gray-500 ml-2">
-                                    ({payment.bank_name})
-                                  </span>
-                                )}
-                              </TableCell>
-                              <TableCell className="text-right font-medium">
-                                ¥{Number(payment.amount).toLocaleString()}
-                              </TableCell>
+                              <TableCell>{payment.payer_name || "-"}</TableCell>
+                              <TableCell className="text-right font-medium">¥{Number(payment.amount).toLocaleString()}</TableCell>
                               <TableCell>
-                                <Badge variant="outline">
-                                  {payment.method_display || payment.method}
-                                </Badge>
-                              </TableCell>
-                              <TableCell>
-                                <Badge
-                                  className={
-                                    payment.status === "success"
-                                      ? "bg-green-100 text-green-700"
-                                      : payment.status === "pending"
-                                      ? "bg-yellow-100 text-yellow-700"
-                                      : "bg-gray-100 text-gray-700"
-                                  }
-                                >
-                                  {payment.status_display || payment.status}
-                                </Badge>
-                              </TableCell>
-                              <TableCell>
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  onClick={() => openMatchDialog(payment)}
-                                >
+                                <Button variant="outline" size="sm" onClick={() => openMatchDialog(payment)}>
                                   <Target className="w-4 h-4 mr-1" />
                                   消込
                                 </Button>
@@ -668,7 +756,6 @@ export default function PaymentMatchingPage() {
           {/* 振込取込タブ */}
           <TabsContent value="import" className="mt-0">
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-[calc(100vh-280px)]">
-              {/* インポートバッチ一覧 */}
               <Card className="flex flex-col overflow-hidden">
                 <CardHeader className="pb-2">
                   <div className="flex justify-between items-center">
@@ -680,11 +767,7 @@ export default function PaymentMatchingPage() {
                       <Button size="sm" variant="outline" onClick={loadImportBatches}>
                         <RefreshCw className="w-4 h-4" />
                       </Button>
-                      <Button size="sm" onClick={() => {
-                        setImportFile(null);
-                        setImportResult(null);
-                        setImportDialogOpen(true);
-                      }}>
+                      <Button size="sm" onClick={() => { setImportFile(null); setImportResult(null); setImportDialogOpen(true); }}>
                         <Upload className="w-4 h-4 mr-1" />
                         取込
                       </Button>
@@ -701,22 +784,15 @@ export default function PaymentMatchingPage() {
                       {importBatches.map((batch) => (
                         <div
                           key={batch.id}
-                          className={`p-3 hover:bg-gray-50 cursor-pointer transition-colors ${
-                            selectedBatch?.id === batch.id ? 'bg-blue-50 border-l-4 border-blue-500' : ''
-                          }`}
-                          onClick={() => {
-                            console.log('[Click] Batch clicked:', batch.id, batch.fileName);
-                            loadBatchDetail(batch.id);
-                          }}
+                          className={`p-3 hover:bg-gray-50 cursor-pointer ${selectedBatch?.id === batch.id ? 'bg-blue-50 border-l-4 border-blue-500' : ''}`}
+                          onClick={() => loadBatchDetail(batch.id)}
                         >
                           <div className="flex justify-between items-start">
                             <div>
                               <p className="font-medium text-sm">{batch.fileName}</p>
-                              <p className="text-xs text-gray-500 mt-1">
-                                {formatDate(batch.importedAt)}
-                              </p>
+                              <p className="text-xs text-gray-500 mt-1">{formatDate(batch.importedAt)}</p>
                             </div>
-                            {getTransferStatusBadge(batch.status)}
+                            {getStatusBadge(batch.status)}
                           </div>
                           <div className="flex gap-4 mt-2 text-xs text-gray-600">
                             <span>総件数: {batch.totalCount}</span>
@@ -730,130 +806,66 @@ export default function PaymentMatchingPage() {
                     <div className="flex flex-col items-center justify-center h-32 text-gray-500">
                       <FileSpreadsheet className="w-8 h-8 mb-2 text-gray-300" />
                       <p>取込履歴がありません</p>
-                      <Button
-                        size="sm"
-                        className="mt-2"
-                        onClick={() => setImportDialogOpen(true)}
-                      >
-                        <Upload className="w-4 h-4 mr-1" />
-                        ファイルを取込
-                      </Button>
                     </div>
                   )}
                 </CardContent>
               </Card>
 
-              {/* 振込データ一覧 */}
               <Card className="lg:col-span-2 flex flex-col overflow-hidden">
                 <CardHeader className="pb-2">
                   <div className="flex justify-between items-center">
-                    <CardTitle className="text-lg flex items-center gap-2">
-                      振込データ
-                      {selectedBatch && (
-                        <span className="text-sm font-normal text-gray-500">
-                          - {selectedBatch.fileName}
-                        </span>
-                      )}
+                    <CardTitle className="text-lg">
+                      振込データ {selectedBatch && <span className="text-sm font-normal text-gray-500">- {selectedBatch.fileName}</span>}
                     </CardTitle>
                     {selectedBatch && !selectedBatch.confirmedAt && selectedBatch.matchedCount > 0 && (
                       <Button size="sm" onClick={handleConfirmBatch}>
                         <CheckCircle className="w-4 h-4 mr-1" />
-                        確定して入金処理
+                        確定
                       </Button>
                     )}
                   </div>
                 </CardHeader>
                 <CardContent className="flex-1 overflow-auto p-0">
-                  {selectedBatch ? (
-                    selectedBatch.transfers && selectedBatch.transfers.length > 0 ? (
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead className="w-[100px]">振込日</TableHead>
-                            <TableHead className="w-[90px]">ID番号</TableHead>
-                            <TableHead>振込人名義</TableHead>
-                            <TableHead className="text-right">金額</TableHead>
-                            <TableHead className="w-[80px]">状態</TableHead>
-                            <TableHead>照合先</TableHead>
-                            <TableHead className="w-[80px]">操作</TableHead>
+                  {selectedBatch?.transfers?.length ? (
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>振込日</TableHead>
+                          <TableHead>ID番号</TableHead>
+                          <TableHead>振込人名義</TableHead>
+                          <TableHead className="text-right">金額</TableHead>
+                          <TableHead>状態</TableHead>
+                          <TableHead>照合先</TableHead>
+                          <TableHead>操作</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {selectedBatch.transfers.map((transfer) => (
+                          <TableRow key={transfer.id}>
+                            <TableCell>{formatDate(transfer.transferDate)}</TableCell>
+                            <TableCell>
+                              {transfer.guardianNoHint ? (
+                                <button onClick={() => handleIdClick(transfer.guardianNoHint!)} className="text-blue-600 hover:underline">
+                                  {transfer.guardianNoHint}
+                                </button>
+                              ) : '-'}
+                            </TableCell>
+                            <TableCell>{transfer.payerName}</TableCell>
+                            <TableCell className="text-right font-medium">{formatAmount(transfer.amount)}</TableCell>
+                            <TableCell>{getStatusBadge(transfer.status)}</TableCell>
+                            <TableCell>{transfer.guardianName || '-'}</TableCell>
+                            <TableCell>
+                              {transfer.status === 'pending' && (
+                                <Button size="sm" variant="outline" onClick={() => openTransferMatchDialog(transfer)}>
+                                  <LinkIcon className="w-3 h-3 mr-1" />
+                                  照合
+                                </Button>
+                              )}
+                            </TableCell>
                           </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {selectedBatch.transfers.map((transfer) => (
-                            <TableRow key={transfer.id}>
-                              <TableCell className="text-sm">
-                                {formatDate(transfer.transferDate)}
-                              </TableCell>
-                              <TableCell className="font-mono text-sm">
-                                {transfer.guardianNoHint ? (
-                                  <button
-                                    onClick={() => handleIdClick(transfer.guardianNoHint!)}
-                                    className="text-blue-600 hover:text-blue-800 hover:underline cursor-pointer"
-                                  >
-                                    {transfer.guardianNoHint}
-                                  </button>
-                                ) : (
-                                  <span className="text-gray-400">-</span>
-                                )}
-                              </TableCell>
-                              <TableCell>
-                                <div>
-                                  <p className="font-medium">{transfer.payerName}</p>
-                                  {transfer.payerNameKana && transfer.payerNameKana !== transfer.payerName && (
-                                    <p className="text-xs text-gray-500">{transfer.payerNameKana}</p>
-                                  )}
-                                </div>
-                              </TableCell>
-                              <TableCell className="text-right font-medium">
-                                {formatAmount(transfer.amount)}
-                              </TableCell>
-                              <TableCell>
-                                {getTransferStatusBadge(transfer.status)}
-                              </TableCell>
-                              <TableCell>
-                                {transfer.guardianName ? (
-                                  <div>
-                                    <p className="font-medium text-sm">{transfer.guardianName}</p>
-                                    {transfer.invoiceNo && (
-                                      <p className="text-xs text-gray-500">{transfer.invoiceNo}</p>
-                                    )}
-                                  </div>
-                                ) : (
-                                  <span className="text-gray-400">-</span>
-                                )}
-                              </TableCell>
-                              <TableCell>
-                                {transfer.status === 'pending' && (
-                                  <Button
-                                    size="sm"
-                                    variant="outline"
-                                    onClick={() => openTransferMatchDialog(transfer)}
-                                  >
-                                    <LinkIcon className="w-3 h-3 mr-1" />
-                                    照合
-                                  </Button>
-                                )}
-                                {transfer.status === 'matched' && (
-                                  <Button
-                                    size="sm"
-                                    variant="default"
-                                    onClick={() => openTransferMatchDialog(transfer)}
-                                  >
-                                    <Check className="w-3 h-3 mr-1" />
-                                    入金
-                                  </Button>
-                                )}
-                              </TableCell>
-                            </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-                    ) : (
-                      <div className="flex flex-col items-center justify-center h-32 text-gray-500">
-                        <FileSpreadsheet className="w-8 h-8 mb-2 text-gray-300" />
-                        <p>振込データがありません</p>
-                      </div>
-                    )
+                        ))}
+                      </TableBody>
+                    </Table>
                   ) : (
                     <div className="flex flex-col items-center justify-center h-32 text-gray-500">
                       <FileSpreadsheet className="w-8 h-8 mb-2 text-gray-300" />
@@ -864,9 +876,125 @@ export default function PaymentMatchingPage() {
               </Card>
             </div>
           </TabsContent>
+
+          {/* 手動入金タブ */}
+          <TabsContent value="manual" className="mt-0">
+            <Card className="mb-4">
+              <CardContent className="p-4">
+                <div className="flex gap-3">
+                  <div className="relative flex-1">
+                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
+                    <Input
+                      type="text"
+                      placeholder="生徒名・保護者名・電話番号で検索..."
+                      value={manualSearchQuery}
+                      onChange={(e) => setManualSearchQuery(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter') handleManualSearch(); }}
+                      className="pl-10"
+                    />
+                  </div>
+                  <Button onClick={handleManualSearch} disabled={manualSearching}>
+                    {manualSearching ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Search className="w-4 h-4 mr-2" />}
+                    検索
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 h-[calc(100vh-340px)]">
+              <Card className="flex flex-col overflow-hidden">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-lg flex items-center gap-2">
+                    <User className="w-5 h-5" />
+                    検索結果
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="flex-1 overflow-auto p-0">
+                  {manualSearching ? (
+                    <div className="flex items-center justify-center h-32">
+                      <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
+                    </div>
+                  ) : manualSearchResults.length > 0 ? (
+                    <div className="divide-y">
+                      {manualSearchResults.map((result) => (
+                        <div
+                          key={`${result.type}-${result.id}`}
+                          className={`p-3 hover:bg-gray-50 cursor-pointer ${selectedResult?.id === result.id ? 'bg-blue-50 border-l-4 border-blue-500' : ''}`}
+                          onClick={() => handleSelectResult(result)}
+                        >
+                          <div className="flex items-center gap-2">
+                            <Badge variant="outline" className={result.type === 'student' ? 'bg-blue-50' : ''}>
+                              {result.type === 'guardian' ? '保護者' : '生徒'}
+                            </Badge>
+                            <span className="font-medium">{result.name}</span>
+                          </div>
+                          {result.kana && <p className="text-xs text-gray-500 mt-0.5">{result.kana}</p>}
+                          <p className="text-xs text-gray-500 mt-1">請求書: {result.invoices.length}件</p>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="flex flex-col items-center justify-center h-32 text-gray-500">
+                      <Search className="w-8 h-8 mb-2 text-gray-300" />
+                      <p>生徒名・保護者名で検索してください</p>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
+              <Card className="flex flex-col overflow-hidden">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-lg flex items-center gap-2">
+                    <Receipt className="w-5 h-5" />
+                    請求書一覧
+                    {selectedResult && <span className="text-sm font-normal text-gray-500">- {selectedResult.name}</span>}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="flex-1 overflow-auto p-0">
+                  {selectedResult?.invoices.length ? (
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>請求月</TableHead>
+                          <TableHead>状態</TableHead>
+                          <TableHead className="text-right">請求額</TableHead>
+                          <TableHead className="text-right">未払額</TableHead>
+                          <TableHead>操作</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {selectedResult.invoices.map((invoice) => {
+                          const balanceDue = Number(invoice.balance_due || invoice.balanceDue || 0);
+                          return (
+                            <TableRow key={invoice.id}>
+                              <TableCell>{invoice.billing_year || invoice.billingYear}/{(invoice.billing_month || invoice.billingMonth || 0).toString().padStart(2, '0')}</TableCell>
+                              <TableCell>{getStatusBadge(invoice.status || 'draft')}</TableCell>
+                              <TableCell className="text-right">{formatAmount(invoice.total_amount || invoice.totalAmount)}</TableCell>
+                              <TableCell className={`text-right ${balanceDue > 0 ? 'text-red-600 font-medium' : ''}`}>{formatAmount(balanceDue)}</TableCell>
+                              <TableCell>
+                                <Button size="sm" variant={balanceDue > 0 ? 'default' : 'outline'} onClick={() => openManualPaymentDialog(invoice)}>
+                                  <CreditCard className="w-3 h-3 mr-1" />
+                                  入金
+                                </Button>
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })}
+                      </TableBody>
+                    </Table>
+                  ) : (
+                    <div className="flex flex-col items-center justify-center h-32 text-gray-500">
+                      <Receipt className="w-8 h-8 mb-2 text-gray-300" />
+                      <p>{selectedResult ? '請求書がありません' : '左側から対象を選択してください'}</p>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
+          </TabsContent>
         </Tabs>
 
-        {/* 消込ダイアログ（未消込入金用） */}
+        {/* 消込ダイアログ */}
         <Dialog open={matchDialogOpen} onOpenChange={setMatchDialogOpen}>
           <DialogContent className="max-w-2xl">
             <DialogHeader>
@@ -875,37 +1003,18 @@ export default function PaymentMatchingPage() {
                 入金消込
               </DialogTitle>
             </DialogHeader>
-
             {selectedPayment && (
               <div className="space-y-4">
                 <Card className="bg-blue-50 border-blue-200">
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-sm text-blue-900">消込対象の入金</CardTitle>
-                  </CardHeader>
-                  <CardContent className="pt-0">
+                  <CardContent className="p-3">
                     <div className="grid grid-cols-2 gap-4 text-sm">
-                      <div>
-                        <span className="text-blue-700">入金番号:</span>
-                        <span className="font-medium ml-2">{selectedPayment.payment_no}</span>
-                      </div>
-                      <div>
-                        <span className="text-blue-700">入金日:</span>
-                        <span className="font-medium ml-2">{formatDate(selectedPayment.payment_date)}</span>
-                      </div>
-                      <div>
-                        <span className="text-blue-700">振込名義:</span>
-                        <span className="font-medium ml-2">{selectedPayment.payer_name || "-"}</span>
-                      </div>
-                      <div>
-                        <span className="text-blue-700">金額:</span>
-                        <span className="font-bold ml-2 text-blue-900">
-                          ¥{Number(selectedPayment.amount).toLocaleString()}
-                        </span>
-                      </div>
+                      <div><span className="text-blue-700">入金番号:</span> <span className="font-medium">{selectedPayment.payment_no}</span></div>
+                      <div><span className="text-blue-700">入金日:</span> <span className="font-medium">{formatDate(selectedPayment.payment_date)}</span></div>
+                      <div><span className="text-blue-700">振込名義:</span> <span className="font-medium">{selectedPayment.payer_name || "-"}</span></div>
+                      <div><span className="text-blue-700">金額:</span> <span className="font-bold text-blue-900">¥{Number(selectedPayment.amount).toLocaleString()}</span></div>
                     </div>
                   </CardContent>
                 </Card>
-
                 <div>
                   <h4 className="font-medium mb-2">消込候補の請求書</h4>
                   {loadingCandidates ? (
@@ -915,66 +1024,22 @@ export default function PaymentMatchingPage() {
                   ) : candidates.length > 0 ? (
                     <div className="space-y-2 max-h-[300px] overflow-auto">
                       {candidates.map((candidate) => (
-                        <Card
-                          key={candidate.invoice.id}
-                          className={`cursor-pointer transition-all hover:border-blue-400 ${
-                            candidate.match_score >= 100 ? "border-green-300 bg-green-50" : ""
-                          }`}
-                        >
-                          <CardContent className="p-3">
-                            <div className="flex items-center justify-between">
-                              <div className="flex-1">
-                                <div className="flex items-center gap-2 mb-1">
-                                  <span className="font-mono text-sm">
-                                    {candidate.invoice.invoice_no || candidate.invoice.invoiceNo}
-                                  </span>
-                                  <Badge
-                                    className={
-                                      candidate.match_score >= 100
-                                        ? "bg-green-100 text-green-700"
-                                        : "bg-yellow-100 text-yellow-700"
-                                    }
-                                  >
-                                    {candidate.match_reason}
-                                  </Badge>
-                                </div>
-                                <div className="text-sm text-gray-600">
-                                  <span>
-                                    {candidate.invoice.guardian?.full_name ||
-                                      (candidate.invoice as any).guardian_name ||
-                                      "-"}
-                                  </span>
-                                  <span className="mx-2">|</span>
-                                  <span>
-                                    {candidate.invoice.billing_month ||
-                                      (candidate.invoice as any).billingMonth}
-                                  </span>
-                                  <span className="mx-2">|</span>
-                                  <span className="font-medium">
-                                    未払: ¥
-                                    {Number(
-                                      candidate.invoice.balance_due ||
-                                        (candidate.invoice as any).balanceDue ||
-                                        0
-                                    ).toLocaleString()}
-                                  </span>
-                                </div>
+                        <Card key={candidate.invoice.id} className={`cursor-pointer hover:border-blue-400 ${candidate.match_score >= 100 ? "border-green-300 bg-green-50" : ""}`}>
+                          <CardContent className="p-3 flex items-center justify-between">
+                            <div>
+                              <div className="flex items-center gap-2 mb-1">
+                                <span className="font-mono text-sm">{candidate.invoice.invoice_no || candidate.invoice.invoiceNo}</span>
+                                <Badge className={candidate.match_score >= 100 ? "bg-green-100 text-green-700" : "bg-yellow-100 text-yellow-700"}>
+                                  {candidate.match_reason}
+                                </Badge>
                               </div>
-                              <Button
-                                size="sm"
-                                onClick={() => handleMatch(candidate.invoice.id)}
-                                disabled={matchingInvoice !== null}
-                              >
-                                {matchingInvoice === candidate.invoice.id ? (
-                                  <Loader2 className="w-4 h-4 animate-spin" />
-                                ) : (
-                                  <>
-                                    <CheckCircle className="w-4 h-4 mr-1" />
-                                    消込
-                                  </>
-                                )}
-                              </Button>
+                              <div className="text-sm text-gray-600">
+                                未払: ¥{Number(candidate.invoice.balance_due || (candidate.invoice as any).balanceDue || 0).toLocaleString()}
+                              </div>
                             </div>
+                            <Button size="sm" onClick={() => handleMatch(candidate.invoice.id)} disabled={matchingInvoice !== null}>
+                              {matchingInvoice === candidate.invoice.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <><CheckCircle className="w-4 h-4 mr-1" />消込</>}
+                            </Button>
                           </CardContent>
                         </Card>
                       ))}
@@ -983,17 +1048,13 @@ export default function PaymentMatchingPage() {
                     <div className="text-center py-8 text-gray-500">
                       <AlertCircle className="w-8 h-8 mx-auto mb-2 text-gray-400" />
                       <p>消込候補が見つかりませんでした</p>
-                      <p className="text-sm">請求一覧から手動で選択してください</p>
                     </div>
                   )}
                 </div>
               </div>
             )}
-
             <DialogFooter>
-              <Button variant="outline" onClick={() => setMatchDialogOpen(false)}>
-                閉じる
-              </Button>
+              <Button variant="outline" onClick={() => setMatchDialogOpen(false)}>閉じる</Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
@@ -1007,77 +1068,34 @@ export default function PaymentMatchingPage() {
                 振込データ取込
               </DialogTitle>
             </DialogHeader>
-
             <div className="space-y-4 py-4">
               <div>
                 <Label>ファイル選択</Label>
                 <div className="mt-2 border-2 border-dashed border-gray-200 rounded-lg p-6 text-center">
-                  <input
-                    type="file"
-                    accept=".csv,.xlsx,.xls"
-                    onChange={(e) => setImportFile(e.target.files?.[0] || null)}
-                    className="hidden"
-                    id="import-file"
-                  />
+                  <input type="file" accept=".csv,.xlsx,.xls" onChange={(e) => setImportFile(e.target.files?.[0] || null)} className="hidden" id="import-file" />
                   <label htmlFor="import-file" className="cursor-pointer">
                     <FileSpreadsheet className="w-12 h-12 mx-auto text-gray-400 mb-2" />
-                    <p className="text-sm text-gray-600">
-                      {importFile ? importFile.name : 'クリックしてファイルを選択'}
-                    </p>
-                    <p className="text-xs text-gray-400 mt-1">
-                      銀行からダウンロードしたCSVファイルをそのまま取込できます
-                    </p>
+                    <p className="text-sm text-gray-600">{importFile ? importFile.name : 'クリックしてファイルを選択'}</p>
                   </label>
                 </div>
               </div>
-
               {importResult && (
-                <div className={`p-3 rounded-lg ${
-                  importResult.success
-                    ? 'bg-green-50 text-green-800'
-                    : 'bg-red-50 text-red-800'
-                }`}>
+                <div className={`p-3 rounded-lg ${importResult.success ? 'bg-green-50 text-green-800' : 'bg-red-50 text-red-800'}`}>
                   {importResult.success ? (
                     <div>
-                      <p className="font-medium flex items-center gap-2">
-                        <CheckCircle className="w-5 h-5" />
-                        取込完了
-                      </p>
-                      <div className="mt-2 text-sm space-y-1">
-                        <p>取込件数: {importResult.total_count}件</p>
-                        <p>自動照合: {importResult.auto_matched_count}件</p>
-                        {(importResult.error_count ?? 0) > 0 && (
-                          <p className="text-red-600">エラー: {importResult.error_count}件</p>
-                        )}
-                      </div>
+                      <p className="font-medium flex items-center gap-2"><CheckCircle className="w-5 h-5" />取込完了</p>
+                      <p className="text-sm mt-2">取込件数: {importResult.total_count}件 / 自動照合: {importResult.auto_matched_count}件</p>
                     </div>
                   ) : (
-                    <p className="flex items-center gap-2">
-                      <AlertCircle className="w-5 h-5" />
-                      取込に失敗しました
-                    </p>
+                    <p className="flex items-center gap-2"><AlertCircle className="w-5 h-5" />取込に失敗しました</p>
                   )}
                 </div>
               )}
             </div>
-
             <DialogFooter>
-              <Button
-                variant="outline"
-                onClick={() => setImportDialogOpen(false)}
-                disabled={importing}
-              >
-                閉じる
-              </Button>
-              <Button
-                onClick={handleImport}
-                disabled={importing || !importFile}
-              >
-                {importing ? (
-                  <Loader2 className="w-4 h-4 animate-spin mr-2" />
-                ) : (
-                  <Upload className="w-4 h-4 mr-2" />
-                )}
+              <Button variant="outline" onClick={() => setImportDialogOpen(false)} disabled={importing}>閉じる</Button>
+              <Button onClick={handleImport} disabled={importing || !importFile}>
+                {importing ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Upload className="w-4 h-4 mr-2" />}
                 取込開始
               </Button>
             </DialogFooter>
@@ -1093,106 +1111,53 @@ export default function PaymentMatchingPage() {
                 振込データの照合
               </DialogTitle>
             </DialogHeader>
-
             <div className="space-y-4 py-4">
               {matchingTransfer && (
                 <Card className="bg-gray-50">
                   <CardContent className="p-3">
                     <div className="grid grid-cols-3 gap-2 text-sm">
-                      <div>
-                        <span className="text-gray-500">振込日:</span>
-                        <span className="font-medium ml-2">
-                          {formatDate(matchingTransfer.transferDate)}
-                        </span>
-                      </div>
-                      <div>
-                        <span className="text-gray-500">金額:</span>
-                        <span className="font-medium ml-2">
-                          {formatAmount(matchingTransfer.amount)}
-                        </span>
-                      </div>
-                      <div>
-                        <span className="text-gray-500">振込人:</span>
-                        <span className="font-medium ml-2">{matchingTransfer.payerName}</span>
-                      </div>
+                      <div><span className="text-gray-500">振込日:</span> <span className="font-medium">{formatDate(matchingTransfer.transferDate)}</span></div>
+                      <div><span className="text-gray-500">金額:</span> <span className="font-medium">{formatAmount(matchingTransfer.amount)}</span></div>
+                      <div><span className="text-gray-500">振込人:</span> <span className="font-medium">{matchingTransfer.payerName}</span></div>
                     </div>
                   </CardContent>
                 </Card>
               )}
-
               <div>
                 <Label>保護者検索</Label>
                 <div className="flex gap-2 mt-1">
-                  <Input
-                    value={guardianSearchQuery}
-                    onChange={(e) => setGuardianSearchQuery(e.target.value)}
-                    placeholder="保護者名で検索..."
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') handleSearchGuardians();
-                    }}
-                  />
-                  <Button
-                    variant="outline"
-                    onClick={handleSearchGuardians}
-                    disabled={searchingGuardians}
-                  >
-                    {searchingGuardians ? (
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                    ) : (
-                      <Search className="w-4 h-4" />
-                    )}
+                  <Input value={guardianSearchQuery} onChange={(e) => setGuardianSearchQuery(e.target.value)} placeholder="保護者名で検索..." onKeyDown={(e) => { if (e.key === 'Enter') handleSearchGuardians(); }} />
+                  <Button variant="outline" onClick={handleSearchGuardians} disabled={searchingGuardians}>
+                    {searchingGuardians ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
                   </Button>
                 </div>
               </div>
-
               <div className="border rounded-lg max-h-64 overflow-auto">
                 {guardianSearchResults.length > 0 ? (
                   <div className="divide-y">
                     {guardianSearchResults.map((guardian) => (
                       <div
                         key={guardian.guardianId}
-                        className={`p-3 hover:bg-gray-50 cursor-pointer ${
-                          selectedGuardian?.guardianId === guardian.guardianId
-                            ? 'bg-blue-50 border-l-4 border-blue-500'
-                            : ''
-                        }`}
-                        onClick={() => {
-                          setSelectedGuardian(guardian);
-                          setSelectedMatchInvoice(null);
-                        }}
+                        className={`p-3 hover:bg-gray-50 cursor-pointer ${selectedGuardian?.guardianId === guardian.guardianId ? 'bg-blue-50 border-l-4 border-blue-500' : ''}`}
+                        onClick={() => { setSelectedGuardian(guardian); setSelectedMatchInvoice(null); }}
                       >
                         <div className="flex justify-between items-start">
                           <div>
                             <p className="font-medium">{guardian.guardianName}</p>
-                            {guardian.guardianNameKana && (
-                              <p className="text-xs text-gray-500">{guardian.guardianNameKana}</p>
-                            )}
+                            {guardian.guardianNameKana && <p className="text-xs text-gray-500">{guardian.guardianNameKana}</p>}
                           </div>
-                          {selectedGuardian?.guardianId === guardian.guardianId && (
-                            <Check className="w-5 h-5 text-blue-500" />
-                          )}
+                          {selectedGuardian?.guardianId === guardian.guardianId && <Check className="w-5 h-5 text-blue-500" />}
                         </div>
                         {guardian.invoices.length > 0 && selectedGuardian?.guardianId === guardian.guardianId && (
                           <div className="mt-2 space-y-1">
                             {guardian.invoices.map((inv) => (
                               <div
                                 key={inv.invoiceId}
-                                className={`p-2 rounded text-sm flex justify-between items-center ${
-                                  selectedMatchInvoice === inv.invoiceId
-                                    ? 'bg-blue-100'
-                                    : 'bg-gray-100 hover:bg-gray-200'
-                                }`}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setSelectedMatchInvoice(
-                                    selectedMatchInvoice === inv.invoiceId ? null : inv.invoiceId
-                                  );
-                                }}
+                                className={`p-2 rounded text-sm flex justify-between ${selectedMatchInvoice === inv.invoiceId ? 'bg-blue-100' : 'bg-gray-100 hover:bg-gray-200'}`}
+                                onClick={(e) => { e.stopPropagation(); setSelectedMatchInvoice(selectedMatchInvoice === inv.invoiceId ? null : inv.invoiceId); }}
                               >
                                 <span>{inv.billingLabel}</span>
-                                <span className={inv.balanceDue > 0 ? 'text-red-600' : ''}>
-                                  未払: {formatAmount(inv.balanceDue)}
-                                </span>
+                                <span className={inv.balanceDue > 0 ? 'text-red-600' : ''}>未払: {formatAmount(inv.balanceDue)}</span>
                               </div>
                             ))}
                           </div>
@@ -1207,41 +1172,81 @@ export default function PaymentMatchingPage() {
                   </div>
                 )}
               </div>
-            </div>
-
-            <DialogFooter className="flex gap-2">
-              <Button
-                variant="outline"
-                onClick={() => setTransferMatchDialogOpen(false)}
-                disabled={matching}
-              >
-                キャンセル
-              </Button>
-              {/* 照合済みの場合は「入金確認（未消込）」ボタンを表示 */}
-              {matchingTransfer?.status === 'matched' && (
-                <Button
-                  variant="secondary"
-                  onClick={handleConfirmPaymentOnly}
-                  disabled={matching}
-                >
-                  {matching ? (
-                    <Loader2 className="w-4 h-4 animate-spin mr-2" />
-                  ) : (
-                    <Check className="w-4 h-4 mr-2" />
-                  )}
-                  入金確認（未消込）
-                </Button>
+              {matchError && (
+                <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4" />
+                  {matchError}
+                </div>
               )}
-              <Button
-                onClick={handleTransferMatch}
-                disabled={matching || !selectedGuardian}
-              >
-                {matching ? (
-                  <Loader2 className="w-4 h-4 animate-spin mr-2" />
-                ) : (
-                  <Check className="w-4 h-4 mr-2" />
-                )}
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setTransferMatchDialogOpen(false)} disabled={matching}>キャンセル</Button>
+              <Button onClick={handleTransferMatch} disabled={matching || !selectedGuardian}>
+                {matching ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Check className="w-4 h-4 mr-2" />}
                 {selectedMatchInvoice ? '照合して入金処理' : '照合のみ'}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* 手動入金登録ダイアログ */}
+        <Dialog open={manualPaymentDialogOpen} onOpenChange={setManualPaymentDialogOpen}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <CreditCard className="w-5 h-5" />
+                振込入金登録
+              </DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4 py-4">
+              <Card className="bg-gray-50">
+                <CardContent className="p-3">
+                  <div className="grid grid-cols-2 gap-2 text-sm">
+                    <div><span className="text-gray-500">対象:</span> <span className="font-medium">{selectedResult?.name}</span></div>
+                    {selectedInvoice && (
+                      <>
+                        <div><span className="text-gray-500">請求月:</span> <span className="font-medium">{selectedInvoice.billing_year || selectedInvoice.billingYear}/{(selectedInvoice.billing_month || selectedInvoice.billingMonth || 0).toString().padStart(2, '0')}</span></div>
+                        <div><span className="text-gray-500">請求額:</span> <span className="font-medium">{formatAmount(selectedInvoice.total_amount || selectedInvoice.totalAmount)}</span></div>
+                        <div><span className="text-gray-500">未払額:</span> <span className="font-medium text-red-600">{formatAmount(selectedInvoice.balance_due || selectedInvoice.balanceDue)}</span></div>
+                      </>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label>入金日</Label>
+                  <Input type="date" value={paymentDate} onChange={(e) => setPaymentDate(e.target.value)} className="mt-1" />
+                </div>
+                <div>
+                  <Label>入金額</Label>
+                  <Input type="number" value={paymentAmount} onChange={(e) => setPaymentAmount(e.target.value)} className="mt-1" placeholder="0" />
+                </div>
+              </div>
+              <div>
+                <Label>振込名義</Label>
+                <Input value={payerName} onChange={(e) => setPayerName(e.target.value)} className="mt-1" placeholder="振込人の名義" />
+              </div>
+              <div>
+                <Label>振込元銀行</Label>
+                <Input value={bankName} onChange={(e) => setBankName(e.target.value)} className="mt-1" placeholder="○○銀行 ○○支店" />
+              </div>
+              <div>
+                <Label>備考</Label>
+                <Input value={paymentNotes} onChange={(e) => setPaymentNotes(e.target.value)} className="mt-1" placeholder="メモがあれば入力" />
+              </div>
+              {registerResult && (
+                <div className={`p-3 rounded-lg flex items-center gap-2 ${registerResult.success ? 'bg-green-50 text-green-800' : 'bg-red-50 text-red-800'}`}>
+                  {registerResult.success ? <CheckCircle className="w-5 h-5" /> : <AlertCircle className="w-5 h-5" />}
+                  {registerResult.message}
+                </div>
+              )}
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setManualPaymentDialogOpen(false)} disabled={registering}>キャンセル</Button>
+              <Button onClick={handleRegisterPayment} disabled={registering || !paymentAmount}>
+                {registering ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <CheckCircle className="w-4 h-4 mr-2" />}
+                入金を登録
               </Button>
             </DialogFooter>
           </DialogContent>

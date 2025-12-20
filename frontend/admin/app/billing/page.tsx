@@ -384,15 +384,9 @@ export default function BillingPage() {
             </p>
           </div>
           <div className="flex gap-2">
-            <a href="/billing/transfers">
-              <Button variant="outline">
-                <Banknote className="w-4 h-4 mr-2" />
-                振込入金確認
-              </Button>
-            </a>
             <a href="/billing/payments">
               <Button variant="outline">
-                <Clock className="w-4 h-4 mr-2" />
+                <Banknote className="w-4 h-4 mr-2" />
                 入金消込
               </Button>
             </a>
@@ -822,7 +816,7 @@ export default function BillingPage() {
                         <div className="col-span-2">総金額: ¥{transferImportResult.total_amount.toLocaleString()}</div>
                       </div>
                       <div className="mt-3 flex gap-2">
-                        <a href={`/billing/transfers?batch=${transferImportResult.batch_id}`}>
+                        <a href={`/billing/payments?tab=import&batch=${transferImportResult.batch_id}`}>
                           <Button size="sm" variant="outline">
                             照合画面へ
                           </Button>
