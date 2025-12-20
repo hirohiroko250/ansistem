@@ -71,14 +71,14 @@ class ProductAdmin(CSVImportExportMixin, admin.ModelAdmin):
     ]
     search_fields = ['product_code', 'product_name']
     ordering = ['sort_order', 'product_code']
-    raw_id_fields = ['brand', 'school', 'grade', 'tenant_ref']
+    raw_id_fields = ['brand', 'grade', 'tenant_ref']
 
     fieldsets = (
         ('基本情報', {
             'fields': ('product_code', 'product_name', 'product_name_short', 'item_type')
         }),
         ('関連', {
-            'fields': ('brand', 'school', 'grade')
+            'fields': ('brand', 'grade')
         }),
         ('価格設定', {
             'fields': ('base_price', 'tax_rate', 'tax_type', 'mile', 'discount_max')
