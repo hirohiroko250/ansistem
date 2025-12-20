@@ -41,7 +41,17 @@ import {
   Percent,
   History,
   Calendar,
+  Edit2,
+  Loader2,
 } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
 import {
   getContracts,
   getBrands,
@@ -49,11 +59,13 @@ import {
   getAllStudentItems,
   getAllStudentDiscounts,
   getOperationHistory,
+  updateStudentDiscount,
   type Contract,
   type Brand,
   type School,
   type StudentItem,
   type StudentDiscount,
+  type StudentDiscountUpdateData,
   type OperationHistoryItem,
 } from "@/lib/api/staff";
 import ContractAgent from "@/components/contract-agent";
@@ -141,6 +153,12 @@ export default function ContractsPage() {
   // Pagination
   const [page, setPage] = useState(1);
   const pageSize = 50;
+
+  // 割引編集ダイアログ
+  const [editDiscountOpen, setEditDiscountOpen] = useState(false);
+  const [editingDiscount, setEditingDiscount] = useState<StudentDiscount | null>(null);
+  const [editDiscountData, setEditDiscountData] = useState<StudentDiscountUpdateData>({});
+  const [savingDiscount, setSavingDiscount] = useState(false);
 
   // タブごとのデータロード状態
   const [tabLoading, setTabLoading] = useState(false);
@@ -414,6 +432,37 @@ export default function ContractsPage() {
     loadTabData(tab, true);
   }
 
+  // 割引編集ダイアログを開く
+  function openEditDiscount(discount: StudentDiscount) {
+    setEditingDiscount(discount);
+    setEditDiscountData({
+      amount: Number(discount.amount),
+      discount_unit: discount.discount_unit as 'fixed' | 'percent',
+      start_date: discount.start_date || undefined,
+      end_date: discount.end_date || undefined,
+      is_active: discount.is_active,
+      notes: discount.notes || '',
+    });
+    setEditDiscountOpen(true);
+  }
+
+  // 割引を保存
+  async function saveDiscount() {
+    if (!editingDiscount) return;
+
+    setSavingDiscount(true);
+    try {
+      await updateStudentDiscount(editingDiscount.id, editDiscountData);
+      setEditDiscountOpen(false);
+      // 割引リストを再読み込み
+      loadTabData('discounts', true);
+    } catch (error) {
+      console.error('Failed to update discount:', error);
+    } finally {
+      setSavingDiscount(false);
+    }
+  }
+
   return (
     <ThreePaneLayout>
       <div className="p-6 h-full flex flex-col">
@@ -675,10 +724,11 @@ export default function ContractsPage() {
                             <TableHead>生徒名</TableHead>
                             <TableHead>商品</TableHead>
                             <TableHead>ブランド</TableHead>
-                            <TableHead>校舎</TableHead>
                             <TableHead className="w-[100px]">請求月</TableHead>
                             <TableHead className="w-[80px] text-right">数量</TableHead>
-                            <TableHead className="w-[120px] text-right">確定金額</TableHead>
+                            <TableHead className="w-[100px] text-right">定価</TableHead>
+                            <TableHead className="w-[100px] text-right">割引</TableHead>
+                            <TableHead className="w-[110px] text-right">確定金額</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -689,9 +739,11 @@ export default function ContractsPage() {
                             const studentName = (item as any).studentName || item.student_name || "-";
                             const productName = (item as any).productName || item.product_name || "-";
                             const brandName = (item as any).brandName || item.brand_name || "-";
-                            const schoolName = (item as any).schoolName || item.school_name || "-";
                             const billingMonth = (item as any).billingMonth || item.billing_month || "-";
+                            const unitPrice = (item as any).unitPrice || item.unit_price;
+                            const discountAmount = (item as any).discountAmount || item.discount_amount || 0;
                             const finalPrice = (item as any).finalPrice || item.final_price;
+                            const hasDiscount = Number(discountAmount) > 0;
 
                             return (
                               <TableRow key={item.id} className="cursor-pointer hover:bg-gray-50">
@@ -713,10 +765,15 @@ export default function ContractsPage() {
                                 </TableCell>
                                 <TableCell>{productName}</TableCell>
                                 <TableCell>{brandName}</TableCell>
-                                <TableCell>{schoolName}</TableCell>
                                 <TableCell>{billingMonth}</TableCell>
                                 <TableCell className="text-right">{item.quantity}</TableCell>
-                                <TableCell className="text-right">
+                                <TableCell className="text-right text-gray-500">
+                                  {unitPrice != null ? `¥${Number(unitPrice).toLocaleString()}` : "-"}
+                                </TableCell>
+                                <TableCell className={`text-right ${hasDiscount ? "text-orange-600" : "text-gray-400"}`}>
+                                  {hasDiscount ? `-¥${Number(discountAmount).toLocaleString()}` : "-"}
+                                </TableCell>
+                                <TableCell className="text-right font-medium">
                                   {finalPrice != null ? `¥${Number(finalPrice).toLocaleString()}` : "-"}
                                 </TableCell>
                               </TableRow>
@@ -747,6 +804,7 @@ export default function ContractsPage() {
                             <TableHead className="w-[100px]">開始日</TableHead>
                             <TableHead className="w-[100px]">終了日</TableHead>
                             <TableHead className="w-[80px]">状態</TableHead>
+                            <TableHead className="w-[60px]">操作</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -793,6 +851,19 @@ export default function ContractsPage() {
                                   <Badge className={isActive ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-500"}>
                                     {isActive ? "有効" : "無効"}
                                   </Badge>
+                                </TableCell>
+                                <TableCell>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-8 w-8 p-0"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      openEditDiscount(discount);
+                                    }}
+                                  >
+                                    <Edit2 className="h-4 w-4 text-gray-500 hover:text-blue-600" />
+                                  </Button>
                                 </TableCell>
                               </TableRow>
                             );
@@ -926,6 +997,125 @@ export default function ContractsPage() {
         </Tabs>
 
         {/* 契約管理エージェント */}
+        {/* 割引編集ダイアログ */}
+        <Dialog open={editDiscountOpen} onOpenChange={setEditDiscountOpen}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>割引を編集</DialogTitle>
+            </DialogHeader>
+            {editingDiscount && (
+              <div className="space-y-4 py-4">
+                <div className="space-y-2">
+                  <Label className="text-sm text-gray-500">生徒</Label>
+                  <p className="font-medium">{editingDiscount.student_name || '-'}</p>
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-sm text-gray-500">割引名</Label>
+                  <p className="font-medium">{editingDiscount.discount_name || '-'}</p>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="discountAmount">金額</Label>
+                    <Input
+                      id="discountAmount"
+                      type="number"
+                      value={editDiscountData.amount || ''}
+                      onChange={(e) => setEditDiscountData({
+                        ...editDiscountData,
+                        amount: e.target.value ? Number(e.target.value) : undefined
+                      })}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="discountUnit">単位</Label>
+                    <Select
+                      value={editDiscountData.discount_unit || 'fixed'}
+                      onValueChange={(value) => setEditDiscountData({
+                        ...editDiscountData,
+                        discount_unit: value as 'fixed' | 'percent'
+                      })}
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="fixed">円（固定）</SelectItem>
+                        <SelectItem value="percent">%（割合）</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="startDate">開始日</Label>
+                    <Input
+                      id="startDate"
+                      type="date"
+                      value={editDiscountData.start_date || ''}
+                      onChange={(e) => setEditDiscountData({
+                        ...editDiscountData,
+                        start_date: e.target.value || undefined
+                      })}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="endDate">終了日</Label>
+                    <Input
+                      id="endDate"
+                      type="date"
+                      value={editDiscountData.end_date || ''}
+                      onChange={(e) => setEditDiscountData({
+                        ...editDiscountData,
+                        end_date: e.target.value || null
+                      })}
+                    />
+                  </div>
+                </div>
+                <div className="flex items-center gap-3">
+                  <input
+                    type="checkbox"
+                    id="isActive"
+                    checked={editDiscountData.is_active ?? true}
+                    onChange={(e) => setEditDiscountData({
+                      ...editDiscountData,
+                      is_active: e.target.checked
+                    })}
+                    className="h-4 w-4 rounded border-gray-300"
+                  />
+                  <Label htmlFor="isActive">有効</Label>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="notes">メモ</Label>
+                  <Input
+                    id="notes"
+                    value={editDiscountData.notes || ''}
+                    onChange={(e) => setEditDiscountData({
+                      ...editDiscountData,
+                      notes: e.target.value
+                    })}
+                    placeholder="割引に関するメモ"
+                  />
+                </div>
+              </div>
+            )}
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setEditDiscountOpen(false)} disabled={savingDiscount}>
+                キャンセル
+              </Button>
+              <Button onClick={saveDiscount} disabled={savingDiscount}>
+                {savingDiscount ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    保存中...
+                  </>
+                ) : (
+                  '保存'
+                )}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
         <ContractAgent
           activeTab={activeTab}
           onRefreshData={loadBasicData}

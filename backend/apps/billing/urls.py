@@ -12,6 +12,10 @@ from .views import (
     MileTransactionViewSet,
     PaymentProviderViewSet,
     BillingPeriodViewSet,
+    MonthlyBillingDeadlineViewSet,
+    BankTransferViewSet,
+    BankTransferImportViewSet,
+    ConfirmedBillingViewSet,
 )
 
 app_name = 'billing'
@@ -25,6 +29,10 @@ router.register(r'refund-requests', RefundRequestViewSet, basename='refund-reque
 router.register(r'miles', MileTransactionViewSet, basename='mile-transaction')
 router.register(r'providers', PaymentProviderViewSet, basename='payment-provider')
 router.register(r'periods', BillingPeriodViewSet, basename='billing-period')
+router.register(r'deadlines', MonthlyBillingDeadlineViewSet, basename='monthly-deadline')
+router.register(r'transfers', BankTransferViewSet, basename='bank-transfer')
+router.register(r'transfer-imports', BankTransferImportViewSet, basename='bank-transfer-import')
+router.register(r'confirmed', ConfirmedBillingViewSet, basename='confirmed-billing')
 
 urlpatterns = [
     path('', include(router.urls)),

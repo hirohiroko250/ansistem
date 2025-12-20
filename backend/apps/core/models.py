@@ -7,10 +7,10 @@ from django.utils import timezone
 
 
 class TenantManager(models.Manager):
-    """テナントフィルタリング用マネージャー"""
+    """会社フィルタリング用マネージャー"""
 
     def for_tenant(self, tenant):
-        """指定テナントの有効なレコードのみを取得"""
+        """指定会社の有効なレコードのみを取得"""
         # tenantはTenantオブジェクト or UUID
         if hasattr(tenant, 'id'):
             return self.filter(tenant_ref=tenant, deleted_at__isnull=True)
@@ -47,7 +47,7 @@ class TenantModel(BaseModel):
     # 既存のtenant_id（UUID）を維持
     tenant_id = models.UUIDField(
         db_index=True,
-        verbose_name='テナントID'
+        verbose_name='会社ID'
     )
     # ForeignKeyでテナントを参照（Admin選択可能）
     tenant_ref = models.ForeignKey(
@@ -56,7 +56,7 @@ class TenantModel(BaseModel):
         null=True,
         blank=True,
         related_name='%(app_label)s_%(class)s_set',
-        verbose_name='テナント'
+        verbose_name='会社'
     )
     deleted_at = models.DateTimeField(
         null=True,

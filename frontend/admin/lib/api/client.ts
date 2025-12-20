@@ -74,7 +74,8 @@ class ApiClient {
       if (response.status === 401 && typeof window !== "undefined") {
         this.setToken(null);
         window.location.href = "/login";
-        throw new ApiError(response.status, "認証が必要です", errorData);
+        // リダイレクト中はPromiseを永久にpendingにしてコンポーネントのクラッシュを防ぐ
+        return new Promise(() => {}) as T;
       }
       throw new ApiError(response.status, errorData.detail || response.statusText, errorData);
     }
@@ -134,6 +135,11 @@ class ApiClient {
     }
 
     return response.json();
+  }
+
+  // Alias for postFormData for file uploads
+  upload<T>(endpoint: string, formData: FormData): Promise<T> {
+    return this.postFormData<T>(endpoint, formData);
   }
 
   async getBlob(endpoint: string, params?: Record<string, string | number | boolean | undefined>): Promise<Blob> {

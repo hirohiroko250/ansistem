@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { ThreePaneLayout } from "@/components/layout/ThreePaneLayout";
 import { Card } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
@@ -7,9 +8,17 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
-import { User, Bell, Shield, Palette } from "lucide-react";
+import { User, Bell, Shield, Palette, LogOut } from "lucide-react";
+import apiClient from "@/lib/api/client";
 
 export default function SettingsPage() {
+  const router = useRouter();
+
+  const handleLogout = () => {
+    apiClient.setToken(null);
+    router.push("/login");
+  };
+
   return (
     <ThreePaneLayout>
       <div className="p-6 max-w-4xl mx-auto">
@@ -146,6 +155,22 @@ export default function SettingsPage() {
               </div>
               <Button>パスワードを変更</Button>
             </div>
+          </Card>
+
+          <Card className="p-6 border-red-200 bg-red-50">
+            <div className="flex items-center gap-3 mb-4">
+              <LogOut className="w-5 h-5 text-red-600" />
+              <h2 className="text-lg font-semibold text-red-900">
+                ログアウト
+              </h2>
+            </div>
+            <p className="text-sm text-red-700 mb-4">
+              ログアウトすると、再度ログインが必要になります。
+            </p>
+            <Button variant="destructive" onClick={handleLogout}>
+              <LogOut className="w-4 h-4 mr-2" />
+              ログアウト
+            </Button>
           </Card>
         </div>
       </div>

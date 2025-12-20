@@ -16,22 +16,111 @@ const AI_ASSISTANT_ID = 'ai-assistant';
 
 // クイックアクション（よくある質問カテゴリ）
 const QUICK_ACTIONS = [
-  { id: 'trial', label: '体験授業', query: '体験授業について教えてください' },
-  { id: 'makeup', label: '振替・欠席', query: '振替について教えてください' },
-  { id: 'fee', label: '料金', query: '授業料について教えてください' },
-  { id: 'course', label: '講習', query: '講習について教えてください' },
-  { id: 'exam', label: '検定', query: '検定試験について教えてください' },
-  { id: 'event', label: 'イベント', query: 'イベントについて教えてください' },
+  { id: 'trial', label: '体験授業を申し込みたい', query: '体験授業の申し込み方法を教えてください', icon: '📝' },
+  { id: 'makeup', label: '振替・欠席連絡', query: '授業を欠席したいのですが、振替はできますか？', icon: '🔄' },
+  { id: 'fee', label: '料金・月謝について', query: '月謝や料金について教えてください', icon: '💰' },
+  { id: 'schedule', label: '授業スケジュール', query: '授業のスケジュールや時間割を教えてください', icon: '📅' },
+  { id: 'location', label: '教室の場所', query: '近くの教室を探しています', icon: '📍' },
+  { id: 'exam', label: '検定・資格試験', query: '英検やそろばん検定について教えてください', icon: '🎓' },
 ];
 
-// ブランド選択
-const BRANDS = [
-  { id: 'english', label: 'アンイングリッシュクラブ', query: 'アンイングリッシュクラブについて教えてください' },
-  { id: 'soroban', label: 'アンそろばんクラブ', query: 'アンそろばんクラブについて教えてください' },
-  { id: 'bimoji', label: 'アン美文字クラブ', query: 'アン美文字クラブについて教えてください' },
-  { id: 'programming', label: 'アンプログラミング', query: 'アンプログラミングクラブについて教えてください' },
-  { id: 'juku', label: 'アン進学ジム', query: 'アン進学ジムについて教えてください' },
-  { id: 'international', label: 'インターナショナル', query: 'アンインターナショナルスクールについて教えてください' },
+// 年齢別おすすめ
+const AGE_CATEGORIES = [
+  { id: 'baby', label: '1〜3歳', query: '1〜3歳の子供におすすめの教室はありますか？', icon: '👶' },
+  { id: 'preschool', label: '年少〜年長', query: '年少から年長の幼児におすすめの習い事を教えてください', icon: '🌸' },
+  { id: 'elementary-low', label: '小学1〜3年', query: '小学校低学年におすすめの習い事を教えてください', icon: '🎒' },
+  { id: 'elementary-high', label: '小学4〜6年', query: '小学校高学年におすすめの教室を教えてください', icon: '📚' },
+  { id: 'junior', label: '中学生', query: '中学生向けの学習塾や英会話について教えてください', icon: '🏫' },
+  { id: 'high', label: '高校生', query: '高校生向けの大学受験対策について教えてください', icon: '🎯' },
+];
+
+// ブランド選択（習い事系）
+const BRANDS_LESSON = [
+  {
+    id: 'english',
+    label: 'アンイングリッシュクラブ',
+    query: 'アンイングリッシュクラブについて詳しく教えてください',
+    description: 'ネイティブ英会話（年少〜高校生）',
+    icon: '🇬🇧'
+  },
+  {
+    id: 'soroban',
+    label: 'アンそろばんクラブ',
+    query: 'アンそろばんクラブについて詳しく教えてください',
+    description: 'そろばん教室（年少〜小6）',
+    icon: '🧮'
+  },
+  {
+    id: 'bimoji',
+    label: 'アン美文字クラブ',
+    query: 'アン美文字クラブについて詳しく教えてください',
+    description: '習字教室（年中〜小6）',
+    icon: '✏️'
+  },
+  {
+    id: 'programming',
+    label: 'アンプログラミングクラブ',
+    query: 'アンプログラミングクラブについて詳しく教えてください',
+    description: 'マイクラでプログラミング（小1〜高校生）',
+    icon: '💻'
+  },
+  {
+    id: 'shogi',
+    label: 'アン将棋クラブ',
+    query: 'アン将棋クラブについて詳しく教えてください',
+    description: '将棋教室（小1〜小6）',
+    icon: '♟️'
+  },
+];
+
+// ブランド選択（学習塾系）
+const BRANDS_JUKU = [
+  {
+    id: 'sankoku-kids',
+    label: 'アンさんこくキッズ',
+    query: 'アンさんこくキッズについて詳しく教えてください',
+    description: '算国基礎（年長〜小4）',
+    icon: '🌱'
+  },
+  {
+    id: 'sankoku',
+    label: 'アン算国クラブ',
+    query: 'アン算国クラブについて詳しく教えてください',
+    description: '1対4個別指導（小1〜小6）',
+    icon: '📖'
+  },
+  {
+    id: 'shingaku',
+    label: 'アン進学ジム',
+    query: 'アン進学ジムについて詳しく教えてください',
+    description: '受験対策・個別指導（小4〜高校生）',
+    icon: '🎯'
+  },
+];
+
+// ブランド選択（その他）
+const BRANDS_OTHER = [
+  {
+    id: 'international',
+    label: 'アンインターナショナルスクール',
+    query: 'アンインターナショナルスクールについて詳しく教えてください',
+    description: '英語保育園（1歳〜年長）',
+    icon: '🏫'
+  },
+  {
+    id: 'manabi',
+    label: 'アンまなびワールド',
+    query: 'アンまなびワールドについて詳しく教えてください',
+    description: '学童教室（小1〜小6）',
+    icon: '🏠'
+  },
+  {
+    id: 'platinum',
+    label: 'プラチナステージ',
+    query: 'プラチナステージについて詳しく教えてください',
+    description: 'シニア向け生涯学習',
+    icon: '🎓'
+  },
 ];
 
 // タイムスタンプをフォーマット
@@ -110,7 +199,7 @@ export default function ChatConversationPage() {
               senderId: 'ai',
               senderName: 'AIアシスタント',
               messageType: 'text',
-              content: 'こんにちは！何かお手伝いできることはありますか？\n\n授業のこと、予約のこと、料金のことなど、何でもお気軽にお聞きください。',
+              content: 'こんにちは！アンイングリッシュGROUPへようこそ！\n\n英会話、そろばん、習字、プログラミング、学習塾など、お子様に最適な習い事をご案内します。\n\n下のボタンから選ぶか、直接メッセージを入力してください。',
               isRead: true,
               createdAt: new Date().toISOString(),
             },
@@ -475,49 +564,128 @@ export default function ChatConversationPage() {
 
           {/* クイックアクションボタン（AIアシスタントの場合のみ） */}
           {isAiAssistant && showQuickActions && messages.length <= 1 && (
-            <div className="mt-6 space-y-4">
+            <div className="mt-6 space-y-6">
               {/* よくある質問 */}
               <div>
-                <p className="text-xs text-gray-500 mb-2 font-medium">よくある質問</p>
-                <ul className="space-y-1">
+                <p className="text-sm text-gray-600 mb-3 font-semibold flex items-center gap-2">
+                  <span className="w-1 h-4 bg-blue-500 rounded-full"></span>
+                  よくある質問
+                </p>
+                <div className="grid grid-cols-2 gap-2">
                   {QUICK_ACTIONS.map((action) => (
-                    <li key={action.id}>
-                      <button
-                        onClick={() => handleQuickAction(action.query)}
-                        className="w-full text-left px-3 py-2 text-sm text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                      >
-                        • {action.label}
-                      </button>
-                    </li>
+                    <button
+                      key={action.id}
+                      onClick={() => handleQuickAction(action.query)}
+                      className="flex items-center gap-2 px-3 py-2.5 text-sm text-gray-700 bg-white border border-gray-200 hover:border-blue-300 hover:bg-blue-50 rounded-xl transition-all shadow-sm"
+                    >
+                      <span className="text-base">{action.icon}</span>
+                      <span className="truncate">{action.label}</span>
+                    </button>
                   ))}
-                </ul>
+                </div>
               </div>
 
-              {/* ブランド選択 */}
+              {/* 年齢から探す */}
               <div>
-                <p className="text-xs text-gray-500 mb-2 font-medium">コースについて</p>
-                <ul className="space-y-1">
-                  {BRANDS.map((brand) => (
-                    <li key={brand.id}>
-                      <button
-                        onClick={() => handleQuickAction(brand.query)}
-                        className="w-full text-left px-3 py-2 text-sm text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                      >
-                        • {brand.label}
-                      </button>
-                    </li>
+                <p className="text-sm text-gray-600 mb-3 font-semibold flex items-center gap-2">
+                  <span className="w-1 h-4 bg-green-500 rounded-full"></span>
+                  お子様の年齢から探す
+                </p>
+                <div className="grid grid-cols-3 gap-2">
+                  {AGE_CATEGORIES.map((age) => (
+                    <button
+                      key={age.id}
+                      onClick={() => handleQuickAction(age.query)}
+                      className="flex flex-col items-center gap-1 px-2 py-3 text-xs text-gray-700 bg-white border border-gray-200 hover:border-green-300 hover:bg-green-50 rounded-xl transition-all shadow-sm"
+                    >
+                      <span className="text-xl">{age.icon}</span>
+                      <span>{age.label}</span>
+                    </button>
                   ))}
-                </ul>
+                </div>
+              </div>
+
+              {/* 習い事 */}
+              <div>
+                <p className="text-sm text-gray-600 mb-3 font-semibold flex items-center gap-2">
+                  <span className="w-1 h-4 bg-purple-500 rounded-full"></span>
+                  習い事
+                </p>
+                <div className="space-y-2">
+                  {BRANDS_LESSON.map((brand) => (
+                    <button
+                      key={brand.id}
+                      onClick={() => handleQuickAction(brand.query)}
+                      className="w-full flex items-center gap-3 px-4 py-3 text-left bg-white border border-gray-200 hover:border-purple-300 hover:bg-purple-50 rounded-xl transition-all shadow-sm"
+                    >
+                      <span className="text-2xl">{brand.icon}</span>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-gray-800 truncate">{brand.label}</p>
+                        <p className="text-xs text-gray-500">{brand.description}</p>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* 学習塾 */}
+              <div>
+                <p className="text-sm text-gray-600 mb-3 font-semibold flex items-center gap-2">
+                  <span className="w-1 h-4 bg-orange-500 rounded-full"></span>
+                  学習塾・個別指導
+                </p>
+                <div className="space-y-2">
+                  {BRANDS_JUKU.map((brand) => (
+                    <button
+                      key={brand.id}
+                      onClick={() => handleQuickAction(brand.query)}
+                      className="w-full flex items-center gap-3 px-4 py-3 text-left bg-white border border-gray-200 hover:border-orange-300 hover:bg-orange-50 rounded-xl transition-all shadow-sm"
+                    >
+                      <span className="text-2xl">{brand.icon}</span>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-gray-800 truncate">{brand.label}</p>
+                        <p className="text-xs text-gray-500">{brand.description}</p>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* その他（保育園・学童・シニア） */}
+              <div>
+                <p className="text-sm text-gray-600 mb-3 font-semibold flex items-center gap-2">
+                  <span className="w-1 h-4 bg-teal-500 rounded-full"></span>
+                  保育園・学童・シニア
+                </p>
+                <div className="space-y-2">
+                  {BRANDS_OTHER.map((brand) => (
+                    <button
+                      key={brand.id}
+                      onClick={() => handleQuickAction(brand.query)}
+                      className="w-full flex items-center gap-3 px-4 py-3 text-left bg-white border border-gray-200 hover:border-teal-300 hover:bg-teal-50 rounded-xl transition-all shadow-sm"
+                    >
+                      <span className="text-2xl">{brand.icon}</span>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-gray-800 truncate">{brand.label}</p>
+                        <p className="text-xs text-gray-500">{brand.description}</p>
+                      </div>
+                    </button>
+                  ))}
+                </div>
               </div>
 
               {/* スタッフに相談 */}
-              <div className="pt-2">
+              <div className="pt-2 pb-4">
                 <button
-                  onClick={() => handleQuickAction('スタッフと直接話したい')}
-                  className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-xl text-sm font-medium hover:from-blue-600 hover:to-blue-700 transition-all shadow-md"
+                  onClick={() => handleQuickAction('スタッフと直接話したいです。連絡先を教えてください。')}
+                  className="w-full flex items-center justify-center gap-2 px-4 py-4 bg-gradient-to-r from-blue-500 to-purple-600 text-white rounded-xl text-sm font-medium hover:from-blue-600 hover:to-purple-700 transition-all shadow-lg"
                 >
-                  <span>スタッフに相談する</span>
+                  <span className="text-lg">💬</span>
+                  <span>スタッフに直接相談する</span>
                 </button>
+                <p className="text-xs text-gray-500 text-center mt-2">
+                  AIで解決できない場合はスタッフがサポートします
+                </p>
               </div>
             </div>
           )}

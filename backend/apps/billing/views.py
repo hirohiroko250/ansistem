@@ -1,12 +1,17 @@
 """
 Billing Views - 請求・入金・預り金・マイル管理API
 """
+import logging
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.parsers import MultiPartParser, FormParser
+from djangorestframework_camel_case.parser import CamelCaseMultiPartParser
+
+logger = logging.getLogger(__name__)
 from django.shortcuts import get_object_or_404
-from django.db import transaction
+from django.db import models, transaction
 from django.utils import timezone
 from decimal import Decimal
 from drf_spectacular.utils import extend_schema, extend_schema_view
@@ -14,7 +19,8 @@ from drf_spectacular.utils import extend_schema, extend_schema_view
 from .models import (
     Invoice, InvoiceLine, Payment, GuardianBalance,
     OffsetLog, RefundRequest, MileTransaction,
-    BillingPeriod, PaymentProvider
+    BillingPeriod, PaymentProvider, MonthlyBillingDeadline,
+    BankTransfer, BankTransferImport, ConfirmedBilling
 )
 from .serializers import (
     InvoiceSerializer, InvoiceLineSerializer,
@@ -24,6 +30,10 @@ from .serializers import (
     OffsetLogSerializer,
     RefundRequestSerializer, RefundRequestCreateSerializer, RefundApproveSerializer,
     MileTransactionSerializer, MileBalanceSerializer, MileCalculateSerializer, MileUseSerializer,
+    BankTransferSerializer, BankTransferMatchSerializer, BankTransferBulkMatchSerializer,
+    BankTransferImportSerializer, BankTransferImportUploadSerializer,
+    ConfirmedBillingSerializer, ConfirmedBillingListSerializer,
+    ConfirmedBillingCreateSerializer, BillingConfirmBatchSerializer,
 )
 
 
@@ -54,6 +64,33 @@ class InvoiceViewSet(viewsets.ModelViewSet):
             queryset = queryset.filter(guardian_id=guardian_id)
 
         return queryset
+
+    def check_deadline_editable(self, invoice):
+        """請求書の請求月が編集可能かチェック"""
+        tenant_id = getattr(self.request, 'tenant_id', None) or getattr(self.request.user, 'tenant_id', None)
+        if not MonthlyBillingDeadline.is_month_editable(tenant_id, invoice.billing_year, invoice.billing_month):
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied(
+                f'{invoice.billing_year}年{invoice.billing_month}月分は締め済みのため編集できません'
+            )
+
+    def update(self, request, *args, **kwargs):
+        """請求書更新時に締め状態をチェック"""
+        instance = self.get_object()
+        self.check_deadline_editable(instance)
+        return super().update(request, *args, **kwargs)
+
+    def partial_update(self, request, *args, **kwargs):
+        """請求書部分更新時に締め状態をチェック"""
+        instance = self.get_object()
+        self.check_deadline_editable(instance)
+        return super().partial_update(request, *args, **kwargs)
+
+    def destroy(self, request, *args, **kwargs):
+        """請求書削除時に締め状態をチェック"""
+        instance = self.get_object()
+        self.check_deadline_editable(instance)
+        return super().destroy(request, *args, **kwargs)
 
     @extend_schema(summary='請求書プレビュー', request=InvoicePreviewSerializer)
     @action(detail=False, methods=['post'])
@@ -390,6 +427,124 @@ class PaymentViewSet(viewsets.ModelViewSet):
         payment.save()
         return Response(PaymentSerializer(payment).data)
 
+    @extend_schema(summary='未消込入金一覧')
+    @action(detail=False, methods=['get'])
+    def unmatched(self, request):
+        """未消込入金（請求書未紐付け）の一覧を取得"""
+        payments = self.get_queryset().filter(
+            invoice__isnull=True,
+            status__in=[Payment.Status.SUCCESS, Payment.Status.PENDING]
+        ).order_by('-payment_date')
+
+        serializer = PaymentSerializer(payments, many=True)
+        return Response({
+            'count': payments.count(),
+            'payments': serializer.data
+        })
+
+    @extend_schema(summary='入金消込候補を取得')
+    @action(detail=True, methods=['get'])
+    def match_candidates(self, request, pk=None):
+        """指定入金に対する消込候補の請求書を取得
+
+        金額と振込名義から候補をマッチング
+        """
+        payment = self.get_object()
+        from apps.students.models import Guardian
+
+        candidates = []
+
+        # 金額で一致する請求書を探す
+        amount_matches = Invoice.objects.filter(
+            tenant_id=request.user.tenant_id,
+            status__in=[Invoice.Status.ISSUED, Invoice.Status.PARTIAL],
+            balance_due=payment.amount
+        ).select_related('guardian')
+
+        for invoice in amount_matches:
+            candidates.append({
+                'invoice': InvoiceSerializer(invoice).data,
+                'match_type': 'amount',
+                'match_score': 100,
+                'match_reason': f'金額完全一致（¥{payment.amount:,.0f}）'
+            })
+
+        # 振込名義からカナ検索
+        if payment.payer_name:
+            # カナ名で保護者を検索
+            payer_kana = payment.payer_name.strip()
+            name_matches = Guardian.objects.filter(
+                tenant_id=request.user.tenant_id,
+                full_name_kana__icontains=payer_kana
+            )
+
+            for guardian in name_matches:
+                # この保護者の未払い請求書を取得
+                guardian_invoices = Invoice.objects.filter(
+                    guardian=guardian,
+                    status__in=[Invoice.Status.ISSUED, Invoice.Status.PARTIAL]
+                )
+                for invoice in guardian_invoices:
+                    # 既に候補に入っていない場合追加
+                    existing_ids = [c['invoice']['id'] for c in candidates]
+                    if str(invoice.id) not in existing_ids:
+                        score = 80
+                        if invoice.balance_due == payment.amount:
+                            score = 100
+                        candidates.append({
+                            'invoice': InvoiceSerializer(invoice).data,
+                            'match_type': 'name',
+                            'match_score': score,
+                            'match_reason': f'振込名義一致（{payer_kana}）'
+                        })
+
+        # スコア順にソート
+        candidates.sort(key=lambda x: x['match_score'], reverse=True)
+
+        return Response({
+            'payment': PaymentSerializer(payment).data,
+            'candidates': candidates[:20]  # 上位20件まで
+        })
+
+    @extend_schema(summary='入金を請求書に消込')
+    @action(detail=True, methods=['post'])
+    def match_invoice(self, request, pk=None):
+        """入金を指定の請求書に消込"""
+        payment = self.get_object()
+        invoice_id = request.data.get('invoice_id')
+
+        if not invoice_id:
+            return Response(
+                {'error': '請求書IDが必要です'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        invoice = get_object_or_404(
+            Invoice,
+            id=invoice_id,
+            tenant_id=request.user.tenant_id
+        )
+
+        if payment.invoice:
+            return Response(
+                {'error': 'この入金は既に消込済みです'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        with transaction.atomic():
+            payment.invoice = invoice
+            payment.guardian = invoice.guardian
+            payment.save()
+
+            # 請求書に入金を適用
+            payment.apply_to_invoice()
+
+        return Response({
+            'success': True,
+            'payment': PaymentSerializer(payment).data,
+            'invoice': InvoiceSerializer(invoice).data
+        })
+
 
 # =============================================================================
 # GuardianBalance ViewSet
@@ -480,6 +635,24 @@ class GuardianBalanceViewSet(viewsets.ReadOnlyModelViewSet):
 
         return Response(GuardianBalanceSerializer(balance).data)
 
+    @extend_schema(summary='保護者の預り金残高')
+    @action(detail=False, methods=['get'], url_path='by-guardian/(?P<guardian_id>[^/.]+)')
+    def by_guardian(self, request, guardian_id=None):
+        """保護者IDで預り金残高を取得"""
+        balance = self.get_queryset().filter(guardian_id=guardian_id).first()
+        if balance:
+            return Response({
+                'guardian_id': str(guardian_id),
+                'balance': int(balance.balance),
+                'last_updated': balance.last_updated.isoformat() if balance.last_updated else None,
+            })
+        else:
+            return Response({
+                'guardian_id': str(guardian_id),
+                'balance': 0,
+                'last_updated': None,
+            })
+
 
 # =============================================================================
 # OffsetLog ViewSet
@@ -505,6 +678,33 @@ class OffsetLogViewSet(viewsets.ReadOnlyModelViewSet):
         logs = self.get_queryset().filter(guardian_id=guardian_id)
         serializer = self.get_serializer(logs, many=True)
         return Response(serializer.data)
+
+    @extend_schema(summary='自分の通帳（入出金履歴）')
+    @action(detail=False, methods=['get'], url_path='my-passbook')
+    def my_passbook(self, request):
+        """ログイン中の保護者の通帳（入出金履歴）を取得"""
+        from apps.students.models import Guardian
+
+        # ログインユーザーに紐づく保護者を取得
+        guardian = Guardian.objects.filter(user=request.user).first()
+        if not guardian:
+            return Response({'detail': '保護者情報が見つかりません'}, status=404)
+
+        # 相殺ログを取得（新しい順）
+        logs = self.get_queryset().filter(guardian=guardian).order_by('-created_at')
+
+        # 現在の残高も返す
+        from apps.billing.models import GuardianBalance
+        balance_obj = GuardianBalance.objects.filter(guardian=guardian).first()
+        current_balance = int(balance_obj.balance) if balance_obj else 0
+
+        serializer = self.get_serializer(logs, many=True)
+        return Response({
+            'guardian_id': str(guardian.id),
+            'guardian_name': guardian.full_name,
+            'current_balance': current_balance,
+            'transactions': serializer.data
+        })
 
 
 # =============================================================================
@@ -830,6 +1030,45 @@ class PaymentProviderViewSet(viewsets.ModelViewSet):
             'debit_day': provider.debit_day,
         })
 
+    @extend_schema(summary='締日設定を新規作成')
+    @action(detail=False, methods=['post'])
+    def create_deadline(self, request):
+        """締日・引落日の設定を新規作成（デフォルトプロバイダー）"""
+        tenant_id = getattr(request, 'tenant_id', None) or getattr(request.user, 'tenant_id', None)
+
+        closing_day = request.data.get('closing_day', 25)
+        debit_day = request.data.get('debit_day', 27)
+
+        if not (1 <= closing_day <= 31):
+            return Response({'error': '締日は1〜31の間で設定してください'}, status=400)
+        if not (1 <= debit_day <= 31):
+            return Response({'error': '引落日は1〜31の間で設定してください'}, status=400)
+
+        # デフォルトプロバイダーを作成または取得
+        provider, created = PaymentProvider.objects.get_or_create(
+            tenant_id=tenant_id,
+            code='DEFAULT',
+            defaults={
+                'name': 'デフォルト',
+                'closing_day': closing_day,
+                'debit_day': debit_day,
+                'is_active': True,
+            }
+        )
+
+        if not created:
+            # 既存のプロバイダーの場合は更新
+            provider.closing_day = closing_day
+            provider.debit_day = debit_day
+            provider.save()
+
+        return Response({
+            'success': True,
+            'provider_id': str(provider.id),
+            'closing_day': provider.closing_day,
+            'debit_day': provider.debit_day,
+        }, status=status.HTTP_201_CREATED if created else status.HTTP_200_OK)
+
 
 # =============================================================================
 # BillingPeriod ViewSet - 請求期間管理
@@ -909,4 +1148,1481 @@ class BillingPeriodViewSet(viewsets.ModelViewSet):
         return Response({
             'success': True,
             'message': f'{period.year}年{period.month}月の締め処理を解除しました',
+        })
+
+    @extend_schema(summary='新規入会時の請求情報を取得')
+    @action(detail=False, methods=['get'])
+    def enrollment_billing_info(self, request):
+        """新規入会時の請求月情報を取得
+
+        締日を考慮して、どの月から請求できるかを返す。
+        """
+        from datetime import datetime
+        from apps.billing.services.period_service import BillingPeriodService
+
+        # 入会日（指定がなければ今日）
+        enrollment_date_str = request.query_params.get('enrollment_date')
+        if enrollment_date_str:
+            try:
+                enrollment_date = datetime.strptime(enrollment_date_str, '%Y-%m-%d').date()
+            except ValueError:
+                return Response({'error': '日付形式が不正です（YYYY-MM-DD）'}, status=400)
+        else:
+            enrollment_date = timezone.now().date()
+
+        tenant_id = getattr(request, 'tenant_id', None)
+        service = BillingPeriodService(tenant_id)
+
+        # プロバイダー指定（指定がなければアクティブな最初のプロバイダー）
+        provider_id = request.query_params.get('provider_id')
+        if provider_id:
+            provider = PaymentProvider.objects.filter(id=provider_id).first()
+        else:
+            provider = PaymentProvider.objects.filter(
+                tenant_id=tenant_id,
+                is_active=True
+            ).first()
+
+        billing_info = service.get_billing_info_for_new_enrollment(
+            enrollment_date=enrollment_date,
+            provider=provider
+        )
+
+        return Response(billing_info)
+
+    @extend_schema(summary='チケット購入時の請求月を取得')
+    @action(detail=False, methods=['get'])
+    def ticket_billing_info(self, request):
+        """チケット購入時の請求月を判定
+
+        締日を考慮して、どの月の請求になるかを返す。
+        """
+        from datetime import datetime
+        from apps.billing.services.period_service import BillingPeriodService
+
+        # 購入日（指定がなければ今日）
+        purchase_date_str = request.query_params.get('purchase_date')
+        if purchase_date_str:
+            try:
+                purchase_date = datetime.strptime(purchase_date_str, '%Y-%m-%d').date()
+            except ValueError:
+                return Response({'error': '日付形式が不正です（YYYY-MM-DD）'}, status=400)
+        else:
+            purchase_date = timezone.now().date()
+
+        tenant_id = getattr(request, 'tenant_id', None)
+        service = BillingPeriodService(tenant_id)
+
+        # プロバイダー指定
+        provider_id = request.query_params.get('provider_id')
+        if provider_id:
+            provider = PaymentProvider.objects.filter(id=provider_id).first()
+        else:
+            provider = PaymentProvider.objects.filter(
+                tenant_id=tenant_id,
+                is_active=True
+            ).first()
+
+        ticket_info = service.get_ticket_billing_month(
+            purchase_date=purchase_date,
+            provider=provider
+        )
+
+        return Response(ticket_info)
+
+
+# =============================================================================
+# MonthlyBillingDeadline ViewSet - 月次請求締切管理
+# =============================================================================
+class MonthlyBillingDeadlineViewSet(viewsets.ModelViewSet):
+    """月次請求締切管理API
+
+    内部的な締日管理。締日を過ぎると、その月の請求データは編集不可になる。
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        tenant_id = getattr(self.request, 'tenant_id', None)
+        if not tenant_id and hasattr(self.request, 'user') and hasattr(self.request.user, 'tenant_id'):
+            tenant_id = self.request.user.tenant_id
+        # テナントIDが取得できない場合はデフォルトテナントを使用
+        if not tenant_id:
+            from apps.tenants.models import Tenant
+            default_tenant = Tenant.objects.first()
+            if default_tenant:
+                tenant_id = default_tenant.id
+        if not tenant_id:
+            return MonthlyBillingDeadline.objects.none()
+        return MonthlyBillingDeadline.objects.filter(
+            tenant_id=tenant_id
+        ).order_by('-year', '-month')
+
+    def get_serializer_class(self):
+        from rest_framework import serializers
+
+        class MonthlyBillingDeadlineSerializer(serializers.ModelSerializer):
+            is_closed = serializers.SerializerMethodField()
+            closing_date_display = serializers.SerializerMethodField()
+            can_edit = serializers.SerializerMethodField()
+            manually_closed_by_name = serializers.SerializerMethodField()
+            reopened_by_name = serializers.SerializerMethodField()
+
+            class Meta:
+                model = MonthlyBillingDeadline
+                fields = [
+                    'id', 'year', 'month', 'closing_day',
+                    'auto_close', 'is_manually_closed', 'manually_closed_at',
+                    'manually_closed_by', 'manually_closed_by_name',
+                    'is_reopened', 'reopened_at', 'reopened_by', 'reopened_by_name',
+                    'reopen_reason', 'notes',
+                    'is_closed', 'closing_date_display', 'can_edit',
+                ]
+                read_only_fields = ['id', 'is_closed', 'closing_date_display', 'can_edit']
+
+            def get_is_closed(self, obj):
+                return obj.is_closed
+
+            def get_closing_date_display(self, obj):
+                return obj.closing_date.strftime('%Y-%m-%d')
+
+            def get_can_edit(self, obj):
+                return obj.can_edit
+
+            def get_manually_closed_by_name(self, obj):
+                if obj.manually_closed_by:
+                    return f"{obj.manually_closed_by.last_name}{obj.manually_closed_by.first_name}"
+                return None
+
+            def get_reopened_by_name(self, obj):
+                if obj.reopened_by:
+                    return f"{obj.reopened_by.last_name}{obj.reopened_by.first_name}"
+                return None
+
+        return MonthlyBillingDeadlineSerializer
+
+    @extend_schema(summary='締切状態一覧を取得')
+    @action(detail=False, methods=['get'])
+    def status_list(self, request):
+        """現在月を中心とした締切状態一覧を取得"""
+        from datetime import date
+
+        today = date.today()
+        tenant_id = getattr(request, 'tenant_id', None)
+        if not tenant_id and hasattr(request, 'user') and hasattr(request.user, 'tenant_id'):
+            tenant_id = request.user.tenant_id
+
+        # テナントIDが取得できない場合はデフォルトテナントを使用
+        if not tenant_id:
+            from apps.tenants.models import Tenant
+            default_tenant = Tenant.objects.first()
+            if default_tenant:
+                tenant_id = default_tenant.id
+
+        # デフォルト締日を取得（PaymentProviderから）
+        default_closing_day = 25
+        provider = PaymentProvider.objects.filter(
+            tenant_id=tenant_id,
+            is_active=True
+        ).first()
+        if provider:
+            default_closing_day = provider.closing_day or 25
+
+        # 過去3ヶ月〜未来3ヶ月の締切状態を取得
+        months = []
+        for offset in range(-3, 4):
+            year = today.year
+            month = today.month + offset
+            while month <= 0:
+                month += 12
+                year -= 1
+            while month > 12:
+                month -= 12
+                year += 1
+
+            deadline, created = MonthlyBillingDeadline.get_or_create_for_month(
+                tenant_id=tenant_id,
+                year=year,
+                month=month,
+                closing_day=default_closing_day
+            )
+
+            months.append({
+                'id': str(deadline.id),
+                'year': deadline.year,
+                'month': deadline.month,
+                'label': f'{deadline.year}年{deadline.month}月分',
+                'closing_day': deadline.closing_day,
+                'closing_date': deadline.closing_date.strftime('%Y-%m-%d'),
+                'is_closed': deadline.is_closed,
+                'can_edit': deadline.can_edit,
+                'is_manually_closed': deadline.is_manually_closed,
+                'is_reopened': deadline.is_reopened,
+                'is_current': year == today.year and month == today.month,
+            })
+
+        return Response({
+            'current_year': today.year,
+            'current_month': today.month,
+            'default_closing_day': default_closing_day,
+            'months': months,
+        })
+
+    @extend_schema(summary='月の編集可否をチェック')
+    @action(detail=False, methods=['get'])
+    def check_editable(self, request):
+        """指定月が編集可能かどうかをチェック"""
+        year = request.query_params.get('year')
+        month = request.query_params.get('month')
+
+        if not year or not month:
+            return Response({'error': 'year と month を指定してください'}, status=400)
+
+        try:
+            year = int(year)
+            month = int(month)
+        except ValueError:
+            return Response({'error': 'year と month は整数で指定してください'}, status=400)
+
+        tenant_id = getattr(request, 'tenant_id', None)
+        if not tenant_id and hasattr(request, 'user') and hasattr(request.user, 'tenant_id'):
+            tenant_id = request.user.tenant_id
+        # テナントIDが取得できない場合はデフォルトテナントを使用
+        if not tenant_id:
+            from apps.tenants.models import Tenant
+            default_tenant = Tenant.objects.first()
+            if default_tenant:
+                tenant_id = default_tenant.id
+        is_editable = MonthlyBillingDeadline.is_month_editable(tenant_id, year, month)
+
+        return Response({
+            'year': year,
+            'month': month,
+            'is_editable': is_editable,
+            'message': f'{year}年{month}月分は{"編集可能" if is_editable else "締め済みのため編集不可"}です',
+        })
+
+    @extend_schema(summary='手動で締める')
+    @action(detail=True, methods=['post'])
+    def close_manually(self, request, pk=None):
+        """指定月を手動で締める"""
+        deadline = self.get_object()
+
+        if deadline.is_closed:
+            return Response({'error': 'この月は既に締め済みです'}, status=400)
+
+        notes = request.data.get('notes', '')
+        deadline.close_manually(request.user, notes)
+
+        return Response({
+            'success': True,
+            'message': f'{deadline.year}年{deadline.month}月分を締めました',
+            'is_closed': deadline.is_closed,
+        })
+
+    @extend_schema(summary='締めを解除する')
+    @action(detail=True, methods=['post'])
+    def reopen(self, request, pk=None):
+        """指定月の締めを解除する（要理由）"""
+        deadline = self.get_object()
+
+        if not deadline.is_closed:
+            return Response({'error': 'この月は締め済みではありません'}, status=400)
+
+        reason = request.data.get('reason', '')
+        if not reason:
+            return Response({'error': '締め解除には理由が必要です'}, status=400)
+
+        deadline.reopen(request.user, reason)
+
+        return Response({
+            'success': True,
+            'message': f'{deadline.year}年{deadline.month}月分の締めを解除しました',
+            'is_closed': deadline.is_closed,
+        })
+
+    @extend_schema(summary='締日設定を更新')
+    @action(detail=True, methods=['patch'])
+    def update_closing_day(self, request, pk=None):
+        """締日を更新"""
+        deadline = self.get_object()
+
+        closing_day = request.data.get('closing_day')
+        if closing_day is None:
+            return Response({'error': 'closing_day を指定してください'}, status=400)
+
+        if not (1 <= closing_day <= 31):
+            return Response({'error': '締日は1〜31の間で設定してください'}, status=400)
+
+        deadline.closing_day = closing_day
+        deadline.save()
+
+        return Response({
+            'success': True,
+            'closing_day': deadline.closing_day,
+            'closing_date': deadline.closing_date.strftime('%Y-%m-%d'),
+        })
+
+    @extend_schema(summary='デフォルト締日を設定')
+    @action(detail=False, methods=['post'])
+    def set_default_closing_day(self, request):
+        """デフォルト締日を設定（PaymentProviderに保存）"""
+        closing_day = request.data.get('closing_day')
+        if closing_day is None:
+            return Response({'error': 'closing_day を指定してください'}, status=400)
+
+        try:
+            closing_day = int(closing_day)
+        except ValueError:
+            return Response({'error': 'closing_day は整数で指定してください'}, status=400)
+
+        if not (1 <= closing_day <= 31):
+            return Response({'error': '締日は1〜31の間で設定してください'}, status=400)
+
+        tenant_id = getattr(request, 'tenant_id', None)
+        if not tenant_id and hasattr(request, 'user') and hasattr(request.user, 'tenant_id'):
+            tenant_id = request.user.tenant_id
+
+        # テナントIDが取得できない場合はデフォルトテナントを使用
+        if not tenant_id:
+            from apps.tenants.models import Tenant
+            default_tenant = Tenant.objects.first()
+            if default_tenant:
+                tenant_id = default_tenant.id
+
+        # PaymentProviderのデフォルト締日を更新
+        provider = PaymentProvider.objects.filter(
+            tenant_id=tenant_id,
+            is_active=True
+        ).first()
+
+        if provider:
+            provider.closing_day = closing_day
+            provider.save()
+        else:
+            # PaymentProviderがない場合は作成
+            provider = PaymentProvider.objects.create(
+                tenant_id=tenant_id,
+                provider_name='default',
+                provider_code='default',
+                closing_day=closing_day,
+                is_active=True
+            )
+
+        return Response({
+            'success': True,
+            'closing_day': closing_day,
+            'message': f'デフォルト締日を{closing_day}日に設定しました',
+        })
+
+
+# =============================================================================
+# BankTransfer ViewSet
+# =============================================================================
+@extend_schema_view(
+    list=extend_schema(summary='振込入金一覧'),
+    retrieve=extend_schema(summary='振込入金詳細'),
+)
+class BankTransferViewSet(viewsets.ModelViewSet):
+    """振込入金管理API"""
+    serializer_class = BankTransferSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        from apps.core.permissions import is_admin_user
+
+        queryset = BankTransfer.objects.select_related(
+            'guardian', 'invoice', 'matched_by'
+        )
+
+        # 管理者以外はテナントでフィルタ
+        if not is_admin_user(self.request.user):
+            queryset = queryset.filter(tenant_id=self.request.user.tenant_id)
+
+        # ステータスでフィルタ
+        status_filter = self.request.query_params.get('status')
+        if status_filter:
+            queryset = queryset.filter(status=status_filter)
+
+        # バッチIDでフィルタ
+        batch_id = self.request.query_params.get('batch_id')
+        if batch_id:
+            queryset = queryset.filter(import_batch_id=batch_id)
+
+        return queryset.order_by('-transfer_date', '-created_at')
+
+    @extend_schema(summary='振込を保護者に照合')
+    @action(detail=True, methods=['post'])
+    def match(self, request, pk=None):
+        """振込を保護者に照合する"""
+        transfer = self.get_object()
+
+        if transfer.status not in [BankTransfer.Status.PENDING, BankTransfer.Status.UNMATCHED]:
+            return Response({'error': 'この振込は既に照合済みです'}, status=400)
+
+        guardian_id = request.data.get('guardian_id')
+        if not guardian_id:
+            return Response({'error': 'guardian_id を指定してください'}, status=400)
+
+        from apps.students.models import Guardian
+        guardian = get_object_or_404(Guardian, id=guardian_id)
+
+        transfer.match_to_guardian(guardian, request.user)
+
+        return Response({
+            'success': True,
+            'message': f'{guardian.full_name}さんに照合しました',
+            'transfer': BankTransferSerializer(transfer).data,
+        })
+
+    @extend_schema(summary='振込を請求書に適用して入金処理')
+    @action(detail=True, methods=['post'])
+    def apply(self, request, pk=None):
+        """振込を請求書に適用し、入金処理を行う
+
+        invoice_idがある場合: 請求書に適用して消込
+        invoice_idがない場合: 入金確認のみ（未消込入金として残る）
+        """
+        transfer = self.get_object()
+
+        if transfer.status == BankTransfer.Status.APPLIED:
+            return Response({'error': 'この振込は既に入金処理済みです'}, status=400)
+
+        invoice_id = request.data.get('invoice_id')
+        invoice = None
+        if invoice_id:
+            invoice = get_object_or_404(Invoice, id=invoice_id)
+
+        # 保護者を特定（invoiceから、またはtransferから）
+        guardian = invoice.guardian if invoice else transfer.guardian
+        if not guardian:
+            return Response({'error': '保護者が照合されていません。先に照合してください。'}, status=400)
+
+        with transaction.atomic():
+            from apps.billing.models import GuardianBalance, OffsetLog
+
+            # 入金レコード作成
+            payment = Payment.objects.create(
+                tenant_id=transfer.tenant_id,
+                guardian=guardian,
+                invoice=invoice,  # Noneの場合は未消込
+                payment_date=transfer.transfer_date,
+                amount=transfer.amount,
+                method=Payment.Method.BANK_TRANSFER,
+                status=Payment.Status.SUCCESS if invoice else Payment.Status.PENDING,
+                payer_name=transfer.payer_name,
+                bank_name=transfer.source_bank_name,
+                notes=f'振込インポート: {transfer.import_batch_id}',
+                registered_by=request.user,
+            )
+
+            if invoice:
+                # 請求書の入金額を更新
+                invoice.paid_amount += transfer.amount
+                invoice.balance_due = invoice.total_amount - invoice.paid_amount
+                if invoice.balance_due <= 0:
+                    invoice.status = Invoice.Status.PAID
+                elif invoice.paid_amount > 0:
+                    invoice.status = Invoice.Status.PARTIAL
+                invoice.save()
+
+                # 振込ステータス更新（消込完了）
+                transfer.apply_to_invoice(invoice, request.user)
+                message = '入金処理を完了しました（消込済み）'
+            else:
+                # 請求書なしの場合は入金確認のみ
+                transfer.status = BankTransfer.Status.APPLIED
+                transfer.invoice = None
+                # matched_by/matched_at を使用（applied_by/applied_at フィールドは存在しない）
+                if not transfer.matched_at:
+                    transfer.matched_by = request.user
+                    transfer.matched_at = timezone.now()
+                transfer.save()
+                message = '入金確認を完了しました（未消込）'
+
+            # 入出金履歴（OffsetLog）に記録
+            balance_obj, _ = GuardianBalance.objects.get_or_create(
+                tenant_id=transfer.tenant_id,
+                guardian=guardian,
+                defaults={'balance': 0}
+            )
+
+            # 請求書に適用しない場合は預り金として残高を増やす
+            if not invoice:
+                balance_obj.balance += Decimal(str(transfer.amount))
+                balance_obj.save()
+
+            OffsetLog.objects.create(
+                tenant_id=transfer.tenant_id,
+                guardian=guardian,
+                invoice=invoice,
+                payment=payment,
+                transaction_type=OffsetLog.TransactionType.DEPOSIT,
+                amount=transfer.amount,
+                balance_after=balance_obj.balance,
+                reason=f'銀行振込による入金（{transfer.payer_name}）',
+            )
+
+            # バッチのカウント更新
+            if transfer.import_batch_id:
+                try:
+                    import_batch = BankTransferImport.objects.get(id=transfer.import_batch_id)
+                    import_batch.update_counts()
+                except BankTransferImport.DoesNotExist:
+                    pass
+
+        return Response({
+            'success': True,
+            'message': message,
+            'transfer': BankTransferSerializer(transfer).data,
+            'payment_id': str(payment.id),
+            'matched_to_invoice': invoice is not None,
+        })
+
+    @extend_schema(summary='一括照合')
+    @action(detail=False, methods=['post'])
+    def bulk_match(self, request):
+        """複数の振込を一括で照合する"""
+        serializer = BankTransferBulkMatchSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        from apps.students.models import Guardian
+        results = []
+
+        with transaction.atomic():
+            for match_data in serializer.validated_data['matches']:
+                try:
+                    transfer = BankTransfer.objects.get(id=match_data['transfer_id'])
+                    guardian = Guardian.objects.get(id=match_data['guardian_id'])
+
+                    if match_data.get('apply_payment') and match_data.get('invoice_id'):
+                        invoice = Invoice.objects.get(id=match_data['invoice_id'])
+                        # 入金処理
+                        payment = Payment.objects.create(
+                            tenant_id=transfer.tenant_id,
+                            guardian=guardian,
+                            invoice=invoice,
+                            payment_date=transfer.transfer_date,
+                            amount=transfer.amount,
+                            method=Payment.Method.BANK_TRANSFER,
+                            status=Payment.Status.COMPLETED,
+                            payer_name=transfer.payer_name,
+                            bank_name=transfer.source_bank_name,
+                            notes=f'振込インポート: {transfer.import_batch_id}',
+                            registered_by=request.user,
+                        )
+                        invoice.paid_amount += transfer.amount
+                        invoice.balance_due = invoice.total_amount - invoice.paid_amount
+                        if invoice.balance_due <= 0:
+                            invoice.status = Invoice.Status.PAID
+                        elif invoice.paid_amount > 0:
+                            invoice.status = Invoice.Status.PARTIAL
+                        invoice.save()
+                        transfer.apply_to_invoice(invoice, request.user)
+                    else:
+                        transfer.match_to_guardian(guardian, request.user)
+
+                    results.append({
+                        'transfer_id': str(transfer.id),
+                        'success': True,
+                    })
+                except Exception as e:
+                    results.append({
+                        'transfer_id': str(match_data['transfer_id']),
+                        'success': False,
+                        'error': str(e),
+                    })
+
+        return Response({
+            'results': results,
+            'success_count': len([r for r in results if r['success']]),
+            'error_count': len([r for r in results if not r['success']]),
+        })
+
+
+# =============================================================================
+# BankTransferImport ViewSet
+# =============================================================================
+@extend_schema_view(
+    list=extend_schema(summary='振込インポートバッチ一覧'),
+    retrieve=extend_schema(summary='振込インポートバッチ詳細'),
+)
+class BankTransferImportViewSet(viewsets.ModelViewSet):
+    """振込インポート管理API"""
+    serializer_class = BankTransferImportSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        from apps.core.permissions import is_admin_user
+
+        queryset = BankTransferImport.objects.select_related('imported_by', 'confirmed_by')
+
+        # 管理者以外はテナントでフィルタ
+        if not is_admin_user(self.request.user):
+            queryset = queryset.filter(tenant_id=self.request.user.tenant_id)
+
+        return queryset.order_by('-imported_at')
+
+    def _detect_and_parse_bank_raw_csv(self, file_content):
+        """銀行の生CSVフォーマットを検出してパース
+
+        銀行の生データ形式:
+        - 行タイプ1: ヘッダー情報
+        - 行タイプ2: 振込データ (日付, 空, 振込種別, 振込人名義, 金額, ...)
+        """
+        import csv
+        import io
+        import re
+
+        # Shift-JISでデコード
+        try:
+            content = file_content.decode('shift_jis')
+        except:
+            try:
+                content = file_content.decode('utf-8-sig')
+            except:
+                content = file_content.decode('utf-8')
+
+        reader = csv.reader(io.StringIO(content))
+        rows = list(reader)
+
+        if not rows:
+            return None, "ファイルにデータがありません"
+
+        # 行タイプ2で始まる行があれば銀行生データと判定
+        is_bank_raw = any(row and row[0] == '2' for row in rows)
+
+        if not is_bank_raw:
+            return None, None  # 通常のCSVとして処理
+
+        # 銀行生データをパース
+        # フォーマット検出: 最初のデータ行を確認
+        # パターン1: 2,日付,,振込種別,名義,金額,... (row[2]が空)
+        # パターン2: 2,日付,振込種別,名義,?,金額,... (row[2]が振込種別)
+        first_data_row = None
+        for row in rows:
+            if row and row[0] == '2':
+                first_data_row = row
+                break
+
+        if not first_data_row:
+            return [], None  # データなし
+
+        # フォーマット判定: row[2]が空かどうか
+        is_pattern1 = len(first_data_row) > 2 and first_data_row[2] == ''
+
+        transfers = []
+        for row in rows:
+            if not row or row[0] != '2':
+                continue
+
+            # 日付（row[1]）: 2024.12.23 → 2024-12-23
+            date_str = row[1] if len(row) > 1 else ""
+            if date_str:
+                date_str = date_str.replace(".", "-")
+
+            if is_pattern1:
+                # パターン1: 2,日付,,振込種別,名義,金額,...
+                payer_raw = row[4] if len(row) > 4 else ""
+                amount_str = row[5] if len(row) > 5 else "0"
+            else:
+                # パターン2: 2,日付,振込種別,名義,?,金額,...
+                payer_raw = row[3] if len(row) > 3 else ""
+                amount_str = row[5] if len(row) > 5 else "0"
+
+            guardian_id, payer_name = self._parse_payer_name(payer_raw)
+
+            try:
+                amount = int(amount_str.replace(',', ''))
+            except:
+                amount = 0
+
+            if date_str and amount > 0:
+                transfers.append({
+                    'transfer_date': date_str,
+                    'amount': amount,
+                    'payer_name': payer_name,
+                    'payer_name_kana': payer_name,  # 名義カナも同じ
+                    'guardian_id_hint': guardian_id,  # マッチング用のヒント
+                    'source_bank_name': '',
+                    'source_branch_name': '',
+                })
+
+        return transfers, None
+
+    def _parse_payer_name(self, name_str):
+        """振込人名義を解析（ID部分を分離）
+
+        例: ８２１８８５９コジマ → ID: 8218859, 名義: コジマ
+        例: カワカミ　ユミコ → ID: なし, 名義: カワカミ ユミコ
+        """
+        import re
+
+        if not name_str:
+            return "", ""
+
+        # 全角数字を半角に変換
+        name_str = name_str.translate(str.maketrans('０１２３４５６７８９', '0123456789'))
+
+        # 先頭の数字部分を抽出
+        match = re.match(r'^(\d+)\s*(.*)$', name_str)
+        if match:
+            guardian_id = match.group(1)
+            name = match.group(2).strip()
+            # 名前の全角スペースを半角に
+            name = name.replace('　', ' ')
+            return guardian_id, name
+        else:
+            # 数字がない場合はそのまま名前として使用
+            name = name_str.replace('　', ' ')
+            return "", name
+
+    @extend_schema(summary='振込データをインポート')
+    @action(detail=False, methods=['post'], parser_classes=[MultiPartParser])
+    def upload(self, request):
+        """CSVまたはExcelファイルから振込データをインポート
+
+        銀行の生CSVデータ（Shift-JIS、行タイプ形式）にも対応。
+        """
+        import pandas as pd
+        from datetime import datetime
+        import io
+        import traceback
+
+        if 'file' not in request.FILES:
+            return Response({'error': 'ファイルを指定してください'}, status=400)
+
+        file = request.FILES['file']
+        logger.warning(f"[BankTransferImport] File size: {file.size}")
+        file_name = file.name.lower()
+
+        # カラムマッピング取得
+        date_col = request.data.get('date_column', '振込日')
+        amount_col = request.data.get('amount_column', '金額')
+        payer_name_col = request.data.get('payer_name_column', '振込人名義')
+        payer_kana_col = request.data.get('payer_name_kana_column', '振込人名義カナ')
+        bank_col = request.data.get('bank_name_column', '銀行名')
+        branch_col = request.data.get('branch_name_column', '支店名')
+
+        try:
+            logger.warning(f"[BankTransferImport] Processing file: {file_name}")
+            # CSVの場合、まず銀行生データかどうかを検出
+            if file_name.endswith('.csv'):
+                file_content = file.read()
+                logger.warning(f"[BankTransferImport] File content length: {len(file_content)} bytes")
+
+                try:
+                    bank_transfers, error = self._detect_and_parse_bank_raw_csv(file_content)
+                    logger.warning(f"[BankTransferImport] Parse result: transfers={len(bank_transfers) if bank_transfers else None}, error={error}")
+                except Exception as parse_e:
+                    logger.error(f"[BankTransferImport] Parse exception: {parse_e}")
+                    raise
+
+                if error:
+                    logger.warning(f"[BankTransferImport] Parse error: {error}")
+                    return Response({'error': error}, status=400)
+
+                if bank_transfers is not None:
+                    logger.warning(f"[BankTransferImport] Detected bank raw format, {len(bank_transfers)} transfers")
+                    # 銀行生データとして処理
+                    original_file_name = file.name
+                    return self._import_bank_raw_data(request, bank_transfers, original_file_name)
+
+                # 通常のCSVとして処理
+                file.seek(0)  # ファイルポインタをリセット
+                try:
+                    df = pd.read_csv(io.BytesIO(file_content), encoding='utf-8-sig')
+                except:
+                    df = pd.read_csv(io.BytesIO(file_content), encoding='utf-8')
+                file_type = 'csv'
+            elif file_name.endswith(('.xlsx', '.xls')):
+                df = pd.read_excel(file)
+                file_type = 'excel'
+            else:
+                return Response({'error': 'CSVまたはExcelファイルのみ対応しています'}, status=400)
+
+            if len(df) == 0:
+                return Response({'error': 'ファイルにデータがありません'}, status=400)
+
+            tenant_id = getattr(request, 'tenant_id', None) or getattr(request.user, 'tenant_id', None)
+
+            # インポートバッチ作成
+            import_batch = BankTransferImport.objects.create(
+                tenant_id=tenant_id,
+                file_name=file.name,
+                file_type=file_type,
+                imported_by=request.user,
+            )
+
+            transfers_created = []
+            errors = []
+
+            for idx, row in df.iterrows():
+                try:
+                    # 日付パース
+                    transfer_date = row.get(date_col)
+                    if pd.isna(transfer_date):
+                        errors.append({'row': idx + 2, 'error': '振込日が空です'})
+                        continue
+
+                    if isinstance(transfer_date, str):
+                        transfer_date = datetime.strptime(transfer_date, '%Y-%m-%d').date()
+                    elif hasattr(transfer_date, 'date'):
+                        transfer_date = transfer_date.date()
+
+                    # 金額パース
+                    amount = row.get(amount_col)
+                    if pd.isna(amount):
+                        errors.append({'row': idx + 2, 'error': '金額が空です'})
+                        continue
+                    amount = Decimal(str(amount).replace(',', ''))
+
+                    # 振込人名義
+                    payer_name = row.get(payer_name_col, '')
+                    if pd.isna(payer_name) or not payer_name:
+                        errors.append({'row': idx + 2, 'error': '振込人名義が空です'})
+                        continue
+
+                    # 振込データ作成
+                    transfer = BankTransfer.objects.create(
+                        tenant_id=tenant_id,
+                        transfer_date=transfer_date,
+                        amount=amount,
+                        payer_name=str(payer_name),
+                        payer_name_kana=str(row.get(payer_kana_col, '')) if not pd.isna(row.get(payer_kana_col)) else '',
+                        source_bank_name=str(row.get(bank_col, '')) if not pd.isna(row.get(bank_col)) else '',
+                        source_branch_name=str(row.get(branch_col, '')) if not pd.isna(row.get(branch_col)) else '',
+                        status=BankTransfer.Status.PENDING,
+                        import_batch_id=str(import_batch.id),
+                        import_row_no=idx + 1,
+                    )
+                    transfers_created.append(transfer)
+
+                except Exception as e:
+                    errors.append({'row': idx + 2, 'error': str(e)})
+
+            # バッチカウント更新
+            import_batch.update_counts()
+
+            # 自動照合を試みる
+            auto_matched = self._auto_match_transfers(transfers_created, request.user)
+
+            # バッチカウント再更新
+            import_batch.update_counts()
+
+            return Response({
+                'success': True,
+                'batch_id': str(import_batch.id),
+                'batch_no': import_batch.batch_no,
+                'total_count': len(transfers_created),
+                'error_count': len(errors),
+                'auto_matched_count': auto_matched,
+                'errors': errors[:10],  # 最初の10件のエラーのみ返す
+            })
+
+        except Exception as e:
+            import traceback
+            tb = traceback.format_exc()
+            return Response({'error': f'ファイルの処理中にエラーが発生しました: {str(e)}', 'traceback': tb}, status=400)
+
+    def _auto_match_transfers(self, transfers, user):
+        """振込データを自動照合"""
+        from apps.students.models import Guardian
+        matched_count = 0
+
+        for transfer in transfers:
+            # 振込人名義で完全一致する保護者を探す
+            payer_name = transfer.payer_name.replace('　', ' ').strip()
+
+            # 姓名を分割
+            name_parts = payer_name.split()
+            if len(name_parts) >= 2:
+                last_name = name_parts[0]
+                first_name = name_parts[-1]
+
+                # 完全一致検索
+                guardian = Guardian.objects.filter(
+                    tenant_id=transfer.tenant_id,
+                    deleted_at__isnull=True,
+                    last_name=last_name,
+                    first_name=first_name,
+                ).first()
+
+                if not guardian and transfer.payer_name_kana:
+                    # カナでも検索
+                    kana_parts = transfer.payer_name_kana.replace('　', ' ').split()
+                    if len(kana_parts) >= 2:
+                        guardian = Guardian.objects.filter(
+                            tenant_id=transfer.tenant_id,
+                            deleted_at__isnull=True,
+                            last_name_kana=kana_parts[0],
+                            first_name_kana=kana_parts[-1],
+                        ).first()
+
+                if guardian:
+                    # 金額が一致する未払い請求書を探す
+                    matching_invoice = Invoice.objects.filter(
+                        guardian=guardian,
+                        status__in=[Invoice.Status.ISSUED, Invoice.Status.PARTIAL, Invoice.Status.OVERDUE],
+                        balance_due=transfer.amount,
+                    ).order_by('billing_year', 'billing_month').first()
+
+                    if matching_invoice:
+                        transfer.guardian = guardian
+                        transfer.status = BankTransfer.Status.MATCHED
+                        transfer.matched_by = user
+                        transfer.matched_at = timezone.now()
+                        transfer.save()
+                        matched_count += 1
+                    else:
+                        # 金額が一致しなくても保護者だけ照合
+                        transfer.guardian = guardian
+                        transfer.status = BankTransfer.Status.MATCHED
+                        transfer.matched_by = user
+                        transfer.matched_at = timezone.now()
+                        transfer.save()
+                        matched_count += 1
+
+        return matched_count
+
+    def _import_bank_raw_data(self, request, transfers_data, file_name):
+        """銀行生データをインポート"""
+        from datetime import datetime
+        from apps.students.models import Guardian
+        from apps.tenants.models import Tenant
+
+        tenant_id = getattr(request, 'tenant_id', None) or getattr(request.user, 'tenant_id', None)
+
+        # テナントIDがない場合はデフォルトテナントを使用
+        if not tenant_id:
+            default_tenant = Tenant.objects.first()
+            if default_tenant:
+                tenant_id = default_tenant.id
+
+        # インポートバッチ作成
+        import_batch = BankTransferImport.objects.create(
+            tenant_id=tenant_id,
+            file_name=file_name,
+            file_type='csv',
+            imported_by=request.user,
+        )
+
+        transfers_created = []
+        errors = []
+        auto_matched_count = 0
+
+        for idx, data in enumerate(transfers_data):
+            try:
+                # 日付パース
+                transfer_date = datetime.strptime(data['transfer_date'], '%Y-%m-%d').date()
+
+                # 振込データ作成
+                guardian_id_hint = data.get('guardian_id_hint', '')
+
+                transfer = BankTransfer.objects.create(
+                    tenant_id=tenant_id,
+                    transfer_date=transfer_date,
+                    amount=Decimal(str(data['amount'])),
+                    payer_name=data['payer_name'],
+                    payer_name_kana=data['payer_name_kana'],
+                    guardian_no_hint=guardian_id_hint,
+                    source_bank_name=data['source_bank_name'],
+                    source_branch_name=data['source_branch_name'],
+                    status=BankTransfer.Status.PENDING,
+                    import_batch_id=str(import_batch.id),
+                    import_row_no=idx + 1,
+                )
+
+                # guardian_id_hintがあれば、それで自動照合を試みる
+                if guardian_id_hint:
+                    # guardian_noで検索
+                    guardian = Guardian.objects.filter(
+                        tenant_id=tenant_id,
+                        guardian_no=guardian_id_hint,
+                        deleted_at__isnull=True,
+                    ).first()
+
+                    if guardian:
+                        transfer.guardian = guardian
+                        transfer.status = BankTransfer.Status.MATCHED
+                        transfer.matched_by = request.user
+                        transfer.matched_at = timezone.now()
+                        transfer.save()
+                        auto_matched_count += 1
+
+                transfers_created.append(transfer)
+
+            except Exception as e:
+                errors.append({'row': idx + 1, 'error': str(e)})
+
+        # まだマッチしていない振込に対して通常の自動照合を実行
+        unmatched_transfers = [t for t in transfers_created if t.status == BankTransfer.Status.PENDING]
+        if unmatched_transfers:
+            auto_matched_count += self._auto_match_transfers(unmatched_transfers, request.user)
+
+        # バッチカウント更新
+        import_batch.update_counts()
+
+        return Response({
+            'success': True,
+            'batch_id': str(import_batch.id),
+            'batch_no': import_batch.batch_no,
+            'total_count': len(transfers_created),
+            'error_count': len(errors),
+            'auto_matched_count': auto_matched_count,
+            'format_detected': 'bank_raw',
+            'errors': errors[:10],
+        })
+
+    @extend_schema(summary='インポートバッチを確定')
+    @action(detail=True, methods=['post'])
+    def confirm(self, request, pk=None):
+        """インポートバッチを確定し、照合済みの振込を入金処理する"""
+        import_batch = self.get_object()
+
+        if import_batch.confirmed_at:
+            return Response({'error': 'このバッチは既に確定済みです'}, status=400)
+
+        # 照合済みの振込を取得
+        matched_transfers = BankTransfer.objects.filter(
+            import_batch_id=str(import_batch.id),
+            status=BankTransfer.Status.MATCHED,
+            guardian__isnull=False,
+        )
+
+        applied_count = 0
+        errors = []
+
+        with transaction.atomic():
+            for transfer in matched_transfers:
+                try:
+                    # 未払い請求書を取得（金額一致優先）
+                    invoice = Invoice.objects.filter(
+                        guardian=transfer.guardian,
+                        status__in=[Invoice.Status.ISSUED, Invoice.Status.PARTIAL, Invoice.Status.OVERDUE],
+                    ).order_by(
+                        # 金額一致するものを優先
+                        models.Case(
+                            models.When(balance_due=transfer.amount, then=0),
+                            default=1,
+                        ),
+                        'billing_year',
+                        'billing_month',
+                    ).first()
+
+                    if invoice:
+                        # 入金処理
+                        payment = Payment.objects.create(
+                            tenant_id=transfer.tenant_id,
+                            guardian=transfer.guardian,
+                            invoice=invoice,
+                            payment_date=transfer.transfer_date,
+                            amount=transfer.amount,
+                            method=Payment.Method.BANK_TRANSFER,
+                            status=Payment.Status.COMPLETED,
+                            payer_name=transfer.payer_name,
+                            bank_name=transfer.source_bank_name,
+                            notes=f'振込インポート確定: {import_batch.batch_no}',
+                            registered_by=request.user,
+                        )
+
+                        # 請求書更新
+                        invoice.paid_amount += transfer.amount
+                        invoice.balance_due = invoice.total_amount - invoice.paid_amount
+                        if invoice.balance_due <= 0:
+                            invoice.status = Invoice.Status.PAID
+                        elif invoice.paid_amount > 0:
+                            invoice.status = Invoice.Status.PARTIAL
+                        invoice.save()
+
+                        # 振込ステータス更新
+                        transfer.invoice = invoice
+                        transfer.status = BankTransfer.Status.APPLIED
+                        transfer.save()
+                        applied_count += 1
+                    else:
+                        errors.append({
+                            'transfer_id': str(transfer.id),
+                            'payer_name': transfer.payer_name,
+                            'error': '適用可能な請求書が見つかりません',
+                        })
+
+                except Exception as e:
+                    errors.append({
+                        'transfer_id': str(transfer.id),
+                        'payer_name': transfer.payer_name,
+                        'error': str(e),
+                    })
+
+            # バッチ確定
+            import_batch.confirm(request.user)
+            import_batch.update_counts()
+
+        return Response({
+            'success': True,
+            'applied_count': applied_count,
+            'error_count': len(errors),
+            'errors': errors[:10],
+        })
+
+    @extend_schema(summary='保護者検索（振込照合用）')
+    @action(detail=False, methods=['get'])
+    def search_guardians(self, request):
+        """振込照合のための保護者検索"""
+        from apps.students.models import Guardian
+
+        query = request.query_params.get('q', '')
+        if len(query) < 2:
+            return Response({'error': '2文字以上で検索してください'}, status=400)
+
+        tenant_id = getattr(request, 'tenant_id', None) or getattr(request.user, 'tenant_id', None)
+
+        # テナントIDが取得できない場合はデフォルトテナントを使用
+        if not tenant_id:
+            from apps.tenants.models import Tenant
+            default_tenant = Tenant.objects.first()
+            if default_tenant:
+                tenant_id = default_tenant.id
+
+        guardians = Guardian.objects.filter(
+            deleted_at__isnull=True,
+        )
+        if tenant_id:
+            guardians = guardians.filter(tenant_id=tenant_id)
+        guardians = guardians.filter(
+            models.Q(last_name__icontains=query) |
+            models.Q(first_name__icontains=query) |
+            models.Q(last_name_kana__icontains=query) |
+            models.Q(first_name_kana__icontains=query)
+        )[:20]
+
+        results = []
+        for g in guardians:
+            # 未払い請求書を取得
+            invoices = Invoice.objects.filter(
+                guardian=g,
+                status__in=[Invoice.Status.ISSUED, Invoice.Status.PARTIAL, Invoice.Status.OVERDUE]
+            ).order_by('-billing_year', '-billing_month')[:5]
+
+            results.append({
+                'guardianId': str(g.id),
+                'guardianName': g.full_name,
+                'guardianNameKana': g.full_name_kana,
+                'invoices': [{
+                    'invoiceId': str(inv.id),
+                    'invoiceNo': inv.invoice_no,
+                    'billingLabel': f"{inv.billing_year}年{inv.billing_month}月分",
+                    'totalAmount': int(inv.total_amount),
+                    'balanceDue': int(inv.balance_due),
+                    'status': inv.status,
+                    'statusDisplay': inv.get_status_display(),
+                } for inv in invoices],
+            })
+
+        return Response({'guardians': results})
+
+
+# =============================================================================
+# ConfirmedBilling ViewSet - 請求確定データ管理
+# =============================================================================
+@extend_schema_view(
+    list=extend_schema(summary='請求確定一覧'),
+    retrieve=extend_schema(summary='請求確定詳細'),
+)
+class ConfirmedBillingViewSet(viewsets.ModelViewSet):
+    """請求確定データ管理API
+
+    締日確定時に生徒ごとの請求データをスナップショットとして保存。
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        from apps.core.permissions import is_admin_user
+
+        queryset = ConfirmedBilling.objects.select_related(
+            'student', 'guardian', 'billing_deadline', 'confirmed_by'
+        )
+
+        # 管理者以外はテナントでフィルタ
+        if not is_admin_user(self.request.user):
+            queryset = queryset.filter(tenant_id=self.request.user.tenant_id)
+
+        # 年月でフィルタ
+        year = self.request.query_params.get('year')
+        month = self.request.query_params.get('month')
+        if year:
+            queryset = queryset.filter(year=int(year))
+        if month:
+            queryset = queryset.filter(month=int(month))
+
+        # ステータスでフィルタ
+        status_filter = self.request.query_params.get('status')
+        if status_filter:
+            queryset = queryset.filter(status=status_filter)
+
+        # 保護者でフィルタ
+        guardian_id = self.request.query_params.get('guardian_id')
+        if guardian_id:
+            queryset = queryset.filter(guardian_id=guardian_id)
+
+        # 生徒でフィルタ
+        student_id = self.request.query_params.get('student_id')
+        if student_id:
+            queryset = queryset.filter(student_id=student_id)
+
+        return queryset.order_by('-year', '-month', '-confirmed_at')
+
+    def get_serializer_class(self):
+        if self.action == 'list':
+            return ConfirmedBillingListSerializer
+        return ConfirmedBillingSerializer
+
+    @extend_schema(summary='請求確定データを生成')
+    @action(detail=False, methods=['post'])
+    def create_confirmed_billing(self, request):
+        """指定月の請求確定データを生成
+
+        締日確定時に呼び出される。StudentItemのスナップショットを作成。
+        """
+        serializer = ConfirmedBillingCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        year = data['year']
+        month = data['month']
+        student_ids = data.get('student_ids')
+
+        tenant_id = getattr(request, 'tenant_id', None) or getattr(request.user, 'tenant_id', None)
+        if not tenant_id:
+            from apps.tenants.models import Tenant
+            default_tenant = Tenant.objects.first()
+            if default_tenant:
+                tenant_id = default_tenant.id
+
+        from apps.students.models import Student
+        from apps.contracts.models import StudentItem
+
+        # 対象生徒を取得
+        if student_ids:
+            students = Student.objects.filter(
+                tenant_id=tenant_id,
+                id__in=student_ids,
+                deleted_at__isnull=True
+            )
+        else:
+            # 該当月にStudentItemがある生徒を取得
+            billing_month_formats = [
+                f"{year}-{str(month).zfill(2)}",
+                f"{year}{str(month).zfill(2)}",
+            ]
+            student_ids_with_items = StudentItem.objects.filter(
+                tenant_id=tenant_id,
+                billing_month__in=billing_month_formats,
+                deleted_at__isnull=True
+            ).values_list('student_id', flat=True).distinct()
+
+            students = Student.objects.filter(
+                tenant_id=tenant_id,
+                id__in=student_ids_with_items,
+                deleted_at__isnull=True
+            )
+
+        created_count = 0
+        updated_count = 0
+        skipped_count = 0
+        errors = []
+
+        with transaction.atomic():
+            for student in students:
+                try:
+                    # 保護者を取得
+                    guardian = student.guardians.filter(
+                        deleted_at__isnull=True
+                    ).first()
+
+                    if not guardian:
+                        errors.append({
+                            'student_id': str(student.id),
+                            'student_name': student.full_name,
+                            'error': '保護者が設定されていません'
+                        })
+                        skipped_count += 1
+                        continue
+
+                    # 確定データを作成
+                    confirmed, was_created = ConfirmedBilling.create_from_student_items(
+                        tenant_id=tenant_id,
+                        student=student,
+                        guardian=guardian,
+                        year=year,
+                        month=month,
+                        user=request.user
+                    )
+
+                    if was_created:
+                        created_count += 1
+                    else:
+                        if confirmed.status == ConfirmedBilling.Status.PAID:
+                            skipped_count += 1
+                        else:
+                            updated_count += 1
+
+                except Exception as e:
+                    errors.append({
+                        'student_id': str(student.id),
+                        'student_name': student.full_name,
+                        'error': str(e)
+                    })
+
+        return Response({
+            'success': True,
+            'year': year,
+            'month': month,
+            'created_count': created_count,
+            'updated_count': updated_count,
+            'skipped_count': skipped_count,
+            'error_count': len(errors),
+            'errors': errors[:10],
+        })
+
+    @extend_schema(summary='締日確定一括処理')
+    @action(detail=False, methods=['post'])
+    def confirm_batch(self, request):
+        """締日確定一括処理
+
+        1. 請求確定データを生成
+        2. 締日を締める（オプション）
+        """
+        serializer = BillingConfirmBatchSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        year = data['year']
+        month = data['month']
+        close_deadline = data.get('close_deadline', True)
+
+        tenant_id = getattr(request, 'tenant_id', None) or getattr(request.user, 'tenant_id', None)
+        if not tenant_id:
+            from apps.tenants.models import Tenant
+            default_tenant = Tenant.objects.first()
+            if default_tenant:
+                tenant_id = default_tenant.id
+
+        # 締日を取得または作成
+        deadline, _ = MonthlyBillingDeadline.get_or_create_for_month(
+            tenant_id=tenant_id,
+            year=year,
+            month=month
+        )
+
+        if deadline.is_closed:
+            return Response({
+                'error': f'{year}年{month}月分は既に締め済みです'
+            }, status=400)
+
+        # 請求確定データを生成
+        create_result = self.create_confirmed_billing(request)
+
+        # 締日を締める
+        if close_deadline:
+            deadline.close_manually(request.user, f'一括確定処理により締め')
+
+        return Response({
+            'success': True,
+            'year': year,
+            'month': month,
+            'billing_result': create_result.data,
+            'deadline_closed': close_deadline,
+            'is_closed': deadline.is_closed,
+        })
+
+    @extend_schema(summary='入金を記録')
+    @action(detail=True, methods=['post'])
+    def record_payment(self, request, pk=None):
+        """確定データに入金を記録"""
+        confirmed = self.get_object()
+        amount = request.data.get('amount')
+
+        if not amount:
+            return Response({'error': '金額を指定してください'}, status=400)
+
+        try:
+            amount = Decimal(str(amount))
+        except:
+            return Response({'error': '金額の形式が不正です'}, status=400)
+
+        if amount <= 0:
+            return Response({'error': '金額は正の数で指定してください'}, status=400)
+
+        confirmed.paid_amount += amount
+        confirmed.update_payment_status()
+
+        return Response({
+            'success': True,
+            'paid_amount': int(confirmed.paid_amount),
+            'balance': int(confirmed.balance),
+            'status': confirmed.status,
+            'status_display': confirmed.get_status_display(),
+        })
+
+    @extend_schema(summary='月別サマリを取得')
+    @action(detail=False, methods=['get'])
+    def monthly_summary(self, request):
+        """指定月の請求確定サマリを取得"""
+        year = request.query_params.get('year')
+        month = request.query_params.get('month')
+
+        if not year or not month:
+            return Response({'error': 'year と month を指定してください'}, status=400)
+
+        tenant_id = getattr(request, 'tenant_id', None) or getattr(request.user, 'tenant_id', None)
+        if not tenant_id:
+            from apps.tenants.models import Tenant
+            default_tenant = Tenant.objects.first()
+            if default_tenant:
+                tenant_id = default_tenant.id
+
+        confirmed_billings = ConfirmedBilling.objects.filter(
+            tenant_id=tenant_id,
+            year=int(year),
+            month=int(month),
+            deleted_at__isnull=True
+        )
+
+        total_count = confirmed_billings.count()
+        total_amount = sum(c.total_amount for c in confirmed_billings)
+        total_paid = sum(c.paid_amount for c in confirmed_billings)
+        total_balance = sum(c.balance for c in confirmed_billings)
+
+        # ステータス別集計
+        status_counts = {}
+        for status_choice in ConfirmedBilling.Status.choices:
+            status_code = status_choice[0]
+            count = confirmed_billings.filter(status=status_code).count()
+            status_counts[status_code] = {
+                'label': status_choice[1],
+                'count': count,
+            }
+
+        # 支払方法別集計
+        payment_method_counts = {}
+        for method_choice in ConfirmedBilling.PaymentMethod.choices:
+            method_code = method_choice[0]
+            count = confirmed_billings.filter(payment_method=method_code).count()
+            amount = sum(c.total_amount for c in confirmed_billings.filter(payment_method=method_code))
+            payment_method_counts[method_code] = {
+                'label': method_choice[1],
+                'count': count,
+                'amount': int(amount),
+            }
+
+        return Response({
+            'year': int(year),
+            'month': int(month),
+            'total_count': total_count,
+            'total_amount': int(total_amount),
+            'total_paid': int(total_paid),
+            'total_balance': int(total_balance),
+            'collection_rate': round(float(total_paid / total_amount * 100), 1) if total_amount > 0 else 0,
+            'status_counts': status_counts,
+            'payment_method_counts': payment_method_counts,
         })

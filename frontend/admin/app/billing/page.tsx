@@ -42,6 +42,8 @@ import {
   Settings,
   Lock,
   Unlock,
+  Banknote,
+  FileCheck,
 } from "lucide-react";
 import {
   getInvoices,
@@ -96,27 +98,51 @@ export default function BillingPage() {
   const [importFile, setImportFile] = useState<File | null>(null);
   const [importResult, setImportResult] = useState<{ success: boolean; imported: number; errors: string[] } | null>(null);
 
-  // 締日情報
-  interface DeadlineInfo {
-    providerId: string;
-    providerName: string;
-    providerCode: string;
-    closingDay: number;
-    closingDate: string;
-    closingDateDisplay: string;
-    debitDay: number;
-    debitDate: string;
-    debitDateDisplay: string;
-    isClosed: boolean;
-    closedAt: string | null;
-    daysUntilClosing: number;
-    canEdit: boolean;
+  // 振込CSVインポートダイアログ
+  const [transferImportDialogOpen, setTransferImportDialogOpen] = useState(false);
+  const [transferFile, setTransferFile] = useState<File | null>(null);
+  const [transferImporting, setTransferImporting] = useState(false);
+  interface TransferImportResult {
+    success: boolean;
+    batch_id?: string;
+    batch_no?: string;
+    total_count: number;
+    matched_count: number;
+    unmatched_count: number;
+    total_amount: number;
+    errors?: string[];
   }
-  const [deadlines, setDeadlines] = useState<DeadlineInfo[]>([]);
+  const [transferImportResult, setTransferImportResult] = useState<TransferImportResult | null>(null);
+
+  // 内部締日情報（MonthlyBillingDeadline）
+  interface MonthlyDeadline {
+    id: string;
+    year: number;
+    month: number;
+    label: string;
+    closing_day: number;
+    closing_date: string;
+    is_closed: boolean;
+    can_edit: boolean;
+    is_manually_closed: boolean;
+    is_reopened: boolean;
+    is_current: boolean;
+  }
+  const [monthlyDeadlines, setMonthlyDeadlines] = useState<MonthlyDeadline[]>([]);
+  const [currentYear, setCurrentYear] = useState<number>(new Date().getFullYear());
+  const [currentMonth, setCurrentMonth] = useState<number>(new Date().getMonth() + 1);
+  const [defaultClosingDay, setDefaultClosingDay] = useState<number>(25);
+
+  // 締日設定ダイアログ
   const [deadlineSettingOpen, setDeadlineSettingOpen] = useState(false);
-  const [editingProvider, setEditingProvider] = useState<DeadlineInfo | null>(null);
+  const [editingDeadline, setEditingDeadline] = useState<MonthlyDeadline | null>(null);
   const [editClosingDay, setEditClosingDay] = useState<number>(25);
-  const [editDebitDay, setEditDebitDay] = useState<number>(27);
+
+  // 手動締め・締め解除ダイアログ
+  const [closeDialogOpen, setCloseDialogOpen] = useState(false);
+  const [reopenDialogOpen, setReopenDialogOpen] = useState(false);
+  const [reopenReason, setReopenReason] = useState("");
+  const [closeNotes, setCloseNotes] = useState("");
 
   // 年月のオプション
   const years = useMemo(() => {
@@ -140,32 +166,85 @@ export default function BillingPage() {
 
   async function loadDeadlines() {
     try {
-      const data = await apiClient.get<{ deadlines: DeadlineInfo[] }>('/billing/providers/current_deadlines/');
-      setDeadlines(data.deadlines || []);
+      const data = await apiClient.get<{
+        current_year: number;
+        current_month: number;
+        default_closing_day: number;
+        months: MonthlyDeadline[];
+      }>('/billing/deadlines/status_list/');
+      if (data.months) {
+        setMonthlyDeadlines(data.months);
+      }
+      if (data.current_year) {
+        setCurrentYear(data.current_year);
+      }
+      if (data.current_month) {
+        setCurrentMonth(data.current_month);
+      }
+      if (data.default_closing_day) {
+        setDefaultClosingDay(data.default_closing_day);
+      }
     } catch (error) {
       console.error('Failed to load deadlines:', error);
     }
   }
 
-  function openDeadlineSetting(deadline: DeadlineInfo) {
-    setEditingProvider(deadline);
-    setEditClosingDay(deadline.closingDay);
-    setEditDebitDay(deadline.debitDay);
+  function openDeadlineSetting(deadline: MonthlyDeadline) {
+    setEditingDeadline(deadline);
+    setEditClosingDay(deadline.closing_day);
     setDeadlineSettingOpen(true);
   }
 
   async function saveDeadlineSetting() {
-    if (!editingProvider) return;
     try {
-      await apiClient.patch(`/billing/providers/${editingProvider.providerId}/update_deadline/`, {
+      await apiClient.post('/billing/deadlines/set_default_closing_day/', {
         closing_day: editClosingDay,
-        debit_day: editDebitDay,
       });
+      setDefaultClosingDay(editClosingDay);
       setDeadlineSettingOpen(false);
       loadDeadlines();
     } catch (error) {
       console.error('Failed to save deadline:', error);
     }
+  }
+
+  // 手動締め
+  async function handleManualClose() {
+    if (!editingDeadline) return;
+    try {
+      await apiClient.post(`/billing/deadlines/${editingDeadline.id}/close_manually/`, {
+        notes: closeNotes,
+      });
+      setCloseDialogOpen(false);
+      setCloseNotes("");
+      loadDeadlines();
+    } catch (error) {
+      console.error('Failed to close:', error);
+    }
+  }
+
+  // 締め解除
+  async function handleReopen() {
+    if (!editingDeadline) return;
+    try {
+      await apiClient.post(`/billing/deadlines/${editingDeadline.id}/reopen/`, {
+        reason: reopenReason,
+      });
+      setReopenDialogOpen(false);
+      setReopenReason("");
+      loadDeadlines();
+    } catch (error) {
+      console.error('Failed to reopen:', error);
+    }
+  }
+
+  // 締日までの残り日数を計算
+  function getDaysUntilClosing(closingDateStr: string): number {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const closingDate = new Date(closingDateStr);
+    closingDate.setHours(0, 0, 0, 0);
+    return Math.ceil((closingDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
   }
 
   function handleSearch() {
@@ -253,6 +332,43 @@ export default function BillingPage() {
     }
   }
 
+  // 振込CSVインポート
+  async function handleTransferImport() {
+    if (!transferFile) return;
+
+    setTransferImporting(true);
+    setTransferImportResult(null);
+
+    try {
+      const formData = new FormData();
+      formData.append('file', transferFile);
+
+      const result = await apiClient.upload<TransferImportResult>('/billing/transfer-imports/upload/', formData);
+      setTransferImportResult({
+        success: true,
+        batch_id: result.batch_id,
+        batch_no: result.batch_no,
+        total_count: result.total_count,
+        matched_count: result.matched_count,
+        unmatched_count: result.unmatched_count,
+        total_amount: result.total_amount,
+      });
+    } catch (error: unknown) {
+      console.error('Transfer import error:', error);
+      const errorMessage = error instanceof Error ? error.message : '不明なエラー';
+      setTransferImportResult({
+        success: false,
+        total_count: 0,
+        matched_count: 0,
+        unmatched_count: 0,
+        total_amount: 0,
+        errors: [errorMessage],
+      });
+    } finally {
+      setTransferImporting(false);
+    }
+  }
+
   const startResult = (result.page - 1) * result.pageSize + 1;
   const endResult = Math.min(result.page * result.pageSize, result.count);
 
@@ -267,123 +383,90 @@ export default function BillingPage() {
               {result.count.toLocaleString()}件の請求書があります
             </p>
           </div>
-          <a href="/billing/bank-requests">
-            <Button variant="outline">
-              <FileText className="w-4 h-4 mr-2" />
-              口座申請管理
-            </Button>
-          </a>
+          <div className="flex gap-2">
+            <a href="/billing/transfers">
+              <Button variant="outline">
+                <Banknote className="w-4 h-4 mr-2" />
+                振込入金確認
+              </Button>
+            </a>
+            <a href="/billing/payments">
+              <Button variant="outline">
+                <Clock className="w-4 h-4 mr-2" />
+                入金消込
+              </Button>
+            </a>
+            <a href="/billing/bank-requests">
+              <Button variant="outline">
+                <FileText className="w-4 h-4 mr-2" />
+                口座申請管理
+              </Button>
+            </a>
+            <a href="/billing/confirmed">
+              <Button variant="outline">
+                <FileCheck className="w-4 h-4 mr-2" />
+                請求確定データ
+              </Button>
+            </a>
+          </div>
         </div>
 
-        {/* 締日情報カード */}
-        {deadlines.length > 0 ? (
-          <div className="mb-4 grid gap-3 md:grid-cols-2 lg:grid-cols-3">
-            {deadlines.map((deadline) => (
-              <Card key={deadline.providerId} className={`
-                ${deadline.isClosed
-                  ? 'bg-gray-50 border-gray-300'
-                  : deadline.daysUntilClosing <= 3
-                  ? 'bg-red-50 border-red-300'
-                  : deadline.daysUntilClosing <= 7
-                  ? 'bg-yellow-50 border-yellow-300'
-                  : 'bg-green-50 border-green-300'
-                }
-              `}>
-                <div className="p-3">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="font-medium text-sm">{deadline.providerName}</span>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-6 w-6 p-0"
-                      onClick={() => openDeadlineSetting(deadline)}
-                    >
-                      <Settings className="w-3 h-3" />
-                    </Button>
-                  </div>
-                  <div className="flex items-center gap-4 text-sm">
-                    <div>
-                      <p className="text-xs text-gray-500">締日</p>
-                      <p className="font-medium">{deadline.closingDateDisplay}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-gray-500">引落日</p>
-                      <p className="font-medium">{deadline.debitDateDisplay}</p>
-                    </div>
-                    <div className="ml-auto">
-                      {deadline.isClosed ? (
-                        <Badge className="bg-gray-500 flex items-center gap-1">
-                          <Lock className="w-3 h-3" />
-                          締済
-                        </Badge>
-                      ) : deadline.daysUntilClosing <= 0 ? (
-                        <Badge variant="destructive" className="flex items-center gap-1">
-                          <AlertCircle className="w-3 h-3" />
-                          締日超過
-                        </Badge>
-                      ) : deadline.daysUntilClosing <= 3 ? (
-                        <Badge variant="destructive" className="flex items-center gap-1">
-                          <Clock className="w-3 h-3" />
-                          あと{deadline.daysUntilClosing}日
-                        </Badge>
-                      ) : (
-                        <Badge className="bg-green-600 flex items-center gap-1">
-                          <Unlock className="w-3 h-3" />
-                          編集可
-                        </Badge>
-                      )}
-                    </div>
-                  </div>
-                  {deadline.canEdit && !deadline.isClosed && (
-                    <p className="text-xs text-gray-500 mt-2">
-                      {deadline.closingDateDisplay}まで請求データの修正が可能です
-                    </p>
-                  )}
-                </div>
-              </Card>
-            ))}
-          </div>
-        ) : (
-          <Card className="mb-4 p-4 bg-blue-50 border-blue-200">
-            <div className="flex items-center justify-between">
+        {/* 締日設定・締め処理 */}
+        <div className="mb-4 flex items-center gap-3">
+          <Button
+            variant="outline"
+            size="sm"
+            className="bg-blue-50 text-blue-700 border-blue-300"
+            onClick={() => {
+              setEditClosingDay(defaultClosingDay);
+              setDeadlineSettingOpen(true);
+            }}
+          >
+            <Calendar className="w-4 h-4 mr-1" />
+            締日設定
+            <span className="ml-1 text-xs">(毎月{defaultClosingDay}日)</span>
+          </Button>
+
+          {/* 当月の締め状況と締めボタン */}
+          {monthlyDeadlines.length > 0 && (() => {
+            const currentDeadline = monthlyDeadlines.find(d => d.is_current);
+            if (!currentDeadline) return null;
+
+            return currentDeadline.is_closed ? (
               <div className="flex items-center gap-2">
-                <Calendar className="w-5 h-5 text-blue-600" />
-                <div>
-                  <p className="font-medium text-blue-900">締日設定</p>
-                  <p className="text-sm text-blue-700">決済代行会社ごとの締日・引落日を管理できます</p>
-                </div>
+                <Badge className="bg-green-100 text-green-700 flex items-center gap-1">
+                  <Lock className="w-3 h-3" />
+                  {currentDeadline.year}年{currentDeadline.month}月 締め済
+                </Badge>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setEditingDeadline(currentDeadline);
+                    setReopenDialogOpen(true);
+                  }}
+                >
+                  <Unlock className="w-4 h-4 mr-1" />
+                  締め解除
+                </Button>
               </div>
+            ) : (
               <Button
-                variant="outline"
+                variant="default"
                 size="sm"
+                className="bg-orange-600 hover:bg-orange-700"
                 onClick={() => {
-                  // 新規設定ダイアログを開く（デフォルト値で）
-                  setEditingProvider({
-                    providerId: '',
-                    providerName: '新規設定',
-                    providerCode: '',
-                    closingDay: 25,
-                    closingDate: '',
-                    closingDateDisplay: '',
-                    debitDay: 27,
-                    debitDate: '',
-                    debitDateDisplay: '',
-                    isClosed: false,
-                    closedAt: null,
-                    daysUntilClosing: 0,
-                    canEdit: true,
-                  });
-                  setEditClosingDay(25);
-                  setEditDebitDay(27);
-                  setDeadlineSettingOpen(true);
+                  setEditingDeadline(currentDeadline);
+                  setCloseDialogOpen(true);
                 }}
               >
-                <Settings className="w-4 h-4 mr-1" />
-                設定
+                <Lock className="w-4 h-4 mr-1" />
+                {currentDeadline.year}年{currentDeadline.month}月分を締める
               </Button>
-            </div>
-          </Card>
-        )}
+            );
+          })()}
+        </div>
+
 
         {/* フィルター＆アクション */}
         <div className="space-y-4 mb-6">
@@ -473,7 +556,14 @@ export default function BillingPage() {
                 onClick={() => setImportDialogOpen(true)}
               >
                 <Upload className="w-4 h-4 mr-2" />
-                結果取込
+                引落結果取込
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => setTransferImportDialogOpen(true)}
+              >
+                <Banknote className="w-4 h-4 mr-2" />
+                振込結果取込
               </Button>
             </div>
           </div>
@@ -497,6 +587,7 @@ export default function BillingPage() {
                     <TableHead className="w-[120px] text-right">請求額</TableHead>
                     <TableHead className="w-[120px] text-right">入金額</TableHead>
                     <TableHead className="w-[120px] text-right">未払額</TableHead>
+                    <TableHead className="w-[100px] text-right">預り金</TableHead>
                     <TableHead className="w-[100px]">支払方法</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -509,6 +600,7 @@ export default function BillingPage() {
                     const totalAmount = Number(invoice.totalAmount || invoice.total_amount || 0);
                     const paidAmount = Number(invoice.paidAmount || invoice.paid_amount || 0);
                     const balanceDue = Number(invoice.carryOverAmount || invoice.carry_over_amount || totalAmount - paidAmount);
+                    const guardianBalance = Number(invoice.guardianBalance || invoice.guardian_balance || 0);
 
                     return (
                       <TableRow key={invoice.id} className="cursor-pointer hover:bg-gray-50">
@@ -533,6 +625,9 @@ export default function BillingPage() {
                         </TableCell>
                         <TableCell className={`text-right ${balanceDue > 0 ? "text-red-600 font-medium" : ""}`}>
                           ¥{balanceDue.toLocaleString()}
+                        </TableCell>
+                        <TableCell className={`text-right ${guardianBalance > 0 ? "text-indigo-600 font-medium" : "text-gray-400"}`}>
+                          ¥{guardianBalance.toLocaleString()}
                         </TableCell>
                         <TableCell className="text-sm text-gray-600">
                           {invoice.paymentMethod || invoice.payment_method || "-"}
@@ -691,70 +786,116 @@ export default function BillingPage() {
           </DialogContent>
         </Dialog>
 
+        {/* 振込CSVインポートダイアログ */}
+        <Dialog open={transferImportDialogOpen} onOpenChange={setTransferImportDialogOpen}>
+          <DialogContent className="max-w-lg">
+            <DialogHeader>
+              <DialogTitle>振込データ取込</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4 py-4">
+              <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-800">
+                <p className="font-medium mb-1">対応フォーマット</p>
+                <p>銀行振込データのCSVまたはExcelファイルを取り込めます。</p>
+                <p className="mt-1 text-xs">
+                  必須項目: 振込人名、振込金額、振込日
+                </p>
+              </div>
+              <div>
+                <label className="text-sm font-medium">ファイル選択</label>
+                <Input
+                  type="file"
+                  accept=".csv,.xlsx,.xls"
+                  onChange={(e) => setTransferFile(e.target.files?.[0] || null)}
+                  className="mt-1"
+                />
+              </div>
+              {transferImportResult && (
+                <div className={`p-3 rounded-lg ${transferImportResult.success ? "bg-green-50 text-green-800 border border-green-200" : "bg-red-50 text-red-800 border border-red-200"}`}>
+                  {transferImportResult.success ? (
+                    <div>
+                      <p className="font-medium mb-2">取込完了</p>
+                      <div className="grid grid-cols-2 gap-2 text-sm">
+                        <div>バッチ番号: {transferImportResult.batch_no}</div>
+                        <div>総件数: {transferImportResult.total_count}件</div>
+                        <div className="text-green-700">照合済: {transferImportResult.matched_count}件</div>
+                        <div className="text-orange-700">未照合: {transferImportResult.unmatched_count}件</div>
+                        <div className="col-span-2">総金額: ¥{transferImportResult.total_amount.toLocaleString()}</div>
+                      </div>
+                      <div className="mt-3 flex gap-2">
+                        <a href={`/billing/transfers?batch=${transferImportResult.batch_id}`}>
+                          <Button size="sm" variant="outline">
+                            照合画面へ
+                          </Button>
+                        </a>
+                      </div>
+                    </div>
+                  ) : (
+                    <div>
+                      <p className="font-medium">エラーが発生しました</p>
+                      <ul className="list-disc list-inside mt-1 text-sm">
+                        {transferImportResult.errors?.map((err, i) => (
+                          <li key={i}>{err}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => {
+                setTransferImportDialogOpen(false);
+                setTransferFile(null);
+                setTransferImportResult(null);
+              }}>
+                閉じる
+              </Button>
+              <Button onClick={handleTransferImport} disabled={!transferFile || transferImporting}>
+                <Upload className="w-4 h-4 mr-2" />
+                {transferImporting ? "取込中..." : "取り込み"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
         {/* 締日設定ダイアログ */}
         <Dialog open={deadlineSettingOpen} onOpenChange={setDeadlineSettingOpen}>
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>締日・引落日設定</DialogTitle>
+              <DialogTitle>締日設定</DialogTitle>
             </DialogHeader>
-            {editingProvider && (
-              <div className="space-y-4 py-4">
-                <p className="text-sm text-gray-600">
-                  {editingProvider.providerName} の締日・引落日を設定します
+            <div className="space-y-4 py-4">
+              <p className="text-sm text-gray-600">
+                毎月の請求締日を設定します
+              </p>
+              <div>
+                <label className="text-sm font-medium">締日（毎月）</label>
+                <Select
+                  value={editClosingDay.toString()}
+                  onValueChange={(v) => setEditClosingDay(parseInt(v))}
+                >
+                  <SelectTrigger className="mt-1">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {Array.from({ length: 31 }, (_, i) => i + 1).map((day) => (
+                      <SelectItem key={day} value={day.toString()}>
+                        {day}日
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-gray-500 mt-1">
+                  この日までに請求データを確定してください
                 </p>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="text-sm font-medium">締日（毎月）</label>
-                    <Select
-                      value={editClosingDay.toString()}
-                      onValueChange={(v) => setEditClosingDay(parseInt(v))}
-                    >
-                      <SelectTrigger className="mt-1">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {Array.from({ length: 31 }, (_, i) => i + 1).map((day) => (
-                          <SelectItem key={day} value={day.toString()}>
-                            {day}日
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <p className="text-xs text-gray-500 mt-1">
-                      この日までに請求データを確定してください
-                    </p>
-                  </div>
-                  <div>
-                    <label className="text-sm font-medium">引落日（翌月）</label>
-                    <Select
-                      value={editDebitDay.toString()}
-                      onValueChange={(v) => setEditDebitDay(parseInt(v))}
-                    >
-                      <SelectTrigger className="mt-1">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {Array.from({ length: 31 }, (_, i) => i + 1).map((day) => (
-                          <SelectItem key={day} value={day.toString()}>
-                            {day}日
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <p className="text-xs text-gray-500 mt-1">
-                      口座から引き落とされる日付
-                    </p>
-                  </div>
-                </div>
-                <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-800">
-                  <p className="font-medium mb-1">設定の反映</p>
-                  <p>
-                    締日を変更すると、今月分から新しい締日が適用されます。
-                    既に締め処理済みの月には影響しません。
-                  </p>
-                </div>
               </div>
-            )}
+              <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-800">
+                <p className="font-medium mb-1">設定の反映</p>
+                <p>
+                  締日を変更すると、今後の全ての月に適用されます。
+                </p>
+              </div>
+            </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => setDeadlineSettingOpen(false)}>
                 キャンセル
@@ -762,6 +903,84 @@ export default function BillingPage() {
               <Button onClick={saveDeadlineSetting}>
                 <Settings className="w-4 h-4 mr-2" />
                 保存
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* 手動締めダイアログ */}
+        <Dialog open={closeDialogOpen} onOpenChange={setCloseDialogOpen}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>手動締め</DialogTitle>
+            </DialogHeader>
+            {editingDeadline && (
+              <div className="space-y-4 py-4">
+                <p className="text-sm text-gray-600">
+                  {editingDeadline.year}年{editingDeadline.month}月分を手動で締め処理します
+                </p>
+                <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800">
+                  <p className="font-medium mb-1">注意</p>
+                  <p>締め処理を行うと、この月の請求データは編集不可になります。</p>
+                  <p className="mt-1">締め後でも「締め解除」で再度編集可能にできます。</p>
+                </div>
+                <div>
+                  <label className="text-sm font-medium">備考（任意）</label>
+                  <Input
+                    value={closeNotes}
+                    onChange={(e) => setCloseNotes(e.target.value)}
+                    placeholder="締め処理の理由など"
+                    className="mt-1"
+                  />
+                </div>
+              </div>
+            )}
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setCloseDialogOpen(false)}>
+                キャンセル
+              </Button>
+              <Button onClick={handleManualClose} className="bg-orange-600 hover:bg-orange-700">
+                <Lock className="w-4 h-4 mr-2" />
+                締め処理を実行
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* 締め解除ダイアログ */}
+        <Dialog open={reopenDialogOpen} onOpenChange={setReopenDialogOpen}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>締め解除</DialogTitle>
+            </DialogHeader>
+            {editingDeadline && (
+              <div className="space-y-4 py-4">
+                <p className="text-sm text-gray-600">
+                  {editingDeadline.year}年{editingDeadline.month}月分の締めを解除して編集可能にします
+                </p>
+                <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-800">
+                  <p className="font-medium mb-1">締め解除について</p>
+                  <p>締め解除を行うと、この月の請求データを再度編集できるようになります。</p>
+                  <p className="mt-1">修正が完了したら、再度締め処理を行ってください。</p>
+                </div>
+                <div>
+                  <label className="text-sm font-medium">解除理由（必須）</label>
+                  <Input
+                    value={reopenReason}
+                    onChange={(e) => setReopenReason(e.target.value)}
+                    placeholder="締め解除の理由を入力"
+                    className="mt-1"
+                  />
+                </div>
+              </div>
+            )}
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setReopenDialogOpen(false)}>
+                キャンセル
+              </Button>
+              <Button onClick={handleReopen} disabled={!reopenReason}>
+                <Unlock className="w-4 h-4 mr-2" />
+                締め解除を実行
               </Button>
             </DialogFooter>
           </DialogContent>

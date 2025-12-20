@@ -6,7 +6,7 @@ from django.db import models
 
 
 class Tenant(models.Model):
-    """テナント（塾運営会社）- グループ企業対応"""
+    """会社（塾運営会社）- グループ企業対応"""
 
     class PlanType(models.TextChoices):
         FREE = 'FREE', 'フリー'
@@ -23,7 +23,7 @@ class Tenant(models.Model):
         primary_key=True,
         default=uuid.uuid4,
         editable=False,
-        verbose_name='ID'
+        verbose_name='会社ID'
     )
     parent = models.ForeignKey(
         'self',
@@ -31,22 +31,22 @@ class Tenant(models.Model):
         null=True,
         blank=True,
         related_name='children',
-        verbose_name='親テナント'
+        verbose_name='親会社'
     )
     tenant_type = models.CharField(
         max_length=20,
         choices=TenantType.choices,
         default=TenantType.STANDALONE,
-        verbose_name='テナント種別'
+        verbose_name='会社種別'
     )
     tenant_code = models.CharField(
         max_length=20,
         unique=True,
-        verbose_name='テナントコード'
+        verbose_name='会社コード'
     )
     tenant_name = models.CharField(
         max_length=100,
-        verbose_name='テナント名'
+        verbose_name='会社名'
     )
     contact_email = models.EmailField(
         null=True,
@@ -100,8 +100,8 @@ class Tenant(models.Model):
 
     class Meta:
         db_table = 'tenants'
-        verbose_name = 'テナント'
-        verbose_name_plural = 'テナント'
+        verbose_name = '会社'
+        verbose_name_plural = '会社'
         ordering = ['tenant_code']
 
     def __str__(self):

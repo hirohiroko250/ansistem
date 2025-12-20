@@ -1,22 +1,35 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { ChevronLeft, Building2, Edit, Loader2 } from 'lucide-react';
+import { ChevronLeft, Building2, Edit, Loader2, BookOpen, ArrowUpCircle, ArrowDownCircle, ChevronRight } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { BottomTabBar } from '@/components/bottom-tab-bar';
 import Link from 'next/link';
 import {
   getMyPayment,
   getAccountTypeLabel,
   getNextWithdrawalDate,
-  type PaymentInfo
+  getMyPassbook,
+  type PaymentInfo,
+  type PassbookData
 } from '@/lib/api/payment';
 
 export default function PaymentPage() {
   const [payment, setPayment] = useState<PaymentInfo | null>(null);
   const [loading, setLoading] = useState(true);
+
+  // 通帳（入出金履歴）用の状態
+  const [isPassbookOpen, setIsPassbookOpen] = useState(false);
+  const [passbookData, setPassbookData] = useState<PassbookData | null>(null);
+  const [isLoadingPassbook, setIsLoadingPassbook] = useState(false);
 
   useEffect(() => {
     fetchPayment();
@@ -31,6 +44,38 @@ export default function PaymentPage() {
       console.error('Failed to fetch payment:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  // 通帳を開く
+  const openPassbook = async () => {
+    setIsPassbookOpen(true);
+    if (!passbookData) {
+      setIsLoadingPassbook(true);
+      try {
+        const data = await getMyPassbook();
+        setPassbookData(data);
+      } catch (error) {
+        console.error('Failed to fetch passbook:', error);
+      } finally {
+        setIsLoadingPassbook(false);
+      }
+    }
+  };
+
+  // 取引タイプに応じたアイコンと色を取得
+  const getTransactionStyle = (type: string) => {
+    switch (type) {
+      case 'deposit':
+        return { icon: ArrowDownCircle, color: 'text-green-600', bgColor: 'bg-green-100', label: '入金' };
+      case 'offset':
+        return { icon: ArrowUpCircle, color: 'text-blue-600', bgColor: 'bg-blue-100', label: '相殺' };
+      case 'refund':
+        return { icon: ArrowUpCircle, color: 'text-orange-600', bgColor: 'bg-orange-100', label: '返金' };
+      case 'adjustment':
+        return { icon: ArrowUpCircle, color: 'text-gray-600', bgColor: 'bg-gray-100', label: '調整' };
+      default:
+        return { icon: ArrowUpCircle, color: 'text-gray-600', bgColor: 'bg-gray-100', label: type };
     }
   };
 
@@ -144,6 +189,34 @@ export default function PaymentPage() {
           </Card>
         )}
 
+        {/* 入出金履歴（通帳）カード */}
+        <Card
+          className="rounded-xl shadow-md mb-6 border-indigo-200 bg-gradient-to-r from-indigo-50 to-purple-50 cursor-pointer hover:shadow-lg transition-shadow"
+          onClick={openPassbook}
+        >
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-indigo-100 flex items-center justify-center">
+                  <BookOpen className="h-5 w-5 text-indigo-600" />
+                </div>
+                <div>
+                  <h3 className="font-semibold text-indigo-900">入出金履歴（通帳）</h3>
+                  <p className="text-xs text-indigo-600">預り金残高・取引履歴を確認</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                {passbookData && (
+                  <Badge className="bg-indigo-100 text-indigo-700">
+                    残高: ¥{passbookData.current_balance.toLocaleString()}
+                  </Badge>
+                )}
+                <ChevronRight className="h-5 w-5 text-indigo-400" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
         <Card className="rounded-xl shadow-md mb-6 border-orange-200 bg-orange-50">
           <CardContent className="p-4">
             <h3 className="text-sm font-semibold text-orange-900 mb-2">ご注意</h3>
@@ -162,6 +235,84 @@ export default function PaymentPage() {
           </Button>
         </Link>
       </main>
+
+      {/* 通帳モーダル */}
+      <Dialog open={isPassbookOpen} onOpenChange={setIsPassbookOpen}>
+        <DialogContent className="max-w-[95vw] max-h-[85vh] overflow-hidden flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <BookOpen className="w-5 h-5 text-indigo-600" />
+              入出金履歴（通帳）
+            </DialogTitle>
+          </DialogHeader>
+
+          {isLoadingPassbook ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="h-8 w-8 animate-spin text-indigo-500" />
+            </div>
+          ) : passbookData ? (
+            <div className="flex-1 overflow-auto">
+              {/* 残高表示 */}
+              <div className="bg-gradient-to-r from-indigo-500 to-purple-600 rounded-xl p-4 mb-4 text-white">
+                <p className="text-sm opacity-90">現在の預り金残高</p>
+                <p className="text-3xl font-bold">
+                  ¥{passbookData.current_balance.toLocaleString()}
+                </p>
+              </div>
+
+              {/* 取引履歴 */}
+              <div className="space-y-2">
+                <h4 className="text-sm font-semibold text-gray-700 mb-2">取引履歴</h4>
+                {passbookData.transactions.length === 0 ? (
+                  <div className="text-center py-8 text-gray-500">
+                    取引履歴がありません
+                  </div>
+                ) : (
+                  passbookData.transactions.map((tx) => {
+                    const style = getTransactionStyle(tx.transaction_type);
+                    const Icon = style.icon;
+                    return (
+                      <div
+                        key={tx.id}
+                        className="flex items-center gap-3 p-3 bg-white rounded-lg border border-gray-100 shadow-sm"
+                      >
+                        <div className={`w-9 h-9 rounded-full ${style.bgColor} flex items-center justify-center`}>
+                          <Icon className={`w-5 h-5 ${style.color}`} />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className={`text-xs font-medium px-2 py-0.5 rounded ${style.bgColor} ${style.color}`}>
+                              {tx.transaction_type_display || style.label}
+                            </span>
+                            <span className="text-xs text-gray-500">
+                              {new Date(tx.created_at).toLocaleDateString('ja-JP')}
+                            </span>
+                          </div>
+                          <p className="text-sm text-gray-700 truncate mt-1">
+                            {tx.invoice_billing_label || tx.reason || '-'}
+                          </p>
+                        </div>
+                        <div className="text-right">
+                          <p className={`font-semibold ${tx.transaction_type === 'deposit' ? 'text-green-600' : 'text-gray-800'}`}>
+                            {tx.transaction_type === 'deposit' ? '+' : '-'}¥{Math.abs(tx.amount).toLocaleString()}
+                          </p>
+                          <p className="text-xs text-gray-500">
+                            残高: ¥{tx.balance_after.toLocaleString()}
+                          </p>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+          ) : (
+            <div className="text-center py-8 text-gray-500">
+              データを取得できませんでした
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       <BottomTabBar />
     </div>

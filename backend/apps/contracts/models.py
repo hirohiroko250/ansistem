@@ -85,13 +85,13 @@ class Product(TenantModel):
         TAX_3 = '3', '3:非課税'
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    product_code = models.CharField('商品コード', max_length=50)
-    product_name = models.CharField('商品名', max_length=100)
-    product_name_short = models.CharField('商品名略称', max_length=50, blank=True)
+    product_code = models.CharField('請求ID', max_length=50)
+    product_name = models.CharField('明細表記', max_length=100)
+    product_name_short = models.CharField('契約名', max_length=50, blank=True)
 
     # 商品種別
     item_type = models.CharField(
-        '商品種別',
+        '請求カテゴリ',
         max_length=30,
         choices=ItemType.choices,
         default=ItemType.TUITION
@@ -103,7 +103,7 @@ class Product(TenantModel):
         on_delete=models.SET_NULL,
         null=True, blank=True,
         related_name='products',
-        verbose_name='ブランド'
+        verbose_name='契約ブランド名'
     )
     school = models.ForeignKey(
         'schools.School',
@@ -121,7 +121,7 @@ class Product(TenantModel):
     )
 
     # 価格
-    base_price = models.DecimalField('基本価格', max_digits=10, decimal_places=0, default=0)
+    base_price = models.DecimalField('保護者表示用金額', max_digits=10, decimal_places=0, default=0)
     tax_rate = models.DecimalField('税率', max_digits=5, decimal_places=2, default=Decimal('0.10'))
     tax_type = models.CharField(
         '税区分',
@@ -140,6 +140,13 @@ class Product(TenantModel):
         help_text='チェックすると契約から12ヶ月間は無料、13ヶ月目から料金発生'
     )
 
+    # 初年度無料（年度ベース：4月〜翌3月）
+    is_first_fiscal_year_free = models.BooleanField(
+        '初年度無料',
+        default=False,
+        help_text='チェックすると入会年度末（3月）まで無料、翌年度4月から料金発生'
+    )
+
     # 入会時授業料計算（月途中入会時の追加チケット計算用）
     is_enrollment_tuition = models.BooleanField(
         '入会時授業料',
@@ -147,7 +154,7 @@ class Product(TenantModel):
         help_text='チェックすると入会日に基づいて追加チケット数を自動計算（フロント側）'
     )
     per_ticket_price = models.DecimalField(
-        '1チケット単価',
+        '単価',
         max_digits=10,
         decimal_places=0,
         null=True,
@@ -174,18 +181,18 @@ class Product(TenantModel):
     enrollment_price_dec = models.DecimalField('12月入会者', max_digits=10, decimal_places=0, null=True, blank=True)
 
     # 2ヶ月目以降料金（請求月別）- 1月〜12月
-    billing_price_jan = models.DecimalField('1月請求', max_digits=10, decimal_places=0, null=True, blank=True)
-    billing_price_feb = models.DecimalField('2月請求', max_digits=10, decimal_places=0, null=True, blank=True)
-    billing_price_mar = models.DecimalField('3月請求', max_digits=10, decimal_places=0, null=True, blank=True)
-    billing_price_apr = models.DecimalField('4月請求', max_digits=10, decimal_places=0, null=True, blank=True)
-    billing_price_may = models.DecimalField('5月請求', max_digits=10, decimal_places=0, null=True, blank=True)
-    billing_price_jun = models.DecimalField('6月請求', max_digits=10, decimal_places=0, null=True, blank=True)
-    billing_price_jul = models.DecimalField('7月請求', max_digits=10, decimal_places=0, null=True, blank=True)
-    billing_price_aug = models.DecimalField('8月請求', max_digits=10, decimal_places=0, null=True, blank=True)
-    billing_price_sep = models.DecimalField('9月請求', max_digits=10, decimal_places=0, null=True, blank=True)
-    billing_price_oct = models.DecimalField('10月請求', max_digits=10, decimal_places=0, null=True, blank=True)
-    billing_price_nov = models.DecimalField('11月請求', max_digits=10, decimal_places=0, null=True, blank=True)
-    billing_price_dec = models.DecimalField('12月請求', max_digits=10, decimal_places=0, null=True, blank=True)
+    billing_price_jan = models.DecimalField('1月', max_digits=10, decimal_places=0, null=True, blank=True)
+    billing_price_feb = models.DecimalField('2月', max_digits=10, decimal_places=0, null=True, blank=True)
+    billing_price_mar = models.DecimalField('3月', max_digits=10, decimal_places=0, null=True, blank=True)
+    billing_price_apr = models.DecimalField('4月', max_digits=10, decimal_places=0, null=True, blank=True)
+    billing_price_may = models.DecimalField('5月', max_digits=10, decimal_places=0, null=True, blank=True)
+    billing_price_jun = models.DecimalField('6月', max_digits=10, decimal_places=0, null=True, blank=True)
+    billing_price_jul = models.DecimalField('7月', max_digits=10, decimal_places=0, null=True, blank=True)
+    billing_price_aug = models.DecimalField('8月', max_digits=10, decimal_places=0, null=True, blank=True)
+    billing_price_sep = models.DecimalField('9月', max_digits=10, decimal_places=0, null=True, blank=True)
+    billing_price_oct = models.DecimalField('10月', max_digits=10, decimal_places=0, null=True, blank=True)
+    billing_price_nov = models.DecimalField('11月', max_digits=10, decimal_places=0, null=True, blank=True)
+    billing_price_dec = models.DecimalField('12月', max_digits=10, decimal_places=0, null=True, blank=True)
 
     # その他
     description = models.TextField('説明', blank=True)
@@ -967,10 +974,10 @@ class PackTicket(TenantModel):
 # T10: 追加チケット (AdditionalTicket) - 入会月用チケット
 # =============================================================================
 class AdditionalTicket(TenantModel):
-    """T10: 追加チケット
+    """T10: 当月分商品（追加チケット含む）
 
-    入会月に購入する追加チケット。
-    月途中入会時の残り授業分として使用。
+    月途中入会時の当月分商品を管理。
+    授業チケットだけでなく、月会費・設備費なども回数割で計算。
     コースごとに管理し、対象日を明確に記録。
     """
 
@@ -982,7 +989,24 @@ class AdditionalTicket(TenantModel):
         EXPIRED = 'expired', '期限切れ'
         CANCELLED = 'cancelled', 'キャンセル'
 
+    class ItemType(models.TextChoices):
+        TICKET = 'ticket', '授業チケット'
+        MONTHLY_FEE = 'monthly_fee', '当月分月会費'
+        FACILITY = 'facility', '当月分設備費'
+        TEXTBOOK = 'textbook', '当月分教材費'
+        MANAGEMENT = 'management', '当月分総合指導管理費'
+        EXPENSE = 'expense', '当月分諸経費'
+        OTHER = 'other', 'その他'
+
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+
+    # 種別
+    item_type = models.CharField(
+        '種別',
+        max_length=20,
+        choices=ItemType.choices,
+        default=ItemType.TICKET
+    )
 
     # 対象生徒・コース
     student = models.ForeignKey(
@@ -1501,6 +1525,8 @@ class StudentItem(TenantModel):
     student = models.ForeignKey(
         'students.Student',
         on_delete=models.PROTECT,
+        null=True,
+        blank=True,
         related_name='student_items',
         verbose_name='生徒'
     )
@@ -1514,6 +1540,8 @@ class StudentItem(TenantModel):
     product = models.ForeignKey(
         Product,
         on_delete=models.PROTECT,
+        null=True,
+        blank=True,
         related_name='student_items',
         verbose_name='商品'
     )

@@ -211,6 +211,7 @@ class Guardian(TenantModel):
     first_name_kana = models.CharField('名（カナ）', max_length=50, blank=True)
     last_name_roman = models.CharField('姓（ローマ字）', max_length=50, blank=True)
     first_name_roman = models.CharField('名（ローマ字）', max_length=50, blank=True)
+    birth_date = models.DateField('生年月日', null=True, blank=True)
 
     # 連絡先
     email = models.EmailField('メールアドレス', blank=True)

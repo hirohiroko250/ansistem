@@ -153,3 +153,76 @@ export async function getMileHistory(params?: MileHistoryParams): Promise<MileHi
 
   return api.get<MileHistoryResponse>(endpoint);
 }
+
+// =============================================================================
+// 締日情報（請求月判定）
+// =============================================================================
+
+/**
+ * 締日情報（請求月判定）レスポンス
+ */
+export interface BillingMonthInfo {
+  purchase_date: string;
+  billing_year: number;
+  billing_month: number;
+  closing_day: number | null;
+  closing_date: string | null;
+  is_after_closing: boolean;
+  message: string;
+}
+
+/**
+ * 入会時の請求情報レスポンス
+ */
+export interface EnrollmentBillingInfo {
+  enrollment_date: string;
+  closing_day: number;
+  is_after_closing: boolean;
+  current_month: {
+    year: number;
+    month: number;
+    editable: boolean;
+    note: string;
+  } | null;
+  next_month: {
+    year: number;
+    month: number;
+    editable: boolean;
+    note: string;
+  } | null;
+  following_month: {
+    year: number;
+    month: number;
+    editable: boolean;
+    note: string;
+  } | null;
+  first_billable_month: {
+    year: number;
+    month: number;
+  } | null;
+  message: string;
+}
+
+/**
+ * チケット購入時の請求月を取得
+ * 締日を考慮して、どの月の請求になるかを返す
+ *
+ * @param purchaseDate - 購入日（YYYY-MM-DD形式、省略時は今日）
+ * @returns 請求月情報
+ */
+export async function getTicketBillingMonth(purchaseDate?: string): Promise<BillingMonthInfo> {
+  const params = purchaseDate ? `?purchase_date=${purchaseDate}` : '';
+  return api.get<BillingMonthInfo>(`/billing/billing-periods/ticket_billing_info/${params}`);
+}
+
+/**
+ * 入会時の請求情報を取得
+ * 締日を考慮して、どの月から請求できるかを返す
+ *
+ * @param enrollmentDate - 入会日（YYYY-MM-DD形式、省略時は今日）
+ * @returns 請求情報
+ */
+export async function getEnrollmentBillingInfo(enrollmentDate?: string): Promise<EnrollmentBillingInfo> {
+  const params = enrollmentDate ? `?enrollment_date=${enrollmentDate}` : '';
+  return api.get<EnrollmentBillingInfo>(`/billing/billing-periods/enrollment_billing_info/${params}`);
+}

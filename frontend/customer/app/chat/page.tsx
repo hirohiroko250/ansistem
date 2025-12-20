@@ -15,7 +15,7 @@ import type { Channel } from '@/lib/api/types';
 const DEFAULT_BOT: BotConfig = {
   id: 'ai-assistant',
   name: 'AIアシスタント',
-  welcomeMessage: 'いつでもご質問ください！',
+  welcomeMessage: '体験申込・振替・料金など、何でもお気軽に！',
   botType: 'GENERAL',
   aiEnabled: false,
 };

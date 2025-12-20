@@ -45,7 +45,7 @@ import { getChildren } from '@/lib/api/students';
 import { getPublicCourses, getPublicPacks, getPublicBrands } from '@/lib/api/courses';
 import { getBrandSchools, getClassSchedules, getSchoolsByTicket, getTicketsBySchool, type BrandSchool, type ClassScheduleResponse, type ClassScheduleItem } from '@/lib/api/schools';
 import { MapSchoolSelector } from '@/components/map-school-selector';
-import { previewPricing, confirmPricing } from '@/lib/api/pricing';
+import { previewPricing, confirmPricing, getEnrollmentBillingInfo, type EnrollmentBillingInfo } from '@/lib/api/pricing';
 import { getStaffLessonSchedules, type StaffLessonSchedule } from '@/lib/api/lessons';
 import api from '@/lib/api/client';
 import type { Child, PublicCourse, PublicPack, PublicBrand, PublicBrandCategory } from '@/lib/api/types';
@@ -198,6 +198,9 @@ export default function FromTicketPurchasePage() {
   const [milesToUse, setMilesToUse] = useState<number>(0);
   const [useMiles, setUseMiles] = useState<boolean>(false);
 
+  // 締日情報（請求月判定）
+  const [billingInfo, setBillingInfo] = useState<EnrollmentBillingInfo | null>(null);
+
   // クラス予約関連 state（購入前のクラス選択用）
   const [availableClasses, setAvailableClasses] = useState<StaffLessonSchedule[]>([]);
   const [isLoadingClasses, setIsLoadingClasses] = useState(false);
@@ -338,9 +341,6 @@ export default function FromTicketPurchasePage() {
       try {
         // カテゴリ内のブランドを取得
         const categoryBrands = brands.filter(b => b.category?.id === selectedCategory.id);
-        console.log('[fetchSchools] selectedCategory:', selectedCategory.id, selectedCategory.categoryName);
-        console.log('[fetchSchools] brands count:', brands.length);
-        console.log('[fetchSchools] categoryBrands:', categoryBrands.map(b => ({ id: b.id, name: b.brandName, catId: b.category?.id })));
 
         if (categoryBrands.length === 0) {
           setSchools([]);
@@ -350,7 +350,6 @@ export default function FromTicketPurchasePage() {
         // カテゴリ内の全ブランドの校舎を取得して結合
         const allSchoolsPromises = categoryBrands.map(brand => getBrandSchools(brand.id));
         const allSchoolsArrays = await Promise.all(allSchoolsPromises);
-        console.log('[fetchSchools] allSchoolsArrays:', allSchoolsArrays.map((arr, i) => ({ brand: categoryBrands[i].brandName, schools: arr.length })));
 
         // 校舎を結合し、IDで重複を除去 + 校舎ID→ブランドIDマップを作成
         const schoolMap = new Map<string, BrandSchool>();
@@ -401,7 +400,23 @@ export default function FromTicketPurchasePage() {
           getPublicCourses({ brandId: selectedBrand.id }),
           getPublicPacks({ brandId: selectedBrand.id }),
         ]);
-        setCourses(coursesData);
+
+        // パックに含まれるコースIDを収集
+        const courseIdsInPacks = new Set<string>();
+        packsData.forEach((pack) => {
+          if (pack.courses) {
+            pack.courses.forEach((pc) => {
+              courseIdsInPacks.add(pc.courseId);
+            });
+          }
+        });
+
+        // パックに含まれるコースを除外
+        const filteredCourses = coursesData.filter(
+          (course) => !courseIdsInPacks.has(course.id)
+        );
+
+        setCourses(filteredCourses);
         setPacks(packsData);
       } catch (err) {
         const apiError = err as ApiError;
@@ -599,8 +614,6 @@ export default function FromTicketPurchasePage() {
         ? `Ti${ticketCode.replace(/^T/, '')}`
         : undefined;
 
-      console.log('[fetchClassSchedules] ticketCode:', ticketCode, 'ticketIdForApi:', ticketIdForApi);
-
       const data = await getClassSchedules(
         selectedSchoolId,
         selectedBrand?.id,
@@ -629,7 +642,6 @@ export default function FromTicketPurchasePage() {
   };
 
   const handleSchoolSelect = async (schoolId: string) => {
-    console.log('[handleSchoolSelect] 呼ばれた schoolId:', schoolId, 'current step:', step);
     setSelectedSchoolId(schoolId);
 
     // 選択した校舎に対応するブランドをセット
@@ -680,8 +692,9 @@ export default function FromTicketPurchasePage() {
       // gradeNameがない場合は全学年対象とみなす
       if (!item.gradeName) return true;
 
-      // 「年少~年長」「小3~高1」のような範囲表記をパース
-      const rangeMatch = item.gradeName.match(/^(.+?)~(.+)$/);
+      // 「年少~年長」「小3~高1」「年長～小4」のような範囲表記をパース
+      // 全角チルダ（～）と半角チルダ（~）両方に対応
+      const rangeMatch = item.gradeName.match(/^(.+?)[~～](.+)$/);
       if (rangeMatch) {
         const fromGrade = rangeMatch[1].trim();
         const toGrade = rangeMatch[2].trim();
@@ -763,17 +776,50 @@ export default function FromTicketPurchasePage() {
     });
   };
 
+  // ticketCodeをClassScheduleのticket_id形式(Ti...)に変換するヘルパー
+  const convertToTicketIdFormat = (ticketCode: string): string => {
+    // Ch10000063 → Ti10000063
+    // T10000063 → Ti10000063
+    // Ti10000063 → Ti10000063
+    if (ticketCode.startsWith('Ch')) {
+      return `Ti${ticketCode.slice(2)}`;
+    }
+    if (ticketCode.startsWith('Ti')) {
+      return ticketCode;
+    }
+    if (ticketCode.startsWith('T')) {
+      return `Ti${ticketCode.slice(1)}`;
+    }
+    // その他のフォーマットの場合はそのまま返す
+    return ticketCode;
+  };
+
   // 校舎で開講しているチケットでコースをフィルタ
   const filterBySchoolTickets = (items: (PublicCourse | PublicPack)[]): (PublicCourse | PublicPack)[] => {
     // 校舎チケットIDがない場合はフィルタしない
     if (schoolTicketIds.length === 0) return items;
 
+    // ticketCodeを正規化する関数（T10000063形式に統一）
+    const normalizeTicketCode = (code: string): string => {
+      // Ti10000063 → T10000063
+      if (code.startsWith('Ti')) {
+        return `T${code.slice(2)}`;
+      }
+      // Ch10000063 → T10000063
+      if (code.startsWith('Ch')) {
+        return `T${code.slice(2)}`;
+      }
+      return code;
+    };
+
+    // schoolTicketIdsを正規化
+    const normalizedSchoolTicketIds = schoolTicketIds.map(normalizeTicketCode);
+
     return items.filter(item => {
       // PublicCourseの場合、ticketCodeをチェック
       if ('ticketCode' in item && item.ticketCode) {
-        // ticketCode (T10000063) を ticket_id形式 (Ti10000063) に変換
-        const ticketIdForApi = `Ti${item.ticketCode.replace(/^T/, '')}`;
-        return schoolTicketIds.includes(ticketIdForApi);
+        const normalizedCode = normalizeTicketCode(item.ticketCode);
+        return normalizedSchoolTicketIds.includes(normalizedCode);
       }
       // パックの場合：全てのコース/チケットが校舎で開講している必要がある
       if ('tickets' in item || 'courses' in item) {
@@ -783,14 +829,14 @@ export default function FromTicketPurchasePage() {
         // 全てのアイテムのチケットが校舎で開講しているか確認
         return packItems.every(packItem => {
           if (packItem.ticketCode) {
-            const ticketIdForApi = `Ti${packItem.ticketCode.replace(/^T/, '')}`;
-            return schoolTicketIds.includes(ticketIdForApi);
+            const normalizedCode = normalizeTicketCode(packItem.ticketCode);
+            return normalizedSchoolTicketIds.includes(normalizedCode);
           }
           // ticketCodeがない場合は開講していないとみなす
           return false;
         });
       }
-      // それ以外は表示しない
+      // ticketCodeがないコースは表示しない
       return false;
     });
   };
@@ -803,9 +849,11 @@ export default function FromTicketPurchasePage() {
     } else if (courseType === 'pack') {
       items = [...courses, ...packs];
     }
+    const afterGradeFilter = filterByGrade(items);
+    const afterTicketFilter = filterBySchoolTickets(afterGradeFilter);
     // 学年でフィルタリング → 校舎チケットでフィルタリング → 複数条件でソート
     // ソート順: 校舎 → ブランド → 学年 → チケット
-    return sortByMultipleCriteria(filterBySchoolTickets(filterByGrade(items)));
+    return sortByMultipleCriteria(afterTicketFilter);
   })();
 
   // 追加チケット計算（開始日から月末までの指定曜日回数）
@@ -901,6 +949,19 @@ export default function FromTicketPurchasePage() {
   const isMonthlyItem = (item: PublicCourse | PublicPack): boolean => {
     if ('isMonthly' in item) return item.isMonthly;
     return true; // パックは常に月額的な扱い
+  };
+
+  // 月額授業料のみを取得（tuitionタイプの商品価格）
+  const getTuitionPrice = (item: PublicCourse | PublicPack): number => {
+    if ('items' in item && item.items) {
+      const tuitionItem = item.items.find(
+        (i: { productType?: string }) => i.productType === 'tuition'
+      );
+      if (tuitionItem && 'price' in tuitionItem) {
+        return (tuitionItem as { price: number }).price || 0;
+      }
+    }
+    return 0;
   };
 
   return (
@@ -1262,31 +1323,82 @@ export default function FromTicketPurchasePage() {
               </p>
             ) : (
               <div className="space-y-3">
-                {availableItems.map((item) => (
-                  <Card
-                    key={item.id}
-                    className="rounded-xl shadow-md hover:shadow-lg transition-shadow cursor-pointer"
-                    onClick={() => handleCourseSelect(item)}
-                  >
-                    <CardContent className="p-4">
-                      <div className="flex justify-between items-start mb-2">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <h3 className="font-semibold text-gray-800">{getCourseName(item)}</h3>
-                          {isMonthlyItem(item) && (
-                            <Badge className="bg-green-500 text-white">月額</Badge>
-                          )}
+                {availableItems.map((item) => {
+                  // セット内容から当月分授業料を除外（入会時授業料は別計算のため）
+                  const filteredItems = 'items' in item && item.items
+                    ? item.items.filter((i: { productName: string }) =>
+                        !i.productName.includes('当月分授業料') &&
+                        !i.productName.includes('入会時授業料')
+                      )
+                    : [];
+                  // パックの場合はコース一覧を表示
+                  const packCourses = 'courses' in item ? item.courses : [];
+                  const packTickets = 'tickets' in item ? item.tickets : [];
+
+                  return (
+                    <Card
+                      key={item.id}
+                      className="rounded-xl shadow-md hover:shadow-lg transition-shadow cursor-pointer"
+                      onClick={() => handleCourseSelect(item)}
+                    >
+                      <CardContent className="p-4">
+                        <div className="flex justify-between items-start mb-2">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <h3 className="font-semibold text-gray-800">{getCourseName(item)}</h3>
+                            {isMonthlyItem(item) && (
+                              <Badge className="bg-green-500 text-white">月額</Badge>
+                            )}
+                          </div>
+                          <div className="text-right">
+                            <p className="text-xs text-gray-500">月謝</p>
+                            <span className="text-xl font-bold text-blue-600">
+                              ¥{('tuitionPrice' in item && item.tuitionPrice ? item.tuitionPrice : getTuitionPrice(item)).toLocaleString()}
+                            </span>
+                          </div>
                         </div>
-                        <span className="text-xl font-bold text-blue-600">
-                          ¥{(item.price || 0).toLocaleString()}
-                        </span>
-                      </div>
-                      {item.gradeName && (
-                        <p className="text-xs text-blue-600 mb-1">対象学年: {item.gradeName}</p>
-                      )}
-                      <p className="text-sm text-gray-600">{getCourseDescription(item)}</p>
-                    </CardContent>
-                  </Card>
-                ))}
+
+                        {/* 対象学年 */}
+                        {item.gradeName && (
+                          <p className="text-xs text-gray-600 mb-2">
+                            <span className="font-medium">対象学年:</span> {item.gradeName}
+                          </p>
+                        )}
+
+
+                        {/* パックの場合：含まれるコース */}
+                        {packCourses && packCourses.length > 0 && (
+                          <div className="mb-2">
+                            <p className="text-xs font-medium text-gray-600 mb-1">セット内容:</p>
+                            <div className="flex flex-wrap gap-1">
+                              {packCourses.map((pc: { courseId: string; courseName: string }) => (
+                                <Badge key={pc.courseId} variant="outline" className="text-xs bg-blue-50 text-blue-700">
+                                  {pc.courseName}
+                                </Badge>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* パックの場合：チケット情報 */}
+                        {packTickets && packTickets.length > 0 && (
+                          <div className="mb-2">
+                            <p className="text-xs font-medium text-gray-600 mb-1">チケット:</p>
+                            <div className="flex flex-wrap gap-1">
+                              {packTickets.map((pt: { ticketId: string; ticketName: string; perWeek?: number }) => (
+                                <Badge key={pt.ticketId} variant="outline" className="text-xs bg-orange-50 text-orange-700">
+                                  {pt.ticketName}{pt.perWeek ? ` ×週${pt.perWeek}回` : ''}
+                                </Badge>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* 説明 */}
+                        <p className="text-sm text-gray-600">{getCourseDescription(item)}</p>
+                      </CardContent>
+                    </Card>
+                  );
+                })}
               </div>
             )}
           </div>
@@ -1316,13 +1428,19 @@ export default function FromTicketPurchasePage() {
                     if (date && selectedCourse && selectedChild) {
                       setIsLoadingPricing(true);
                       try {
-                        const preview = await previewPricing({
-                          studentId: selectedChild.id,
-                          productIds: [selectedCourse.id],
-                          courseId: selectedCourse.id,
-                          startDate: format(date, 'yyyy-MM-dd'),
-                        });
+                        const dateStr = format(date, 'yyyy-MM-dd');
+                        // 料金プレビューと締日情報を並行取得
+                        const [preview, billing] = await Promise.all([
+                          previewPricing({
+                            studentId: selectedChild.id,
+                            productIds: [selectedCourse.id],
+                            courseId: selectedCourse.id,
+                            startDate: dateStr,
+                          }),
+                          getEnrollmentBillingInfo(dateStr).catch(() => null),
+                        ]);
                         setPricingPreview(preview);
+                        setBillingInfo(billing);
                       } catch (err) {
                         console.error('料金プレビュー取得エラー:', err);
                       } finally {
@@ -1348,6 +1466,38 @@ export default function FromTicketPurchasePage() {
                     ※月額コースは{format(addDays(startDate, 30), 'yyyy年MM月1日', { locale: ja })}から本格的に開始されます
                   </p>
                 )}
+              </div>
+            )}
+
+            {/* 締日情報（請求月判定）表示 */}
+            {billingInfo && (
+              <div className={`mb-3 p-3 rounded-lg border ${
+                billingInfo.is_after_closing
+                  ? 'bg-amber-50 border-amber-200'
+                  : 'bg-blue-50 border-blue-200'
+              }`}>
+                <div className="flex items-start gap-2">
+                  <AlertCircle className={`h-4 w-4 mt-0.5 flex-shrink-0 ${
+                    billingInfo.is_after_closing ? 'text-amber-600' : 'text-blue-600'
+                  }`} />
+                  <div className="flex-1">
+                    <p className={`text-sm font-medium ${
+                      billingInfo.is_after_closing ? 'text-amber-800' : 'text-blue-800'
+                    }`}>
+                      請求月のお知らせ
+                    </p>
+                    <p className={`text-xs mt-1 ${
+                      billingInfo.is_after_closing ? 'text-amber-700' : 'text-blue-700'
+                    }`}>
+                      {billingInfo.message}
+                    </p>
+                    {billingInfo.is_after_closing && billingInfo.first_billable_month && (
+                      <p className="text-xs mt-1 text-amber-600">
+                        ※ 締日（{billingInfo.closing_day}日）を過ぎているため、{billingInfo.first_billable_month.month}月分から請求されます
+                      </p>
+                    )}
+                  </div>
+                </div>
               </div>
             )}
 
@@ -1840,7 +1990,9 @@ export default function FromTicketPurchasePage() {
                 {/* 追加チケット（当月分）の計算 - 単品購入の場合 */}
                 {!pricingPreview?.enrollmentTuition && !isPack && startDate && selectedDayOfWeek && additionalTicketCalc.count > 0 && (
                   <div className="border-t pt-4">
-                    <p className="text-sm text-gray-600 mb-2">追加チケット（当月分）</p>
+                    <p className="text-sm text-gray-600 mb-2">
+                      追加チケット（{billingInfo?.current_month ? `${billingInfo.current_month.month}月分` : '当月分'}）
+                    </p>
                     <div className="bg-orange-50 rounded-lg p-3 space-y-2">
                       <div className="flex justify-between items-center">
                         <span className="text-sm text-gray-700">
@@ -1872,7 +2024,9 @@ export default function FromTicketPurchasePage() {
                 {/* 追加チケット（当月分）の計算 - パック購入の場合（各コースごと） */}
                 {!pricingPreview?.enrollmentTuition && isPack && packAdditionalTicketCalcs.length > 0 && (
                   <div className="border-t pt-4">
-                    <p className="text-sm text-gray-600 mb-2">追加チケット（当月分）</p>
+                    <p className="text-sm text-gray-600 mb-2">
+                      追加チケット（{billingInfo?.current_month ? `${billingInfo.current_month.month}月分` : '当月分'}）
+                    </p>
                     <div className="space-y-3">
                       {packAdditionalTicketCalcs.map((calc) => (
                         <div key={calc.ticketId} className="bg-orange-50 rounded-lg p-3 space-y-2">
@@ -1933,35 +2087,6 @@ export default function FromTicketPurchasePage() {
                   </div>
                 )}
 
-                {/* 入会時授業料（月途中入会の場合） */}
-                {pricingPreview?.enrollmentTuition && (
-                  <div className="border-t pt-4">
-                    <p className="text-sm text-gray-600 mb-1">入会時授業料（当月分）</p>
-                    <div className="bg-orange-50 rounded-lg p-3">
-                      <p className="font-semibold text-gray-800">
-                        {pricingPreview.enrollmentTuition.productName}
-                      </p>
-                      <p className="text-sm text-gray-600">
-                        追加チケット{pricingPreview.enrollmentTuition.tickets}回分
-                      </p>
-                      <p className="text-orange-600 font-semibold mt-1">
-                        ¥{pricingPreview.enrollmentTuition.total.toLocaleString()}
-                      </p>
-                    </div>
-                  </div>
-                )}
-
-                {pricingPreview && pricingPreview.discounts && pricingPreview.discounts.length > 0 && (
-                  <div className="border-t pt-4">
-                    <p className="text-sm text-gray-600 mb-2">適用される割引</p>
-                    {pricingPreview.discounts.map((discount, index) => (
-                      <div key={index} className="flex justify-between text-sm">
-                        <span className="text-green-700">{discount.discountName}</span>
-                        <span className="text-green-700">-¥{(discount.discountAmount || discount.appliedAmount || 0).toLocaleString()}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
 
                 {/* マイル割引セクション */}
                 {pricingPreview?.mileInfo && pricingPreview.mileInfo.balance > 0 && (
@@ -2033,78 +2158,109 @@ export default function FromTicketPurchasePage() {
                   </div>
                 )}
 
-                <div className="border-t pt-4 space-y-3">
-                  {/* 料金内訳 */}
-                  <div className="space-y-2">
-                    {/* コース料金 */}
-                    <div className="flex justify-between text-sm">
-                      <span className="text-gray-600">コース料金</span>
-                      <span className="text-gray-800">¥{(selectedCourse?.price || 0).toLocaleString()}</span>
-                    </div>
-
-                    {/* APIからのenrollmentTuition */}
-                    {pricingPreview?.enrollmentTuition && (
+                <div className="border-t pt-4 space-y-2">
+                  {/* 料金内訳（シンプルなリスト形式） */}
+                  <div className="bg-gray-50 rounded-lg p-3 space-y-2">
+                    {/* 当月分追加チケット */}
+                    {(pricingPreview?.enrollmentTuition || additionalTicketCalc.count > 0) && (
                       <div className="flex justify-between text-sm">
-                        <span className="text-gray-600">追加チケット（{pricingPreview.enrollmentTuition.tickets}回）</span>
-                        <span className="text-orange-600">¥{pricingPreview.enrollmentTuition.total.toLocaleString()}</span>
-                      </div>
-                    )}
-
-                    {/* フロントエンド計算の追加チケット */}
-                    {!pricingPreview?.enrollmentTuition && additionalTicketCalc.count > 0 && (
-                      <div className="flex justify-between text-sm">
-                        <span className="text-gray-600">追加チケット（{additionalTicketCalc.count}回）</span>
-                        <span className="text-orange-600">¥{additionalTicketCalc.total.toLocaleString()}</span>
+                        <span className="text-gray-700">
+                          {billingInfo?.current_month?.month || '当'}月分追加チケット
+                          {pricingPreview?.enrollmentTuition
+                            ? `（${pricingPreview.enrollmentTuition.tickets}回）`
+                            : additionalTicketCalc.count > 0
+                            ? `（${additionalTicketCalc.count}回）`
+                            : ''}
+                        </span>
+                        <span className="text-gray-800">
+                          ¥{(pricingPreview?.enrollmentTuition?.total || additionalTicketCalc.total || 0).toLocaleString()}
+                        </span>
                       </div>
                     )}
 
                     {/* 入会金 */}
                     {pricingPreview?.additionalFees?.enrollmentFee && (
                       <div className="flex justify-between text-sm">
-                        <span className="text-gray-600">{pricingPreview.additionalFees.enrollmentFee.productName}</span>
+                        <span className="text-gray-700">入会金</span>
                         <span className="text-gray-800">¥{pricingPreview.additionalFees.enrollmentFee.price.toLocaleString()}</span>
-                      </div>
-                    )}
-
-                    {/* 設備費 */}
-                    {pricingPreview?.additionalFees?.facilityFee && (
-                      <div className="flex justify-between text-sm">
-                        <span className="text-gray-600">
-                          {pricingPreview.additionalFees.facilityFee.productName}
-                          {pricingPreview.additionalFees.facilityFee.reason === '差額請求' && (
-                            <span className="text-xs text-gray-400 ml-1">（差額）</span>
-                          )}
-                        </span>
-                        <span className="text-gray-800">¥{pricingPreview.additionalFees.facilityFee.price.toLocaleString()}</span>
                       </div>
                     )}
 
                     {/* 教材費 */}
                     {pricingPreview?.additionalFees?.materialsFee && (
                       <div className="flex justify-between text-sm">
-                        <span className="text-gray-600">{pricingPreview.additionalFees.materialsFee.productName}</span>
+                        <span className="text-gray-700">教材費</span>
                         <span className="text-gray-800">¥{pricingPreview.additionalFees.materialsFee.price.toLocaleString()}</span>
                       </div>
                     )}
-                  </div>
 
-                  {/* 割引セクション */}
-                  {pricingPreview?.discounts && pricingPreview.discounts.length > 0 && (
-                    <div className="space-y-2 pt-2 border-t border-dashed">
-                      {pricingPreview.discounts.map((discount: { discountName: string; discountAmount: number }, index: number) => (
+                    {/* 月謝（月ごとに授業料・設備費・月会費を表示） */}
+                    {pricingPreview?.monthlyTuition && (
+                      <>
+                        {/* 1つ目の月 */}
+                        <div className="pt-2 border-t border-gray-200">
+                          <p className="text-sm font-medium text-gray-800 mb-1">{pricingPreview.monthlyTuition.month1}月月謝</p>
+                          <div className="pl-3 space-y-1">
+                            <div className="flex justify-between text-sm">
+                              <span className="text-gray-600">授業料</span>
+                              <span className="text-gray-800">¥{pricingPreview.monthlyTuition.month1Price.toLocaleString()}</span>
+                            </div>
+                            {pricingPreview.monthlyTuition.facilityFee > 0 && (
+                              <div className="flex justify-between text-sm">
+                                <span className="text-gray-600">設備費</span>
+                                <span className="text-gray-800">¥{pricingPreview.monthlyTuition.facilityFee.toLocaleString()}</span>
+                              </div>
+                            )}
+                            {pricingPreview.monthlyTuition.monthlyFee > 0 && (
+                              <div className="flex justify-between text-sm">
+                                <span className="text-gray-600">月会費</span>
+                                <span className="text-gray-800">¥{pricingPreview.monthlyTuition.monthlyFee.toLocaleString()}</span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* 2つ目の月 */}
+                        <div className="pt-2 border-t border-gray-200">
+                          <p className="text-sm font-medium text-gray-800 mb-1">{pricingPreview.monthlyTuition.month2}月月謝</p>
+                          <div className="pl-3 space-y-1">
+                            <div className="flex justify-between text-sm">
+                              <span className="text-gray-600">授業料</span>
+                              <span className="text-gray-800">¥{pricingPreview.monthlyTuition.month2Price.toLocaleString()}</span>
+                            </div>
+                            {pricingPreview.monthlyTuition.facilityFee > 0 && (
+                              <div className="flex justify-between text-sm">
+                                <span className="text-gray-600">設備費</span>
+                                <span className="text-gray-800">¥{pricingPreview.monthlyTuition.facilityFee.toLocaleString()}</span>
+                              </div>
+                            )}
+                            {pricingPreview.monthlyTuition.monthlyFee > 0 && (
+                              <div className="flex justify-between text-sm">
+                                <span className="text-gray-600">月会費</span>
+                                <span className="text-gray-800">¥{pricingPreview.monthlyTuition.monthlyFee.toLocaleString()}</span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </>
+                    )}
+
+                    {/* 割引 */}
+                    {pricingPreview?.discounts && pricingPreview.discounts.length > 0 && (
+                      pricingPreview.discounts.map((discount: { discountName: string; discountAmount: number }, index: number) => (
                         <div key={index} className="flex justify-between text-sm">
                           <span className="text-green-600">{discount.discountName}</span>
                           <span className="text-green-600">-¥{discount.discountAmount.toLocaleString()}</span>
                         </div>
-                      ))}
-                    </div>
-                  )}
+                      ))
+                    )}
+                  </div>
 
                   {/* マイル割引表示 */}
                   {milesToUse > 0 && mileDiscountAmount > 0 && (
-                    <div className="flex justify-between text-sm pt-2 border-t border-dashed">
-                      <span className="text-amber-600">マイル割引（{milesToUse}pt使用）</span>
-                      <span className="text-amber-600">-¥{mileDiscountAmount.toLocaleString()}</span>
+                    <div className="flex justify-between text-sm bg-amber-50 rounded-lg p-3">
+                      <span className="text-amber-600 font-medium">マイル割引（{milesToUse}pt使用）</span>
+                      <span className="text-amber-600 font-medium">-¥{mileDiscountAmount.toLocaleString()}</span>
                     </div>
                   )}
 

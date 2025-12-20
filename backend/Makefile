@@ -1,6 +1,6 @@
 # OZA System Makefile
 
-.PHONY: help install dev run test migrate makemigrations shell superuser docker-up docker-down docker-build docker-logs clean
+.PHONY: help install dev run test migrate makemigrations shell superuser docker-up docker-down docker-build docker-logs clean check logcheck
 
 help:
 	@echo "OZA System Backend Commands"
@@ -26,6 +26,8 @@ help:
 	@echo ""
 	@echo "Utilities:"
 	@echo "  clean          Clean up cache files"
+	@echo "  check          Run all checks (Django, migrations, tests)"
+	@echo "  logcheck       Run checks and save log to docs/debug/"
 
 # Development
 install:
@@ -96,3 +98,20 @@ clean:
 	find . -type d -name ".pytest_cache" -exec rm -rf {} + 2>/dev/null || true
 	find . -type d -name "htmlcov" -exec rm -rf {} + 2>/dev/null || true
 	find . -type f -name ".coverage" -delete
+
+# Check & Debug
+check:
+	@echo "=== Running Django System Check ==="
+	docker-compose exec backend python manage.py check --settings=config.settings.development || true
+	@echo ""
+	@echo "=== Running Migrations Check ==="
+	docker-compose exec backend python manage.py makemigrations --check --dry-run --settings=config.settings.development || true
+	@echo ""
+	@echo "=== Running Tests ==="
+	docker-compose exec backend pytest -v --tb=short || true
+	@echo ""
+	@echo "=== Container Status ==="
+	docker-compose ps
+
+logcheck:
+	@cd .. && bash tools/logrun.sh "cd backend && make check"

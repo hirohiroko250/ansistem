@@ -188,3 +188,55 @@ export async function createBankAccountRequest(data: BankAccountRequestData): Pr
 export async function cancelBankAccountRequest(id: string): Promise<BankAccountRequest> {
   return await api.post<BankAccountRequest>(`/students/bank-account-requests/${id}/cancel/`, {});
 }
+
+// =====================================
+// 通帳機能（入出金履歴）API
+// =====================================
+
+/**
+ * 通帳取引タイプ
+ */
+export type PassbookTransactionType = 'deposit' | 'offset' | 'refund' | 'adjustment';
+
+/**
+ * 通帳取引
+ */
+export interface PassbookTransaction {
+  id: string;
+  guardian: string;
+  guardian_name?: string;
+  invoice?: string | null;
+  invoice_no?: string | null;
+  invoice_billing_label?: string | null;
+  payment?: string | null;
+  payment_no?: string | null;
+  payment_method_display?: string | null;
+  transaction_type: PassbookTransactionType;
+  transaction_type_display?: string;
+  amount: number;
+  balance_after: number;
+  reason?: string;
+  created_at: string;
+}
+
+/**
+ * 通帳データ
+ */
+export interface PassbookData {
+  guardian_id: string;
+  guardian_name: string;
+  current_balance: number;
+  transactions: PassbookTransaction[];
+}
+
+/**
+ * 自分の通帳（入出金履歴）を取得
+ */
+export async function getMyPassbook(): Promise<PassbookData | null> {
+  try {
+    return await api.get<PassbookData>('/billing/offset-logs/my-passbook/');
+  } catch (error) {
+    console.error('Failed to fetch passbook:', error);
+    return null;
+  }
+}

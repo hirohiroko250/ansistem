@@ -203,7 +203,10 @@ class GuardianAdmin(CSVImportExportMixin, admin.ModelAdmin):
             'fields': ('guardian_no', 'old_id', 'user', 'tenant_ref')
         }),
         ('氏名', {
-            'fields': (('last_name', 'first_name'), ('last_name_kana', 'first_name_kana'))
+            'fields': (('last_name', 'first_name'), ('last_name_kana', 'first_name_kana'), ('last_name_roman', 'first_name_roman'))
+        }),
+        ('属性', {
+            'fields': ('birth_date',)
         }),
         ('連絡先', {
             'fields': ('email', 'phone', 'phone_mobile', 'line_id')

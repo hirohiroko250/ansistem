@@ -25,6 +25,7 @@ django-celery-beat>=2.5.0
 # Utils
 Pillow>=10.0.0
 python-dateutil>=2.8.2
+pykakasi>=2.2.1
 
 # Data processing (for Excel imports)
 pandas>=2.0.0

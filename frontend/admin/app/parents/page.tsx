@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { ThreePaneLayout } from "@/components/layout/ThreePaneLayout";
 import { GuardianList } from "@/components/guardians/GuardianList";
 import { GuardianDetail } from "@/components/guardians/GuardianDetail";
@@ -49,6 +49,7 @@ function useDebounce<T>(value: T, delay: number): T {
 
 export default function ParentsPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [guardians, setGuardians] = useState<Guardian[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [loading, setLoading] = useState(true);
@@ -74,6 +75,19 @@ export default function ParentsPage() {
       return;
     }
   }, [router]);
+
+  // URLパラメータから保護者を選択/検索
+  useEffect(() => {
+    const selectedId = searchParams.get('selected');
+    const search = searchParams.get('search');
+
+    if (selectedId) {
+      setSelectedGuardianId(selectedId);
+    }
+    if (search) {
+      setSearchQuery(search);
+    }
+  }, [searchParams]);
 
   const loadGuardians = useCallback(async (search?: string) => {
     setLoading(true);

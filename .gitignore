@@ -58,3 +58,11 @@ dist/
 
 # Docker
 .dockerignore
+
+# Debug logs (keep directory structure)
+docs/debug/run_*.md
+docs/debug/precommit_*.md
+docs/debug/prepush_*.md
+logs/*
+!logs/.gitkeep
+!docs/debug/.gitkeep

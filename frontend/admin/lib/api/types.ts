@@ -231,6 +231,11 @@ export interface Guardian {
   // Account status
   has_account?: boolean;
   hasAccount?: boolean;
+  // Payment registration
+  payment_registered?: boolean;
+  paymentRegistered?: boolean;
+  payment_registered_at?: string | null;
+  paymentRegisteredAt?: string | null;
   // Computed/convenience fields for UI
   name?: string;
   relationship?: string;
@@ -417,15 +422,24 @@ export interface Invoice {
   student?: Student | null;
   studentId?: string;
   student_id?: string;
-  billingMonth?: string;
-  billing_month?: string;
+  // 請求年月
+  billingYear?: number;
+  billing_year?: number;
+  billingMonth?: number | string;
+  billing_month?: number | string;
+  // 金額
   totalAmount?: string | number;
   total_amount?: string | number;
   paidAmount?: string | number;
   paid_amount?: string | number;
+  balanceDue?: string | number;
+  balance_due?: string | number;
+  balance?: string | number;
   carryOverAmount?: string | number;
   carry_over_amount?: string | number;
   status?: string;
+  confirmed_at?: string;
+  paid_at?: string;
   dueDate?: string;
   due_date?: string;
   paidDate?: string;
@@ -433,6 +447,9 @@ export interface Invoice {
   // 支払方法
   paymentMethod?: string;
   payment_method?: string;
+  // 預り金残高
+  guardianBalance?: number;
+  guardian_balance?: number;
   // 詳細情報
   description?: string;
   courseName?: string;
@@ -596,6 +613,92 @@ export interface LessonFilters {
   date_from?: string;
   date_to?: string;
   status?: string;
+  page?: number;
+  page_size?: number;
+}
+
+// ============================================================================
+// 請求確定
+// ============================================================================
+
+export interface ConfirmedBilling {
+  id: string;
+  student: string;
+  student_name: string;
+  guardian: string;
+  guardian_name: string;
+  year: number;
+  month: number;
+  billing_deadline?: string;
+  subtotal: number;
+  discount_total: number;
+  tax_amount: number;
+  total_amount: number;
+  paid_amount: number;
+  balance: number;
+  items_snapshot: ConfirmedBillingItem[];
+  discounts_snapshot: ConfirmedBillingDiscount[];
+  status: 'confirmed' | 'unpaid' | 'partial' | 'paid' | 'cancelled';
+  status_display: string;
+  payment_method: 'direct_debit' | 'bank_transfer' | 'cash' | 'other';
+  payment_method_display: string;
+  confirmed_at: string;
+  confirmed_by?: string;
+  confirmed_by_name?: string;
+  paid_at?: string;
+  notes?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ConfirmedBillingItem {
+  id: string;
+  product_name?: string;
+  course_name?: string;
+  brand_name?: string;
+  quantity: number;
+  unit_price: string;
+  discount_amount: string;
+  final_price: string;
+  notes?: string;
+}
+
+export interface ConfirmedBillingDiscount {
+  id: string;
+  discount_name: string;
+  amount: string;
+  discount_unit: string;
+}
+
+export interface ConfirmedBillingSummary {
+  year: number;
+  month: number;
+  total_count: number;
+  total_amount: number;
+  total_paid: number;
+  total_balance: number;
+  collection_rate: number;
+  status_counts: {
+    [key: string]: {
+      label: string;
+      count: number;
+    };
+  };
+  payment_method_counts: {
+    [key: string]: {
+      label: string;
+      count: number;
+      amount: number;
+    };
+  };
+}
+
+export interface ConfirmedBillingFilters {
+  year?: number;
+  month?: number;
+  status?: string;
+  guardian_id?: string;
+  student_id?: string;
   page?: number;
   page_size?: number;
 }

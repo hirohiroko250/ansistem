@@ -11,7 +11,7 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 
-from apps.contracts.models import Course, Pack, StudentItem, Product
+from apps.contracts.models import Course, Pack, StudentItem, Product, ProductPrice, Contract
 from apps.students.models import Student, StudentSchool, StudentEnrollment
 from apps.tasks.models import Task
 from apps.schools.models import Brand, School, ClassSchedule
@@ -20,6 +20,43 @@ from apps.pricing.calculations import (
     calculate_all_fees_and_discounts,
     calculate_fs_discount_amount,
 )
+
+
+def get_product_price_for_enrollment(product: Product, enrollment_date: date) -> Decimal:
+    """
+    商品の入会月別料金を取得
+
+    ProductPrice（T05_商品料金）に入会月別料金が設定されている場合はそれを使用、
+    なければ商品の基本価格（base_price）を使用する。
+
+    Args:
+        product: 商品
+        enrollment_date: 入会日
+
+    Returns:
+        料金（Decimal）
+    """
+    if not product:
+        return Decimal('0')
+
+    enrollment_month = enrollment_date.month
+
+    # ProductPriceから入会月別料金を取得
+    try:
+        product_price = ProductPrice.objects.filter(
+            product=product,
+            is_active=True
+        ).first()
+
+        if product_price:
+            price = product_price.get_enrollment_price(enrollment_month)
+            if price is not None:
+                return Decimal(str(price))
+    except Exception as e:
+        print(f"[get_product_price_for_enrollment] Error: {e}", file=sys.stderr)
+
+    # ProductPriceがない場合は基本価格を使用
+    return product.base_price or Decimal('0')
 
 
 def calculate_enrollment_tuition_tickets(start_date: date) -> int:
@@ -85,6 +122,119 @@ def get_enrollment_tuition_product(course: Course, tickets: int) -> Product:
             return product
 
     return None
+
+
+def get_monthly_tuition_prices(course: Course, start_date: date) -> dict:
+    """
+    コースの月別授業料を取得
+
+    ProductPrice（T05_商品料金）から入会月別料金と請求月別料金を取得して返す。
+    締日20日基準で請求対象月を計算。
+
+    Args:
+        course: コース
+        start_date: 開始日（入会日）
+
+    Returns:
+        {
+            'tuitionProduct': Product or None,
+            'month1': int (請求月1),
+            'month2': int (請求月2),
+            'month1Price': int (月1の授業料・税込),
+            'month2Price': int (月2の授業料・税込),
+            'facilityFee': int (設備費・税込),
+            'monthlyFee': int (月会費・税込),
+        }
+    """
+    from apps.contracts.models import CourseItem
+
+    result = {
+        'tuitionProduct': None,
+        'month1': start_date.month,
+        'month2': (start_date.month % 12) + 1,
+        'month1Price': 0,
+        'month2Price': 0,
+        'facilityFee': 0,
+        'monthlyFee': 0,
+    }
+
+    if not course:
+        return result
+
+    # 締日基準で請求月を計算（締日20日）
+    current_month = start_date.month
+    day = start_date.day
+    is_after_closing = day > 20
+
+    if is_after_closing:
+        # 締日以降：翌月と翌々月
+        result['month1'] = (current_month % 12) + 1
+        result['month2'] = ((current_month + 1) % 12) + 1
+    else:
+        # 締日以前：当月と翌月
+        result['month1'] = current_month
+        result['month2'] = (current_month % 12) + 1
+
+    # CourseItemから授業料商品を取得
+    course_items = CourseItem.objects.filter(
+        course=course,
+        is_active=True
+    ).select_related('product').prefetch_related('product__prices')
+
+    for ci in course_items:
+        product = ci.product
+        if not product or not product.is_active:
+            continue
+
+        tax_rate = product.tax_rate or Decimal('0.1')
+
+        # 授業料（tuition）
+        if product.item_type == Product.ItemType.TUITION:
+            result['tuitionProduct'] = product
+
+            # ProductPriceから月別料金を取得
+            try:
+                product_price = product.prices.filter(is_active=True).first()
+                if product_price:
+                    # 月1は入会月別料金
+                    price1 = product_price.get_enrollment_price(result['month1'])
+                    if price1 is not None:
+                        result['month1Price'] = int(Decimal(str(price1)) * (1 + tax_rate))
+                    else:
+                        base_price = product.base_price or Decimal('0')
+                        result['month1Price'] = int(base_price * (1 + tax_rate))
+
+                    # 月2は請求月別料金
+                    price2 = product_price.get_billing_price(result['month2'])
+                    if price2 is not None:
+                        result['month2Price'] = int(Decimal(str(price2)) * (1 + tax_rate))
+                    else:
+                        base_price = product.base_price or Decimal('0')
+                        result['month2Price'] = int(base_price * (1 + tax_rate))
+                else:
+                    # ProductPriceがない場合は基本価格
+                    base_price = product.base_price or Decimal('0')
+                    price_with_tax = int(base_price * (1 + tax_rate))
+                    result['month1Price'] = price_with_tax
+                    result['month2Price'] = price_with_tax
+            except Exception as e:
+                print(f"[get_monthly_tuition_prices] Error getting tuition price: {e}", file=sys.stderr)
+                base_price = product.base_price or Decimal('0')
+                price_with_tax = int(base_price * (1 + tax_rate))
+                result['month1Price'] = price_with_tax
+                result['month2Price'] = price_with_tax
+
+        # 設備費
+        elif product.item_type == Product.ItemType.FACILITY:
+            base_price = product.base_price or Decimal('0')
+            result['facilityFee'] = int(base_price * (1 + tax_rate))
+
+        # 月会費
+        elif product.item_type == Product.ItemType.MONTHLY_FEE:
+            base_price = product.base_price or Decimal('0')
+            result['monthlyFee'] = int(base_price * (1 + tax_rate))
+
+    return result
 
 
 class PricingPreviewView(APIView):
@@ -171,7 +321,8 @@ class PricingPreviewView(APIView):
                     enrollment_product = get_enrollment_tuition_product(course, tickets)
 
                     if enrollment_product:
-                        enrollment_price = enrollment_product.base_price
+                        # ProductPrice（T05）から入会月別料金を取得
+                        enrollment_price = get_product_price_for_enrollment(enrollment_product, start_date)
                         enrollment_tuition_item = {
                             'productId': str(enrollment_product.id),
                             'productName': enrollment_product.product_name,
@@ -223,7 +374,8 @@ class PricingPreviewView(APIView):
                                 enrollment_product = get_enrollment_tuition_product(pc_course, tickets)
 
                                 if enrollment_product:
-                                    enrollment_price = enrollment_product.base_price
+                                    # ProductPrice（T05）から入会月別料金を取得
+                                    enrollment_price = get_product_price_for_enrollment(enrollment_product, start_date)
                                     enrollment_tuition_item = {
                                         'productId': str(enrollment_product.id),
                                         'productName': f'{pc_course.course_name} - {enrollment_product.product_name}',
@@ -360,12 +512,48 @@ class PricingPreviewView(APIView):
             except Exception as e:
                 print(f"[PricingPreview] Error in calculate_mile_discount: {e}", file=sys.stderr)
 
-        # subtotalは税込価格なので、そのまま合計に使用
-        grand_total = int(subtotal) - int(discount_total)
+        # 月別授業料を取得（ProductPriceから）
+        monthly_tuition = None
+        if course and start_date:
+            monthly_tuition_data = get_monthly_tuition_prices(course, start_date)
+            monthly_tuition = {
+                'month1': monthly_tuition_data['month1'],
+                'month2': monthly_tuition_data['month2'],
+                'month1Price': monthly_tuition_data['month1Price'],
+                'month2Price': monthly_tuition_data['month2Price'],
+                'facilityFee': monthly_tuition_data['facilityFee'],
+                'monthlyFee': monthly_tuition_data['monthlyFee'],
+            }
+            print(f"[PricingPreview] Monthly tuition: {monthly_tuition}", file=sys.stderr)
+
+        # grandTotalを正しく計算（表示項目に基づく）
+        # = 追加チケット + 入会金 + 教材費 + (月1授業料+設備費+月会費) + (月2授業料+設備費+月会費) - 割引
+        enrollment_tuition_total = enrollment_tuition_item['total'] if enrollment_tuition_item else 0
+        enrollment_fee = additional_fees.get('enrollmentFee', {}).get('price', 0)
+        materials_fee = additional_fees.get('materialsFee', {}).get('price', 0)
+
+        if monthly_tuition:
+            month1_total = monthly_tuition['month1Price'] + monthly_tuition['facilityFee'] + monthly_tuition['monthlyFee']
+            month2_total = monthly_tuition['month2Price'] + monthly_tuition['facilityFee'] + monthly_tuition['monthlyFee']
+        else:
+            # フォールバック：従来の計算
+            month1_total = additional_fees.get('facilityFee', {}).get('price', 0) + additional_fees.get('monthlyFee', {}).get('price', 0)
+            month2_total = month1_total
+
+        grand_total = (
+            enrollment_tuition_total +
+            enrollment_fee +
+            materials_fee +
+            month1_total +
+            month2_total -
+            int(discount_total)
+        )
+
+        print(f"[PricingPreview] grandTotal calculation: enrollment_tuition={enrollment_tuition_total}, enrollment_fee={enrollment_fee}, materials_fee={materials_fee}, month1={month1_total}, month2={month2_total}, discount={discount_total}, total={grand_total}", file=sys.stderr)
 
         return Response({
             'items': items,
-            'subtotal': int(subtotal),  # 税込合計
+            'subtotal': int(subtotal),  # 税込合計（参考値）
             'taxTotal': 0,  # 税込価格のため別途税額なし
             'discounts': discounts,
             'discountTotal': int(discount_total),
@@ -374,6 +562,7 @@ class PricingPreviewView(APIView):
             'grandTotal': grand_total,
             'enrollmentTuition': enrollment_tuition_item,  # 入会時授業料情報
             'additionalFees': additional_fees,  # 入会金、設備費、教材費
+            'monthlyTuition': monthly_tuition,  # 月別授業料
             'mileInfo': mile_info,  # マイル情報
         })
 
@@ -553,8 +742,24 @@ class PricingConfirmView(APIView):
         enrollment_tuition_info = None  # 入会時授業料情報（タスク表示用）
         created_student_items = []
         product_name_for_task = None  # タスク表示用のコース/パック名
+        created_contract = None  # 作成した契約
 
         if student and course:
+            # 契約を作成
+            contract_no = f"C{date.today().strftime('%Y%m%d')}-{str(uuid.uuid4())[:8].upper()}"
+            created_contract = Contract.objects.create(
+                tenant_id=student.tenant_id,
+                contract_no=contract_no,
+                student=student,
+                guardian=student.guardians.first() if student.guardians.exists() else None,
+                school=school,
+                brand=brand,
+                course=course,
+                contract_date=date.today(),
+                start_date=start_date or date.today(),
+                status=Contract.Status.ACTIVE,
+            )
+            print(f"[PricingConfirm] Created Contract: {contract_no}", file=sys.stderr)
             # コースに紐づく商品を取得して StudentItem を作成
             course_items = course.course_items.filter(is_active=True)
             print(f"[PricingConfirm] Found {course_items.count()} course_items", file=sys.stderr)
@@ -566,6 +771,7 @@ class PricingConfirmView(APIView):
                 StudentItem.objects.create(
                     tenant_id=student.tenant_id,
                     student=student,
+                    contract=created_contract,  # 契約をリンク
                     product=product,
                     billing_month=billing_month,
                     quantity=course_item.quantity,
@@ -636,10 +842,12 @@ class PricingConfirmView(APIView):
                 enrollment_product = get_enrollment_tuition_product(course, tickets)
 
                 if enrollment_product:
-                    enrollment_price = enrollment_product.base_price
+                    # ProductPrice（T05）から入会月別料金を取得
+                    enrollment_price = get_product_price_for_enrollment(enrollment_product, start_date)
                     StudentItem.objects.create(
                         tenant_id=student.tenant_id,
                         student=student,
+                        contract=created_contract,  # 契約をリンク
                         product=enrollment_product,
                         billing_month=billing_month,
                         quantity=1,
@@ -705,6 +913,22 @@ class PricingConfirmView(APIView):
 
         # パック購入の場合
         elif student and pack:
+            # 契約を作成
+            contract_no = f"C{date.today().strftime('%Y%m%d')}-{str(uuid.uuid4())[:8].upper()}"
+            created_contract = Contract.objects.create(
+                tenant_id=student.tenant_id,
+                contract_no=contract_no,
+                student=student,
+                guardian=student.guardians.first() if student.guardians.exists() else None,
+                school=school,
+                brand=brand,
+                course=None,  # パックの場合はコースなし
+                contract_date=date.today(),
+                start_date=start_date or date.today(),
+                status=Contract.Status.ACTIVE,
+            )
+            print(f"[PricingConfirm] Created Contract for Pack: {contract_no}", file=sys.stderr)
+
             # パック内のコースをすべて処理
             pack_courses = pack.pack_courses.filter(is_active=True).select_related('course')
             print(f"[PricingConfirm] Found pack with {pack_courses.count()} courses", file=sys.stderr)
@@ -723,6 +947,7 @@ class PricingConfirmView(APIView):
                     StudentItem.objects.create(
                         tenant_id=student.tenant_id,
                         student=student,
+                        contract=created_contract,  # 契約をリンク
                         product=product,
                         billing_month=billing_month,
                         quantity=course_item.quantity,
@@ -746,10 +971,12 @@ class PricingConfirmView(APIView):
                     enrollment_product = get_enrollment_tuition_product(pc_course, tickets)
 
                     if enrollment_product:
-                        enrollment_price = enrollment_product.base_price
+                        # ProductPrice（T05）から入会月別料金を取得
+                        enrollment_price = get_product_price_for_enrollment(enrollment_product, start_date)
                         StudentItem.objects.create(
                             tenant_id=student.tenant_id,
                             student=student,
+                            contract=created_contract,  # 契約をリンク
                             product=enrollment_product,
                             billing_month=billing_month,
                             quantity=1,
@@ -776,6 +1003,7 @@ class PricingConfirmView(APIView):
                 StudentItem.objects.create(
                     tenant_id=student.tenant_id,
                     student=student,
+                    contract=created_contract,  # 契約をリンク
                     product=product,
                     billing_month=billing_month,
                     quantity=pack_item.quantity,

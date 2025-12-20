@@ -218,6 +218,7 @@ export interface AdditionalFees {
   enrollmentFee?: AdditionalFee;  // 入会金
   facilityFee?: AdditionalFee;    // 設備費
   materialsFee?: AdditionalFee;   // 教材費
+  monthlyFee?: AdditionalFee;     // 月会費
 }
 
 export interface PricingMile {
@@ -232,6 +233,16 @@ export interface MileInfo {
   canUse: boolean;           // 使用可能か（コース契約2つ以上必要）
   maxDiscount: number;       // 最大割引額
   reason?: string | null;    // 使用不可の場合の理由
+}
+
+// 月別授業料情報（ProductPriceから取得）
+export interface MonthlyTuition {
+  month1: number;       // 請求月1（例: 12）
+  month2: number;       // 請求月2（例: 1）
+  month1Price: number;  // 月1の授業料（税込）
+  month2Price: number;  // 月2の授業料（税込）
+  facilityFee: number;  // 設備費（税込）
+  monthlyFee: number;   // 月会費（税込）
 }
 
 export interface PricingPreviewResponse {
@@ -251,6 +262,7 @@ export interface PricingPreviewResponse {
   };
   enrollmentTuition?: PricingItem;  // 入会時授業料情報（月途中入会時のみ）
   additionalFees?: AdditionalFees;  // 入会金、設備費、教材費
+  monthlyTuition?: MonthlyTuition;  // 月別授業料（ProductPriceから取得）
 }
 
 export interface PricingCalculateRequest {
@@ -724,6 +736,7 @@ export interface PublicCourse {
   description?: string;
   price: number;
   isMonthly: boolean;
+  tuitionPrice?: number;  // ProductPriceからの月額授業料（税込）
   brandId?: string;
   brandName?: string;
   brandCode?: string;

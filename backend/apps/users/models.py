@@ -68,7 +68,7 @@ class User(AbstractBaseUser, PermissionsMixin):
         db_index=True,
         null=True,
         blank=True,
-        verbose_name='テナントID'
+        verbose_name='会社ID'
     )
 
     # 認証情報

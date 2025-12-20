@@ -481,23 +481,108 @@ export async function getAllStudentDiscounts(filters?: StudentDiscountFilters): 
   }
 }
 
+export interface StudentDiscountUpdateData {
+  amount?: number;
+  discount_unit?: 'fixed' | 'percent';
+  start_date?: string;
+  end_date?: string | null;
+  is_active?: boolean;
+  notes?: string;
+}
+
+export async function updateStudentDiscount(id: string, data: StudentDiscountUpdateData): Promise<StudentDiscount> {
+  const response = await apiClient.patch<StudentDiscount>(`/contracts/student-discounts/${id}/`, data);
+  return response;
+}
+
+export async function deleteStudentDiscount(id: string): Promise<void> {
+  await apiClient.delete(`/contracts/student-discounts/${id}/`);
+}
+
 export async function getStudentInvoices(studentId: string): Promise<Invoice[]> {
   try {
-    // まず生徒情報から保護者IDを取得
-    const student = await getStudentDetail(studentId);
-    const guardianId = student?.guardianId || student?.guardian_id || student?.guardian?.id;
-
-    if (!guardianId) {
-      return [];
-    }
-
-    // 保護者IDで請求を検索
+    // ConfirmedBillingから生徒の請求データを取得
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const response = await apiClient.get<any>("/billing/invoices/", {
-      guardian_id: guardianId,
+    const response = await apiClient.get<any>("/billing/confirmed/", {
+      student_id: studentId,
       page_size: 100,
     });
-    return response.data || response.results || [];
+    // DRFのページネーションレスポンス形式に対応
+    const results = response.results || response.data || (Array.isArray(response) ? response : []);
+
+    // ConfirmedBillingのデータをInvoice形式に変換
+    // items_snapshotの各項目を個別のInvoiceレコードとして展開
+    const invoices: Invoice[] = [];
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    results.forEach((cb: any) => {
+      const billingMonth = `${cb.year}年${cb.month}月`;
+      const items = cb.itemsSnapshot || cb.items_snapshot || [];
+      const status = cb.status;
+      const paymentMethod = cb.paymentMethod || cb.payment_method;
+      const paidAmount = Number(cb.paidAmount || cb.paid_amount || 0);
+      const totalAmount = Number(cb.totalAmount || cb.total_amount || 0);
+      // 繰越額（前月からの繰越）
+      const carryOverAmount = Number(cb.carryOverAmount || cb.carry_over_amount || 0);
+
+      if (items.length > 0) {
+        // items_snapshotの各項目を個別のInvoiceとして追加
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        items.forEach((item: any, index: number) => {
+          const itemTotal = Number(item.final_price || item.finalPrice || 0);
+          // 入金を按分（全体に対する各項目の割合で）
+          const itemPaid = totalAmount > 0 ? Math.round(paidAmount * (itemTotal / totalAmount)) : 0;
+
+          invoices.push({
+            id: `${cb.id}-${index}`,
+            billingMonth,
+            billing_month: billingMonth,
+            billing_year: cb.year,
+            totalAmount: itemTotal,
+            total_amount: itemTotal,
+            paidAmount: itemPaid,
+            paid_amount: itemPaid,
+            balance: itemTotal - itemPaid,
+            // 繰越額は最初の項目にのみ設定
+            carryOverAmount: index === 0 ? carryOverAmount : 0,
+            carry_over_amount: index === 0 ? carryOverAmount : 0,
+            status,
+            paymentMethod,
+            payment_method: paymentMethod,
+            courseName: item.product_name || item.productName || item.notes || '',
+            course_name: item.product_name || item.productName || item.notes || '',
+            brandName: item.brand_name || item.brandName || '',
+            brand_name: item.brand_name || item.brandName || '',
+            description: item.notes || '',
+            confirmed_at: cb.confirmedAt || cb.confirmed_at,
+            paid_at: cb.paidAt || cb.paid_at,
+          } as Invoice);
+        });
+      } else {
+        // items_snapshotが空の場合は月のサマリーを追加
+        invoices.push({
+          id: cb.id,
+          billingMonth,
+          billing_month: billingMonth,
+          billing_year: cb.year,
+          totalAmount: totalAmount,
+          total_amount: totalAmount,
+          paidAmount: paidAmount,
+          paid_amount: paidAmount,
+          balance: cb.balance,
+          carryOverAmount: carryOverAmount,
+          carry_over_amount: carryOverAmount,
+          status,
+          paymentMethod,
+          payment_method: paymentMethod,
+          description: '月額請求',
+          confirmed_at: cb.confirmedAt || cb.confirmed_at,
+          paid_at: cb.paidAt || cb.paid_at,
+        } as Invoice);
+      }
+    });
+
+    return invoices;
   } catch (error) {
     console.error("Error fetching student invoices:", error);
     return [];
@@ -1543,4 +1628,157 @@ export async function getDirectDebitResults(filters?: {
     console.error("Error fetching direct debit results:", error);
     return [];
   }
+}
+
+// =============================================================================
+// 通帳機能（入出金履歴）
+// =============================================================================
+
+/**
+ * 通帳取引タイプ
+ */
+export type PassbookTransactionType = 'deposit' | 'offset' | 'refund' | 'adjustment';
+
+/**
+ * 通帳取引
+ */
+export interface PassbookTransaction {
+  id: string;
+  guardian: string;
+  guardian_name?: string;
+  guardianName?: string;
+  invoice?: string | null;
+  invoice_no?: string | null;
+  invoiceNo?: string | null;
+  invoice_billing_label?: string | null;
+  invoiceBillingLabel?: string | null;
+  payment?: string | null;
+  payment_no?: string | null;
+  paymentNo?: string | null;
+  payment_method_display?: string | null;
+  paymentMethodDisplay?: string | null;
+  transaction_type: PassbookTransactionType;
+  transactionType?: PassbookTransactionType;
+  transaction_type_display?: string;
+  transactionTypeDisplay?: string;
+  amount: number;
+  balance_after: number;
+  balanceAfter?: number;
+  reason?: string;
+  created_at: string;
+  createdAt?: string;
+}
+
+/**
+ * 通帳データ（保護者の入出金履歴）
+ */
+export interface PassbookData {
+  guardian_id: string;
+  guardianId?: string;
+  guardian_name: string;
+  guardianName?: string;
+  current_balance: number;
+  currentBalance?: number;
+  transactions: PassbookTransaction[];
+}
+
+/**
+ * 保護者の通帳（入出金履歴）を取得
+ */
+export async function getGuardianPassbook(guardianId: string): Promise<PassbookData | null> {
+  try {
+    const response = await apiClient.get<PassbookTransaction[]>(`/billing/offset-logs/by-guardian/${guardianId}/`);
+
+    // 残高を別途取得
+    const balanceResponse = await apiClient.get<{ balance: number }>(`/billing/balances/by-guardian/${guardianId}/`).catch(() => null);
+    const currentBalance = balanceResponse?.balance || 0;
+
+    return {
+      guardian_id: guardianId,
+      guardian_name: response[0]?.guardian_name || '',
+      current_balance: currentBalance,
+      transactions: response || [],
+    };
+  } catch (error) {
+    console.error("Error fetching guardian passbook:", error);
+    return null;
+  }
+}
+
+// =============================================================================
+// 入金消込（Payment Matching）
+// =============================================================================
+
+/**
+ * 入金データ
+ */
+export interface PaymentData {
+  id: string;
+  payment_no: string;
+  guardian?: {
+    id: string;
+    full_name?: string;
+  };
+  guardian_name?: string;
+  invoice?: {
+    id: string;
+    invoice_no?: string;
+  } | null;
+  invoice_no?: string | null;
+  payment_date: string;
+  amount: number | string;
+  method: string;
+  method_display?: string;
+  status: string;
+  status_display?: string;
+  payer_name?: string;
+  bank_name?: string;
+  notes?: string;
+  created_at: string;
+}
+
+/**
+ * 消込候補
+ */
+export interface MatchCandidate {
+  invoice: Invoice;
+  match_type: 'amount' | 'name';
+  match_score: number;
+  match_reason: string;
+}
+
+/**
+ * 未消込入金一覧を取得
+ */
+export async function getUnmatchedPayments(): Promise<{ count: number; payments: PaymentData[] }> {
+  try {
+    const response = await apiClient.get<{ count: number; payments: PaymentData[] }>('/billing/payments/unmatched/');
+    return response;
+  } catch (error) {
+    console.error("Error fetching unmatched payments:", error);
+    return { count: 0, payments: [] };
+  }
+}
+
+/**
+ * 入金の消込候補を取得
+ */
+export async function getMatchCandidates(paymentId: string): Promise<{ payment: PaymentData; candidates: MatchCandidate[] }> {
+  try {
+    const response = await apiClient.get<{ payment: PaymentData; candidates: MatchCandidate[] }>(`/billing/payments/${paymentId}/match_candidates/`);
+    return response;
+  } catch (error) {
+    console.error("Error fetching match candidates:", error);
+    throw error;
+  }
+}
+
+/**
+ * 入金を請求書に消込
+ */
+export async function matchPaymentToInvoice(paymentId: string, invoiceId: string): Promise<{ success: boolean; payment: PaymentData; invoice: Invoice }> {
+  const response = await apiClient.post<{ success: boolean; payment: PaymentData; invoice: Invoice }>(`/billing/payments/${paymentId}/match_invoice/`, {
+    invoice_id: invoiceId,
+  });
+  return response;
 }

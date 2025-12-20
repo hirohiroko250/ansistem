@@ -1,21 +1,29 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { Guardian, Student, Invoice } from "@/lib/api/types";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import {
   User, Mail, Phone, MapPin, Building, CreditCard, Banknote,
   GraduationCap, Receipt, MessageSquare, Edit, ChevronDown, ChevronUp, Gift,
-  AlertTriangle, CheckCircle, Wallet, Calendar, Filter, ExternalLink, MessageCircle
+  AlertTriangle, CheckCircle, Wallet, Calendar, Filter, ExternalLink, MessageCircle,
+  BookOpen, ArrowUpCircle, ArrowDownCircle
 } from "lucide-react";
 import apiClient from "@/lib/api/client";
 import { getOrCreateChannelForGuardian } from "@/lib/api/chat";
-import type { ContactLog, ChatMessage } from "@/lib/api/staff";
+import type { ContactLog, ChatMessage, PassbookTransaction, PassbookData } from "@/lib/api/staff";
+import { getGuardianPassbook } from "@/lib/api/staff";
 
 // Enrollment info type
 interface EnrollmentInfo {
@@ -212,6 +220,27 @@ export function GuardianDetail({
   const [historyTab, setHistoryTab] = useState<"logs" | "chat">("logs");
   const [dateFrom, setDateFrom] = useState<string>("");
   const [dateTo, setDateTo] = useState<string>("");
+
+  // 通帳モーダル state
+  const [isPassbookOpen, setIsPassbookOpen] = useState(false);
+  const [passbookData, setPassbookData] = useState<PassbookData | null>(null);
+  const [isLoadingPassbook, setIsLoadingPassbook] = useState(false);
+
+  // 通帳を開く
+  const openPassbook = async () => {
+    setIsPassbookOpen(true);
+    if (!passbookData) {
+      setIsLoadingPassbook(true);
+      try {
+        const data = await getGuardianPassbook(guardian.id);
+        setPassbookData(data);
+      } catch (error) {
+        console.error("Failed to load passbook:", error);
+      } finally {
+        setIsLoadingPassbook(false);
+      }
+    }
+  };
 
   const toggleChildExpand = (studentId: string) => {
     setExpandedChildren(prev => ({
@@ -554,6 +583,34 @@ export function GuardianDetail({
                 </Card>
               )}
 
+              {/* Passbook Button */}
+              <Card className="bg-gradient-to-r from-indigo-50 to-purple-50 border-indigo-200 hover:shadow-md transition-shadow cursor-pointer" onClick={openPassbook}>
+                <CardContent className="p-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="p-2 bg-indigo-100 rounded-lg">
+                        <BookOpen className="w-5 h-5 text-indigo-600" />
+                      </div>
+                      <div>
+                        <p className="font-medium text-indigo-900">入出金履歴（通帳）</p>
+                        <p className="text-xs text-indigo-600">預り金残高・取引履歴を確認</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {billingSummary.accountBalance !== undefined && (
+                        <Badge className={cn(
+                          "text-sm",
+                          billingSummary.accountBalance < 0 ? "bg-blue-600" : billingSummary.accountBalance > 0 ? "bg-orange-600" : "bg-gray-400"
+                        )}>
+                          残高: {billingSummary.accountBalance < 0 ? '+' : ''}{Math.abs(billingSummary.accountBalance || 0).toLocaleString()}円
+                        </Badge>
+                      )}
+                      <ChevronDown className="w-5 h-5 text-indigo-400" />
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
               {/* Children billing breakdown */}
               {billingSummary.children.map((child) => (
                 <Card key={child.studentId}>
@@ -821,14 +878,78 @@ export function GuardianDetail({
                 <CardTitle className="text-sm flex items-center gap-2">
                   <CreditCard className="w-4 h-4" />
                   引落口座
+                  {(guardian.payment_registered || guardian.paymentRegistered) ? (
+                    <Badge variant="outline" className="text-xs text-green-600 border-green-300">登録済</Badge>
+                  ) : (
+                    <Badge variant="outline" className="text-xs text-orange-600 border-orange-300">未登録</Badge>
+                  )}
                 </CardTitle>
               </CardHeader>
-              <CardContent className="text-sm">
-                <p>{guardian.bank_name || guardian.bankName} {guardian.branch_name || guardian.branchName}</p>
-                <p className="text-gray-500">
-                  {guardian.account_type || guardian.accountType}
-                  {guardian.account_holder || guardian.accountHolder}
-                </p>
+              <CardContent className="text-sm space-y-3">
+                {/* 金融機関 */}
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <p className="text-xs text-gray-400">金融機関</p>
+                    <p className="font-medium">{guardian.bank_name || guardian.bankName}</p>
+                    {(guardian.bank_code || guardian.bankCode) && (
+                      <p className="text-xs text-gray-500">コード: {guardian.bank_code || guardian.bankCode}</p>
+                    )}
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-400">支店</p>
+                    <p className="font-medium">{guardian.branch_name || guardian.branchName}</p>
+                    {(guardian.branch_code || guardian.branchCode) && (
+                      <p className="text-xs text-gray-500">コード: {guardian.branch_code || guardian.branchCode}</p>
+                    )}
+                  </div>
+                </div>
+                {/* 口座情報 */}
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <p className="text-xs text-gray-400">口座種別</p>
+                    <p className="font-medium">
+                      {(() => {
+                        const accountType = guardian.account_type || guardian.accountType;
+                        if (accountType === 'ordinary') return '普通';
+                        if (accountType === 'current') return '当座';
+                        if (accountType === 'savings') return '貯蓄';
+                        return accountType || '-';
+                      })()}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-400">口座番号</p>
+                    <p className="font-medium">
+                      {(() => {
+                        const accNum = guardian.account_number || guardian.accountNumber;
+                        if (!accNum) return '-';
+                        // マスク処理: 下4桁以外を*に
+                        if (accNum.length > 4) {
+                          return '*'.repeat(accNum.length - 4) + accNum.slice(-4);
+                        }
+                        return accNum;
+                      })()}
+                    </p>
+                  </div>
+                </div>
+                {/* 名義 */}
+                <div>
+                  <p className="text-xs text-gray-400">口座名義</p>
+                  <p className="font-medium">{guardian.account_holder || guardian.accountHolder || '-'}</p>
+                  {(guardian.account_holder_kana || guardian.accountHolderKana) && (
+                    <p className="text-xs text-gray-500">
+                      {guardian.account_holder_kana || guardian.accountHolderKana}
+                    </p>
+                  )}
+                </div>
+                {/* 登録日時 */}
+                {(guardian.payment_registered_at || guardian.paymentRegisteredAt) && (
+                  <div className="pt-2 border-t border-gray-100">
+                    <p className="text-xs text-gray-400">
+                      登録日時: {new Date(guardian.payment_registered_at || guardian.paymentRegisteredAt || '').toLocaleString('ja-JP')}
+                    </p>
+                  </div>
+                )}
               </CardContent>
             </Card>
           )}
@@ -986,6 +1107,126 @@ export function GuardianDetail({
           )}
         </TabsContent>
       </Tabs>
+
+      {/* 通帳モーダル */}
+      <Dialog open={isPassbookOpen} onOpenChange={setIsPassbookOpen}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <BookOpen className="w-5 h-5 text-indigo-600" />
+              入出金履歴（通帳）
+            </DialogTitle>
+          </DialogHeader>
+
+          {isLoadingPassbook ? (
+            <div className="flex items-center justify-center py-12">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
+            </div>
+          ) : passbookData ? (
+            <div className="space-y-4">
+              {/* 残高サマリ */}
+              <div className={cn(
+                "p-4 rounded-lg",
+                passbookData.current_balance < 0
+                  ? "bg-blue-50 border border-blue-200"
+                  : passbookData.current_balance > 0
+                  ? "bg-orange-50 border border-orange-200"
+                  : "bg-gray-50 border border-gray-200"
+              )}>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-gray-600">現在の預り金残高</span>
+                  <span className={cn(
+                    "text-2xl font-bold",
+                    passbookData.current_balance < 0
+                      ? "text-blue-600"
+                      : passbookData.current_balance > 0
+                      ? "text-orange-600"
+                      : "text-gray-600"
+                  )}>
+                    {passbookData.current_balance < 0 ? '+' : ''}
+                    ¥{Math.abs(passbookData.current_balance).toLocaleString()}
+                  </span>
+                </div>
+                <p className="text-xs text-gray-500 mt-1">
+                  {passbookData.current_balance < 0
+                    ? "※ 次回請求から差し引かれます"
+                    : passbookData.current_balance > 0
+                    ? "※ 未払い残高があります"
+                    : "※ 残高はありません"}
+                </p>
+              </div>
+
+              {/* 取引履歴 */}
+              <div className="space-y-2">
+                <h4 className="font-medium text-sm text-gray-700">取引履歴</h4>
+                {passbookData.transactions.length === 0 ? (
+                  <p className="text-center text-gray-400 py-8">取引履歴がありません</p>
+                ) : (
+                  <div className="border rounded-lg overflow-hidden">
+                    <table className="w-full text-sm">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th className="px-3 py-2 text-left">日時</th>
+                          <th className="px-3 py-2 text-left">内容</th>
+                          <th className="px-3 py-2 text-right">金額</th>
+                          <th className="px-3 py-2 text-right">残高</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {passbookData.transactions.map((tx) => {
+                          const isDeposit = tx.amount > 0;
+                          const txDate = new Date(tx.created_at || tx.createdAt || '');
+                          const description = tx.transaction_type_display || tx.transactionTypeDisplay || tx.transaction_type;
+                          const invoiceLabel = tx.invoice_billing_label || tx.invoiceBillingLabel;
+
+                          return (
+                            <tr key={tx.id} className="border-t hover:bg-gray-50">
+                              <td className="px-3 py-2 text-gray-500">
+                                {txDate.toLocaleDateString('ja-JP', {
+                                  year: 'numeric',
+                                  month: 'numeric',
+                                  day: 'numeric'
+                                })}
+                              </td>
+                              <td className="px-3 py-2">
+                                <div className="flex items-center gap-2">
+                                  {isDeposit ? (
+                                    <ArrowDownCircle className="w-4 h-4 text-blue-500" />
+                                  ) : (
+                                    <ArrowUpCircle className="w-4 h-4 text-orange-500" />
+                                  )}
+                                  <span>{description}</span>
+                                  {invoiceLabel && (
+                                    <span className="text-xs text-gray-400">({invoiceLabel})</span>
+                                  )}
+                                </div>
+                                {tx.reason && (
+                                  <p className="text-xs text-gray-400 mt-0.5 ml-6">{tx.reason}</p>
+                                )}
+                              </td>
+                              <td className={cn(
+                                "px-3 py-2 text-right font-medium",
+                                isDeposit ? "text-blue-600" : "text-orange-600"
+                              )}>
+                                {isDeposit ? '+' : ''}¥{Math.abs(tx.amount).toLocaleString()}
+                              </td>
+                              <td className="px-3 py-2 text-right">
+                                ¥{(tx.balance_after || tx.balanceAfter || 0).toLocaleString()}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            </div>
+          ) : (
+            <p className="text-center text-gray-400 py-8">データを取得できませんでした</p>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -3,9 +3,12 @@ Billing Serializers - 請求・入金・預り金・マイル管理
 """
 from rest_framework import serializers
 from decimal import Decimal
+from django.db import models
 from .models import (
     Invoice, InvoiceLine, Payment, GuardianBalance,
-    OffsetLog, RefundRequest, MileTransaction
+    OffsetLog, RefundRequest, MileTransaction,
+    BankTransfer, BankTransferImport, ConfirmedBilling,
+    MonthlyBillingDeadline
 )
 
 
@@ -37,6 +40,8 @@ class InvoiceSerializer(serializers.ModelSerializer):
     guardian_name = serializers.CharField(source='guardian.full_name', read_only=True)
     lines = InvoiceLineSerializer(many=True, read_only=True)
     status_display = serializers.CharField(source='get_status_display', read_only=True)
+    # 保護者の預り金残高
+    guardian_balance = serializers.SerializerMethodField()
 
     class Meta:
         model = Invoice
@@ -52,6 +57,7 @@ class InvoiceSerializer(serializers.ModelSerializer):
             'confirmed_at', 'confirmed_by',
             'is_locked', 'locked_at', 'export_batch_no',
             'notes', 'lines',
+            'guardian_balance',
             'created_at', 'updated_at',
         ]
         read_only_fields = [
@@ -61,6 +67,14 @@ class InvoiceSerializer(serializers.ModelSerializer):
             'is_locked', 'locked_at', 'export_batch_no',
             'created_at', 'updated_at',
         ]
+
+    def get_guardian_balance(self, obj):
+        """保護者の預り金残高を取得"""
+        try:
+            balance_obj = GuardianBalance.objects.filter(guardian=obj.guardian).first()
+            return int(balance_obj.balance) if balance_obj else 0
+        except Exception:
+            return 0
 
     def validate(self, attrs):
         """ロック済み請求書の編集を禁止"""
@@ -164,20 +178,41 @@ class BalanceOffsetSerializer(serializers.Serializer):
 # OffsetLog Serializers
 # =============================================================================
 class OffsetLogSerializer(serializers.ModelSerializer):
-    """相殺ログシリアライザ"""
+    """相殺ログシリアライザ（通帳表示用）"""
     guardian_name = serializers.CharField(source='guardian.full_name', read_only=True)
     transaction_type_display = serializers.CharField(source='get_transaction_type_display', read_only=True)
+    # 請求書情報
+    invoice_no = serializers.SerializerMethodField()
+    invoice_billing_label = serializers.SerializerMethodField()
+    # 入金情報
+    payment_no = serializers.SerializerMethodField()
+    payment_method_display = serializers.SerializerMethodField()
 
     class Meta:
         model = OffsetLog
         fields = [
             'id', 'guardian', 'guardian_name',
-            'invoice', 'payment',
+            'invoice', 'invoice_no', 'invoice_billing_label',
+            'payment', 'payment_no', 'payment_method_display',
             'transaction_type', 'transaction_type_display',
             'amount', 'balance_after', 'reason',
             'created_at',
         ]
         read_only_fields = ['id', 'created_at']
+
+    def get_invoice_no(self, obj):
+        return obj.invoice.invoice_no if obj.invoice else None
+
+    def get_invoice_billing_label(self, obj):
+        if obj.invoice:
+            return f"{obj.invoice.billing_year}年{obj.invoice.billing_month}月分"
+        return None
+
+    def get_payment_no(self, obj):
+        return obj.payment.payment_no if obj.payment else None
+
+    def get_payment_method_display(self, obj):
+        return obj.payment.get_method_display() if obj.payment else None
 
 
 # =============================================================================
@@ -269,3 +304,218 @@ class MileUseSerializer(serializers.Serializer):
         if value < 4:
             raise serializers.ValidationError('マイルは4pt以上から使用可能です')
         return value
+
+
+# =============================================================================
+# BankTransfer Serializers
+# =============================================================================
+class BankTransferSerializer(serializers.ModelSerializer):
+    """振込入金シリアライザ"""
+    guardian_name = serializers.CharField(source='guardian.full_name', read_only=True)
+    invoice_no = serializers.CharField(source='invoice.invoice_no', read_only=True)
+    status_display = serializers.CharField(source='get_status_display', read_only=True)
+    matched_by_name = serializers.CharField(source='matched_by.full_name', read_only=True)
+
+    # 候補保護者リスト（自動照合結果）
+    candidate_guardians = serializers.SerializerMethodField()
+
+    class Meta:
+        model = BankTransfer
+        fields = [
+            'id', 'guardian', 'guardian_name', 'invoice', 'invoice_no',
+            'transfer_date', 'amount', 'payer_name', 'payer_name_kana',
+            'guardian_no_hint',
+            'source_bank_name', 'source_branch_name',
+            'status', 'status_display',
+            'matched_by', 'matched_by_name', 'matched_at',
+            'import_batch_id', 'import_row_no',
+            'notes', 'candidate_guardians',
+            'created_at', 'updated_at',
+        ]
+        read_only_fields = [
+            'id', 'matched_by', 'matched_at',
+            'created_at', 'updated_at',
+        ]
+
+    def get_candidate_guardians(self, obj):
+        """照合候補の保護者リストを取得"""
+        if obj.status != BankTransfer.Status.PENDING:
+            return []
+
+        from apps.students.models import Guardian
+        candidates = []
+
+        # 振込人名義で部分一致検索
+        payer_name = obj.payer_name.replace('　', ' ').strip()
+        if payer_name:
+            # 名前での検索
+            guardians = Guardian.objects.filter(
+                tenant_id=obj.tenant_id,
+                deleted_at__isnull=True
+            ).filter(
+                models.Q(last_name__icontains=payer_name.split()[0] if ' ' in payer_name else payer_name) |
+                models.Q(first_name__icontains=payer_name.split()[-1] if ' ' in payer_name else payer_name) |
+                models.Q(last_name_kana__icontains=obj.payer_name_kana.split()[0] if obj.payer_name_kana and ' ' in obj.payer_name_kana else obj.payer_name_kana or '') |
+                models.Q(first_name_kana__icontains=obj.payer_name_kana.split()[-1] if obj.payer_name_kana and ' ' in obj.payer_name_kana else '')
+            )[:5]
+
+            for g in guardians:
+                # 請求書を取得
+                invoices = Invoice.objects.filter(
+                    guardian=g,
+                    status__in=[Invoice.Status.ISSUED, Invoice.Status.PARTIAL, Invoice.Status.OVERDUE]
+                ).order_by('-billing_year', '-billing_month')[:3]
+
+                candidates.append({
+                    'guardian_id': str(g.id),
+                    'guardian_name': g.full_name,
+                    'guardian_name_kana': f"{g.last_name_kana or ''} {g.first_name_kana or ''}".strip(),
+                    'invoices': [{
+                        'invoice_id': str(inv.id),
+                        'invoice_no': inv.invoice_no,
+                        'billing_label': f"{inv.billing_year}年{inv.billing_month}月分",
+                        'total_amount': int(inv.total_amount),
+                        'balance_due': int(inv.balance_due),
+                    } for inv in invoices]
+                })
+
+        return candidates
+
+
+class BankTransferMatchSerializer(serializers.Serializer):
+    """振込照合用シリアライザ"""
+    transfer_id = serializers.UUIDField()
+    guardian_id = serializers.UUIDField()
+    invoice_id = serializers.UUIDField(required=False, allow_null=True)
+    apply_payment = serializers.BooleanField(default=False)
+
+
+class BankTransferBulkMatchSerializer(serializers.Serializer):
+    """一括照合用シリアライザ"""
+    matches = BankTransferMatchSerializer(many=True)
+
+
+# =============================================================================
+# BankTransferImport Serializers
+# =============================================================================
+class BankTransferImportSerializer(serializers.ModelSerializer):
+    """振込インポートバッチシリアライザ"""
+    status_display = serializers.CharField(source='get_status_display', read_only=True)
+    imported_by_name = serializers.CharField(source='imported_by.full_name', read_only=True)
+    confirmed_by_name = serializers.CharField(source='confirmed_by.full_name', read_only=True)
+
+    # 関連する振込データ
+    transfers = serializers.SerializerMethodField()
+
+    class Meta:
+        model = BankTransferImport
+        fields = [
+            'id', 'batch_no', 'file_name', 'file_type',
+            'total_count', 'matched_count', 'unmatched_count', 'error_count',
+            'total_amount', 'status', 'status_display',
+            'imported_by', 'imported_by_name', 'imported_at',
+            'confirmed_by', 'confirmed_by_name', 'confirmed_at',
+            'notes', 'transfers',
+        ]
+        read_only_fields = [
+            'id', 'batch_no', 'total_count', 'matched_count',
+            'unmatched_count', 'error_count', 'total_amount',
+            'status', 'imported_by', 'imported_at',
+            'confirmed_by', 'confirmed_at',
+        ]
+
+    def get_transfers(self, obj):
+        """関連する振込データを取得"""
+        transfers = BankTransfer.objects.filter(
+            import_batch_id=str(obj.id)
+        ).order_by('import_row_no')
+        return BankTransferSerializer(transfers, many=True).data
+
+
+class BankTransferImportUploadSerializer(serializers.Serializer):
+    """振込データアップロード用シリアライザ"""
+    file = serializers.FileField()
+    date_column = serializers.CharField(default='振込日', required=False)
+    amount_column = serializers.CharField(default='金額', required=False)
+    payer_name_column = serializers.CharField(default='振込人名義', required=False)
+    payer_name_kana_column = serializers.CharField(default='振込人名義カナ', required=False)
+    bank_name_column = serializers.CharField(default='銀行名', required=False)
+    branch_name_column = serializers.CharField(default='支店名', required=False)
+
+
+# =============================================================================
+# ConfirmedBilling Serializers
+# =============================================================================
+class ConfirmedBillingSerializer(serializers.ModelSerializer):
+    """請求確定シリアライザ"""
+    student_name = serializers.CharField(source='student.full_name', read_only=True)
+    guardian_name = serializers.CharField(source='guardian.full_name', read_only=True)
+    status_display = serializers.CharField(source='get_status_display', read_only=True)
+    payment_method_display = serializers.CharField(source='get_payment_method_display', read_only=True)
+    confirmed_by_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ConfirmedBilling
+        fields = [
+            'id', 'student', 'student_name', 'guardian', 'guardian_name',
+            'year', 'month', 'billing_deadline',
+            'subtotal', 'discount_total', 'tax_amount', 'total_amount',
+            'paid_amount', 'balance', 'carry_over_amount',
+            'items_snapshot', 'discounts_snapshot',
+            'status', 'status_display',
+            'payment_method', 'payment_method_display',
+            'confirmed_at', 'confirmed_by', 'confirmed_by_name',
+            'paid_at', 'notes',
+            'created_at', 'updated_at',
+        ]
+        read_only_fields = [
+            'id', 'subtotal', 'discount_total', 'tax_amount', 'total_amount',
+            'items_snapshot', 'discounts_snapshot',
+            'confirmed_at', 'confirmed_by',
+            'created_at', 'updated_at',
+        ]
+
+    def get_confirmed_by_name(self, obj):
+        return obj.confirmed_by.full_name if obj.confirmed_by else None
+
+
+class ConfirmedBillingListSerializer(serializers.ModelSerializer):
+    """請求確定一覧用シリアライザ"""
+    student_name = serializers.CharField(source='student.full_name', read_only=True)
+    guardian_name = serializers.CharField(source='guardian.full_name', read_only=True)
+    status_display = serializers.CharField(source='get_status_display', read_only=True)
+    payment_method_display = serializers.CharField(source='get_payment_method_display', read_only=True)
+
+    class Meta:
+        model = ConfirmedBilling
+        fields = [
+            'id', 'student', 'student_name', 'guardian', 'guardian_name',
+            'year', 'month',
+            'subtotal', 'discount_total', 'total_amount', 'paid_amount', 'balance',
+            'carry_over_amount',
+            'items_snapshot', 'discounts_snapshot',
+            'status', 'status_display',
+            'payment_method', 'payment_method_display',
+            'confirmed_at', 'paid_at',
+        ]
+
+
+class ConfirmedBillingCreateSerializer(serializers.Serializer):
+    """請求確定データ作成用シリアライザ"""
+    year = serializers.IntegerField()
+    month = serializers.IntegerField()
+    student_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        required=False,
+        help_text='指定しない場合は全生徒が対象'
+    )
+
+
+class BillingConfirmBatchSerializer(serializers.Serializer):
+    """締日確定一括処理用シリアライザ"""
+    year = serializers.IntegerField()
+    month = serializers.IntegerField()
+    close_deadline = serializers.BooleanField(
+        default=True,
+        help_text='締日を締めるかどうか'
+    )

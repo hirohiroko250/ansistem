@@ -1,0 +1,22 @@
+{% extends "admin/change_form.html" %}
+{% load i18n admin_urls %}
+
+{% block submit_buttons_bottom %}
+{{ block.super }}
+{% if original %}
+<div class="submit-row" style="margin-top: 10px; padding: 10px; background: #f0f8ff; border: 1px solid #79aec8; border-radius: 4px;">
+    {% if original.product_set %}
+    <p style="margin: 0 0 10px 0; color: #417690; font-weight: bold;">
+        商品セット: {{ original.product_set.set_name }}
+    </p>
+    <input type="submit" value="商品セットを適用（CourseItemにコピー）" name="_apply_product_set"
+           style="background: #417690; padding: 10px 15px; border: none; border-radius: 4px; color: white; cursor: pointer; font-size: 13px;"
+           onclick="return confirm('商品セット「{{ original.product_set.set_name }}」の内容をコース商品構成にコピーします。\n既に存在する商品はスキップされます。\n\n実行しますか？');">
+    {% else %}
+    <p style="margin: 0; color: #666;">
+        商品セットを選択して保存すると、ここに「商品セットを適用」ボタンが表示されます。
+    </p>
+    {% endif %}
+</div>
+{% endif %}
+{% endblock %}

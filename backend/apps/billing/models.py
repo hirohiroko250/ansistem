@@ -952,6 +952,7 @@ class BankTransfer(TenantModel):
     amount = models.DecimalField('振込金額', max_digits=12, decimal_places=0)
     payer_name = models.CharField('振込人名義', max_length=100)
     payer_name_kana = models.CharField('振込人名義（カナ）', max_length=100, blank=True)
+    guardian_no_hint = models.CharField('保護者番号（抽出）', max_length=20, blank=True, help_text='振込人名義から抽出したID番号')
 
     # 振込元情報
     source_bank_name = models.CharField('振込元銀行', max_length=100, blank=True)
@@ -1152,6 +1153,175 @@ class BillingPeriod(TenantModel):
         self.closed_at = None
         self.closed_by = None
         self.save()
+
+
+# =============================================================================
+# MonthlyBillingDeadline (月次請求締切管理)
+# =============================================================================
+class MonthlyBillingDeadline(TenantModel):
+    """月次請求締切管理
+
+    内部的な締日管理。決済代行会社とは別に、各月の請求データを締める。
+    締日を過ぎると、その月の請求データは編集・削除・割引追加が不可になる。
+
+    例:
+    - 12月分請求の締日が25日の場合、12/26以降は12月分の請求データは編集不可
+    - 編集不可になる項目: 料金変更、削除、割引追加、コース変更など
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+
+    # 対象期間
+    year = models.IntegerField('対象年')
+    month = models.IntegerField('対象月')
+
+    # 締日設定
+    closing_day = models.IntegerField(
+        '締日',
+        default=25,
+        help_text='毎月この日を過ぎると、当月分の請求は編集不可になる'
+    )
+
+    # 自動締め（締日を過ぎたら自動的にロック）
+    auto_close = models.BooleanField(
+        '自動締め',
+        default=True,
+        help_text='締日を過ぎたら自動的にロック状態にする'
+    )
+
+    # 手動締め状態
+    is_manually_closed = models.BooleanField(
+        '手動締め済み',
+        default=False,
+        help_text='締日前でも手動で締めることが可能'
+    )
+    manually_closed_at = models.DateTimeField('手動締め日時', null=True, blank=True)
+    manually_closed_by = models.ForeignKey(
+        'users.User',
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='manually_closed_deadlines',
+        verbose_name='手動締め実行者'
+    )
+
+    # 締め解除（特別な場合のみ）
+    is_reopened = models.BooleanField('締め解除済み', default=False)
+    reopened_at = models.DateTimeField('締め解除日時', null=True, blank=True)
+    reopened_by = models.ForeignKey(
+        'users.User',
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='reopened_deadlines',
+        verbose_name='締め解除実行者'
+    )
+    reopen_reason = models.TextField('締め解除理由', blank=True)
+
+    notes = models.TextField('備考', blank=True)
+
+    class Meta:
+        db_table = 'billing_monthly_deadlines'
+        verbose_name = '月次請求締切'
+        verbose_name_plural = '月次請求締切'
+        ordering = ['-year', '-month']
+        unique_together = ['tenant_id', 'year', 'month']
+
+    def __str__(self):
+        status = '締済' if self.is_closed else '未締'
+        return f"{self.year}年{self.month:02d}月分請求 ({status})"
+
+    @property
+    def is_closed(self) -> bool:
+        """締め状態を判定
+
+        以下のいずれかの場合に締め済みとなる:
+        1. 手動で締められた（is_manually_closed=True）
+        2. 自動締めが有効で、締日を過ぎている
+        3. ただし、締め解除されている場合は未締め扱い
+        """
+        if self.is_reopened:
+            return False
+
+        if self.is_manually_closed:
+            return True
+
+        if self.auto_close:
+            from datetime import date
+            today = date.today()
+            try:
+                closing_date = date(self.year, self.month, self.closing_day)
+            except ValueError:
+                # 締日が月末を超える場合は月末日
+                import calendar
+                last_day = calendar.monthrange(self.year, self.month)[1]
+                closing_date = date(self.year, self.month, last_day)
+
+            return today > closing_date
+
+        return False
+
+    @property
+    def closing_date(self):
+        """実際の締日を取得"""
+        from datetime import date
+        import calendar
+        try:
+            return date(self.year, self.month, self.closing_day)
+        except ValueError:
+            last_day = calendar.monthrange(self.year, self.month)[1]
+            return date(self.year, self.month, last_day)
+
+    @property
+    def can_edit(self) -> bool:
+        """編集可能かどうか"""
+        return not self.is_closed
+
+    def close_manually(self, user, notes: str = ''):
+        """手動で締める"""
+        self.is_manually_closed = True
+        self.manually_closed_at = timezone.now()
+        self.manually_closed_by = user
+        self.is_reopened = False
+        self.reopened_at = None
+        self.reopened_by = None
+        if notes:
+            self.notes = notes
+        self.save()
+
+    def reopen(self, user, reason: str):
+        """締め解除（要理由）"""
+        self.is_reopened = True
+        self.reopened_at = timezone.now()
+        self.reopened_by = user
+        self.reopen_reason = reason
+        self.save()
+
+    @classmethod
+    def get_or_create_for_month(cls, tenant_id: int, year: int, month: int, closing_day: int = 25):
+        """指定月の締切レコードを取得または作成"""
+        deadline, created = cls.objects.get_or_create(
+            tenant_id=tenant_id,
+            year=year,
+            month=month,
+            defaults={
+                'closing_day': closing_day,
+                'auto_close': True,
+            }
+        )
+        return deadline, created
+
+    @classmethod
+    def is_month_editable(cls, tenant_id: int, year: int, month: int) -> bool:
+        """指定月が編集可能かどうかをチェック"""
+        try:
+            deadline = cls.objects.get(
+                tenant_id=tenant_id,
+                year=year,
+                month=month
+            )
+            return deadline.can_edit
+        except cls.DoesNotExist:
+            # レコードがない場合は編集可能（まだ締切管理されていない）
+            return True
 
 
 # =============================================================================
@@ -1360,3 +1530,410 @@ class DebitExportLine(TenantModel):
 
     def __str__(self):
         return f"{self.batch.batch_no} - {self.line_no}: {self.guardian} ({self.amount}円)"
+
+
+# =============================================================================
+# BankTransferImport (振込データインポートバッチ)
+# =============================================================================
+class BankTransferImport(TenantModel):
+    """振込データインポートバッチ
+
+    CSVやExcelファイルから振込データをインポートするバッチ。
+    インポート後、自動照合を行い、保護者との紐付けを試みる。
+    """
+
+    class Status(models.TextChoices):
+        PENDING = 'pending', '処理中'
+        COMPLETED = 'completed', '完了'
+        PARTIAL = 'partial', '一部照合済'
+        FAILED = 'failed', '失敗'
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    batch_no = models.CharField('バッチ番号', max_length=30)
+
+    # ファイル情報
+    file_name = models.CharField('ファイル名', max_length=200)
+    file_type = models.CharField('ファイル形式', max_length=20, default='csv')
+
+    # インポート結果サマリ
+    total_count = models.IntegerField('総件数', default=0)
+    matched_count = models.IntegerField('照合済件数', default=0)
+    unmatched_count = models.IntegerField('未照合件数', default=0)
+    error_count = models.IntegerField('エラー件数', default=0)
+    total_amount = models.DecimalField('総金額', max_digits=14, decimal_places=0, default=0)
+
+    # ステータス
+    status = models.CharField(
+        'ステータス',
+        max_length=20,
+        choices=Status.choices,
+        default=Status.PENDING
+    )
+
+    # 実行者
+    imported_by = models.ForeignKey(
+        'users.User',
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='bank_transfer_imports',
+        verbose_name='インポート実行者'
+    )
+    imported_at = models.DateTimeField('インポート日時', auto_now_add=True)
+
+    # 確定情報
+    confirmed_by = models.ForeignKey(
+        'users.User',
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='confirmed_bank_transfer_imports',
+        verbose_name='確定実行者'
+    )
+    confirmed_at = models.DateTimeField('確定日時', null=True, blank=True)
+
+    notes = models.TextField('備考', blank=True)
+
+    class Meta:
+        db_table = 'billing_bank_transfer_imports'
+        verbose_name = '振込インポートバッチ'
+        verbose_name_plural = '振込インポートバッチ'
+        ordering = ['-imported_at']
+        indexes = [
+            models.Index(fields=['batch_no']),
+            models.Index(fields=['status']),
+            models.Index(fields=['-imported_at']),
+        ]
+
+    def __str__(self):
+        return f"{self.batch_no} - {self.file_name} ({self.total_count}件)"
+
+    def save(self, *args, **kwargs):
+        if not self.batch_no:
+            self.batch_no = f"BTI-{timezone.now().strftime('%Y%m%d%H%M%S')}"
+        super().save(*args, **kwargs)
+
+    def update_counts(self):
+        """照合状況を再集計"""
+        from django.db.models import Sum
+        transfers = BankTransfer.objects.filter(import_batch_id=str(self.id))
+        self.total_count = transfers.count()
+        self.matched_count = transfers.filter(status__in=[BankTransfer.Status.MATCHED, BankTransfer.Status.APPLIED]).count()
+        self.unmatched_count = transfers.filter(status=BankTransfer.Status.UNMATCHED).count() + transfers.filter(status=BankTransfer.Status.PENDING).count()
+        self.error_count = transfers.filter(status=BankTransfer.Status.CANCELLED).count()
+        total = transfers.aggregate(Sum('amount'))['amount__sum']
+        self.total_amount = total or 0
+
+        # ステータス更新
+        if self.matched_count == self.total_count and self.total_count > 0:
+            self.status = self.Status.COMPLETED
+        elif self.matched_count > 0:
+            self.status = self.Status.PARTIAL
+        else:
+            self.status = self.Status.PENDING
+
+        self.save()
+
+    def confirm(self, user):
+        """インポートを確定（照合済みの振込を入金処理）"""
+        self.confirmed_by = user
+        self.confirmed_at = timezone.now()
+        self.save()
+
+
+# =============================================================================
+# ConfirmedBilling (請求確定)
+# =============================================================================
+class ConfirmedBilling(TenantModel):
+    """請求確定データ
+
+    締日確定時に生徒ごとの請求データをスナップショットとして保存。
+    元のStudentItemとは独立して管理され、監査証跡として機能する。
+    """
+
+    class Status(models.TextChoices):
+        CONFIRMED = 'confirmed', '確定'
+        UNPAID = 'unpaid', '未入金'
+        PARTIAL = 'partial', '一部入金'
+        PAID = 'paid', '入金済'
+        CANCELLED = 'cancelled', '取消'
+
+    class PaymentMethod(models.TextChoices):
+        DIRECT_DEBIT = 'direct_debit', '口座振替'
+        BANK_TRANSFER = 'bank_transfer', '振込'
+        CASH = 'cash', '現金'
+        OTHER = 'other', 'その他'
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+
+    # 対象
+    student = models.ForeignKey(
+        'students.Student',
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name='confirmed_billings',
+        verbose_name='生徒'
+    )
+    guardian = models.ForeignKey(
+        'students.Guardian',
+        on_delete=models.PROTECT,
+        related_name='confirmed_billings',
+        verbose_name='保護者'
+    )
+
+    # 請求期間
+    year = models.IntegerField('請求年')
+    month = models.IntegerField('請求月')
+    billing_deadline = models.ForeignKey(
+        MonthlyBillingDeadline,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='confirmed_billings',
+        verbose_name='締日'
+    )
+
+    # 金額
+    subtotal = models.DecimalField('小計', max_digits=12, decimal_places=0, default=0)
+    discount_total = models.DecimalField('割引合計', max_digits=12, decimal_places=0, default=0)
+    tax_amount = models.DecimalField('税額', max_digits=12, decimal_places=0, default=0)
+    total_amount = models.DecimalField('合計金額', max_digits=12, decimal_places=0, default=0)
+
+    # 入金情報
+    paid_amount = models.DecimalField('入金済金額', max_digits=12, decimal_places=0, default=0)
+    balance = models.DecimalField('残高', max_digits=12, decimal_places=0, default=0)
+
+    # 繰越額（前月からの繰越）
+    carry_over_amount = models.DecimalField(
+        '繰越額',
+        max_digits=12,
+        decimal_places=0,
+        default=0,
+        help_text='前月からの繰越額（プラス=未払い繰越、マイナス=過払い繰越）'
+    )
+
+    # 明細スナップショット（JSON形式で保存）
+    items_snapshot = models.JSONField('明細スナップショット', default=list)
+    discounts_snapshot = models.JSONField('割引スナップショット', default=list)
+
+    # ステータス
+    status = models.CharField(
+        'ステータス',
+        max_length=20,
+        choices=Status.choices,
+        default=Status.CONFIRMED
+    )
+    payment_method = models.CharField(
+        '支払方法',
+        max_length=20,
+        choices=PaymentMethod.choices,
+        default=PaymentMethod.DIRECT_DEBIT
+    )
+
+    # 確定情報
+    confirmed_at = models.DateTimeField('確定日時', auto_now_add=True)
+    confirmed_by = models.ForeignKey(
+        'users.User',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='confirmed_billings',
+        verbose_name='確定者'
+    )
+
+    # 入金完了情報
+    paid_at = models.DateTimeField('入金完了日時', null=True, blank=True)
+
+    # メモ
+    notes = models.TextField('備考', blank=True)
+
+    class Meta:
+        db_table = 't_confirmed_billing'
+        verbose_name = '請求確定'
+        verbose_name_plural = '請求確定'
+        ordering = ['-year', '-month', '-confirmed_at']
+        indexes = [
+            models.Index(fields=['student', 'year', 'month']),
+            models.Index(fields=['guardian', 'year', 'month']),
+            models.Index(fields=['status']),
+            models.Index(fields=['-confirmed_at']),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=['tenant_id', 'student', 'year', 'month'],
+                name='unique_confirmed_billing_per_student_month'
+            )
+        ]
+
+    def __str__(self):
+        student_name = self.student.full_name if self.student else '生徒なし'
+        return f"{self.year}年{self.month}月分 - {student_name} ({self.total_amount:,}円)"
+
+    def update_payment_status(self):
+        """入金状況に基づいてステータスを更新"""
+        self.balance = self.total_amount - self.paid_amount
+        if self.paid_amount >= self.total_amount:
+            self.status = self.Status.PAID
+            if not self.paid_at:
+                self.paid_at = timezone.now()
+        elif self.paid_amount > 0:
+            self.status = self.Status.PARTIAL
+        else:
+            self.status = self.Status.UNPAID
+        self.save()
+
+    @classmethod
+    def create_from_student_items(cls, tenant_id, student, guardian, year, month, user=None):
+        """StudentItemから請求確定データを作成"""
+        from apps.contracts.models import StudentItem, StudentDiscount
+
+        # 既存の確定データがあれば取得（更新用）
+        confirmed, created = cls.objects.get_or_create(
+            tenant_id=tenant_id,
+            student=student,
+            year=year,
+            month=month,
+            defaults={'guardian': guardian}
+        )
+
+        if not created and confirmed.status == cls.Status.PAID:
+            # 既に入金済みの場合は更新しない
+            return confirmed, False
+
+        # 該当月のStudentItemを取得
+        billing_month_formats = [
+            f"{year}-{str(month).zfill(2)}",  # YYYY-MM
+            f"{year}{str(month).zfill(2)}",   # YYYYMM
+        ]
+        items = StudentItem.objects.filter(
+            tenant_id=tenant_id,
+            student=student,
+            billing_month__in=billing_month_formats,
+            deleted_at__isnull=True
+        ).select_related('product', 'course', 'brand')
+
+        # 明細スナップショットを作成
+        items_snapshot = []
+        subtotal = Decimal('0')
+        for item in items:
+            item_data = {
+                'id': str(item.id),
+                'product_name': item.product.product_name if item.product else None,
+                'course_name': item.course.course_name if item.course else None,
+                'brand_name': item.brand.brand_name if item.brand else None,
+                'quantity': item.quantity,
+                'unit_price': str(item.unit_price),
+                'discount_amount': str(item.discount_amount),
+                'final_price': str(item.final_price),
+                'notes': item.notes,
+            }
+            items_snapshot.append(item_data)
+            subtotal += item.final_price or Decimal('0')
+
+        # 割引を取得
+        discounts = StudentDiscount.objects.filter(
+            tenant_id=tenant_id,
+            student=student,
+            is_active=True,
+            deleted_at__isnull=True
+        ).filter(
+            models.Q(start_date__isnull=True) | models.Q(start_date__lte=f"{year}-{str(month).zfill(2)}-01"),
+            models.Q(end_date__isnull=True) | models.Q(end_date__gte=f"{year}-{str(month).zfill(2)}-01")
+        )
+
+        discounts_snapshot = []
+        discount_total = Decimal('0')
+        for discount in discounts:
+            if discount.discount_unit == 'percent':
+                amount = subtotal * discount.amount / 100
+            else:
+                amount = discount.amount
+            discount_data = {
+                'id': str(discount.id),
+                'discount_name': discount.discount_name,
+                'amount': str(amount),
+                'discount_unit': discount.discount_unit,
+            }
+            discounts_snapshot.append(discount_data)
+            discount_total += amount
+
+        # 確定データを更新
+        confirmed.guardian = guardian
+        confirmed.subtotal = subtotal
+        confirmed.discount_total = discount_total
+        confirmed.total_amount = subtotal - discount_total
+        confirmed.balance = confirmed.total_amount - confirmed.paid_amount
+        confirmed.items_snapshot = items_snapshot
+        confirmed.discounts_snapshot = discounts_snapshot
+        if user:
+            confirmed.confirmed_by = user
+        confirmed.save()
+
+        # ステータス更新
+        if confirmed.paid_amount > 0:
+            confirmed.update_payment_status()
+
+        return confirmed, created
+
+    @classmethod
+    def get_previous_month_balance(cls, tenant_id, student, year, month):
+        """前月の残高（繰越額）を取得
+
+        Returns:
+            Decimal: 前月の残高
+                プラス = 前月に未払いがあった（今月への繰越請求）
+                マイナス = 前月に過払いがあった（今月への繰越クレジット）
+                0 = 前月は精算済み or データなし
+        """
+        # 前月を計算
+        if month == 1:
+            prev_year = year - 1
+            prev_month = 12
+        else:
+            prev_year = year
+            prev_month = month - 1
+
+        # 前月のConfirmedBillingを取得
+        prev_billing = cls.objects.filter(
+            tenant_id=tenant_id,
+            student=student,
+            year=prev_year,
+            month=prev_month
+        ).first()
+
+        if not prev_billing:
+            return Decimal('0')
+
+        # 残高 = 請求額 + 前月繰越 - 入金額
+        # プラス = 未払い（次月に請求）、マイナス = 過払い（次月にクレジット）
+        return prev_billing.balance
+
+    @classmethod
+    def apply_carry_over(cls, tenant_id, student, year, month):
+        """前月の残高を今月の繰越額として適用"""
+        confirmed = cls.objects.filter(
+            tenant_id=tenant_id,
+            student=student,
+            year=year,
+            month=month
+        ).first()
+
+        if not confirmed:
+            return None
+
+        # 前月の残高を取得
+        carry_over = cls.get_previous_month_balance(tenant_id, student, year, month)
+
+        # 繰越額を更新
+        confirmed.carry_over_amount = carry_over
+        # 残高を再計算（今月請求 + 繰越 - 入金）
+        confirmed.balance = confirmed.total_amount + carry_over - confirmed.paid_amount
+        confirmed.save()
+
+        # ステータス更新
+        if confirmed.balance <= 0 and confirmed.total_amount > 0:
+            confirmed.status = cls.Status.PAID
+            if not confirmed.paid_at:
+                confirmed.paid_at = timezone.now()
+            confirmed.save()
+
+        return confirmed

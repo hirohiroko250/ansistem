@@ -456,32 +456,26 @@ class ContractListSerializer(serializers.ModelSerializer):
         ]
 
     def _find_student_items(self, obj):
-        """生徒に関連するStudentItemを検索（複数条件でフォールバック）"""
-        # 1. 契約に直接紐付いているStudentItem
-        direct_items = obj.student_items.select_related('product', 'school').all()
-        if direct_items.exists():
-            return direct_items
+        """生徒に関連するStudentItemを検索（全て取得して結合）"""
+        from django.db.models import Q
 
-        # 2. 生徒 + ブランド で検索
-        brand_items = StudentItem.objects.filter(
-            student_id=obj.student_id,
-            brand_id=obj.brand_id,
-        ).select_related('product', 'school')
-        if brand_items.exists():
-            return brand_items[:15]
+        # 生徒の全てのStudentItemを取得（複数条件をORで結合）
+        # 1. 契約に直接紐付いているアイテム
+        # 2. 生徒 + ブランド でマッチするアイテム（契約なしも含む）
+        # 3. 生徒 + 校舎 でマッチするアイテム（契約なしも含む）
+        all_items = StudentItem.objects.filter(
+            Q(contract_id=obj.id) |  # 直接紐付け
+            Q(student_id=obj.student_id, brand_id=obj.brand_id) |  # 生徒+ブランド
+            Q(student_id=obj.student_id, school_id=obj.school_id)  # 生徒+校舎
+        ).select_related('product', 'school').distinct()
 
-        # 3. 生徒 + 校舎 で検索（brand_idがNullのケース対応）
-        school_items = StudentItem.objects.filter(
-            student_id=obj.student_id,
-            school_id=obj.school_id,
-        ).select_related('product', 'school')
-        if school_items.exists():
-            return school_items[:15]
+        if all_items.exists():
+            return all_items
 
-        # 4. 生徒のみで検索（最終フォールバック）
+        # フォールバック: 生徒のみで検索
         student_items = StudentItem.objects.filter(
             student_id=obj.student_id,
-        ).select_related('product', 'school')[:15]
+        ).select_related('product', 'school')
         return student_items
 
     def get_school_name(self, obj):
@@ -969,6 +963,7 @@ class PublicCourseSerializer(serializers.Serializer):
     description = serializers.CharField(allow_null=True, allow_blank=True)
     price = serializers.SerializerMethodField()
     isMonthly = serializers.SerializerMethodField()
+    tuitionPrice = serializers.SerializerMethodField()  # ProductPriceからの月額授業料（税込）
 
     # ブランド情報
     brandId = serializers.UUIDField(source='brand.id', allow_null=True)
@@ -993,9 +988,36 @@ class PublicCourseSerializer(serializers.Serializer):
     def get_price(self, obj):
         return obj.get_price()
 
+    def get_tuitionPrice(self, obj):
+        """ProductPriceから月額授業料（税込）を取得"""
+        from datetime import date
+        from decimal import Decimal
+
+        # CourseItemから授業料商品を探す
+        for ci in obj.course_items.filter(is_active=True).select_related('product'):
+            product = ci.product
+            if product and product.is_active and product.item_type == Product.ItemType.TUITION:
+                tax_rate = product.tax_rate or Decimal('0.1')
+                # ProductPriceから現在の月の料金を取得
+                try:
+                    product_price = product.prices.filter(is_active=True).first()
+                    if product_price:
+                        current_month = date.today().month
+                        price = product_price.get_enrollment_price(current_month)
+                        if price is not None:
+                            return int(Decimal(str(price)) * (1 + tax_rate))
+                except Exception:
+                    pass
+                # フォールバック: base_price
+                base_price = product.base_price or Decimal('0')
+                return int(base_price * (1 + tax_rate))
+        return 0
+
     def get_isMonthly(self, obj):
-        # コース価格が設定されていれば月額コースとみなす
-        return obj.course_price is not None
+        # 月額コース判定：コース名に週回数やFreeが含まれる場合
+        course_name = obj.course_name or ''
+        monthly_patterns = ['週1回', '週2回', '週3回', '週4回', '週5回', '週6回', 'Free', '月2回', '月4回']
+        return any(pattern in course_name for pattern in monthly_patterns)
 
     def get_ticketId(self, obj):
         # コースに紐づく最初のチケットのIDを返す

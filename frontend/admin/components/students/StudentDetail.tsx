@@ -203,6 +203,88 @@ export function StudentDetail({ student, parents, contracts, invoices, contactLo
   const [suspensionRequests, setSuspensionRequests] = useState<any[]>([]);
   const [withdrawalRequests, setWithdrawalRequests] = useState<any[]>([]);
 
+  // 締め済み月の情報
+  const [closedMonths, setClosedMonths] = useState<Set<string>>(new Set());
+
+  // 保護者の預り金残高
+  const [guardianBalance, setGuardianBalance] = useState<{
+    balance: number;
+    lastUpdated: string | null;
+  } | null>(null);
+
+  // 保護者の預り金残高を取得
+  useEffect(() => {
+    const fetchGuardianBalance = async () => {
+      // 最初の保護者のIDを取得
+      const guardian = parents[0];
+      if (!guardian?.id) return;
+
+      try {
+        const data = await apiClient.get<{
+          guardian_id: string;
+          balance: number;
+          last_updated: string | null;
+        }>(`/billing/balances/by-guardian/${guardian.id}/`);
+        setGuardianBalance({
+          balance: data.balance || 0,
+          lastUpdated: data.last_updated,
+        });
+      } catch (error) {
+        // 残高レコードがない場合は0として扱う
+        setGuardianBalance({ balance: 0, lastUpdated: null });
+      }
+    };
+    if (parents.length > 0) {
+      fetchGuardianBalance();
+    }
+  }, [parents]);
+
+  // 締め済み月の情報を取得
+  useEffect(() => {
+    const fetchBillingDeadlines = async () => {
+      try {
+        const data = await apiClient.get<{
+          months: { year: number; month: number; is_closed: boolean }[];
+        }>('/billing/deadlines/status_list/');
+        const closed = new Set<string>();
+        if (data.months) {
+          data.months.forEach((m) => {
+            if (m.is_closed) {
+              closed.add(`${m.year}-${String(m.month).padStart(2, '0')}`);
+            }
+          });
+        }
+        setClosedMonths(closed);
+      } catch (error) {
+        console.error('Failed to fetch billing deadlines:', error);
+      }
+    };
+    fetchBillingDeadlines();
+  }, []);
+
+  // 契約の請求月が締め済みかどうかをチェック
+  // 過去月は全て締め済みとして扱う
+  const isContractPeriodClosed = (contract: Contract): boolean => {
+    const startDateStr = contract.start_date || (contract as any).startDate;
+    if (!startDateStr) return false;
+
+    const startDate = new Date(startDateStr);
+    if (isNaN(startDate.getTime())) return false;
+
+    const now = new Date();
+    const currentYearMonth = now.getFullYear() * 12 + now.getMonth();
+    const contractYearMonth = startDate.getFullYear() * 12 + startDate.getMonth();
+
+    // 過去月は締め済み
+    if (contractYearMonth < currentYearMonth) {
+      return true;
+    }
+
+    // または、closedMonthsに含まれている場合も締め済み
+    const yearMonth = `${startDate.getFullYear()}-${String(startDate.getMonth() + 1).padStart(2, '0')}`;
+    return closedMonths.has(yearMonth);
+  };
+
   // 休会・退会申請を取得
   useEffect(() => {
     const fetchRequests = async () => {
@@ -370,7 +452,7 @@ export function StudentDetail({ student, parents, contracts, invoices, contactLo
       return invoices;
     }
     return invoices.filter((invoice) => {
-      const billingMonth = invoice.billingMonth || invoice.billing_month || "";
+      const billingMonth = String(invoice.billingMonth || invoice.billing_month || "");
       // billing_monthは "2024年1月" のような形式を想定
       if (!billingMonth || billingMonth === "未設定") return true;
 
@@ -907,24 +989,69 @@ export function StudentDetail({ student, parents, contracts, invoices, contactLo
                   const schoolName = contract.school_name || contract.schoolName || "";
                   const contractNo = contract.contract_no || contract.contractNo || "";
                   const contractName = courseName || brandName || contractNo || "-";
-                  const monthlyTotal = contract.monthly_total || contract.monthlyTotal || 0;
+                  // monthlyTotalは後でフィルタ後のアイテムから計算
+                  const originalMonthlyTotal = contract.monthly_total || contract.monthlyTotal || 0;
                   const discountApplied = contract.discount_applied || contract.discountApplied || 0;
                   const discountType = contract.discount_type || contract.discountType || "";
                   const dayOfWeek = contract.day_of_week || contract.dayOfWeek;
                   const startTime = contract.start_time || contract.startTime || "";
 
                   // 生徒商品（明細）を取得
-                  const studentItems = contract.student_items || contract.studentItems || [];
+                  const allStudentItems = contract.student_items || contract.studentItems || [];
+
+                  // 契約の開始月を取得（この契約の請求月）
+                  const contractStartDate = contract.start_date || contract.startDate || "";
+                  const contractBillingMonth = contractStartDate ? contractStartDate.substring(0, 7) : ""; // "YYYY-MM"
+
+                  // billing_monthを正規化する関数（"202503" → "2025-03", "2025-03" → "2025-03"）
+                  const normalizeBillingMonth = (bm: string): string => {
+                    if (!bm) return "";
+                    // 既に "YYYY-MM" 形式の場合
+                    if (bm.includes("-")) return bm;
+                    // "YYYYMM" 形式の場合
+                    if (bm.length === 6) return `${bm.substring(0, 4)}-${bm.substring(4, 6)}`;
+                    return bm;
+                  };
+
+                  // 契約の請求月でフィルタリング（各契約はその月のアイテムのみ表示）
+                  const studentItems = allStudentItems.filter((item: { billing_month?: string; billingMonth?: string }) => {
+                    const itemBillingMonth = item.billing_month || item.billingMonth || "";
+                    if (!itemBillingMonth) return true;
+
+                    // billing_monthを正規化して比較
+                    const normalizedItemMonth = normalizeBillingMonth(itemBillingMonth);
+
+                    // 契約の請求月と一致するアイテムのみ表示
+                    if (contractBillingMonth) {
+                      return normalizedItemMonth === contractBillingMonth;
+                    }
+
+                    // 契約の請求月がない場合は、フィルターで絞り込み
+                    if (contractYear !== "all" || contractMonth !== "all") {
+                      const [itemYear, itemMonth] = normalizedItemMonth.split("-");
+                      if (contractYear !== "all" && itemYear !== contractYear) return false;
+                      if (contractMonth !== "all" && parseInt(itemMonth) !== parseInt(contractMonth)) return false;
+                    }
+                    return true;
+                  });
 
                   // 割引情報を取得
                   const discounts = contract.discounts || [];
                   const discountTotal = contract.discount_total || contract.discountTotal || 0;
 
-                  // 請求月を取得（StudentItemから）
+                  // 請求月を取得（フィルタ後のStudentItemから）
                   const billingMonths = Array.from(new Set(studentItems.map((item: { billing_month?: string; billingMonth?: string }) =>
                     item.billing_month || item.billingMonth
                   ).filter(Boolean)));
                   const billingMonthLabel = billingMonths.length > 0 ? billingMonths.join(", ") : "";
+
+                  // フィルタ後のアイテムから月額合計を計算
+                  const monthlyTotal = studentItems.length > 0
+                    ? studentItems.reduce((sum: number, item: { final_price?: number | string; finalPrice?: number | string; unit_price?: number | string; unitPrice?: number | string }) => {
+                        const price = Number(item.final_price || item.finalPrice || item.unit_price || item.unitPrice || 0);
+                        return sum + price;
+                      }, 0)
+                    : originalMonthlyTotal;
 
                   // 曜日表示
                   const dayOfWeekLabel = dayOfWeek ? ["", "月", "火", "水", "木", "金", "土", "日"][dayOfWeek] || "" : "";
@@ -964,17 +1091,26 @@ export function StudentDetail({ student, parents, contracts, invoices, contactLo
                         </div>
                         <div className="flex items-center gap-2">
                           <span className="text-xs text-gray-500">No. {contractNo}</span>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            className="h-6 w-6 p-0 text-gray-500 hover:text-blue-600"
-                            onClick={() => {
-                              setEditingContract(contract);
-                              setEditDialogOpen(true);
-                            }}
-                          >
-                            <Pencil className="w-3 h-3" />
-                          </Button>
+                          {isContractPeriodClosed(contract) ? (
+                            <span
+                              className="h-6 px-2 flex items-center text-xs text-gray-400 bg-gray-100 rounded"
+                              title="締め済みのため編集不可"
+                            >
+                              締め済み
+                            </span>
+                          ) : (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-6 w-6 p-0 text-gray-500 hover:text-blue-600"
+                              onClick={() => {
+                                setEditingContract(contract);
+                                setEditDialogOpen(true);
+                              }}
+                            >
+                              <Pencil className="w-3 h-3" />
+                            </Button>
+                          )}
                         </div>
                       </div>
 
@@ -1019,13 +1155,14 @@ export function StudentDetail({ student, parents, contracts, invoices, contactLo
                                 id: string;
                                 product_name?: string;
                                 productName?: string;
+                                notes?: string;
                                 quantity?: number;
                                 unit_price?: number | string;
                                 unitPrice?: number | string;
                                 final_price?: number | string;
                                 finalPrice?: number | string;
                               }, idx: number) => {
-                                const itemName = item.product_name || item.productName || "-";
+                                const itemName = item.product_name || item.productName || item.notes || "-";
                                 const qty = item.quantity || 1;
                                 const unitPrice = item.unit_price || item.unitPrice || 0;
                                 const finalPrice = item.final_price || item.finalPrice || 0;
@@ -1109,6 +1246,41 @@ export function StudentDetail({ student, parents, contracts, invoices, contactLo
         {/* 請求タブ */}
         <TabsContent value="billing" className="flex-1 overflow-auto p-0 m-0">
           <div className="p-4">
+            {/* 預り金残高表示 */}
+            {guardianBalance !== null && (
+              <div className={`mb-4 p-3 rounded-lg border ${
+                guardianBalance.balance > 0
+                  ? 'bg-green-50 border-green-200'
+                  : guardianBalance.balance < 0
+                    ? 'bg-red-50 border-red-200'
+                    : 'bg-gray-50 border-gray-200'
+              }`}>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <CreditCard className="w-4 h-4 text-gray-500" />
+                    <span className="text-sm font-medium text-gray-700">預り金残高</span>
+                  </div>
+                  <div className="text-right">
+                    <span className={`text-lg font-bold ${
+                      guardianBalance.balance > 0
+                        ? 'text-green-600'
+                        : guardianBalance.balance < 0
+                          ? 'text-red-600'
+                          : 'text-gray-600'
+                    }`}>
+                      {guardianBalance.balance >= 0 ? '' : '-'}¥{Math.abs(guardianBalance.balance).toLocaleString()}
+                    </span>
+                    {guardianBalance.balance > 0 && (
+                      <div className="text-xs text-green-600">次回請求で相殺可能</div>
+                    )}
+                    {guardianBalance.balance < 0 && (
+                      <div className="text-xs text-red-600">未払い残高あり</div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* 年月フィルター */}
             <div className="flex items-center gap-2 mb-4">
               <Calendar className="w-4 h-4 text-gray-500" />

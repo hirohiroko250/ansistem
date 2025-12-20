@@ -21,7 +21,7 @@ class Channel(models.Model):
         default=uuid.uuid4,
         editable=False
     )
-    tenant_id = models.UUIDField(verbose_name='テナントID')
+    tenant_id = models.UUIDField(verbose_name='会社ID')
     channel_type = models.CharField(
         max_length=20,
         choices=ChannelType.choices,
@@ -158,7 +158,7 @@ class Message(models.Model):
         default=uuid.uuid4,
         editable=False
     )
-    tenant_id = models.UUIDField(verbose_name='テナントID')
+    tenant_id = models.UUIDField(verbose_name='会社ID')
     channel = models.ForeignKey(
         Channel,
         on_delete=models.CASCADE,
@@ -322,7 +322,7 @@ class ContactLog(models.Model):
         default=uuid.uuid4,
         editable=False
     )
-    tenant_id = models.UUIDField(verbose_name='テナントID')
+    tenant_id = models.UUIDField(verbose_name='会社ID')
     # 対象
     student = models.ForeignKey(
         'students.Student',
@@ -481,7 +481,7 @@ class Notification(models.Model):
         default=uuid.uuid4,
         editable=False
     )
-    tenant_id = models.UUIDField(verbose_name='テナントID')
+    tenant_id = models.UUIDField(verbose_name='会社ID')
     notification_type = models.CharField(
         max_length=30,
         choices=NotificationType.choices,
@@ -567,7 +567,7 @@ class BotConfig(models.Model):
         default=uuid.uuid4,
         editable=False
     )
-    tenant_id = models.UUIDField(verbose_name='テナントID')
+    tenant_id = models.UUIDField(verbose_name='会社ID')
     name = models.CharField(
         max_length=50,
         verbose_name='ボット名'
@@ -625,7 +625,7 @@ class BotFAQ(models.Model):
         default=uuid.uuid4,
         editable=False
     )
-    tenant_id = models.UUIDField(verbose_name='テナントID')
+    tenant_id = models.UUIDField(verbose_name='会社ID')
     bot_config = models.ForeignKey(
         BotConfig,
         on_delete=models.CASCADE,
@@ -684,7 +684,7 @@ class BotConversation(models.Model):
         default=uuid.uuid4,
         editable=False
     )
-    tenant_id = models.UUIDField(verbose_name='テナントID')
+    tenant_id = models.UUIDField(verbose_name='会社ID')
     channel = models.ForeignKey(
         Channel,
         on_delete=models.CASCADE,
@@ -769,7 +769,7 @@ class Announcement(models.Model):
         default=uuid.uuid4,
         editable=False
     )
-    tenant_id = models.UUIDField(verbose_name='テナントID')
+    tenant_id = models.UUIDField(verbose_name='会社ID')
     title = models.CharField(
         max_length=200,
         verbose_name='タイトル'
@@ -899,7 +899,7 @@ class FeedPost(models.Model):
         default=uuid.uuid4,
         editable=False
     )
-    tenant_id = models.UUIDField(verbose_name='テナントID')
+    tenant_id = models.UUIDField(verbose_name='会社ID')
     post_type = models.CharField(
         max_length=20,
         choices=PostType.choices,
@@ -1294,7 +1294,7 @@ class ChatLog(models.Model):
         default=uuid.uuid4,
         editable=False
     )
-    tenant_id = models.UUIDField(verbose_name='テナントID')
+    tenant_id = models.UUIDField(verbose_name='会社ID')
     # 関連メッセージ
     message = models.ForeignKey(
         Message,
