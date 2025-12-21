@@ -215,7 +215,7 @@ SIMPLE_JWT = {
 # CORS Configuration
 CORS_ALLOWED_ORIGINS = os.environ.get(
     'CORS_ALLOWED_ORIGINS',
-    'http://localhost:3000,http://localhost:3001,http://127.0.0.1:3000,http://127.0.0.1:3001,http://192.168.1.51:3000,http://192.168.1.51:3001,http://162.43.33.37:3000,http://162.43.33.37:3001'
+    'http://localhost:3000,http://localhost:3001,http://localhost:3002,http://127.0.0.1:3000,http://127.0.0.1:3001,http://127.0.0.1:3002,http://192.168.1.51:3000,http://192.168.1.51:3001,http://192.168.1.51:3002,http://162.43.33.37:3000,http://162.43.33.37:3001,http://162.43.33.37:3002'
 ).split(',')
 
 CORS_ALLOW_CREDENTIALS = True

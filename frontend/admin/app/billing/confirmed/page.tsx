@@ -124,11 +124,11 @@ export default function ConfirmedBillingPage() {
     try {
       const response = await apiClient.post<{
         success: boolean;
-        created_count: number;
-        updated_count: number;
-        skipped_count: number;
-        error_count: number;
-        errors: Array<{ student_name: string; error: string }>;
+        createdCount: number;
+        updatedCount: number;
+        skippedCount: number;
+        errorCount: number;
+        errors: Array<{ studentName: string; error: string }>;
       }>('/billing/confirmed/create_confirmed_billing/', {
         year,
         month,
@@ -137,11 +137,11 @@ export default function ConfirmedBillingPage() {
       if (response.success) {
         alert(
           `請求確定データを生成しました。\n` +
-            `新規作成: ${response.created_count}件\n` +
-            `更新: ${response.updated_count}件\n` +
-            `スキップ: ${response.skipped_count}件` +
-            (response.error_count > 0
-              ? `\nエラー: ${response.error_count}件`
+            `新規作成: ${response.createdCount ?? 0}件\n` +
+            `更新: ${response.updatedCount ?? 0}件\n` +
+            `スキップ: ${response.skippedCount ?? 0}件` +
+            ((response.errorCount ?? 0) > 0
+              ? `\nエラー: ${response.errorCount}件`
               : '')
         );
         fetchData();
@@ -259,9 +259,9 @@ export default function ConfirmedBillingPage() {
             <div className="flex items-center gap-2">
               <Label>ステータス:</Label>
               <Select
-                value={statusFilter}
+                value={statusFilter || 'all'}
                 onValueChange={(value) => {
-                  setStatusFilter(value);
+                  setStatusFilter(value === 'all' ? '' : value);
                   setPage(1);
                 }}
               >
@@ -269,7 +269,7 @@ export default function ConfirmedBillingPage() {
                   <SelectValue placeholder="すべて" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">すべて</SelectItem>
+                  <SelectItem value="all">すべて</SelectItem>
                   <SelectItem value="confirmed">確定</SelectItem>
                   <SelectItem value="unpaid">未入金</SelectItem>
                   <SelectItem value="partial">一部入金</SelectItem>
@@ -315,7 +315,7 @@ export default function ConfirmedBillingPage() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <p className="text-2xl font-bold">{summary.total_count}件</p>
+              <p className="text-2xl font-bold">{summary.total_count ?? 0}件</p>
             </CardContent>
           </Card>
           <Card>
@@ -326,7 +326,7 @@ export default function ConfirmedBillingPage() {
             </CardHeader>
             <CardContent>
               <p className="text-2xl font-bold">
-                {summary.total_amount.toLocaleString()}円
+                {(summary.total_amount ?? 0).toLocaleString()}円
               </p>
             </CardContent>
           </Card>
@@ -338,7 +338,7 @@ export default function ConfirmedBillingPage() {
             </CardHeader>
             <CardContent>
               <p className="text-2xl font-bold text-green-600">
-                {summary.total_paid.toLocaleString()}円
+                {(summary.total_paid ?? 0).toLocaleString()}円
               </p>
             </CardContent>
           </Card>
@@ -350,7 +350,7 @@ export default function ConfirmedBillingPage() {
             </CardHeader>
             <CardContent>
               <p className="text-2xl font-bold">
-                {summary.collection_rate}%
+                {summary.collection_rate ?? 0}%
               </p>
             </CardContent>
           </Card>
@@ -404,15 +404,15 @@ export default function ConfirmedBillingPage() {
                       </TableCell>
                       <TableCell>{billing.guardian_name}</TableCell>
                       <TableCell className="text-right">
-                        {billing.total_amount.toLocaleString()}円
+                        {(billing.total_amount ?? 0).toLocaleString()}円
                       </TableCell>
                       <TableCell className="text-right text-green-600">
-                        {billing.paid_amount.toLocaleString()}円
+                        {(billing.paid_amount ?? 0).toLocaleString()}円
                       </TableCell>
                       <TableCell className="text-right">
-                        {billing.balance > 0 ? (
+                        {(billing.balance ?? 0) > 0 ? (
                           <span className="text-red-600">
-                            {billing.balance.toLocaleString()}円
+                            {(billing.balance ?? 0).toLocaleString()}円
                           </span>
                         ) : (
                           <span className="text-muted-foreground">0円</span>
@@ -509,7 +509,7 @@ export default function ConfirmedBillingPage() {
                 <div>
                   <Label className="text-muted-foreground">請求額</Label>
                   <p className="font-medium">
-                    {selectedBilling.total_amount.toLocaleString()}円
+                    {(selectedBilling.total_amount ?? 0).toLocaleString()}円
                   </p>
                 </div>
                 <div>
@@ -524,19 +524,19 @@ export default function ConfirmedBillingPage() {
                 <div>
                   <Label className="text-muted-foreground">入金済</Label>
                   <p className="font-medium text-green-600">
-                    {selectedBilling.paid_amount.toLocaleString()}円
+                    {(selectedBilling.paid_amount ?? 0).toLocaleString()}円
                   </p>
                 </div>
                 <div>
                   <Label className="text-muted-foreground">残高</Label>
                   <p
                     className={`font-medium ${
-                      selectedBilling.balance > 0
+                      (selectedBilling.balance ?? 0) > 0
                         ? 'text-red-600'
                         : 'text-muted-foreground'
                     }`}
                   >
-                    {selectedBilling.balance.toLocaleString()}円
+                    {(selectedBilling.balance ?? 0).toLocaleString()}円
                   </p>
                 </div>
                 <div>
@@ -582,13 +582,13 @@ export default function ConfirmedBillingPage() {
                                   '-'}
                               </TableCell>
                               <TableCell className="text-right">
-                                {parseInt(item.unit_price).toLocaleString()}円
+                                {(parseInt(item.unit_price) || 0).toLocaleString()}円
                               </TableCell>
                               <TableCell className="text-right">
-                                {item.quantity}
+                                {item.quantity ?? 0}
                               </TableCell>
                               <TableCell className="text-right">
-                                {parseInt(item.final_price).toLocaleString()}円
+                                {(parseInt(item.final_price) || 0).toLocaleString()}円
                               </TableCell>
                             </TableRow>
                           ))}
@@ -614,7 +614,7 @@ export default function ConfirmedBillingPage() {
             <DialogTitle>入金記録</DialogTitle>
             <DialogDescription>
               {selectedBilling?.student_name} - 残高:{' '}
-              {selectedBilling?.balance.toLocaleString()}円
+              {(selectedBilling?.balance ?? 0).toLocaleString()}円
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">

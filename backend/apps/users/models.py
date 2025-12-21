@@ -55,6 +55,7 @@ class User(AbstractBaseUser, PermissionsMixin):
         USER = 'USER', '一般ユーザー'
         TEACHER = 'TEACHER', '講師'
         SCHOOL_MANAGER = 'SCHOOL_MANAGER', '校舎管理者'
+        ACCOUNTING = 'ACCOUNTING', '経理'
         ADMIN = 'ADMIN', '管理者'
         SUPER_ADMIN = 'SUPER_ADMIN', 'システム管理者'
 

@@ -449,13 +449,18 @@ class StudentItemViewSet(CSVMixin, viewsets.ModelViewSet):
     def perform_create(self, serializer):
         serializer.save(tenant_id=self.request.tenant_id)
 
-    def perform_update(self, serializer):
-        """更新時に締め済みチェック"""
-        instance = serializer.instance
-        # billing_monthまたはstart_dateから年月を取得
+    def _check_billing_permission(self, instance, action='編集'):
+        """請求データの編集権限をチェック
+
+        - 確定済み: 誰も編集不可
+        - 確認中: 経理・管理者のみ編集可
+        - 未締め: 誰でも編集可
+        """
+        from rest_framework.exceptions import PermissionDenied
+        from apps.billing.models import MonthlyBillingDeadline
+
         year, month = None, None
         if instance.billing_month:
-            # billing_month形式: YYYY-MM または YYYYMM
             if '-' in instance.billing_month:
                 parts = instance.billing_month.split('-')
                 year, month = int(parts[0]), int(parts[1])
@@ -466,48 +471,47 @@ class StudentItemViewSet(CSVMixin, viewsets.ModelViewSet):
             year = instance.start_date.year
             month = instance.start_date.month
 
-        if year and month:
-            from apps.billing.models import MonthlyBillingDeadline
-            tenant_id = getattr(self.request, 'tenant_id', None)
-            if not tenant_id:
-                from apps.tenants.models import Tenant
-                default_tenant = Tenant.objects.first()
-                if default_tenant:
-                    tenant_id = default_tenant.id
-            if not MonthlyBillingDeadline.is_month_editable(tenant_id, year, month):
-                from rest_framework.exceptions import PermissionDenied
+        if not year or not month:
+            return
+
+        tenant_id = getattr(self.request, 'tenant_id', None)
+        if not tenant_id:
+            from apps.tenants.models import Tenant
+            default_tenant = Tenant.objects.first()
+            if default_tenant:
+                tenant_id = default_tenant.id
+
+        deadline = MonthlyBillingDeadline.objects.filter(
+            tenant_id=tenant_id,
+            year=year,
+            month=month
+        ).first()
+
+        if not deadline:
+            return
+
+        # 確定済みチェック
+        if deadline.is_closed:
+            raise PermissionDenied(
+                f"{year}年{month}月分は確定済みのため{action}できません"
+            )
+
+        # 確認中チェック
+        if deadline.is_under_review:
+            if not deadline.can_edit_by_user(self.request.user):
                 raise PermissionDenied(
-                    f"{year}年{month}月分は締め済みのため編集できません"
+                    f"{year}年{month}月分は確認中のため、経理担当者のみ{action}できます"
                 )
+
+    def perform_update(self, serializer):
+        """更新時に権限チェック"""
+        instance = serializer.instance
+        self._check_billing_permission(instance, '編集')
         serializer.save()
 
     def perform_destroy(self, instance):
-        """削除時に締め済みチェック"""
-        year, month = None, None
-        if instance.billing_month:
-            if '-' in instance.billing_month:
-                parts = instance.billing_month.split('-')
-                year, month = int(parts[0]), int(parts[1])
-            elif len(instance.billing_month) == 6:
-                year = int(instance.billing_month[:4])
-                month = int(instance.billing_month[4:])
-        elif instance.start_date:
-            year = instance.start_date.year
-            month = instance.start_date.month
-
-        if year and month:
-            from apps.billing.models import MonthlyBillingDeadline
-            tenant_id = instance.tenant_id
-            if not tenant_id:
-                from apps.tenants.models import Tenant
-                default_tenant = Tenant.objects.first()
-                if default_tenant:
-                    tenant_id = default_tenant.id
-            if not MonthlyBillingDeadline.is_month_editable(tenant_id, year, month):
-                from rest_framework.exceptions import PermissionDenied
-                raise PermissionDenied(
-                    f"{year}年{month}月分は締め済みのため削除できません"
-                )
+        """削除時に権限チェック"""
+        self._check_billing_permission(instance, '削除')
         instance.deleted_at = timezone.now()
         instance.save()
 

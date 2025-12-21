@@ -120,13 +120,16 @@ export default function BillingPage() {
     year: number;
     month: number;
     label: string;
-    closing_day: number;
-    closing_date: string;
-    is_closed: boolean;
-    can_edit: boolean;
-    is_manually_closed: boolean;
-    is_reopened: boolean;
-    is_current: boolean;
+    closingDay: number;
+    closingDate: string;
+    status: 'open' | 'under_review' | 'closed';
+    statusDisplay: string;
+    isClosed: boolean;
+    isUnderReview: boolean;
+    canEdit: boolean;
+    isManuallyClosed: boolean;
+    isReopened: boolean;
+    isCurrent: boolean;
   }
   const [monthlyDeadlines, setMonthlyDeadlines] = useState<MonthlyDeadline[]>([]);
   const [currentYear, setCurrentYear] = useState<number>(new Date().getFullYear());
@@ -144,9 +147,11 @@ export default function BillingPage() {
   const [reopenReason, setReopenReason] = useState("");
   const [closeNotes, setCloseNotes] = useState("");
 
-  // 締日期間CSVエクスポート
-  const [closingPeriodExporting, setClosingPeriodExporting] = useState(false);
-  const [selectedClosingPeriod, setSelectedClosingPeriod] = useState<string>("");
+  // 締日期間確定
+  const [closingPeriodConfirming, setClosingPeriodConfirming] = useState(false);
+
+  // 選択中の請求月
+  const [selectedDeadlineId, setSelectedDeadlineId] = useState<string | null>(null);
 
   // 年月のオプション
   const years = useMemo(() => {
@@ -155,70 +160,6 @@ export default function BillingPage() {
   }, []);
 
   const months = useMemo(() => Array.from({ length: 12 }, (_, i) => i + 1), []);
-
-  // 締日期間の選択肢を生成（過去6ヶ月分 + 来月分）
-  // 締日〜締日の期間で、請求月は締日の翌月
-  // 例: 締日15日の場合、12/16〜1/15 は「2月分」
-  const closingPeriods = useMemo(() => {
-    const periods: { value: string; label: string; startDate: string; endDate: string; billingYear: number; billingMonth: number }[] = [];
-    const now = new Date();
-    const closingDay = defaultClosingDay;
-
-    for (let i = -1; i <= 6; i++) {
-      // 請求月を基準に計算（現在月からのオフセット）
-      const billingDate = new Date(now.getFullYear(), now.getMonth() + 1 - i, 1);
-      const billingYear = billingDate.getFullYear();
-      const billingMonth = billingDate.getMonth() + 1;
-
-      // 期間の開始日: 2ヶ月前の締日+1日
-      // 例: 2月分なら、12/16開始（12月の締日15日の翌日）
-      const startMonthDate = new Date(billingYear, billingMonth - 3, 1); // 2ヶ月前
-      const startYear = startMonthDate.getFullYear();
-      const startMonth = startMonthDate.getMonth() + 1;
-      let startDate = new Date(startYear, startMonth - 1, closingDay + 1);
-
-      // 期間の終了日: 前月の締日
-      // 例: 2月分なら、1/15終了（1月の締日15日）
-      const endMonthDate = new Date(billingYear, billingMonth - 2, 1); // 1ヶ月前
-      const endYear = endMonthDate.getFullYear();
-      const endMonth = endMonthDate.getMonth() + 1;
-      let endDate = new Date(endYear, endMonth - 1, closingDay);
-
-      // 日付が月末を超える場合の調整
-      const lastDayOfStartMonth = new Date(startYear, startMonth, 0).getDate();
-      if (closingDay >= lastDayOfStartMonth) {
-        // 締日が月末を超える場合、翌月1日を開始日に
-        startDate = new Date(startYear, startMonth, 1);
-      }
-
-      const lastDayOfEndMonth = new Date(endYear, endMonth, 0).getDate();
-      if (closingDay > lastDayOfEndMonth) {
-        endDate = new Date(endYear, endMonth - 1, lastDayOfEndMonth);
-      }
-
-      const formatDate = (d: Date) => {
-        const y = d.getFullYear();
-        const m = String(d.getMonth() + 1).padStart(2, '0');
-        const day = String(d.getDate()).padStart(2, '0');
-        return `${y}-${m}-${day}`;
-      };
-
-      const formatDisplay = (d: Date) => {
-        return `${d.getMonth() + 1}/${d.getDate()}`;
-      };
-
-      periods.push({
-        value: `${billingYear}-${billingMonth}`,
-        label: `${billingYear}年${billingMonth}月分 (${formatDisplay(startDate)}〜${formatDisplay(endDate)})`,
-        startDate: formatDate(startDate),
-        endDate: formatDate(endDate),
-        billingYear,
-        billingMonth,
-      });
-    }
-
-    return periods;
-  }, [defaultClosingDay]);
 
   useEffect(() => {
     loadInvoices();
@@ -234,32 +175,47 @@ export default function BillingPage() {
 
   async function loadDeadlines() {
     try {
+      console.log('[Billing] Loading deadlines, token:', apiClient.getToken() ? 'present' : 'missing');
       const data = await apiClient.get<{
-        current_year: number;
-        current_month: number;
-        default_closing_day: number;
+        currentYear: number;
+        currentMonth: number;
+        billingYear?: number;
+        billingMonth?: number;
+        defaultClosingDay: number;
         months: MonthlyDeadline[];
       }>('/billing/deadlines/status_list/');
+      console.log('[Billing] Deadlines loaded:', data);
       if (data.months) {
         setMonthlyDeadlines(data.months);
+        console.log('[Billing] monthlyDeadlines set:', data.months.length, 'items');
+
+        // 初期選択：isCurrent=trueの月、なければ未締めの最初の月
+        if (!selectedDeadlineId) {
+          const currentDeadline = data.months.find(d => d.isCurrent);
+          const openDeadline = data.months.find(d => d.status === 'open' || d.status === 'under_review');
+          const defaultDeadline = currentDeadline || openDeadline || data.months[0];
+          if (defaultDeadline) {
+            setSelectedDeadlineId(defaultDeadline.id);
+          }
+        }
       }
-      if (data.current_year) {
-        setCurrentYear(data.current_year);
+      if (data.currentYear) {
+        setCurrentYear(data.currentYear);
       }
-      if (data.current_month) {
-        setCurrentMonth(data.current_month);
+      if (data.currentMonth) {
+        setCurrentMonth(data.currentMonth);
       }
-      if (data.default_closing_day) {
-        setDefaultClosingDay(data.default_closing_day);
+      if (data.defaultClosingDay) {
+        setDefaultClosingDay(data.defaultClosingDay);
       }
     } catch (error) {
-      console.error('Failed to load deadlines:', error);
+      console.error('[Billing] Failed to load deadlines:', error);
     }
   }
 
   function openDeadlineSetting(deadline: MonthlyDeadline) {
     setEditingDeadline(deadline);
-    setEditClosingDay(deadline.closing_day);
+    setEditClosingDay(deadline.closingDay);
     setDeadlineSettingOpen(true);
   }
 
@@ -437,46 +393,89 @@ export default function BillingPage() {
     }
   }
 
-  // 締日期間CSVエクスポート（締め確定も同時に実行）
-  async function handleClosingPeriodExport() {
-    if (!selectedClosingPeriod) return;
+  // 選択中の締日を取得
+  const selectedDeadline = useMemo(() => {
+    return monthlyDeadlines.find(d => d.id === selectedDeadlineId) || null;
+  }, [monthlyDeadlines, selectedDeadlineId]);
 
-    const period = closingPeriods.find(p => p.value === selectedClosingPeriod);
-    if (!period) return;
+  // 確認中にする
+  async function handleStartReview() {
+    if (!selectedDeadline) return;
 
-    // 確認ダイアログ
     const confirmed = window.confirm(
-      `${period.label}のデータをエクスポートし、この期間を締め確定しますか？\n\n` +
-      `締め確定後は、この期間の請求データは編集できなくなります。`
+      `${selectedDeadline.year}年${selectedDeadline.month}月分を確認中にしますか？\n\n` +
+      `確認中は経理以外のスタッフは請求データを編集できなくなります。`
     );
     if (!confirmed) return;
 
-    setClosingPeriodExporting(true);
     try {
-      // 請求データCSVをエクスポート（締め確定も含む）
-      const response = await apiClient.getBlob(
-        `/billing/invoices/export_csv/?start_date=${period.startDate}&end_date=${period.endDate}&billing_year=${period.billingYear}&billing_month=${period.billingMonth}&close_period=true`
-      );
-
-      if (response) {
-        const url = URL.createObjectURL(response);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = `請求データ_${period.billingYear}年${period.billingMonth}月分.csv`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-      }
-
-      // 締日情報を再読み込み
+      await apiClient.post(`/billing/deadlines/${selectedDeadline.id}/start_review/`, {});
       loadDeadlines();
-      alert(`${period.label}のエクスポートと締め確定が完了しました。`);
+      alert(`${selectedDeadline.year}年${selectedDeadline.month}月分を確認中にしました。`);
     } catch (error) {
-      console.error("Export error:", error);
-      alert("エクスポートに失敗しました");
+      console.error("Start review error:", error);
+      alert("確認中への変更に失敗しました");
+    }
+  }
+
+  // 確認中を解除
+  async function handleCancelReview() {
+    if (!selectedDeadline) return;
+
+    const confirmed = window.confirm(
+      `${selectedDeadline.year}年${selectedDeadline.month}月分の確認中を解除しますか？\n\n` +
+      `解除すると全スタッフが編集可能になります。`
+    );
+    if (!confirmed) return;
+
+    try {
+      await apiClient.post(`/billing/deadlines/${selectedDeadline.id}/cancel_review/`, {});
+      loadDeadlines();
+      alert(`${selectedDeadline.year}年${selectedDeadline.month}月分の確認を解除しました。`);
+    } catch (error) {
+      console.error("Cancel review error:", error);
+      alert("確認解除に失敗しました");
+    }
+  }
+
+  // 確定
+  async function handleConfirm() {
+    if (!selectedDeadline) return;
+
+    const confirmed = window.confirm(
+      `${selectedDeadline.year}年${selectedDeadline.month}月分を確定しますか？\n\n` +
+      `確定後は請求データを編集できなくなります。`
+    );
+    if (!confirmed) return;
+
+    setClosingPeriodConfirming(true);
+    try {
+      const response = await apiClient.post<{
+        success: boolean;
+        message: string;
+        createdCount?: number;
+        updatedCount?: number;
+        skippedCount?: number;
+        errorCount?: number;
+      }>(`/billing/deadlines/${selectedDeadline.id}/close_manually/`, {
+        notes: '経理確認完了'
+      });
+      loadDeadlines();
+      loadInvoices();
+
+      const { createdCount = 0, updatedCount = 0, skippedCount = 0 } = response.data;
+      alert(
+        `${selectedDeadline.year}年${selectedDeadline.month}月分を確定しました。\n\n` +
+        `確定データ生成結果:\n` +
+        `・新規作成: ${createdCount}件\n` +
+        `・更新: ${updatedCount}件\n` +
+        `・スキップ: ${skippedCount}件`
+      );
+    } catch (error) {
+      console.error("Confirm error:", error);
+      alert("確定に失敗しました");
     } finally {
-      setClosingPeriodExporting(false);
+      setClosingPeriodConfirming(false);
     }
   }
 
@@ -517,7 +516,7 @@ export default function BillingPage() {
         </div>
 
         {/* 締日設定・締め処理 */}
-        <div className="mb-4 flex items-center gap-3">
+        <div className="mb-4 flex items-center gap-3 flex-wrap">
           <Button
             variant="outline"
             size="sm"
@@ -532,73 +531,96 @@ export default function BillingPage() {
             <span className="ml-1 text-xs">(毎月{defaultClosingDay}日)</span>
           </Button>
 
-          {/* 当月の締め状況と締めボタン */}
-          {monthlyDeadlines.length > 0 && (() => {
-            const currentDeadline = monthlyDeadlines.find(d => d.is_current);
-            if (!currentDeadline) return null;
-
-            return currentDeadline.is_closed ? (
-              <div className="flex items-center gap-2">
-                <Badge className="bg-green-100 text-green-700 flex items-center gap-1">
-                  <Lock className="w-3 h-3" />
-                  {currentDeadline.year}年{currentDeadline.month}月 締め済
-                </Badge>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    setEditingDeadline(currentDeadline);
-                    setReopenDialogOpen(true);
-                  }}
-                >
-                  <Unlock className="w-4 h-4 mr-1" />
-                  締め解除
-                </Button>
-              </div>
-            ) : (
-              <Button
-                variant="default"
-                size="sm"
-                className="bg-orange-600 hover:bg-orange-700"
-                onClick={() => {
-                  setEditingDeadline(currentDeadline);
-                  setCloseDialogOpen(true);
-                }}
-              >
-                <Lock className="w-4 h-4 mr-1" />
-                {currentDeadline.year}年{currentDeadline.month}月分を締める
-              </Button>
-            );
-          })()}
-
-          {/* 締日期間CSVエクスポート */}
-          <div className="ml-auto flex items-center gap-2">
+          {/* 請求月選択 */}
+          {monthlyDeadlines.length > 0 && selectedDeadlineId && (
             <Select
-              value={selectedClosingPeriod}
-              onValueChange={setSelectedClosingPeriod}
+              value={selectedDeadlineId}
+              onValueChange={(value) => setSelectedDeadlineId(value)}
             >
-              <SelectTrigger className="w-[280px]">
-                <SelectValue placeholder="締日期間を選択..." />
+              <SelectTrigger className="w-[200px]">
+                <SelectValue placeholder="請求月を選択" />
               </SelectTrigger>
               <SelectContent>
-                {closingPeriods.map((period) => (
-                  <SelectItem key={period.value} value={period.value}>
-                    {period.label}
+                {monthlyDeadlines.map((d) => (
+                  <SelectItem key={d.id} value={d.id}>
+                    {d.year}年{d.month}月分
+                    {d.isCurrent && " (推奨)"}
+                    {d.isClosed && " ✓"}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
-            <Button
-              variant="default"
-              size="sm"
-              onClick={handleClosingPeriodExport}
-              disabled={!selectedClosingPeriod || closingPeriodExporting}
-              className="bg-green-600 hover:bg-green-700"
-            >
-              <Download className="w-4 h-4 mr-1" />
-              {closingPeriodExporting ? "出力中..." : "CSVエクスポート"}
-            </Button>
-          </div>
+          )}
+
+          {/* 選択月のステータスと操作ボタン */}
+          {selectedDeadline && (() => {
+            const status = selectedDeadline.status || 'open';
+
+            // 確定済み
+            if (status === 'closed' || selectedDeadline.isClosed) {
+              return (
+                <div className="flex items-center gap-2">
+                  <Badge className="bg-green-100 text-green-700 flex items-center gap-1">
+                    <Lock className="w-3 h-3" />
+                    {selectedDeadline.year}年{selectedDeadline.month}月 確定済
+                  </Badge>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setEditingDeadline(selectedDeadline);
+                      setReopenDialogOpen(true);
+                    }}
+                  >
+                    <Unlock className="w-4 h-4 mr-1" />
+                    確定解除
+                  </Button>
+                </div>
+              );
+            }
+
+            // 確認中
+            if (status === 'under_review' || selectedDeadline.isUnderReview) {
+              return (
+                <div className="flex items-center gap-2">
+                  <Badge className="bg-yellow-100 text-yellow-700 flex items-center gap-1">
+                    <Clock className="w-3 h-3" />
+                    {selectedDeadline.year}年{selectedDeadline.month}月 確認中
+                  </Badge>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleCancelReview}
+                  >
+                    確認解除
+                  </Button>
+                  <Button
+                    variant="default"
+                    size="sm"
+                    className="bg-green-600 hover:bg-green-700"
+                    onClick={handleConfirm}
+                    disabled={closingPeriodConfirming}
+                  >
+                    <Lock className="w-4 h-4 mr-1" />
+                    {closingPeriodConfirming ? "確定中..." : "確定"}
+                  </Button>
+                </div>
+              );
+            }
+
+            // 通常（未締め）
+            return (
+              <Button
+                variant="default"
+                size="sm"
+                className="bg-orange-600 hover:bg-orange-700"
+                onClick={handleStartReview}
+              >
+                <Clock className="w-4 h-4 mr-1" />
+                {selectedDeadline.year}年{selectedDeadline.month}月分を確認中にする
+              </Button>
+            );
+          })()}
         </div>
 
 

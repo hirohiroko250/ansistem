@@ -529,6 +529,155 @@ class InvoiceViewSet(viewsets.ModelViewSet):
 
         return response
 
+    @extend_schema(summary='締日期間確定')
+    @action(detail=False, methods=['post'], url_path='close_period')
+    def close_period(self, request):
+        """締日期間を確定（請求データをロック）
+
+        確定ボタンを押したタイミングで、前回確定から現在までのデータを確定する。
+        締め日は10日固定。
+        """
+        from datetime import datetime, date
+        from dateutil.relativedelta import relativedelta
+
+        tenant_id = request.user.tenant_id
+        today = date.today()
+        closing_day = 10  # 締め日は10日固定
+
+        try:
+            # 前回の確定日を取得（ConfirmedBillingの最新confirmed_at）
+            last_confirmed = ConfirmedBilling.objects.filter(
+                tenant_id=tenant_id
+            ).order_by('-confirmed_at').first()
+
+            if last_confirmed:
+                # 前回確定日の翌日から
+                start_date = last_confirmed.confirmed_at.date() + relativedelta(days=1)
+            else:
+                # 初回の場合は最初の請求データから
+                first_invoice = Invoice.objects.filter(
+                    tenant_id=tenant_id
+                ).order_by('created_at').first()
+                if first_invoice:
+                    start_date = first_invoice.created_at.date()
+                else:
+                    start_date = today - relativedelta(months=1)
+
+            end_date = today
+
+            # 締め日（10日）を基準に請求月を計算
+            # 例: 11/11〜12/10 は12月請求分、12/11〜1/10 は1月請求分
+            if today.day <= closing_day:
+                # 今月分
+                billing_year = today.year
+                billing_month = today.month
+            else:
+                # 翌月分
+                next_month = today + relativedelta(months=1)
+                billing_year = next_month.year
+                billing_month = next_month.month
+
+            # 未確定の請求書からConfirmedBillingを作成
+            from apps.students.models import Student
+            from apps.pricing.models import StudentItem
+
+            students = Student.objects.filter(
+                tenant_id=tenant_id,
+                status='active'
+            ).select_related('guardian')
+
+            confirmed_count = 0
+            for student in students:
+                # 既にこの月の確定データがあればスキップ
+                existing = ConfirmedBilling.objects.filter(
+                    tenant_id=tenant_id,
+                    student=student,
+                    year=billing_year,
+                    month=billing_month
+                ).first()
+                if existing:
+                    continue
+
+                # 生徒の請求項目を取得
+                student_items = StudentItem.objects.filter(
+                    student=student,
+                    is_active=True
+                ).select_related('product')
+
+                if not student_items.exists():
+                    continue
+
+                # 請求金額を計算
+                subtotal = sum(item.unit_price * item.quantity for item in student_items)
+                discount_total = 0  # 割引計算は必要に応じて追加
+                tax_amount = 0  # 税額計算は必要に応じて追加
+                total_amount = subtotal - discount_total + tax_amount
+
+                # スナップショット作成
+                items_snapshot = [
+                    {
+                        'product_id': str(item.product.id),
+                        'product_name': item.product.name,
+                        'category': item.product.get_item_type_display(),
+                        'unit_price': int(item.unit_price),
+                        'quantity': item.quantity,
+                        'amount': int(item.unit_price * item.quantity),
+                    }
+                    for item in student_items
+                ]
+
+                # ConfirmedBilling作成
+                ConfirmedBilling.objects.create(
+                    tenant_id=tenant_id,
+                    student=student,
+                    guardian=student.guardian,
+                    year=billing_year,
+                    month=billing_month,
+                    subtotal=subtotal,
+                    discount_total=discount_total,
+                    tax_amount=tax_amount,
+                    total_amount=total_amount,
+                    items_snapshot=items_snapshot,
+                    discounts_snapshot=[],
+                    status=ConfirmedBilling.Status.CONFIRMED,
+                    payment_method=ConfirmedBilling.PaymentMethod.DIRECT_DEBIT,
+                    confirmed_at=timezone.now(),
+                    confirmed_by=request.user,
+                )
+                confirmed_count += 1
+
+            # 対象請求書をロック
+            locked_count = Invoice.objects.filter(
+                tenant_id=tenant_id,
+                billing_year=billing_year,
+                billing_month=billing_month,
+                is_locked=False,
+            ).update(
+                is_locked=True,
+                locked_at=timezone.now(),
+                locked_by=request.user,
+            )
+
+            return Response({
+                'success': True,
+                'message': f'{billing_year}年{billing_month}月分の締め確定が完了しました',
+                'period': {
+                    'start_date': start_date.isoformat(),
+                    'end_date': end_date.isoformat(),
+                },
+                'billing_year': billing_year,
+                'billing_month': billing_month,
+                'confirmed_billings': confirmed_count,
+                'locked_invoices': locked_count,
+            })
+
+        except Exception as e:
+            logger.error(f'Failed to close period: {e}')
+            return Response(
+                {'error': f'締め確定に失敗しました: {str(e)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
 
 # =============================================================================
 # Payment ViewSet
@@ -1438,10 +1587,13 @@ class MonthlyBillingDeadlineViewSet(viewsets.ModelViewSet):
 
         class MonthlyBillingDeadlineSerializer(serializers.ModelSerializer):
             is_closed = serializers.SerializerMethodField()
+            status = serializers.SerializerMethodField()
+            status_display = serializers.SerializerMethodField()
             closing_date_display = serializers.SerializerMethodField()
             can_edit = serializers.SerializerMethodField()
             manually_closed_by_name = serializers.SerializerMethodField()
             reopened_by_name = serializers.SerializerMethodField()
+            under_review_by_name = serializers.SerializerMethodField()
 
             class Meta:
                 model = MonthlyBillingDeadline
@@ -1450,13 +1602,21 @@ class MonthlyBillingDeadlineViewSet(viewsets.ModelViewSet):
                     'auto_close', 'is_manually_closed', 'manually_closed_at',
                     'manually_closed_by', 'manually_closed_by_name',
                     'is_reopened', 'reopened_at', 'reopened_by', 'reopened_by_name',
-                    'reopen_reason', 'notes',
-                    'is_closed', 'closing_date_display', 'can_edit',
+                    'reopen_reason',
+                    'is_under_review', 'under_review_at', 'under_review_by', 'under_review_by_name',
+                    'notes',
+                    'is_closed', 'status', 'status_display', 'closing_date_display', 'can_edit',
                 ]
-                read_only_fields = ['id', 'is_closed', 'closing_date_display', 'can_edit']
+                read_only_fields = ['id', 'is_closed', 'status', 'status_display', 'closing_date_display', 'can_edit']
 
             def get_is_closed(self, obj):
                 return obj.is_closed
+
+            def get_status(self, obj):
+                return obj.status
+
+            def get_status_display(self, obj):
+                return obj.status_display
 
             def get_closing_date_display(self, obj):
                 return obj.closing_date.strftime('%Y-%m-%d')
@@ -1472,6 +1632,11 @@ class MonthlyBillingDeadlineViewSet(viewsets.ModelViewSet):
             def get_reopened_by_name(self, obj):
                 if obj.reopened_by:
                     return f"{obj.reopened_by.last_name}{obj.reopened_by.first_name}"
+                return None
+
+            def get_under_review_by_name(self, obj):
+                if obj.under_review_by:
+                    return f"{obj.under_review_by.last_name}{obj.under_review_by.first_name}"
                 return None
 
         return MonthlyBillingDeadlineSerializer
@@ -1503,9 +1668,11 @@ class MonthlyBillingDeadlineViewSet(viewsets.ModelViewSet):
         if provider:
             default_closing_day = provider.closing_day or 25
 
-        # 過去3ヶ月〜未来3ヶ月の締切状態を取得
+        # 過去3ヶ月〜未来6ヶ月の締切状態を取得
         months = []
-        for offset in range(-3, 4):
+        first_open_month = None
+
+        for offset in range(-3, 7):
             year = today.year
             month = today.month + offset
             while month <= 0:
@@ -1522,6 +1689,10 @@ class MonthlyBillingDeadlineViewSet(viewsets.ModelViewSet):
                 closing_day=default_closing_day
             )
 
+            # 最初のopen月を記録
+            if not deadline.is_closed and first_open_month is None:
+                first_open_month = (year, month)
+
             months.append({
                 'id': str(deadline.id),
                 'year': deadline.year,
@@ -1529,11 +1700,14 @@ class MonthlyBillingDeadlineViewSet(viewsets.ModelViewSet):
                 'label': f'{deadline.year}年{deadline.month}月分',
                 'closing_day': deadline.closing_day,
                 'closing_date': deadline.closing_date.strftime('%Y-%m-%d'),
+                'status': deadline.status,
+                'status_display': deadline.status_display,
                 'is_closed': deadline.is_closed,
+                'is_under_review': deadline.is_under_review,
                 'can_edit': deadline.can_edit,
                 'is_manually_closed': deadline.is_manually_closed,
                 'is_reopened': deadline.is_reopened,
-                'is_current': year == today.year and month == today.month,
+                'is_current': first_open_month and year == first_open_month[0] and month == first_open_month[1],
             })
 
         return Response({
@@ -1580,19 +1754,127 @@ class MonthlyBillingDeadlineViewSet(viewsets.ModelViewSet):
     @extend_schema(summary='手動で締める')
     @action(detail=True, methods=['post'])
     def close_manually(self, request, pk=None):
-        """指定月を手動で締める"""
+        """指定月を手動で締める（確定データも生成）"""
         deadline = self.get_object()
 
         if deadline.is_closed:
             return Response({'error': 'この月は既に締め済みです'}, status=400)
 
         notes = request.data.get('notes', '')
-        deadline.close_manually(request.user, notes)
+
+        # 確定データを生成
+        from apps.students.models import Student
+        from apps.contracts.models import Contract
+        from datetime import date
+
+        year = deadline.year
+        month = deadline.month
+        tenant_id = deadline.tenant_id
+
+        # 対象月の開始日・終了日
+        billing_start = date(year, month, 1)
+        if month == 12:
+            billing_end = date(year + 1, 1, 1)
+        else:
+            billing_end = date(year, month + 1, 1)
+
+        # 該当月に有効な契約がある生徒を取得
+        student_ids_with_contracts = Contract.objects.filter(
+            tenant_id=tenant_id,
+            status=Contract.Status.ACTIVE,
+            start_date__lt=billing_end,
+        ).filter(
+            models.Q(end_date__isnull=True) | models.Q(end_date__gte=billing_start)
+        ).values_list('student_id', flat=True).distinct()
+
+        students = Student.objects.filter(
+            tenant_id=tenant_id,
+            id__in=student_ids_with_contracts,
+            deleted_at__isnull=True
+        )
+
+        created_count = 0
+        updated_count = 0
+        skipped_count = 0
+        errors = []
+
+        with transaction.atomic():
+            for student in students:
+                try:
+                    guardian = student.guardian
+                    if not guardian:
+                        skipped_count += 1
+                        continue
+
+                    confirmed, was_created = ConfirmedBilling.create_from_contracts(
+                        tenant_id=tenant_id,
+                        student=student,
+                        guardian=guardian,
+                        year=year,
+                        month=month,
+                        user=request.user
+                    )
+
+                    if was_created:
+                        created_count += 1
+                    else:
+                        if confirmed.status == ConfirmedBilling.Status.PAID:
+                            skipped_count += 1
+                        else:
+                            updated_count += 1
+                except Exception as e:
+                    errors.append(str(e))
+
+            # 締める
+            deadline.close_manually(request.user, notes)
 
         return Response({
             'success': True,
             'message': f'{deadline.year}年{deadline.month}月分を締めました',
             'is_closed': deadline.is_closed,
+            'created_count': created_count,
+            'updated_count': updated_count,
+            'skipped_count': skipped_count,
+            'error_count': len(errors),
+        })
+
+    @extend_schema(summary='確認中にする')
+    @action(detail=True, methods=['post'])
+    def start_review(self, request, pk=None):
+        """指定月を確認中にする（経理確認開始）"""
+        deadline = self.get_object()
+
+        if deadline.is_closed:
+            return Response({'error': 'この月は既に確定済みです'}, status=400)
+
+        if deadline.is_under_review:
+            return Response({'error': 'この月は既に確認中です'}, status=400)
+
+        deadline.start_review(request.user)
+
+        return Response({
+            'success': True,
+            'message': f'{deadline.year}年{deadline.month}月分を確認中にしました',
+            'status': deadline.status,
+            'status_display': deadline.status_display,
+        })
+
+    @extend_schema(summary='確認中を解除する')
+    @action(detail=True, methods=['post'])
+    def cancel_review(self, request, pk=None):
+        """確認中を解除して通常状態に戻す"""
+        deadline = self.get_object()
+
+        if not deadline.is_under_review:
+            return Response({'error': 'この月は確認中ではありません'}, status=400)
+
+        deadline.cancel_review(request.user)
+
+        return Response({
+            'success': True,
+            'message': f'{deadline.year}年{deadline.month}月分の確認を解除しました',
+            'status': deadline.status,
+            'status_display': deadline.status_display,
         })
 
     @extend_schema(summary='締めを解除する')
@@ -2579,6 +2861,16 @@ class ConfirmedBillingViewSet(viewsets.ModelViewSet):
         from apps.contracts.models import StudentItem
 
         # 対象生徒を取得
+        from datetime import date
+        from apps.contracts.models import Contract
+
+        # 対象月の開始日・終了日
+        billing_start = date(year, month, 1)
+        if month == 12:
+            billing_end = date(year + 1, 1, 1)
+        else:
+            billing_end = date(year, month + 1, 1)
+
         if student_ids:
             students = Student.objects.filter(
                 tenant_id=tenant_id,
@@ -2586,20 +2878,18 @@ class ConfirmedBillingViewSet(viewsets.ModelViewSet):
                 deleted_at__isnull=True
             )
         else:
-            # 該当月にStudentItemがある生徒を取得
-            billing_month_formats = [
-                f"{year}-{str(month).zfill(2)}",
-                f"{year}{str(month).zfill(2)}",
-            ]
-            student_ids_with_items = StudentItem.objects.filter(
+            # 該当月に有効な契約がある生徒を取得
+            student_ids_with_contracts = Contract.objects.filter(
                 tenant_id=tenant_id,
-                billing_month__in=billing_month_formats,
-                deleted_at__isnull=True
+                status=Contract.Status.ACTIVE,
+                start_date__lt=billing_end,
+            ).filter(
+                models.Q(end_date__isnull=True) | models.Q(end_date__gte=billing_start)
             ).values_list('student_id', flat=True).distinct()
 
             students = Student.objects.filter(
                 tenant_id=tenant_id,
-                id__in=student_ids_with_items,
+                id__in=student_ids_with_contracts,
                 deleted_at__isnull=True
             )
 
@@ -2612,9 +2902,7 @@ class ConfirmedBillingViewSet(viewsets.ModelViewSet):
             for student in students:
                 try:
                     # 保護者を取得
-                    guardian = student.guardians.filter(
-                        deleted_at__isnull=True
-                    ).first()
+                    guardian = student.guardian
 
                     if not guardian:
                         errors.append({
@@ -2625,8 +2913,8 @@ class ConfirmedBillingViewSet(viewsets.ModelViewSet):
                         skipped_count += 1
                         continue
 
-                    # 確定データを作成
-                    confirmed, was_created = ConfirmedBilling.create_from_student_items(
+                    # 確定データを作成（Contractベース）
+                    confirmed, was_created = ConfirmedBilling.create_from_contracts(
                         tenant_id=tenant_id,
                         student=student,
                         guardian=guardian,

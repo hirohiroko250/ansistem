@@ -1423,33 +1423,16 @@ export default function FromTicketPurchasePage() {
             )}
 
             {/* 締日情報（請求月判定）表示 */}
-            {billingInfo && (
-              <div className={`mb-3 p-3 rounded-lg border ${
-                billingInfo.is_after_closing
-                  ? 'bg-amber-50 border-amber-200'
-                  : 'bg-blue-50 border-blue-200'
-              }`}>
-                <div className="flex items-start gap-2">
-                  <AlertCircle className={`h-4 w-4 mt-0.5 flex-shrink-0 ${
-                    billingInfo.is_after_closing ? 'text-amber-600' : 'text-blue-600'
-                  }`} />
-                  <div className="flex-1">
-                    <p className={`text-sm font-medium ${
-                      billingInfo.is_after_closing ? 'text-amber-800' : 'text-blue-800'
-                    }`}>
-                      請求月のお知らせ
-                    </p>
-                    <p className={`text-xs mt-1 ${
-                      billingInfo.is_after_closing ? 'text-amber-700' : 'text-blue-700'
-                    }`}>
-                      {billingInfo.message}
-                    </p>
-                    {billingInfo.is_after_closing && billingInfo.first_billable_month && (
-                      <p className="text-xs mt-1 text-amber-600">
-                        ※ 締日（{billingInfo.closing_day}日）を過ぎているため、{billingInfo.first_billable_month.month}月分から請求されます
-                      </p>
-                    )}
+            {billingInfo && billingInfo.first_billable_month && (
+              <div className="mb-3 p-3 rounded-lg border bg-blue-50 border-blue-200">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <AlertCircle className="h-4 w-4 text-blue-600" />
+                    <span className="text-sm text-blue-800">請求月</span>
                   </div>
+                  <span className="text-lg font-bold text-blue-800">
+                    {billingInfo.first_billable_month.month}月請求
+                  </span>
                 </div>
               </div>
             )}

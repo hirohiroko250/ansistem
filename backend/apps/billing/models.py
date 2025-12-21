@@ -1216,6 +1216,21 @@ class MonthlyBillingDeadline(TenantModel):
     )
     reopen_reason = models.TextField('締め解除理由', blank=True)
 
+    # 確認中状態（経理確認中）
+    is_under_review = models.BooleanField(
+        '確認中',
+        default=False,
+        help_text='経理が確認中。経理以外は編集不可'
+    )
+    under_review_at = models.DateTimeField('確認開始日時', null=True, blank=True)
+    under_review_by = models.ForeignKey(
+        'users.User',
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='review_started_deadlines',
+        verbose_name='確認開始者'
+    )
+
     notes = models.TextField('備考', blank=True)
 
     class Meta:
@@ -1226,8 +1241,26 @@ class MonthlyBillingDeadline(TenantModel):
         unique_together = ['tenant_id', 'year', 'month']
 
     def __str__(self):
-        status = '締済' if self.is_closed else '未締'
-        return f"{self.year}年{self.month:02d}月分請求 ({status})"
+        return f"{self.year}年{self.month:02d}月分請求 ({self.status_display})"
+
+    @property
+    def status(self) -> str:
+        """ステータスを取得: open, under_review, closed"""
+        if self.is_closed:
+            return 'closed'
+        if self.is_under_review:
+            return 'under_review'
+        return 'open'
+
+    @property
+    def status_display(self) -> str:
+        """ステータス表示名"""
+        status_map = {
+            'open': '未締',
+            'under_review': '確認中',
+            'closed': '締済',
+        }
+        return status_map.get(self.status, '未締')
 
     @property
     def is_closed(self) -> bool:
@@ -1272,14 +1305,58 @@ class MonthlyBillingDeadline(TenantModel):
 
     @property
     def can_edit(self) -> bool:
-        """編集可能かどうか"""
+        """編集可能かどうか（確定済みは編集不可）"""
         return not self.is_closed
 
+    def can_edit_by_user(self, user) -> bool:
+        """ユーザーが編集可能かどうか
+
+        - 確定済み: 誰も編集不可
+        - 確認中: 経理・管理者のみ編集可
+        - 未締め: 誰でも編集可
+        """
+        if self.is_closed:
+            return False
+        if self.is_under_review:
+            # 経理・管理者権限チェック
+            from apps.users.models import User
+            allowed_roles = [
+                User.Role.ACCOUNTING,
+                User.Role.ADMIN,
+                User.Role.SUPER_ADMIN,
+            ]
+            return hasattr(user, 'role') and user.role in allowed_roles
+        return True
+
+    def start_review(self, user):
+        """確認中にする"""
+        self.is_under_review = True
+        self.under_review_at = timezone.now()
+        self.under_review_by = user
+        # 締め解除状態をクリア
+        self.is_reopened = False
+        self.reopened_at = None
+        self.reopened_by = None
+        self.reopen_reason = ''
+        self.save()
+
+    def cancel_review(self, user):
+        """確認中を解除して通常状態に戻す"""
+        self.is_under_review = False
+        self.under_review_at = None
+        self.under_review_by = None
+        self.save()
+
     def close_manually(self, user, notes: str = ''):
-        """手動で締める"""
+        """手動で締める（確定）"""
         self.is_manually_closed = True
         self.manually_closed_at = timezone.now()
         self.manually_closed_by = user
+        # 確認中状態をクリア
+        self.is_under_review = False
+        self.under_review_at = None
+        self.under_review_by = None
+        # 締め解除状態をクリア
         self.is_reopened = False
         self.reopened_at = None
         self.reopened_by = None
@@ -1828,6 +1905,131 @@ class ConfirmedBilling(TenantModel):
             }
             items_snapshot.append(item_data)
             subtotal += item.final_price or Decimal('0')
+
+        # 割引を取得
+        discounts = StudentDiscount.objects.filter(
+            tenant_id=tenant_id,
+            student=student,
+            is_active=True,
+            deleted_at__isnull=True
+        ).filter(
+            models.Q(start_date__isnull=True) | models.Q(start_date__lte=f"{year}-{str(month).zfill(2)}-01"),
+            models.Q(end_date__isnull=True) | models.Q(end_date__gte=f"{year}-{str(month).zfill(2)}-01")
+        )
+
+        discounts_snapshot = []
+        discount_total = Decimal('0')
+        for discount in discounts:
+            if discount.discount_unit == 'percent':
+                amount = subtotal * discount.amount / 100
+            else:
+                amount = discount.amount
+            discount_data = {
+                'id': str(discount.id),
+                'discount_name': discount.discount_name,
+                'amount': str(amount),
+                'discount_unit': discount.discount_unit,
+            }
+            discounts_snapshot.append(discount_data)
+            discount_total += amount
+
+        # 確定データを更新
+        confirmed.guardian = guardian
+        confirmed.subtotal = subtotal
+        confirmed.discount_total = discount_total
+        confirmed.total_amount = subtotal - discount_total
+        confirmed.balance = confirmed.total_amount - confirmed.paid_amount
+        confirmed.items_snapshot = items_snapshot
+        confirmed.discounts_snapshot = discounts_snapshot
+        if user:
+            confirmed.confirmed_by = user
+        confirmed.save()
+
+        # ステータス更新
+        if confirmed.paid_amount > 0:
+            confirmed.update_payment_status()
+
+        return confirmed, created
+
+    @classmethod
+    def create_from_contracts(cls, tenant_id, student, guardian, year, month, user=None):
+        """Contract（契約）から請求確定データを作成
+
+        有効な契約のCourseItem（商品構成）から明細を生成
+        """
+        from apps.contracts.models import Contract, StudentDiscount
+        from datetime import date
+
+        # 既存の確定データがあれば取得（更新用）
+        confirmed, created = cls.objects.get_or_create(
+            tenant_id=tenant_id,
+            student=student,
+            year=year,
+            month=month,
+            defaults={'guardian': guardian}
+        )
+
+        if not created and confirmed.status == cls.Status.PAID:
+            # 既に入金済みの場合は更新しない
+            return confirmed, False
+
+        # 対象月の開始日・終了日
+        billing_start = date(year, month, 1)
+        if month == 12:
+            billing_end = date(year + 1, 1, 1)
+        else:
+            billing_end = date(year, month + 1, 1)
+
+        # 該当月に有効な契約を取得
+        contracts = Contract.objects.filter(
+            tenant_id=tenant_id,
+            student=student,
+            status=Contract.Status.ACTIVE,
+            start_date__lt=billing_end,  # 請求月末より前に開始
+        ).filter(
+            models.Q(end_date__isnull=True) | models.Q(end_date__gte=billing_start)  # 終了日なし or 請求月開始以降に終了
+        ).select_related('course', 'brand', 'school')
+
+        # 明細スナップショットを作成
+        items_snapshot = []
+        subtotal = Decimal('0')
+
+        for contract in contracts:
+            course = contract.course
+            if not course:
+                continue
+
+            # CourseItem（コース商品構成）から明細を取得
+            course_items = course.course_items.filter(
+                is_active=True
+            ).select_related('product')
+
+            for course_item in course_items:
+                product = course_item.product
+                if not product or not product.is_active:
+                    continue
+
+                # 価格を取得（price_overrideがあればそちらを使用）
+                unit_price = course_item.price_override if course_item.price_override is not None else (product.base_price or Decimal('0'))
+                quantity = course_item.quantity or 1
+                final_price = unit_price * quantity
+
+                item_data = {
+                    'contract_id': str(contract.id),
+                    'contract_no': contract.contract_no,
+                    'course_id': str(course.id) if course else None,
+                    'course_name': course.course_name if course else None,
+                    'product_id': str(product.id),
+                    'product_name': product.product_name,
+                    'brand_name': contract.brand.brand_name if contract.brand else None,
+                    'quantity': quantity,
+                    'unit_price': str(unit_price),
+                    'discount_amount': '0',
+                    'final_price': str(final_price),
+                    'item_type': product.item_type,
+                }
+                items_snapshot.append(item_data)
+                subtotal += final_price
 
         # 割引を取得
         discounts = StudentDiscount.objects.filter(
