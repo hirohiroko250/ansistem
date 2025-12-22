@@ -773,7 +773,7 @@ class GuardianViewSet(CSVMixin, viewsets.ModelViewSet):
     def billing_summary(self, request, pk=None):
         """保護者の請求サマリー（全子供の料金・割引含む）"""
         from apps.contracts.models import StudentItem, StudentDiscount
-        from apps.billing.models import Invoice
+        from apps.billing.models import Invoice, Payment, ConfirmedBilling
         from decimal import Decimal
         from django.utils import timezone
 
@@ -789,16 +789,89 @@ class GuardianViewSet(CSVMixin, viewsets.ModelViewSet):
         payment_history = []  # 入金履歴
 
         try:
+            # ConfirmedBillingから請求・残高を計算（新システム）
+            confirmed_billings = ConfirmedBilling.objects.filter(
+                guardian=guardian
+            ).order_by('-year', '-month')
+
+            # 未入金のConfirmedBillingをカウント
+            unpaid_confirmed = confirmed_billings.filter(
+                status__in=[ConfirmedBilling.Status.CONFIRMED, ConfirmedBilling.Status.UNPAID, ConfirmedBilling.Status.PARTIAL]
+            )
+            unpaid_amount_confirmed = sum(cb.balance or 0 for cb in unpaid_confirmed)
+
+            # ConfirmedBillingから請求履歴と残高を計算
+            total_billed_confirmed = Decimal('0')
+            total_paid_confirmed = Decimal('0')
+
+            for cb in confirmed_billings[:24]:  # 直近2年分
+                billed = cb.total_amount or Decimal('0')
+                paid = cb.paid_amount or Decimal('0')
+                total_billed_confirmed += billed
+                total_paid_confirmed += paid
+
+                # 請求履歴を収集
+                status_display_map = {
+                    'confirmed': '確定',
+                    'unpaid': '未入金',
+                    'partial': '一部入金',
+                    'paid': '入金済',
+                    'cancelled': '取消',
+                }
+                invoice_history.append({
+                    'id': str(cb.id),
+                    'invoiceNo': f'CB-{cb.year}{cb.month:02d}',
+                    'billingYear': cb.year,
+                    'billingMonth': cb.month,
+                    'billingLabel': f"{cb.year}年{cb.month}月",
+                    'totalAmount': int(billed),
+                    'paidAmount': int(paid),
+                    'balanceDue': int(cb.balance or 0),
+                    'status': cb.status,
+                    'statusDisplay': status_display_map.get(cb.status, cb.status),
+                    'paymentMethod': cb.payment_method or 'direct_debit',
+                    'paidAt': cb.paid_at.isoformat() if cb.paid_at else None,
+                    'dueDate': None,
+                    'issuedAt': cb.confirmed_at.isoformat() if cb.confirmed_at else None,
+                    'source': 'confirmed_billing',
+                })
+
+            # Invoiceからも取得（旧システム）
+            all_invoices = Invoice.objects.filter(guardian=guardian).order_by('-billing_year', '-billing_month')
+            total_billed_invoice = Decimal('0')
+            total_paid_invoice = Decimal('0')
+
+            for inv in all_invoices[:24]:  # 直近2年分
+                billed = inv.total_amount or Decimal('0')
+                paid = inv.paid_amount or Decimal('0')
+                total_billed_invoice += billed
+                total_paid_invoice += paid
+
+                # 重複チェック（同じ年月がConfirmedBillingになければ追加）
+                existing = [h for h in invoice_history if h['billingYear'] == inv.billing_year and h['billingMonth'] == inv.billing_month and h['source'] == 'confirmed_billing']
+                if not existing:
+                    invoice_history.append({
+                        'id': str(inv.id),
+                        'invoiceNo': inv.invoice_no or '',
+                        'billingYear': inv.billing_year,
+                        'billingMonth': inv.billing_month,
+                        'billingLabel': f"{inv.billing_year}年{inv.billing_month}月",
+                        'totalAmount': int(billed),
+                        'paidAmount': int(paid),
+                        'balanceDue': int(inv.balance_due or 0),
+                        'status': inv.status,
+                        'statusDisplay': inv.get_status_display() if hasattr(inv, 'get_status_display') else inv.status,
+                        'paymentMethod': inv.payment_method or 'direct_debit',
+                        'paidAt': inv.paid_at.isoformat() if hasattr(inv, 'paid_at') and inv.paid_at else None,
+                        'dueDate': inv.due_date.isoformat() if inv.due_date else None,
+                        'issuedAt': inv.issued_at.isoformat() if hasattr(inv, 'issued_at') and inv.issued_at else None,
+                        'source': 'invoice',
+                    })
+
             overdue_invoices = Invoice.objects.filter(
                 guardian=guardian,
                 status='overdue'
             ).count()
-
-            unpaid_invoices = Invoice.objects.filter(
-                guardian=guardian,
-                status__in=['issued', 'partial']
-            )
-            unpaid_amount = sum(inv.balance_due or 0 for inv in unpaid_invoices)
 
             # 最新の請求書から支払い方法を取得
             latest_invoice = Invoice.objects.filter(
@@ -809,61 +882,41 @@ class GuardianViewSet(CSVMixin, viewsets.ModelViewSet):
                 payment_method = latest_invoice.payment_method
                 payment_method_display = latest_invoice.get_payment_method_display()
 
-            # 全請求書から残高を計算
-            all_invoices = Invoice.objects.filter(guardian=guardian).order_by('-billing_year', '-billing_month')
-            total_billed = Decimal('0')
-            total_paid = Decimal('0')
+            # 残高計算: ConfirmedBillingがあればそちらを優先
+            if confirmed_billings.exists():
+                account_balance = int(total_billed_confirmed - total_paid_confirmed)
+                unpaid_amount = int(unpaid_amount_confirmed)
+            else:
+                account_balance = int(total_billed_invoice - total_paid_invoice)
+                unpaid_invoices = Invoice.objects.filter(
+                    guardian=guardian,
+                    status__in=['issued', 'partial']
+                )
+                unpaid_amount = sum(inv.balance_due or 0 for inv in unpaid_invoices)
 
-            for inv in all_invoices[:24]:  # 直近2年分
-                billed = inv.total_amount or Decimal('0')
-                paid = inv.paid_amount or Decimal('0')
-                total_billed += billed
-                total_paid += paid
+            # 請求履歴をソート
+            invoice_history.sort(key=lambda x: (x['billingYear'], x['billingMonth']), reverse=True)
 
-                # 請求履歴を収集
-                invoice_history.append({
-                    'id': str(inv.id),
-                    'invoiceNo': inv.invoice_no or '',
-                    'billingYear': inv.billing_year,
-                    'billingMonth': inv.billing_month,
-                    'billingLabel': f"{inv.billing_year}年{inv.billing_month}月",
-                    'totalAmount': int(billed),
-                    'paidAmount': int(paid),
-                    'balanceDue': int(inv.balance_due or 0),
-                    'status': inv.status,
-                    'statusDisplay': inv.get_status_display() if hasattr(inv, 'get_status_display') else inv.status,
-                    'paymentMethod': inv.payment_method or 'direct_debit',
-                    'paidAt': inv.paid_at.isoformat() if inv.paid_at else None,
-                    'dueDate': inv.due_date.isoformat() if inv.due_date else None,
-                    'issuedAt': inv.issued_at.isoformat() if inv.issued_at else None,
+            # 入金履歴を取得（Paymentモデルから）
+            payments = Payment.objects.filter(
+                guardian=guardian
+            ).order_by('-payment_date', '-created_at')[:20]
+
+            for pmt in payments:
+                payment_history.append({
+                    'id': str(pmt.id),
+                    'paymentDate': pmt.payment_date.isoformat() if pmt.payment_date else None,
+                    'amount': int(pmt.amount or 0),
+                    'paymentMethod': pmt.method if hasattr(pmt, 'method') else (pmt.payment_method or ''),
+                    'paymentMethodDisplay': pmt.get_method_display() if hasattr(pmt, 'get_method_display') else (pmt.get_payment_method_display() if hasattr(pmt, 'get_payment_method_display') else pmt.method),
+                    'status': pmt.status if hasattr(pmt, 'status') else 'completed',
+                    'notes': pmt.notes or '',
                 })
 
-            # 残高計算（プラス=不足、マイナス=過払い）
-            account_balance = int(total_billed - total_paid)
-
-            # 入金履歴を取得（Paymentモデルがあれば）
-            try:
-                from apps.billing.models import Payment
-                payments = Payment.objects.filter(
-                    guardian=guardian
-                ).order_by('-payment_date', '-created_at')[:20]
-
-                for pmt in payments:
-                    payment_history.append({
-                        'id': str(pmt.id),
-                        'paymentDate': pmt.payment_date.isoformat() if pmt.payment_date else None,
-                        'amount': int(pmt.amount or 0),
-                        'paymentMethod': pmt.payment_method or '',
-                        'paymentMethodDisplay': pmt.get_payment_method_display() if hasattr(pmt, 'get_payment_method_display') else pmt.payment_method,
-                        'status': pmt.status if hasattr(pmt, 'status') else 'completed',
-                        'notes': pmt.notes or '',
-                    })
-            except Exception:
-                # Paymentモデルが存在しない場合はスキップ
-                pass
-
-        except Exception:
+        except Exception as e:
             # テーブルが存在しない場合などはスキップ
+            import logging
+            logging.warning(f"billing_summary error: {e}")
             pass
 
         # 子供一覧

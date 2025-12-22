@@ -290,6 +290,10 @@ class Guardian(TenantModel):
     def full_name(self):
         return f"{self.last_name} {self.first_name}"
 
+    @property
+    def full_name_kana(self):
+        return f"{self.last_name_kana} {self.first_name_kana}".strip()
+
 
 class StudentSchool(TenantModel):
     """T10: 生徒所属（校舎紐付け）"""

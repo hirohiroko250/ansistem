@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 from django.shortcuts import get_object_or_404
 from django.db import models, transaction
 from django.utils import timezone
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from drf_spectacular.utils import extend_schema, extend_schema_view
 
 from .models import (
@@ -321,20 +321,63 @@ class InvoiceViewSet(viewsets.ModelViewSet):
                         )
 
                         # 成功時は入金処理
-                        if result_status == DirectDebitResult.ResultStatus.SUCCESS and invoice:
+                        if result_status == DirectDebitResult.ResultStatus.SUCCESS:
+                            payment_amount = Decimal(amount) if amount else Decimal('0')
                             payment = Payment.objects.create(
                                 tenant_id=request.user.tenant_id,
                                 payment_no=Payment.generate_payment_no(request.user.tenant_id),
                                 guardian=guardian,
                                 invoice=invoice,
                                 payment_date=timezone.now().date(),
-                                amount=Decimal(amount) if amount else 0,
+                                amount=payment_amount,
                                 method=Payment.Method.DIRECT_DEBIT,
                                 status=Payment.Status.SUCCESS,
                                 notes=f"引落結果取込: {debit_result.id}",
                                 registered_by=request.user,
                             )
-                            payment.apply_to_invoice()
+                            if invoice:
+                                payment.apply_to_invoice()
+
+                            # ConfirmedBillingも更新
+                            confirmed_billings = ConfirmedBilling.objects.filter(
+                                guardian=guardian,
+                                status__in=[ConfirmedBilling.Status.CONFIRMED, ConfirmedBilling.Status.UNPAID, ConfirmedBilling.Status.PARTIAL],
+                            ).order_by(
+                                models.Case(
+                                    models.When(balance=payment_amount, then=0),
+                                    default=1,
+                                ),
+                                'year',
+                                'month',
+                            )
+
+                            remaining_amount = payment_amount
+                            for cb in confirmed_billings:
+                                if remaining_amount <= 0:
+                                    break
+                                apply_amount = min(remaining_amount, cb.balance)
+                                if apply_amount > 0:
+                                    cb.paid_amount += apply_amount
+                                    cb.balance = cb.total_amount - cb.paid_amount
+                                    if cb.balance <= 0:
+                                        cb.status = ConfirmedBilling.Status.PAID
+                                        cb.paid_at = timezone.now()
+                                    elif cb.paid_amount > 0:
+                                        cb.status = ConfirmedBilling.Status.PARTIAL
+                                    cb.save()
+                                    remaining_amount -= apply_amount
+
+                            # GuardianBalanceに入金を記録
+                            balance_obj, _ = GuardianBalance.objects.get_or_create(
+                                tenant_id=request.user.tenant_id,
+                                guardian=guardian,
+                                defaults={'balance': 0}
+                            )
+                            balance_obj.add_payment(
+                                amount=payment_amount,
+                                reason=f'口座振替による入金',
+                                payment=payment,
+                            )
 
                         imported += 1
 
@@ -700,6 +743,8 @@ class PaymentViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['post'])
     def register(self, request):
         """入金を登録"""
+        from apps.students.models import Guardian
+
         serializer = PaymentCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
@@ -723,6 +768,50 @@ class PaymentViewSet(viewsets.ModelViewSet):
             # 請求書に入金を適用
             payment.apply_to_invoice()
 
+            # ConfirmedBillingも更新
+            guardian = Guardian.objects.get(id=data['guardian_id'])
+            payment_amount = data['amount']
+
+            confirmed_billings = ConfirmedBilling.objects.filter(
+                guardian=guardian,
+                status__in=[ConfirmedBilling.Status.CONFIRMED, ConfirmedBilling.Status.UNPAID, ConfirmedBilling.Status.PARTIAL],
+            ).order_by(
+                models.Case(
+                    models.When(balance=payment_amount, then=0),
+                    default=1,
+                ),
+                'year',
+                'month',
+            )
+
+            remaining_amount = payment_amount
+            for cb in confirmed_billings:
+                if remaining_amount <= 0:
+                    break
+                apply_amount = min(remaining_amount, cb.balance)
+                if apply_amount > 0:
+                    cb.paid_amount += apply_amount
+                    cb.balance = cb.total_amount - cb.paid_amount
+                    if cb.balance <= 0:
+                        cb.status = ConfirmedBilling.Status.PAID
+                        cb.paid_at = timezone.now()
+                    elif cb.paid_amount > 0:
+                        cb.status = ConfirmedBilling.Status.PARTIAL
+                    cb.save()
+                    remaining_amount -= apply_amount
+
+            # GuardianBalanceに入金を記録
+            balance_obj, _ = GuardianBalance.objects.get_or_create(
+                tenant_id=request.user.tenant_id,
+                guardian=guardian,
+                defaults={'balance': 0}
+            )
+            balance_obj.add_payment(
+                amount=payment_amount,
+                reason=f'手動入金登録',
+                payment=payment,
+            )
+
         return Response(PaymentSerializer(payment).data, status=status.HTTP_201_CREATED)
 
     @extend_schema(summary='口座振替結果取込', request=DirectDebitResultSerializer)
@@ -742,14 +831,58 @@ class PaymentViewSet(viewsets.ModelViewSet):
         payment.debit_result_code = result_code
         payment.debit_result_message = serializer.validated_data.get('result_message', '')
 
-        # 結果コードによってステータスを更新
-        if result_code == '0':  # 成功
-            payment.status = Payment.Status.SUCCESS
-            payment.apply_to_invoice()
-        else:
-            payment.status = Payment.Status.FAILED
+        with transaction.atomic():
+            # 結果コードによってステータスを更新
+            if result_code == '0':  # 成功
+                payment.status = Payment.Status.SUCCESS
+                payment.apply_to_invoice()
 
-        payment.save()
+                # ConfirmedBillingも更新
+                if payment.guardian:
+                    confirmed_billings = ConfirmedBilling.objects.filter(
+                        guardian=payment.guardian,
+                        status__in=[ConfirmedBilling.Status.CONFIRMED, ConfirmedBilling.Status.UNPAID, ConfirmedBilling.Status.PARTIAL],
+                    ).order_by(
+                        models.Case(
+                            models.When(balance=payment.amount, then=0),
+                            default=1,
+                        ),
+                        'year',
+                        'month',
+                    )
+
+                    remaining_amount = payment.amount
+                    for cb in confirmed_billings:
+                        if remaining_amount <= 0:
+                            break
+                        apply_amount = min(remaining_amount, cb.balance)
+                        if apply_amount > 0:
+                            cb.paid_amount += apply_amount
+                            cb.balance = cb.total_amount - cb.paid_amount
+                            if cb.balance <= 0:
+                                cb.status = ConfirmedBilling.Status.PAID
+                                cb.paid_at = timezone.now()
+                            elif cb.paid_amount > 0:
+                                cb.status = ConfirmedBilling.Status.PARTIAL
+                            cb.save()
+                            remaining_amount -= apply_amount
+
+                    # GuardianBalanceに入金を記録
+                    balance_obj, _ = GuardianBalance.objects.get_or_create(
+                        tenant_id=request.user.tenant_id,
+                        guardian=payment.guardian,
+                        defaults={'balance': 0}
+                    )
+                    balance_obj.add_payment(
+                        amount=payment.amount,
+                        reason=f'口座振替による入金',
+                        payment=payment,
+                    )
+            else:
+                payment.status = Payment.Status.FAILED
+
+            payment.save()
+
         return Response(PaymentSerializer(payment).data)
 
     @extend_schema(summary='未消込入金一覧')
@@ -863,6 +996,36 @@ class PaymentViewSet(viewsets.ModelViewSet):
 
             # 請求書に入金を適用
             payment.apply_to_invoice()
+
+            # ConfirmedBillingも更新（入金を対応する請求月に適用）
+            if invoice.guardian:
+                confirmed_billings = ConfirmedBilling.objects.filter(
+                    guardian=invoice.guardian,
+                    status__in=[ConfirmedBilling.Status.CONFIRMED, ConfirmedBilling.Status.UNPAID, ConfirmedBilling.Status.PARTIAL],
+                ).order_by(
+                    models.Case(
+                        models.When(balance=payment.amount, then=0),
+                        default=1,
+                    ),
+                    'year',
+                    'month',
+                )
+
+                remaining_amount = payment.amount
+                for cb in confirmed_billings:
+                    if remaining_amount <= 0:
+                        break
+                    apply_amount = min(remaining_amount, cb.balance)
+                    if apply_amount > 0:
+                        cb.paid_amount += apply_amount
+                        cb.balance = cb.total_amount - cb.paid_amount
+                        if cb.balance <= 0:
+                            cb.status = ConfirmedBilling.Status.PAID
+                            cb.paid_at = timezone.now()
+                        elif cb.paid_amount > 0:
+                            cb.status = ConfirmedBilling.Status.PARTIAL
+                        cb.save()
+                        remaining_amount -= apply_amount
 
         return Response({
             'success': True,
@@ -1668,9 +1831,23 @@ class MonthlyBillingDeadlineViewSet(viewsets.ModelViewSet):
         if provider:
             default_closing_day = provider.closing_day or 25
 
+        # 請求対象月の最小値を計算（締日を基準）
+        # 締日より前: 現在月 + 1
+        # 締日以降: 現在月 + 2
+        if today.day < default_closing_day:
+            min_billing_month = today.month + 1
+        else:
+            min_billing_month = today.month + 2
+        min_billing_year = today.year
+        if min_billing_month > 12:
+            min_billing_month -= 12
+            min_billing_year += 1
+
         # 過去3ヶ月〜未来6ヶ月の締切状態を取得
         months = []
-        first_open_month = None
+        first_open_found = False
+        current_billing_year = None
+        current_billing_month = None
 
         for offset in range(-3, 7):
             year = today.year
@@ -1689,9 +1866,16 @@ class MonthlyBillingDeadlineViewSet(viewsets.ModelViewSet):
                 closing_day=default_closing_day
             )
 
-            # 最初のopen月を記録
-            if not deadline.is_closed and first_open_month is None:
-                first_open_month = (year, month)
+            # 最初の未確定月を現在の請求月とする
+            # ただし、締日を過ぎた月はスキップ（最小請求月以降のみ対象）
+            is_current = False
+            if not first_open_found and not deadline.is_closed:
+                # 最小請求月以降かチェック
+                if (year > min_billing_year) or (year == min_billing_year and month >= min_billing_month):
+                    is_current = True
+                    first_open_found = True
+                    current_billing_year = year
+                    current_billing_month = month
 
             months.append({
                 'id': str(deadline.id),
@@ -1707,12 +1891,14 @@ class MonthlyBillingDeadlineViewSet(viewsets.ModelViewSet):
                 'can_edit': deadline.can_edit,
                 'is_manually_closed': deadline.is_manually_closed,
                 'is_reopened': deadline.is_reopened,
-                'is_current': first_open_month and year == first_open_month[0] and month == first_open_month[1],
+                'is_current': is_current,
             })
 
         return Response({
             'current_year': today.year,
             'current_month': today.month,
+            'billing_year': current_billing_year,
+            'billing_month': current_billing_month,
             'default_closing_day': default_closing_day,
             'months': months,
         })
@@ -1798,6 +1984,9 @@ class MonthlyBillingDeadlineViewSet(viewsets.ModelViewSet):
         skipped_count = 0
         errors = []
 
+        # 保護者ごとの請求額を集計
+        guardian_billing_totals = {}
+
         with transaction.atomic():
             for student in students:
                 try:
@@ -1817,6 +2006,13 @@ class MonthlyBillingDeadlineViewSet(viewsets.ModelViewSet):
 
                     if was_created:
                         created_count += 1
+                        # 新規作成時のみ請求額を集計（既存の場合は既に計上済み）
+                        if guardian.id not in guardian_billing_totals:
+                            guardian_billing_totals[guardian.id] = {
+                                'guardian': guardian,
+                                'total': Decimal('0'),
+                            }
+                        guardian_billing_totals[guardian.id]['total'] += confirmed.total_amount or Decimal('0')
                     else:
                         if confirmed.status == ConfirmedBilling.Status.PAID:
                             skipped_count += 1
@@ -1824,6 +2020,19 @@ class MonthlyBillingDeadlineViewSet(viewsets.ModelViewSet):
                             updated_count += 1
                 except Exception as e:
                     errors.append(str(e))
+
+            # 保護者ごとにGuardianBalanceを更新（請求額を減算）
+            for guardian_id, data in guardian_billing_totals.items():
+                if data['total'] > 0:
+                    balance_obj, _ = GuardianBalance.objects.get_or_create(
+                        tenant_id=tenant_id,
+                        guardian=data['guardian'],
+                        defaults={'balance': 0}
+                    )
+                    balance_obj.add_billing(
+                        amount=data['total'],
+                        reason=f'{year}年{month}月分請求確定',
+                    )
 
             # 締める
             deadline.close_manually(request.user, notes)
@@ -2060,8 +2269,10 @@ class BankTransferViewSet(viewsets.ModelViewSet):
             from apps.billing.models import GuardianBalance, OffsetLog
 
             # 入金レコード作成
+            payment_no = Payment.generate_payment_no(transfer.tenant_id)
             payment = Payment.objects.create(
                 tenant_id=transfer.tenant_id,
+                payment_no=payment_no,
                 guardian=guardian,
                 invoice=invoice,  # Noneの場合は未消込
                 payment_date=transfer.transfer_date,
@@ -2098,27 +2309,46 @@ class BankTransferViewSet(viewsets.ModelViewSet):
                 transfer.save()
                 message = '入金確認を完了しました（未消込）'
 
-            # 入出金履歴（OffsetLog）に記録
+            # ConfirmedBillingも更新（未入金のものを探す）
+            confirmed_billings = ConfirmedBilling.objects.filter(
+                guardian=guardian,
+                status__in=[ConfirmedBilling.Status.CONFIRMED, ConfirmedBilling.Status.UNPAID, ConfirmedBilling.Status.PARTIAL],
+            ).order_by(
+                # 残高が振込額と一致するものを優先
+                models.Case(
+                    models.When(balance=transfer.amount, then=0),
+                    default=1,
+                ),
+                'year',
+                'month',
+            )
+
+            remaining_amount = transfer.amount
+            for cb in confirmed_billings:
+                if remaining_amount <= 0:
+                    break
+                apply_amount = min(remaining_amount, cb.balance)
+                if apply_amount > 0:
+                    cb.paid_amount += apply_amount
+                    cb.balance = cb.total_amount - cb.paid_amount
+                    if cb.balance <= 0:
+                        cb.status = ConfirmedBilling.Status.PAID
+                        cb.paid_at = timezone.now()
+                    elif cb.paid_amount > 0:
+                        cb.status = ConfirmedBilling.Status.PARTIAL
+                    cb.save()
+                    remaining_amount -= apply_amount
+
+            # GuardianBalanceに入金を記録（常に実行）
             balance_obj, _ = GuardianBalance.objects.get_or_create(
                 tenant_id=transfer.tenant_id,
                 guardian=guardian,
                 defaults={'balance': 0}
             )
-
-            # 請求書に適用しない場合は預り金として残高を増やす
-            if not invoice:
-                balance_obj.balance += Decimal(str(transfer.amount))
-                balance_obj.save()
-
-            OffsetLog.objects.create(
-                tenant_id=transfer.tenant_id,
-                guardian=guardian,
-                invoice=invoice,
-                payment=payment,
-                transaction_type=OffsetLog.TransactionType.DEPOSIT,
+            balance_obj.add_payment(
                 amount=transfer.amount,
-                balance_after=balance_obj.balance,
                 reason=f'銀行振込による入金（{transfer.payer_name}）',
+                payment=payment,
             )
 
             # バッチのカウント更新
@@ -2668,22 +2898,24 @@ class BankTransferImportViewSet(viewsets.ModelViewSet):
                         'billing_month',
                     ).first()
 
-                    if invoice:
-                        # 入金処理
-                        payment = Payment.objects.create(
-                            tenant_id=transfer.tenant_id,
-                            guardian=transfer.guardian,
-                            invoice=invoice,
-                            payment_date=transfer.transfer_date,
-                            amount=transfer.amount,
-                            method=Payment.Method.BANK_TRANSFER,
-                            status=Payment.Status.COMPLETED,
-                            payer_name=transfer.payer_name,
-                            bank_name=transfer.source_bank_name,
-                            notes=f'振込インポート確定: {import_batch.batch_no}',
-                            registered_by=request.user,
-                        )
+                    # 入金処理（Invoiceがなくても実行）
+                    payment_no = Payment.generate_payment_no(transfer.tenant_id)
+                    payment = Payment.objects.create(
+                        tenant_id=transfer.tenant_id,
+                        payment_no=payment_no,
+                        guardian=transfer.guardian,
+                        invoice=invoice,  # Noneの場合もあり
+                        payment_date=transfer.transfer_date,
+                        amount=transfer.amount,
+                        method=Payment.Method.BANK_TRANSFER,
+                        status=Payment.Status.SUCCESS,
+                        payer_name=transfer.payer_name,
+                        bank_name=transfer.source_bank_name,
+                        notes=f'振込インポート確定: {import_batch.batch_no}',
+                        registered_by=request.user,
+                    )
 
+                    if invoice:
                         # 請求書更新
                         invoice.paid_amount += transfer.amount
                         invoice.balance_due = invoice.total_amount - invoice.paid_amount
@@ -2695,15 +2927,52 @@ class BankTransferImportViewSet(viewsets.ModelViewSet):
 
                         # 振込ステータス更新
                         transfer.invoice = invoice
-                        transfer.status = BankTransfer.Status.APPLIED
-                        transfer.save()
-                        applied_count += 1
-                    else:
-                        errors.append({
-                            'transfer_id': str(transfer.id),
-                            'payer_name': transfer.payer_name,
-                            'error': '適用可能な請求書が見つかりません',
-                        })
+
+                    # ConfirmedBillingも更新（未入金のものを探す）
+                    confirmed_billings = ConfirmedBilling.objects.filter(
+                        guardian=transfer.guardian,
+                        status__in=[ConfirmedBilling.Status.CONFIRMED, ConfirmedBilling.Status.UNPAID, ConfirmedBilling.Status.PARTIAL],
+                    ).order_by(
+                        # 残高が振込額と一致するものを優先
+                        models.Case(
+                            models.When(balance=transfer.amount, then=0),
+                            default=1,
+                        ),
+                        'year',
+                        'month',
+                    )
+
+                    remaining_amount = transfer.amount
+                    for cb in confirmed_billings:
+                        if remaining_amount <= 0:
+                            break
+                        apply_amount = min(remaining_amount, cb.balance)
+                        if apply_amount > 0:
+                            cb.paid_amount += apply_amount
+                            cb.balance = cb.total_amount - cb.paid_amount
+                            if cb.balance <= 0:
+                                cb.status = ConfirmedBilling.Status.PAID
+                                cb.paid_at = timezone.now()
+                            elif cb.paid_amount > 0:
+                                cb.status = ConfirmedBilling.Status.PARTIAL
+                            cb.save()
+                            remaining_amount -= apply_amount
+
+                    # GuardianBalanceに入金を記録
+                    balance_obj, _ = GuardianBalance.objects.get_or_create(
+                        tenant_id=transfer.tenant_id,
+                        guardian=transfer.guardian,
+                        defaults={'balance': 0}
+                    )
+                    balance_obj.add_payment(
+                        amount=transfer.amount,
+                        reason=f'銀行振込による入金（{transfer.payer_name}）',
+                        payment=payment,
+                    )
+
+                    transfer.status = BankTransfer.Status.APPLIED
+                    transfer.save()
+                    applied_count += 1
 
                 except Exception as e:
                     errors.append({
@@ -2726,12 +2995,22 @@ class BankTransferImportViewSet(viewsets.ModelViewSet):
     @extend_schema(summary='保護者検索（振込照合用）')
     @action(detail=False, methods=['get'])
     def search_guardians(self, request):
-        """振込照合のための保護者検索"""
+        """振込照合のための保護者検索
+
+        検索パラメータ:
+        - q: 名前（姓・名・カナ）で検索
+        - guardian_no: 保護者番号で検索
+        - amount: 金額で検索（未払い請求のbalance_dueと一致）
+        """
         from apps.students.models import Guardian
 
         query = request.query_params.get('q', '')
-        if len(query) < 2:
-            return Response({'error': '2文字以上で検索してください'}, status=400)
+        guardian_no = request.query_params.get('guardian_no', '')
+        amount = request.query_params.get('amount', '')
+
+        # 検索条件がない場合
+        if not query and not guardian_no and not amount:
+            return Response({'error': '検索条件を指定してください'}, status=400)
 
         tenant_id = getattr(request, 'tenant_id', None) or getattr(request.user, 'tenant_id', None)
 
@@ -2747,34 +3026,92 @@ class BankTransferImportViewSet(viewsets.ModelViewSet):
         )
         if tenant_id:
             guardians = guardians.filter(tenant_id=tenant_id)
-        guardians = guardians.filter(
-            models.Q(last_name__icontains=query) |
-            models.Q(first_name__icontains=query) |
-            models.Q(last_name_kana__icontains=query) |
-            models.Q(first_name_kana__icontains=query)
-        )[:20]
+
+        # 保護者番号で検索
+        if guardian_no:
+            guardians = guardians.filter(
+                models.Q(guardian_no__icontains=guardian_no) |
+                models.Q(old_id__icontains=guardian_no)
+            )
+        # 名前で検索
+        elif query and len(query) >= 2:
+            guardians = guardians.filter(
+                models.Q(last_name__icontains=query) |
+                models.Q(first_name__icontains=query) |
+                models.Q(last_name_kana__icontains=query) |
+                models.Q(first_name_kana__icontains=query)
+            )
+        # 金額で検索（未払い請求金額と一致する保護者を取得）
+        elif amount:
+            try:
+                amount_decimal = Decimal(amount)
+                # 未払い金額が一致する請求書を持つ保護者を取得
+                guardian_ids_with_amount = Invoice.objects.filter(
+                    tenant_id=tenant_id,
+                    status__in=[Invoice.Status.ISSUED, Invoice.Status.PARTIAL, Invoice.Status.OVERDUE],
+                    balance_due=amount_decimal
+                ).values_list('guardian_id', flat=True).distinct()
+
+                # ConfirmedBillingからも検索
+                cb_guardian_ids = ConfirmedBilling.objects.filter(
+                    tenant_id=tenant_id,
+                    status__in=[ConfirmedBilling.Status.CONFIRMED, ConfirmedBilling.Status.UNPAID, ConfirmedBilling.Status.PARTIAL],
+                    balance=amount_decimal
+                ).values_list('guardian_id', flat=True).distinct()
+
+                all_guardian_ids = set(guardian_ids_with_amount) | set(cb_guardian_ids)
+                guardians = guardians.filter(id__in=all_guardian_ids)
+            except (ValueError, InvalidOperation):
+                return Response({'error': '金額の形式が正しくありません'}, status=400)
+
+        guardians = guardians[:20]
 
         results = []
         for g in guardians:
-            # 未払い請求書を取得
+            # 未払い請求書を取得（Invoice）
             invoices = Invoice.objects.filter(
                 guardian=g,
                 status__in=[Invoice.Status.ISSUED, Invoice.Status.PARTIAL, Invoice.Status.OVERDUE]
             ).order_by('-billing_year', '-billing_month')[:5]
 
+            # 未払いConfirmedBillingも取得
+            confirmed_billings = ConfirmedBilling.objects.filter(
+                guardian=g,
+                status__in=[ConfirmedBilling.Status.CONFIRMED, ConfirmedBilling.Status.UNPAID, ConfirmedBilling.Status.PARTIAL]
+            ).order_by('-year', '-month')[:5]
+
+            invoice_list = [{
+                'invoiceId': str(inv.id),
+                'invoiceNo': inv.invoice_no or '',
+                'billingLabel': f"{inv.billing_year}年{inv.billing_month}月分",
+                'totalAmount': int(inv.total_amount or 0),
+                'balanceDue': int(inv.balance_due or 0),
+                'status': inv.status,
+                'statusDisplay': inv.get_status_display(),
+                'source': 'invoice',
+            } for inv in invoices]
+
+            # ConfirmedBillingからも請求情報を追加（重複を避ける）
+            existing_months = {(inv.billing_year, inv.billing_month) for inv in invoices}
+            for cb in confirmed_billings:
+                if (cb.year, cb.month) not in existing_months:
+                    invoice_list.append({
+                        'invoiceId': str(cb.id),
+                        'invoiceNo': f'CB-{cb.year}{cb.month:02d}',
+                        'billingLabel': f"{cb.year}年{cb.month}月分",
+                        'totalAmount': int(cb.total_amount or 0),
+                        'balanceDue': int(cb.balance or 0),
+                        'status': cb.status,
+                        'statusDisplay': {'confirmed': '確定', 'unpaid': '未入金', 'partial': '一部入金'}.get(cb.status, cb.status),
+                        'source': 'confirmed_billing',
+                    })
+
             results.append({
                 'guardianId': str(g.id),
+                'guardianNo': g.guardian_no or g.old_id or '',
                 'guardianName': g.full_name,
-                'guardianNameKana': g.full_name_kana,
-                'invoices': [{
-                    'invoiceId': str(inv.id),
-                    'invoiceNo': inv.invoice_no,
-                    'billingLabel': f"{inv.billing_year}年{inv.billing_month}月分",
-                    'totalAmount': int(inv.total_amount),
-                    'balanceDue': int(inv.balance_due),
-                    'status': inv.status,
-                    'statusDisplay': inv.get_status_display(),
-                } for inv in invoices],
+                'guardianNameKana': g.full_name_kana or '',
+                'invoices': invoice_list,
             })
 
         return Response({'guardians': results})

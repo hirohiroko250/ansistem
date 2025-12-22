@@ -81,6 +81,7 @@ interface BankTransfer {
 // 照合候補
 interface CandidateGuardian {
   guardianId: string;
+  guardianNo?: string;
   guardianName: string;
   guardianNameKana?: string;
   invoices: {
@@ -89,6 +90,7 @@ interface CandidateGuardian {
     billingLabel: string;
     totalAmount: number;
     balanceDue: number;
+    source?: 'invoice' | 'confirmed_billing';
   }[];
 }
 
@@ -178,6 +180,7 @@ export default function PaymentMatchingPage() {
   const [transferMatchDialogOpen, setTransferMatchDialogOpen] = useState(false);
   const [matchingTransfer, setMatchingTransfer] = useState<BankTransfer | null>(null);
   const [guardianSearchQuery, setGuardianSearchQuery] = useState("");
+  const [searchType, setSearchType] = useState<'name' | 'guardian_no' | 'amount'>('name');
   const [guardianSearchResults, setGuardianSearchResults] = useState<CandidateGuardian[]>([]);
   const [searchingGuardians, setSearchingGuardians] = useState(false);
   const [selectedGuardian, setSelectedGuardian] = useState<CandidateGuardian | null>(null);
@@ -334,14 +337,25 @@ export default function PaymentMatchingPage() {
   };
 
   // 保護者検索（照合用）
-  const handleSearchGuardians = async () => {
-    if (!guardianSearchQuery.trim() || guardianSearchQuery.length < 2) return;
+  const handleSearchGuardians = async (overrideQuery?: string, overrideType?: 'name' | 'guardian_no' | 'amount') => {
+    const query = overrideQuery ?? guardianSearchQuery;
+    const type = overrideType ?? searchType;
+
+    if (!query.trim()) return;
+    if (type === 'name' && query.length < 2) return;
 
     setSearchingGuardians(true);
     try {
-      const res = await apiClient.get<{ guardians: CandidateGuardian[] }>('/billing/transfer-imports/search_guardians/', {
-        q: guardianSearchQuery,
-      });
+      const params: Record<string, string> = {};
+      if (type === 'name') {
+        params.q = query;
+      } else if (type === 'guardian_no') {
+        params.guardian_no = query;
+      } else if (type === 'amount') {
+        params.amount = query.replace(/[,¥￥]/g, '');
+      }
+
+      const res = await apiClient.get<{ guardians: CandidateGuardian[] }>('/billing/transfer-imports/search_guardians/', params);
       setGuardianSearchResults(res.guardians || []);
     } catch (error) {
       console.error('Guardian search error:', error);
@@ -354,11 +368,20 @@ export default function PaymentMatchingPage() {
   const openTransferMatchDialog = (transfer: BankTransfer) => {
     setMatchingTransfer(transfer);
     setGuardianSearchQuery(transfer.payerName || '');
+    setSearchType('name');
     setGuardianSearchResults(transfer.candidateGuardians || []);
     setSelectedGuardian(null);
     setSelectedMatchInvoice(null);
     setMatchError(null);
     setTransferMatchDialogOpen(true);
+
+    // 金額で自動検索を実行
+    const amountStr = String(transfer.amount);
+    if (amountStr) {
+      setTimeout(() => {
+        handleSearchGuardians(amountStr, 'amount');
+      }, 100);
+    }
   };
 
   // 照合実行
@@ -1125,9 +1148,46 @@ export default function PaymentMatchingPage() {
               )}
               <div>
                 <Label>保護者検索</Label>
-                <div className="flex gap-2 mt-1">
-                  <Input value={guardianSearchQuery} onChange={(e) => setGuardianSearchQuery(e.target.value)} placeholder="保護者名で検索..." onKeyDown={(e) => { if (e.key === 'Enter') handleSearchGuardians(); }} />
-                  <Button variant="outline" onClick={handleSearchGuardians} disabled={searchingGuardians}>
+                <div className="flex gap-1 mt-1 mb-2">
+                  <Button
+                    variant={searchType === 'name' ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => setSearchType('name')}
+                  >
+                    名前
+                  </Button>
+                  <Button
+                    variant={searchType === 'guardian_no' ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => setSearchType('guardian_no')}
+                  >
+                    ID
+                  </Button>
+                  <Button
+                    variant={searchType === 'amount' ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => {
+                      setSearchType('amount');
+                      if (matchingTransfer) {
+                        setGuardianSearchQuery(String(matchingTransfer.amount));
+                      }
+                    }}
+                  >
+                    金額
+                  </Button>
+                </div>
+                <div className="flex gap-2">
+                  <Input
+                    value={guardianSearchQuery}
+                    onChange={(e) => setGuardianSearchQuery(e.target.value)}
+                    placeholder={
+                      searchType === 'name' ? '保護者名で検索...' :
+                      searchType === 'guardian_no' ? '保護者番号で検索...' :
+                      '金額で検索...'
+                    }
+                    onKeyDown={(e) => { if (e.key === 'Enter') handleSearchGuardians(); }}
+                  />
+                  <Button variant="outline" onClick={() => handleSearchGuardians()} disabled={searchingGuardians}>
                     {searchingGuardians ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
                   </Button>
                 </div>
@@ -1144,7 +1204,10 @@ export default function PaymentMatchingPage() {
                         <div className="flex justify-between items-start">
                           <div>
                             <p className="font-medium">{guardian.guardianName}</p>
-                            {guardian.guardianNameKana && <p className="text-xs text-gray-500">{guardian.guardianNameKana}</p>}
+                            <div className="flex gap-2 text-xs text-gray-500">
+                              {guardian.guardianNo && <span>ID: {guardian.guardianNo}</span>}
+                              {guardian.guardianNameKana && <span>{guardian.guardianNameKana}</span>}
+                            </div>
                           </div>
                           {selectedGuardian?.guardianId === guardian.guardianId && <Check className="w-5 h-5 text-blue-500" />}
                         </div>

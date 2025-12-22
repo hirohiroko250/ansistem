@@ -150,9 +150,6 @@ export default function BillingPage() {
   // 締日期間確定
   const [closingPeriodConfirming, setClosingPeriodConfirming] = useState(false);
 
-  // 選択中の請求月
-  const [selectedDeadlineId, setSelectedDeadlineId] = useState<string | null>(null);
-
   // 年月のオプション
   const years = useMemo(() => {
     const currentYear = new Date().getFullYear();
@@ -188,16 +185,6 @@ export default function BillingPage() {
       if (data.months) {
         setMonthlyDeadlines(data.months);
         console.log('[Billing] monthlyDeadlines set:', data.months.length, 'items');
-
-        // 初期選択：isCurrent=trueの月、なければ未締めの最初の月
-        if (!selectedDeadlineId) {
-          const currentDeadline = data.months.find(d => d.isCurrent);
-          const openDeadline = data.months.find(d => d.status === 'open' || d.status === 'under_review');
-          const defaultDeadline = currentDeadline || openDeadline || data.months[0];
-          if (defaultDeadline) {
-            setSelectedDeadlineId(defaultDeadline.id);
-          }
-        }
       }
       if (data.currentYear) {
         setCurrentYear(data.currentYear);
@@ -393,25 +380,26 @@ export default function BillingPage() {
     }
   }
 
-  // 選択中の締日を取得
-  const selectedDeadline = useMemo(() => {
-    return monthlyDeadlines.find(d => d.id === selectedDeadlineId) || null;
-  }, [monthlyDeadlines, selectedDeadlineId]);
+  // 現在の請求月を取得（締日設定に基づいて自動計算）
+  const getCurrentBillingDeadline = () => {
+    return monthlyDeadlines.find(d => d.isCurrent);
+  };
 
   // 確認中にする
   async function handleStartReview() {
-    if (!selectedDeadline) return;
+    const deadline = getCurrentBillingDeadline();
+    if (!deadline) return;
 
     const confirmed = window.confirm(
-      `${selectedDeadline.year}年${selectedDeadline.month}月分を確認中にしますか？\n\n` +
+      `${deadline.year}年${deadline.month}月分を確認中にしますか？\n\n` +
       `確認中は経理以外のスタッフは請求データを編集できなくなります。`
     );
     if (!confirmed) return;
 
     try {
-      await apiClient.post(`/billing/deadlines/${selectedDeadline.id}/start_review/`, {});
+      await apiClient.post(`/billing/deadlines/${deadline.id}/start_review/`, {});
       loadDeadlines();
-      alert(`${selectedDeadline.year}年${selectedDeadline.month}月分を確認中にしました。`);
+      alert(`${deadline.year}年${deadline.month}月分を確認中にしました。`);
     } catch (error) {
       console.error("Start review error:", error);
       alert("確認中への変更に失敗しました");
@@ -420,18 +408,19 @@ export default function BillingPage() {
 
   // 確認中を解除
   async function handleCancelReview() {
-    if (!selectedDeadline) return;
+    const deadline = getCurrentBillingDeadline();
+    if (!deadline) return;
 
     const confirmed = window.confirm(
-      `${selectedDeadline.year}年${selectedDeadline.month}月分の確認中を解除しますか？\n\n` +
+      `${deadline.year}年${deadline.month}月分の確認中を解除しますか？\n\n` +
       `解除すると全スタッフが編集可能になります。`
     );
     if (!confirmed) return;
 
     try {
-      await apiClient.post(`/billing/deadlines/${selectedDeadline.id}/cancel_review/`, {});
+      await apiClient.post(`/billing/deadlines/${deadline.id}/cancel_review/`, {});
       loadDeadlines();
-      alert(`${selectedDeadline.year}年${selectedDeadline.month}月分の確認を解除しました。`);
+      alert(`${deadline.year}年${deadline.month}月分の確認を解除しました。`);
     } catch (error) {
       console.error("Cancel review error:", error);
       alert("確認解除に失敗しました");
@@ -440,11 +429,13 @@ export default function BillingPage() {
 
   // 確定
   async function handleConfirm() {
-    if (!selectedDeadline) return;
+    const deadline = getCurrentBillingDeadline();
+    if (!deadline) return;
 
     const confirmed = window.confirm(
-      `${selectedDeadline.year}年${selectedDeadline.month}月分を確定しますか？\n\n` +
-      `確定後は請求データを編集できなくなります。`
+      `${deadline.year}年${deadline.month}月分を確定しますか？\n\n` +
+      `確定後は請求データを編集できなくなります。\n` +
+      `確定データが自動生成されます。`
     );
     if (!confirmed) return;
 
@@ -457,15 +448,15 @@ export default function BillingPage() {
         updatedCount?: number;
         skippedCount?: number;
         errorCount?: number;
-      }>(`/billing/deadlines/${selectedDeadline.id}/close_manually/`, {
+      }>(`/billing/deadlines/${deadline.id}/close_manually/`, {
         notes: '経理確認完了'
       });
       loadDeadlines();
       loadInvoices();
 
-      const { createdCount = 0, updatedCount = 0, skippedCount = 0 } = response.data;
+      const { createdCount = 0, updatedCount = 0, skippedCount = 0 } = response;
       alert(
-        `${selectedDeadline.year}年${selectedDeadline.month}月分を確定しました。\n\n` +
+        `${deadline.year}年${deadline.month}月分を確定しました。\n\n` +
         `確定データ生成結果:\n` +
         `・新規作成: ${createdCount}件\n` +
         `・更新: ${updatedCount}件\n` +
@@ -531,44 +522,27 @@ export default function BillingPage() {
             <span className="ml-1 text-xs">(毎月{defaultClosingDay}日)</span>
           </Button>
 
-          {/* 請求月選択 */}
-          {monthlyDeadlines.length > 0 && selectedDeadlineId && (
-            <Select
-              value={selectedDeadlineId}
-              onValueChange={(value) => setSelectedDeadlineId(value)}
-            >
-              <SelectTrigger className="w-[200px]">
-                <SelectValue placeholder="請求月を選択" />
-              </SelectTrigger>
-              <SelectContent>
-                {monthlyDeadlines.map((d) => (
-                  <SelectItem key={d.id} value={d.id}>
-                    {d.year}年{d.month}月分
-                    {d.isCurrent && " (推奨)"}
-                    {d.isClosed && " ✓"}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          )}
+          {/* 請求月のステータスと操作ボタン（締日設定に基づいて自動計算） */}
+          {(() => {
+            const currentDeadline = monthlyDeadlines.find(d => d.isCurrent);
 
-          {/* 選択月のステータスと操作ボタン */}
-          {selectedDeadline && (() => {
-            const status = selectedDeadline.status || 'open';
+            if (!currentDeadline) return null;
+
+            const status = currentDeadline.status || 'open';
 
             // 確定済み
-            if (status === 'closed' || selectedDeadline.isClosed) {
+            if (status === 'closed' || currentDeadline.isClosed) {
               return (
                 <div className="flex items-center gap-2">
                   <Badge className="bg-green-100 text-green-700 flex items-center gap-1">
                     <Lock className="w-3 h-3" />
-                    {selectedDeadline.year}年{selectedDeadline.month}月 確定済
+                    {currentDeadline.year}年{currentDeadline.month}月分 確定済
                   </Badge>
                   <Button
                     variant="outline"
                     size="sm"
                     onClick={() => {
-                      setEditingDeadline(selectedDeadline);
+                      setEditingDeadline(currentDeadline);
                       setReopenDialogOpen(true);
                     }}
                   >
@@ -580,12 +554,12 @@ export default function BillingPage() {
             }
 
             // 確認中
-            if (status === 'under_review' || selectedDeadline.isUnderReview) {
+            if (status === 'under_review' || currentDeadline.isUnderReview) {
               return (
                 <div className="flex items-center gap-2">
                   <Badge className="bg-yellow-100 text-yellow-700 flex items-center gap-1">
                     <Clock className="w-3 h-3" />
-                    {selectedDeadline.year}年{selectedDeadline.month}月 確認中
+                    {currentDeadline.year}年{currentDeadline.month}月分 確認中
                   </Badge>
                   <Button
                     variant="outline"
@@ -608,17 +582,31 @@ export default function BillingPage() {
               );
             }
 
-            // 通常（未締め）
+            // 通常（未締め）- 請求月ラベルと確認中/確定ボタンを表示
             return (
-              <Button
-                variant="default"
-                size="sm"
-                className="bg-orange-600 hover:bg-orange-700"
-                onClick={handleStartReview}
-              >
-                <Clock className="w-4 h-4 mr-1" />
-                {selectedDeadline.year}年{selectedDeadline.month}月分を確認中にする
-              </Button>
+              <div className="flex items-center gap-2">
+                <Badge variant="outline" className="text-sm font-medium">
+                  {currentDeadline.year}年{currentDeadline.month}月分
+                </Badge>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleStartReview}
+                >
+                  <Clock className="w-4 h-4 mr-1" />
+                  確認中にする
+                </Button>
+                <Button
+                  variant="default"
+                  size="sm"
+                  className="bg-green-600 hover:bg-green-700"
+                  onClick={handleConfirm}
+                  disabled={closingPeriodConfirming}
+                >
+                  <Lock className="w-4 h-4 mr-1" />
+                  {closingPeriodConfirming ? "確定中..." : "確定"}
+                </Button>
+              </div>
             );
           })()}
         </div>
