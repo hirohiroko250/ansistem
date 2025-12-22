@@ -17,27 +17,28 @@ class Command(BaseCommand):
         parser.add_argument(
             '--csv',
             type=str,
-            default='/Users/hirosesuzu/Desktop/アンシステム/Claude-Code-Communication/instructions/おざ/T3_契約情報_202511272049_UTF8.csv',
+            required=True,
             help='T3 CSVファイルパス'
-        )
-        parser.add_argument(
-            '--tenant-id',
-            type=str,
-            default='100000',
-            help='テナントID'
         )
         parser.add_argument(
             '--dry-run',
             action='store_true',
             help='実際には保存しない'
         )
+        parser.add_argument(
+            '--clear',
+            action='store_true',
+            help='既存のProductを削除してから投入'
+        )
 
     def handle(self, *args, **options):
         csv_path = options['csv']
         dry_run = options['dry_run']
+        clear = options['clear']
 
         self.stdout.write(f'CSVファイル: {csv_path}')
         self.stdout.write(f'Dry Run: {dry_run}')
+        self.stdout.write(f'Clear: {clear}')
 
         # 既存のtenant_idを取得
         existing_course = Course.objects.first()
@@ -48,8 +49,15 @@ class Command(BaseCommand):
             self.stdout.write(self.style.ERROR('既存のコースがありません。'))
             return
 
+        # 既存データ削除
+        if clear and not dry_run:
+            deleted_count = Product.objects.count()
+            Product.objects.all().delete()
+            self.stdout.write(self.style.WARNING(f'既存のProduct {deleted_count}件を削除しました'))
+
         # DBから既存ブランドをbrand_codeでマッピング
         brands_by_code = self.get_brands_by_code(tenant_id)
+        brands_by_name = self.get_brands_by_name(tenant_id)
 
         # 対象学年マスタを作成/取得
         grades = self.create_grades(tenant_id, dry_run)
@@ -57,102 +65,182 @@ class Command(BaseCommand):
         # CSVを読み込み、コースとプロダクトを作成
         with open(csv_path, 'r', encoding='utf-8') as f:
             reader = csv.DictReader(f)
+            rows = list(reader)
 
-            courses_created = 0
-            products_created = 0
+        self.stdout.write(f'総行数: {len(rows)}')
 
-            # 重複チェック用
-            seen_courses = set()
-            seen_products = set()
+        courses_created = 0
+        products_created = 0
+        products_updated = 0
 
-            for row in reader:
-                # コースを作成（授業料レコードのみ）
-                if row.get('請求カテゴリ名') == '授業料':
-                    course_name = row.get('契約名', '')
-                    grade_name = row.get('対象学年', '')
-                    price = row.get('保護者表示用金額', '0')
-                    brand_code = row.get('契約ブランド記号', '')
+        # 重複チェック用
+        seen_courses = set()
+        seen_products = set()
 
-                    course_key = f"{course_name}_{grade_name}_{brand_code}"
+        for row in rows:
+            # 有効・無効チェック
+            is_active = row.get('有効・無効', '1') == '1'
 
-                    if course_key not in seen_courses and course_name:
-                        seen_courses.add(course_key)
-
-                        if not dry_run:
-                            brand = brands_by_code.get(brand_code)
-                            grade = grades.get(grade_name)
-
-                            course, created = Course.objects.update_or_create(
-                                tenant_id=tenant_id,
-                                course_code=f"C{len(seen_courses):05d}",
-                                defaults={
-                                    'course_name': course_name,
-                                    'brand': brand,
-                                    'grade': grade,
-                                    'course_price': Decimal(price) if price else Decimal('0'),
-                                    'is_active': True,
-                                }
-                            )
-                            if created:
-                                courses_created += 1
-                        else:
-                            self.stdout.write(f'[DRY] Course: {course_name} | 学年: {grade_name} | 授業料: {price}円')
-                            courses_created += 1
-
-                # プロダクト（商品）を作成
-                product_name = row.get('明細表記', '') or row.get('契約名', '')
-                product_code = row.get('契約ID', '')
-                item_type_name = row.get('請求カテゴリ名', '')
-                base_price = row.get('単価', '0')
-                brand_code = row.get('契約ブランド記号', '')
+            # コースを作成（授業料レコードのみ）
+            if row.get('請求カテゴリ名') == '授業料':
+                course_name = row.get('契約名', '')
                 grade_name = row.get('対象学年', '')
+                price = row.get('保護者表示用金額', '0') or '0'
+                brand_code = row.get('契約ブランド記号', '')
 
-                if product_code and product_code not in seen_products:
-                    seen_products.add(product_code)
+                course_key = f"{course_name}_{grade_name}_{brand_code}"
 
-                    # item_type変換
-                    item_type_map = {
-                        '授業料': 'tuition',
-                        '月会費': 'monthly_fee',
-                        '設備費': 'facility',
-                        '教材費': 'textbook',
-                        '入会金': 'enrollment',
-                    }
-                    item_type = item_type_map.get(item_type_name, 'other')
+                if course_key not in seen_courses and course_name:
+                    seen_courses.add(course_key)
 
                     if not dry_run:
                         brand = brands_by_code.get(brand_code)
                         grade = grades.get(grade_name)
 
-                        product, created = Product.objects.update_or_create(
+                        try:
+                            price_decimal = Decimal(str(price).replace(',', ''))
+                        except:
+                            price_decimal = Decimal('0')
+
+                        course, created = Course.objects.update_or_create(
                             tenant_id=tenant_id,
-                            product_code=product_code,
+                            course_code=f"C{len(seen_courses):05d}",
                             defaults={
-                                'product_name': product_name[:100] if product_name else product_code,
-                                'item_type': item_type,
+                                'course_name': course_name[:100] if course_name else '',
                                 'brand': brand,
                                 'grade': grade,
-                                'base_price': Decimal(base_price) if base_price else Decimal('0'),
-                                'is_active': True,
+                                'course_price': price_decimal,
+                                'is_active': is_active,
                             }
                         )
                         if created:
-                            products_created += 1
-                    else:
-                        if products_created < 20:
-                            self.stdout.write(f'[DRY] Product: {product_name[:50]} | 種別: {item_type_name} | 単価: {base_price}円')
-                        products_created += 1
+                            courses_created += 1
 
-        self.stdout.write(self.style.SUCCESS(f'完了: Course {courses_created}件, Product {products_created}件'))
+            # プロダクト（商品）を作成
+            product_name = row.get('明細表記', '') or row.get('契約名', '')
+            product_code = row.get('請求ID', '') or row.get('契約ID', '')
+            item_type_name = row.get('請求カテゴリ名', '')
+            base_price = row.get('単価', '0') or '0'
+            display_price = row.get('保護者表示用金額', '0') or '0'
+            brand_code = row.get('契約ブランド記号', '')
+            brand_name = row.get('契約ブランド名', '')
+            grade_name = row.get('対象学年', '')
+            tax_type = row.get('税区分', '1')
+            contract_name = row.get('契約名', '')
+
+            if product_code and product_code not in seen_products:
+                seen_products.add(product_code)
+
+                # item_type変換（請求カテゴリ区分も参照）
+                category_code = row.get('請求カテゴリ区分', '')
+                item_type = self.get_item_type(item_type_name, category_code)
+
+                if not dry_run:
+                    brand = brands_by_code.get(brand_code) or brands_by_name.get(brand_name)
+                    grade = grades.get(grade_name)
+
+                    try:
+                        price_decimal = Decimal(str(base_price).replace(',', ''))
+                    except:
+                        price_decimal = Decimal('0')
+
+                    product, created = Product.objects.update_or_create(
+                        tenant_id=tenant_id,
+                        product_code=product_code,
+                        defaults={
+                            'product_name': product_name[:100] if product_name else product_code,
+                            'product_name_short': contract_name[:50] if contract_name else '',
+                            'item_type': item_type,
+                            'brand': brand,
+                            'grade': grade,
+                            'base_price': price_decimal,
+                            'tax_type': tax_type if tax_type in ['1', '2', '3'] else '1',
+                            'is_active': is_active,
+                        }
+                    )
+                    if created:
+                        products_created += 1
+                    else:
+                        products_updated += 1
+
+        self.stdout.write(self.style.SUCCESS(
+            f'完了: Course {courses_created}件, Product 新規{products_created}件 更新{products_updated}件'
+        ))
 
     def get_brands_by_code(self, tenant_id):
         """DBから既存のブランドをbrand_codeでマッピングして取得"""
         brands = {}
-        # tenant_idを無視して全てのアクティブなブランドを取得
         for brand in Brand.objects.filter(is_active=True):
-            brands[brand.brand_code] = brand
-        self.stdout.write(f'取得したブランド数: {len(brands)}')
+            if brand.brand_code:
+                brands[brand.brand_code] = brand
+        self.stdout.write(f'取得したブランド数(コード): {len(brands)}')
         return brands
+
+    def get_brands_by_name(self, tenant_id):
+        """DBから既存のブランドをbrand_nameでマッピングして取得"""
+        brands = {}
+        for brand in Brand.objects.filter(is_active=True):
+            if brand.brand_name:
+                brands[brand.brand_name] = brand
+        self.stdout.write(f'取得したブランド数(名前): {len(brands)}')
+        return brands
+
+    def get_item_type(self, item_type_name, category_code):
+        """請求カテゴリ名と区分コードからitem_typeを決定"""
+        # 請求カテゴリ区分マッピング
+        category_map = {
+            '1': 'tuition',  # 授業料
+            '2': 'monthly_fee',  # 月会費
+            '3': 'facility',  # 設備費
+            '4': 'textbook',  # 教材費
+            '5': 'expense',  # 諸経費
+            '6': 'enrollment',  # 入会金
+            '10': 'management',  # 総合指導管理費
+            '85': 'enrollment_tuition',  # 入会時授業料
+            '86': 'enrollment_monthly_fee',  # 入会時月会費
+            '87': 'enrollment_facility',  # 入会時設備費
+            '88': 'enrollment_textbook',  # 入会時教材費
+            '89': 'enrollment_expense',  # 入会時諸経費
+            '90': 'enrollment_management',  # 入会時総合指導管理費
+        }
+
+        if category_code and category_code in category_map:
+            return category_map[category_code]
+
+        # 請求カテゴリ名マッピング
+        item_type_map = {
+            '授業料': 'tuition',
+            '月会費': 'monthly_fee',
+            '設備費': 'facility',
+            '教材費': 'textbook',
+            '諸経費': 'expense',
+            '入会金': 'enrollment',
+            '総合指導管理費': 'management',
+            '入会時授業料': 'enrollment_tuition',
+            '入会時授業料A': 'enrollment_tuition',
+            '入会時授業料B': 'enrollment_tuition',
+            '入会時月会費': 'enrollment_monthly_fee',
+            '入会時設備費': 'enrollment_facility',
+            '入会時教材費': 'enrollment_textbook',
+            '入会時諸経費': 'enrollment_expense',
+            '入会時総合指導管理費': 'enrollment_management',
+            '講習会': 'seminar',
+            '春期講習会': 'seminar_spring',
+            '夏期講習会': 'seminar_summer',
+            '冬期講習会': 'seminar_winter',
+            'テスト対策費': 'test_prep',
+            '模試代': 'mock_exam',
+            '検定料': 'certification_fee_1',
+            '追加授業料': 'extra_tuition',
+            'バッグ': 'bag',
+            'そろばん本体代': 'abacus',
+            'おやつ': 'snack',
+            'お弁当': 'lunch',
+            '送迎費': 'transportation',
+            '預り料': 'custody',
+        }
+
+        return item_type_map.get(item_type_name, 'other')
 
     def create_grades(self, tenant_id, dry_run):
         """対象学年マスタを作成"""
@@ -194,5 +282,10 @@ class Command(BaseCommand):
                 grades[name] = grade
             else:
                 grades[name] = None
+
+        # 既存のGradeも取得して追加
+        for grade in Grade.objects.all():
+            if grade.grade_name and grade.grade_name not in grades:
+                grades[grade.grade_name] = grade
 
         return grades

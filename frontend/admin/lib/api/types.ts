@@ -625,8 +625,10 @@ export interface ConfirmedBilling {
   id: string;
   student: string;
   student_name: string;
+  student_no?: string;
   guardian: string;
   guardian_name: string;
+  guardian_no?: string;
   year: number;
   month: number;
   billing_deadline?: string;

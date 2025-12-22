@@ -3169,6 +3169,22 @@ class ConfirmedBillingViewSet(viewsets.ModelViewSet):
         if student_id:
             queryset = queryset.filter(student_id=student_id)
 
+        # 検索（名前・ID）
+        search = self.request.query_params.get('search')
+        if search:
+            queryset = queryset.filter(
+                models.Q(student__last_name__icontains=search) |
+                models.Q(student__first_name__icontains=search) |
+                models.Q(student__last_name_kana__icontains=search) |
+                models.Q(student__first_name_kana__icontains=search) |
+                models.Q(student__student_no__icontains=search) |
+                models.Q(student__old_id__icontains=search) |
+                models.Q(guardian__last_name__icontains=search) |
+                models.Q(guardian__first_name__icontains=search) |
+                models.Q(guardian__guardian_no__icontains=search) |
+                models.Q(guardian__old_id__icontains=search)
+            )
+
         return queryset.order_by('-year', '-month', '-confirmed_at')
 
     def get_serializer_class(self):
@@ -3432,3 +3448,78 @@ class ConfirmedBillingViewSet(viewsets.ModelViewSet):
             'status_counts': status_counts,
             'payment_method_counts': payment_method_counts,
         })
+
+    @extend_schema(summary='確定データをCSVエクスポート')
+    @action(detail=False, methods=['get'])
+    def export_csv(self, request):
+        """指定月の請求確定データをCSVでエクスポート"""
+        import csv
+        from django.http import HttpResponse
+
+        year = request.query_params.get('year')
+        month = request.query_params.get('month')
+
+        if not year or not month:
+            return Response({'error': 'year と month を指定してください'}, status=400)
+
+        tenant_id = getattr(request, 'tenant_id', None) or getattr(request.user, 'tenant_id', None)
+        if not tenant_id:
+            from apps.tenants.models import Tenant
+            default_tenant = Tenant.objects.first()
+            if default_tenant:
+                tenant_id = default_tenant.id
+
+        confirmed_billings = ConfirmedBilling.objects.filter(
+            tenant_id=tenant_id,
+            year=int(year),
+            month=int(month),
+            deleted_at__isnull=True
+        ).select_related('student', 'guardian').order_by('guardian__guardian_no', 'student__student_no')
+
+        # CSVレスポンスを作成
+        response = HttpResponse(content_type='text/csv; charset=utf-8-sig')
+        response['Content-Disposition'] = f'attachment; filename="confirmed_billing_{year}_{month}.csv"'
+
+        writer = csv.writer(response)
+
+        # ヘッダー行
+        writer.writerow([
+            '生徒番号',
+            '生徒名',
+            '生徒名カナ',
+            '保護者番号',
+            '保護者名',
+            '保護者名カナ',
+            '請求年',
+            '請求月',
+            '請求額',
+            '入金済',
+            '残高',
+            '支払方法',
+            'ステータス',
+            '確定日時',
+        ])
+
+        # データ行
+        for billing in confirmed_billings:
+            student = billing.student
+            guardian = billing.guardian
+
+            writer.writerow([
+                student.student_no if student else '',
+                f'{student.last_name} {student.first_name}' if student else '',
+                f'{student.last_name_kana} {student.first_name_kana}' if student else '',
+                guardian.guardian_no if guardian else '',
+                f'{guardian.last_name} {guardian.first_name}' if guardian else '',
+                f'{guardian.last_name_kana} {guardian.first_name_kana}' if guardian else '',
+                billing.year,
+                billing.month,
+                int(billing.total_amount),
+                int(billing.paid_amount),
+                int(billing.balance),
+                billing.get_payment_method_display(),
+                billing.get_status_display(),
+                billing.confirmed_at.strftime('%Y/%m/%d %H:%M') if billing.confirmed_at else '',
+            ])
+
+        return response

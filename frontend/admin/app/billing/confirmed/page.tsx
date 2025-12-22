@@ -45,6 +45,8 @@ import {
   Eye,
   CreditCard,
   RefreshCw,
+  Download,
+  Search,
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { ja } from 'date-fns/locale';
@@ -63,8 +65,11 @@ export default function ConfirmedBillingPage() {
   const [summary, setSummary] = useState<ConfirmedBillingSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
+  const [downloading, setDownloading] = useState(false);
   const [page, setPage] = useState(1);
   const [totalCount, setTotalCount] = useState(0);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchInput, setSearchInput] = useState('');
   const pageSize = 20;
 
   // 詳細ダイアログ
@@ -109,7 +114,7 @@ export default function ConfirmedBillingPage() {
     if (year !== null && month !== null) {
       fetchData();
     }
-  }, [year, month, statusFilter, page]);
+  }, [year, month, statusFilter, page, searchQuery]);
 
   const fetchData = async () => {
     if (year === null || month === null) return;
@@ -125,6 +130,9 @@ export default function ConfirmedBillingPage() {
       };
       if (statusFilter) {
         params.status = statusFilter;
+      }
+      if (searchQuery) {
+        params.search = searchQuery;
       }
 
       const queryString = new URLSearchParams(params).toString();
@@ -214,6 +222,57 @@ export default function ConfirmedBillingPage() {
       alert('入金の記録に失敗しました');
     } finally {
       setRecordingPayment(false);
+    }
+  };
+
+  // 検索実行
+  const handleSearch = () => {
+    setSearchQuery(searchInput);
+    setPage(1);
+  };
+
+  // 検索クリア
+  const handleClearSearch = () => {
+    setSearchInput('');
+    setSearchQuery('');
+    setPage(1);
+  };
+
+  // CSVダウンロード
+  const handleDownloadCSV = async () => {
+    if (year === null || month === null) return;
+
+    setDownloading(true);
+    try {
+      const response = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL}/billing/confirmed/export_csv/?year=${year}&month=${month}`,
+        {
+          method: 'GET',
+          credentials: 'include',
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem('access_token') || ''}`,
+          },
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error('CSVダウンロードに失敗しました');
+      }
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `confirmed_billing_${year}_${month}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+    } catch (error) {
+      console.error('Failed to download CSV:', error);
+      alert('CSVダウンロードに失敗しました');
+    } finally {
+      setDownloading(false);
     }
   };
 
@@ -320,6 +379,38 @@ export default function ConfirmedBillingPage() {
               </Select>
             </div>
 
+            <div className="flex items-center gap-2">
+              <Label>検索:</Label>
+              <div className="flex items-center gap-1">
+                <Input
+                  className="w-[200px]"
+                  placeholder="ID・名前で検索..."
+                  value={searchInput}
+                  onChange={(e) => setSearchInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') handleSearch();
+                  }}
+                />
+                <Button
+                  variant="outline"
+                  size="icon"
+                  onClick={handleSearch}
+                  disabled={loading}
+                >
+                  <Search className="w-4 h-4" />
+                </Button>
+                {searchQuery && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={handleClearSearch}
+                  >
+                    クリア
+                  </Button>
+                )}
+              </div>
+            </div>
+
             <div className="flex-1" />
 
             <Button
@@ -329,6 +420,19 @@ export default function ConfirmedBillingPage() {
             >
               <RefreshCw className={`w-4 h-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
               更新
+            </Button>
+
+            <Button
+              variant="outline"
+              onClick={handleDownloadCSV}
+              disabled={downloading || !confirmedBillings.length}
+            >
+              {downloading ? (
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              ) : (
+                <Download className="w-4 h-4 mr-2" />
+              )}
+              CSVダウンロード
             </Button>
 
             <Button
@@ -407,6 +511,11 @@ export default function ConfirmedBillingPage() {
             <span className="text-sm font-normal text-muted-foreground ml-2">
               ({totalCount}件)
             </span>
+            {searchQuery && (
+              <span className="text-sm font-normal text-blue-600 ml-2">
+                「{searchQuery}」で検索中
+              </span>
+            )}
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -427,7 +536,9 @@ export default function ConfirmedBillingPage() {
               <Table>
                 <TableHeader>
                   <TableRow>
+                    <TableHead>生徒番号</TableHead>
                     <TableHead>生徒名</TableHead>
+                    <TableHead>保護者番号</TableHead>
                     <TableHead>保護者名</TableHead>
                     <TableHead className="text-right">請求額</TableHead>
                     <TableHead className="text-right">入金済</TableHead>
@@ -440,8 +551,14 @@ export default function ConfirmedBillingPage() {
                 <TableBody>
                   {confirmedBillings.map((billing) => (
                     <TableRow key={billing.id}>
+                      <TableCell className="text-muted-foreground text-sm">
+                        {billing.student_no || '-'}
+                      </TableCell>
                       <TableCell className="font-medium">
                         {billing.student_name || '-'}
+                      </TableCell>
+                      <TableCell className="text-muted-foreground text-sm">
+                        {billing.guardian_no || '-'}
                       </TableCell>
                       <TableCell>{billing.guardian_name}</TableCell>
                       <TableCell className="text-right">

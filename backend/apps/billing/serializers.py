@@ -493,14 +493,16 @@ class ConfirmedBillingSerializer(serializers.ModelSerializer):
 class ConfirmedBillingListSerializer(serializers.ModelSerializer):
     """請求確定一覧用シリアライザ"""
     student_name = serializers.CharField(source='student.full_name', read_only=True)
+    student_no = serializers.CharField(source='student.student_no', read_only=True)
     guardian_name = serializers.CharField(source='guardian.full_name', read_only=True)
+    guardian_no = serializers.CharField(source='guardian.guardian_no', read_only=True)
     status_display = serializers.CharField(source='get_status_display', read_only=True)
     payment_method_display = serializers.CharField(source='get_payment_method_display', read_only=True)
 
     class Meta:
         model = ConfirmedBilling
         fields = [
-            'id', 'student', 'student_name', 'guardian', 'guardian_name',
+            'id', 'student', 'student_name', 'student_no', 'guardian', 'guardian_name', 'guardian_no',
             'year', 'month',
             'subtotal', 'discount_total', 'total_amount', 'paid_amount', 'balance',
             'carry_over_amount',
