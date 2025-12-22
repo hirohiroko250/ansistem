@@ -45,6 +45,7 @@ import {
   Banknote,
   FileCheck,
 } from "lucide-react";
+import { useRouter } from "next/navigation";
 import {
   getInvoices,
   exportDirectDebitCSV,
@@ -66,6 +67,7 @@ const statusConfig: Record<string, { label: string; color: string; icon: React.R
 };
 
 export default function BillingPage() {
+  const router = useRouter();
   const [result, setResult] = useState<PaginatedResult<Invoice>>({
     data: [],
     count: 0,
@@ -485,24 +487,18 @@ export default function BillingPage() {
             </p>
           </div>
           <div className="flex gap-2">
-            <a href="/billing/payments">
-              <Button variant="outline">
-                <Banknote className="w-4 h-4 mr-2" />
-                入金消込
-              </Button>
-            </a>
-            <a href="/billing/bank-requests">
-              <Button variant="outline">
-                <FileText className="w-4 h-4 mr-2" />
-                口座申請管理
-              </Button>
-            </a>
-            <a href="/billing/confirmed">
-              <Button variant="outline">
-                <FileCheck className="w-4 h-4 mr-2" />
-                請求確定データ
-              </Button>
-            </a>
+            <Button variant="outline" onClick={() => router.push("/billing/payments")}>
+              <Banknote className="w-4 h-4 mr-2" />
+              入金消込
+            </Button>
+            <Button variant="outline" onClick={() => router.push("/billing/bank-requests")}>
+              <FileText className="w-4 h-4 mr-2" />
+              口座申請管理
+            </Button>
+            <Button variant="outline" onClick={() => router.push("/billing/confirmed")}>
+              <FileCheck className="w-4 h-4 mr-2" />
+              請求確定データ
+            </Button>
           </div>
         </div>
 
@@ -525,6 +521,14 @@ export default function BillingPage() {
           {/* 請求月のステータスと操作ボタン（締日設定に基づいて自動計算） */}
           {(() => {
             const currentDeadline = monthlyDeadlines.find(d => d.isCurrent);
+            // 直前の確定済み月を見つける（現在月が未確定の場合に解除可能にする）
+            const closedDeadlines = monthlyDeadlines.filter(d => d.isClosed || d.status === 'closed');
+            const lastClosedDeadline = closedDeadlines.length > 0
+              ? closedDeadlines.sort((a, b) => {
+                  if (a.year !== b.year) return b.year - a.year;
+                  return b.month - a.month;
+                })[0]
+              : null;
 
             if (!currentDeadline) return null;
 
@@ -578,6 +582,27 @@ export default function BillingPage() {
                     <Lock className="w-4 h-4 mr-1" />
                     {closingPeriodConfirming ? "確定中..." : "確定"}
                   </Button>
+                  {/* 直前の確定月がある場合は解除ボタンを表示 */}
+                  {lastClosedDeadline && (
+                    <>
+                      <span className="text-gray-300 mx-1">|</span>
+                      <Badge className="bg-green-100 text-green-700 flex items-center gap-1">
+                        <Lock className="w-3 h-3" />
+                        {lastClosedDeadline.year}年{lastClosedDeadline.month}月 確定済
+                      </Badge>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          setEditingDeadline(lastClosedDeadline);
+                          setReopenDialogOpen(true);
+                        }}
+                      >
+                        <Unlock className="w-4 h-4 mr-1" />
+                        確定解除
+                      </Button>
+                    </>
+                  )}
                 </div>
               );
             }
@@ -606,6 +631,27 @@ export default function BillingPage() {
                   <Lock className="w-4 h-4 mr-1" />
                   {closingPeriodConfirming ? "確定中..." : "確定"}
                 </Button>
+                {/* 直前の確定月がある場合は解除ボタンを表示 */}
+                {lastClosedDeadline && (
+                  <>
+                    <span className="text-gray-300 mx-1">|</span>
+                    <Badge className="bg-green-100 text-green-700 flex items-center gap-1">
+                      <Lock className="w-3 h-3" />
+                      {lastClosedDeadline.year}年{lastClosedDeadline.month}月 確定済
+                    </Badge>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        setEditingDeadline(lastClosedDeadline);
+                        setReopenDialogOpen(true);
+                      }}
+                    >
+                      <Unlock className="w-4 h-4 mr-1" />
+                      確定解除
+                    </Button>
+                  </>
+                )}
               </div>
             );
           })()}
@@ -966,11 +1012,9 @@ export default function BillingPage() {
                         <div className="col-span-2">総金額: ¥{transferImportResult.total_amount.toLocaleString()}</div>
                       </div>
                       <div className="mt-3 flex gap-2">
-                        <a href={`/billing/payments?tab=import&batch=${transferImportResult.batch_id}`}>
-                          <Button size="sm" variant="outline">
-                            照合画面へ
-                          </Button>
-                        </a>
+                        <Button size="sm" variant="outline" onClick={() => router.push(`/billing/payments?tab=import&batch=${transferImportResult.batch_id}`)}>
+                          照合画面へ
+                        </Button>
                       </div>
                     </div>
                   ) : (

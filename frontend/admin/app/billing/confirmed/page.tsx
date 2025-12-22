@@ -54,8 +54,10 @@ export default function ConfirmedBillingPage() {
   const currentYear = new Date().getFullYear();
   const currentMonth = new Date().getMonth() + 1;
 
-  const [year, setYear] = useState(currentYear);
-  const [month, setMonth] = useState(currentMonth);
+  const [year, setYear] = useState<number | null>(null);
+  const [month, setMonth] = useState<number | null>(null);
+  const [billingYear, setBillingYear] = useState(currentYear);
+  const [billingMonth, setBillingMonth] = useState(currentMonth);
   const [statusFilter, setStatusFilter] = useState<string>('');
   const [confirmedBillings, setConfirmedBillings] = useState<ConfirmedBilling[]>([]);
   const [summary, setSummary] = useState<ConfirmedBillingSummary | null>(null);
@@ -74,12 +76,44 @@ export default function ConfirmedBillingPage() {
   const [paymentAmount, setPaymentAmount] = useState('');
   const [recordingPayment, setRecordingPayment] = useState(false);
 
+  // 締日情報を取得して請求月を設定
+  useEffect(() => {
+    const fetchDeadlines = async () => {
+      try {
+        const data = await apiClient.get<{
+          currentYear: number;
+          currentMonth: number;
+          billingYear?: number;
+          billingMonth?: number;
+        }>('/billing/deadlines/status_list/');
+
+        // 請求月をデフォルト値として設定
+        const targetYear = data.billingYear || data.currentYear || currentYear;
+        const targetMonth = data.billingMonth || data.currentMonth || currentMonth;
+        setBillingYear(targetYear);
+        setBillingMonth(targetMonth);
+        setYear(targetYear);
+        setMonth(targetMonth);
+      } catch (error) {
+        console.error('Failed to fetch deadlines:', error);
+        // フォールバック: 現在の日付を使用
+        setYear(currentYear);
+        setMonth(currentMonth);
+      }
+    };
+    fetchDeadlines();
+  }, []);
+
   // データ取得
   useEffect(() => {
-    fetchData();
+    if (year !== null && month !== null) {
+      fetchData();
+    }
   }, [year, month, statusFilter, page]);
 
   const fetchData = async () => {
+    if (year === null || month === null) return;
+
     setLoading(true);
     try {
       // 一覧取得
@@ -116,6 +150,8 @@ export default function ConfirmedBillingPage() {
 
   // 確定データ生成
   const handleGenerateConfirmedBilling = async () => {
+    if (year === null || month === null) return;
+
     if (!confirm(`${year}年${month}月分の請求確定データを生成しますか？`)) {
       return;
     }
@@ -197,11 +233,16 @@ export default function ConfirmedBillingPage() {
     );
   };
 
-  // 月の選択肢を生成
+  // 月の選択肢を生成（請求年月を基準に前後の月を含める）
   const monthOptions = [];
-  for (let y = currentYear; y >= currentYear - 2; y--) {
+  const baseYear = billingYear || currentYear;
+  const baseMonth = billingMonth || currentMonth;
+
+  // 請求月から2年先までと2年前までを含める
+  for (let y = baseYear + 1; y >= baseYear - 2; y--) {
     for (let m = 12; m >= 1; m--) {
-      if (y === currentYear && m > currentMonth + 2) continue;
+      // 請求月より1年以上先の月はスキップ
+      if (y > baseYear + 1 || (y === baseYear + 1 && m > baseMonth)) continue;
       monthOptions.push({ year: y, month: m });
     }
   }
@@ -232,7 +273,7 @@ export default function ConfirmedBillingPage() {
             <div className="flex items-center gap-2">
               <Label>対象月:</Label>
               <Select
-                value={`${year}-${month}`}
+                value={year && month ? `${year}-${month}` : ''}
                 onValueChange={(value) => {
                   const [y, m] = value.split('-').map(Number);
                   setYear(y);
@@ -241,7 +282,7 @@ export default function ConfirmedBillingPage() {
                 }}
               >
                 <SelectTrigger className="w-[160px]">
-                  <SelectValue />
+                  <SelectValue placeholder="読み込み中..." />
                 </SelectTrigger>
                 <SelectContent>
                   {monthOptions.map((opt) => (
@@ -362,7 +403,7 @@ export default function ConfirmedBillingPage() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <FileCheck className="w-5 h-5" />
-            {year}年{month}月分 請求確定一覧
+            {year && month ? `${year}年${month}月分` : ''} 請求確定一覧
             <span className="text-sm font-normal text-muted-foreground ml-2">
               ({totalCount}件)
             </span>
