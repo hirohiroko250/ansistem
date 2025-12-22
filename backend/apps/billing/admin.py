@@ -7,6 +7,9 @@ Admin registration is conditional on tables existing.
 from django.contrib import admin
 from django.utils.html import format_html
 from django.db import connection
+from import_export import resources, fields
+from import_export.admin import ImportExportModelAdmin
+from import_export.widgets import ForeignKeyWidget
 
 # Check if billing tables exist before registering admin
 def billing_tables_exist():
@@ -171,17 +174,72 @@ if True:  # billing_tables_exist():
         status_badge.short_description = 'ステータス'
 
 
+    # GuardianBalance用のリソースクラス（インポート/エクスポート）
+    from apps.students.models import Guardian
+
+    class GuardianBalanceResource(resources.ModelResource):
+        """保護者残高インポート/エクスポート用リソース"""
+        guardian_no = fields.Field(
+            column_name='保護者番号',
+            attribute='guardian',
+            widget=ForeignKeyWidget(Guardian, 'guardian_no')
+        )
+        guardian_name = fields.Field(
+            column_name='保護者名',
+            readonly=True
+        )
+        balance = fields.Field(
+            column_name='残高',
+            attribute='balance'
+        )
+        last_updated = fields.Field(
+            column_name='最終更新日',
+            attribute='last_updated',
+            readonly=True
+        )
+
+        class Meta:
+            model = GuardianBalance
+            fields = ('guardian_no', 'guardian_name', 'balance', 'last_updated')
+            export_order = ('guardian_no', 'guardian_name', 'balance', 'last_updated')
+            import_id_fields = ['guardian']
+
+        def dehydrate_guardian_name(self, obj):
+            """エクスポート時に保護者名を出力"""
+            return obj.guardian.full_name if obj.guardian else ''
+
+        def before_import_row(self, row, **kwargs):
+            """インポート前処理"""
+            # 保護者番号から保護者を検索
+            guardian_no = row.get('保護者番号')
+            if guardian_no:
+                try:
+                    guardian = Guardian.objects.get(guardian_no=guardian_no)
+                    row['guardian'] = guardian.id
+                except Guardian.DoesNotExist:
+                    pass
+
     @admin.register(GuardianBalance)
-    class GuardianBalanceAdmin(admin.ModelAdmin):
+    class GuardianBalanceAdmin(ImportExportModelAdmin):
         """預り金残高管理"""
-        list_display = ['guardian', 'balance_display', 'last_updated']
-        search_fields = ['guardian__full_name']
+        resource_class = GuardianBalanceResource
+        list_display = ['guardian', 'guardian_no_display', 'balance_display', 'last_updated']
+        search_fields = ['guardian__last_name', 'guardian__first_name', 'guardian__guardian_no']
+        list_filter = ['last_updated']
         readonly_fields = ['balance', 'last_updated']
 
+        def guardian_no_display(self, obj):
+            return obj.guardian.guardian_no if obj.guardian else '-'
+        guardian_no_display.short_description = '保護者番号'
+
         def balance_display(self, obj):
-            if obj.balance > 0:
-                return format_html('<span style="color: green;">¥{:,.0f}</span>', obj.balance)
-            return f"¥{obj.balance:,.0f}"
+            balance = float(obj.balance) if obj.balance else 0
+            formatted = f"¥{balance:,.0f}"
+            if balance > 0:
+                return format_html('<span style="color: green;">{}</span>', formatted)
+            elif balance < 0:
+                return format_html('<span style="color: red;">{}</span>', formatted)
+            return formatted
         balance_display.short_description = '残高'
 
 

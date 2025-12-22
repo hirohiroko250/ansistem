@@ -84,6 +84,8 @@ interface CandidateGuardian {
   guardianNo?: string;
   guardianName: string;
   guardianNameKana?: string;
+  matchSource?: 'history' | 'name';  // 候補のソース
+  matchLabel?: string;  // 候補の説明ラベル
   invoices: {
     invoiceId: string;
     invoiceNo: string;
@@ -179,8 +181,9 @@ export default function PaymentMatchingPage() {
   // 照合ダイアログ（振込用）
   const [transferMatchDialogOpen, setTransferMatchDialogOpen] = useState(false);
   const [matchingTransfer, setMatchingTransfer] = useState<BankTransfer | null>(null);
-  const [guardianSearchQuery, setGuardianSearchQuery] = useState("");
-  const [searchType, setSearchType] = useState<'name' | 'guardian_no' | 'amount'>('name');
+  const [guardianSearchName, setGuardianSearchName] = useState("");
+  const [guardianSearchAmount, setGuardianSearchAmount] = useState("");
+  const [guardianSearchId, setGuardianSearchId] = useState("");
   const [guardianSearchResults, setGuardianSearchResults] = useState<CandidateGuardian[]>([]);
   const [searchingGuardians, setSearchingGuardians] = useState(false);
   const [selectedGuardian, setSelectedGuardian] = useState<CandidateGuardian | null>(null);
@@ -336,23 +339,22 @@ export default function PaymentMatchingPage() {
     }
   };
 
-  // 保護者検索（照合用）
-  const handleSearchGuardians = async (overrideQuery?: string, overrideType?: 'name' | 'guardian_no' | 'amount') => {
-    const query = overrideQuery ?? guardianSearchQuery;
-    const type = overrideType ?? searchType;
-
-    if (!query.trim()) return;
-    if (type === 'name' && query.length < 2) return;
+  // 保護者検索（照合用）- 複数条件で検索
+  const handleSearchGuardians = async () => {
+    // 少なくとも1つの条件が必要
+    if (!guardianSearchName.trim() && !guardianSearchAmount.trim() && !guardianSearchId.trim()) return;
 
     setSearchingGuardians(true);
     try {
       const params: Record<string, string> = {};
-      if (type === 'name') {
-        params.q = query;
-      } else if (type === 'guardian_no') {
-        params.guardian_no = query;
-      } else if (type === 'amount') {
-        params.amount = query.replace(/[,¥￥]/g, '');
+      if (guardianSearchName.trim()) {
+        params.q = guardianSearchName.trim();
+      }
+      if (guardianSearchAmount.trim()) {
+        params.amount = guardianSearchAmount.replace(/[,¥￥]/g, '');
+      }
+      if (guardianSearchId.trim()) {
+        params.guardian_no = guardianSearchId.trim();
       }
 
       const res = await apiClient.get<{ guardians: CandidateGuardian[] }>('/billing/transfer-imports/search_guardians/', params);
@@ -367,8 +369,9 @@ export default function PaymentMatchingPage() {
   // 照合ダイアログを開く
   const openTransferMatchDialog = (transfer: BankTransfer) => {
     setMatchingTransfer(transfer);
-    setGuardianSearchQuery(transfer.payerName || '');
-    setSearchType('name');
+    setGuardianSearchName(transfer.payerName || '');
+    setGuardianSearchAmount(String(transfer.amount || ''));
+    setGuardianSearchId('');
     setGuardianSearchResults(transfer.candidateGuardians || []);
     setSelectedGuardian(null);
     setSelectedMatchInvoice(null);
@@ -376,12 +379,9 @@ export default function PaymentMatchingPage() {
     setTransferMatchDialogOpen(true);
 
     // 金額で自動検索を実行
-    const amountStr = String(transfer.amount);
-    if (amountStr) {
-      setTimeout(() => {
-        handleSearchGuardians(amountStr, 'amount');
-      }, 100);
-    }
+    setTimeout(() => {
+      handleSearchGuardians();
+    }, 100);
   };
 
   // 照合実行
@@ -1147,92 +1147,155 @@ export default function PaymentMatchingPage() {
                 </Card>
               )}
               <div>
-                <Label>保護者検索</Label>
-                <div className="flex gap-1 mt-1 mb-2">
-                  <Button
-                    variant={searchType === 'name' ? 'default' : 'outline'}
-                    size="sm"
-                    onClick={() => setSearchType('name')}
-                  >
-                    名前
-                  </Button>
-                  <Button
-                    variant={searchType === 'guardian_no' ? 'default' : 'outline'}
-                    size="sm"
-                    onClick={() => setSearchType('guardian_no')}
-                  >
-                    ID
-                  </Button>
-                  <Button
-                    variant={searchType === 'amount' ? 'default' : 'outline'}
-                    size="sm"
-                    onClick={() => {
-                      setSearchType('amount');
-                      if (matchingTransfer) {
-                        setGuardianSearchQuery(String(matchingTransfer.amount));
-                      }
-                    }}
-                  >
-                    金額
-                  </Button>
+                <Label className="text-sm font-medium">保護者検索（複数条件で絞り込み）</Label>
+                <div className="space-y-2 mt-2">
+                  <div className="flex items-center gap-2">
+                    <Label className="w-12 text-sm text-gray-600 shrink-0">名前</Label>
+                    <Input
+                      value={guardianSearchName}
+                      onChange={(e) => setGuardianSearchName(e.target.value)}
+                      placeholder="例: 佐藤、サトウ"
+                      onKeyDown={(e) => { if (e.key === 'Enter') handleSearchGuardians(); }}
+                      className="flex-1"
+                    />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Label className="w-12 text-sm text-gray-600 shrink-0">ID</Label>
+                    <Input
+                      value={guardianSearchId}
+                      onChange={(e) => setGuardianSearchId(e.target.value)}
+                      placeholder="例: 8219020"
+                      onKeyDown={(e) => { if (e.key === 'Enter') handleSearchGuardians(); }}
+                      className="flex-1"
+                    />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Label className="w-12 text-sm text-gray-600 shrink-0">金額</Label>
+                    <Input
+                      value={guardianSearchAmount}
+                      onChange={(e) => setGuardianSearchAmount(e.target.value)}
+                      placeholder="例: 9020"
+                      onKeyDown={(e) => { if (e.key === 'Enter') handleSearchGuardians(); }}
+                      className="flex-1"
+                    />
+                  </div>
                 </div>
-                <div className="flex gap-2">
-                  <Input
-                    value={guardianSearchQuery}
-                    onChange={(e) => setGuardianSearchQuery(e.target.value)}
-                    placeholder={
-                      searchType === 'name' ? '保護者名で検索...' :
-                      searchType === 'guardian_no' ? '保護者番号で検索...' :
-                      '金額で検索...'
-                    }
-                    onKeyDown={(e) => { if (e.key === 'Enter') handleSearchGuardians(); }}
-                  />
-                  <Button variant="outline" onClick={() => handleSearchGuardians()} disabled={searchingGuardians}>
-                    {searchingGuardians ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
+                <div className="flex justify-end mt-3">
+                  <Button onClick={() => handleSearchGuardians()} disabled={searchingGuardians}>
+                    {searchingGuardians ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Search className="w-4 h-4 mr-2" />}
+                    検索
                   </Button>
                 </div>
               </div>
-              <div className="border rounded-lg max-h-64 overflow-auto">
-                {guardianSearchResults.length > 0 ? (
-                  <div className="divide-y">
-                    {guardianSearchResults.map((guardian) => (
-                      <div
-                        key={guardian.guardianId}
-                        className={`p-3 hover:bg-gray-50 cursor-pointer ${selectedGuardian?.guardianId === guardian.guardianId ? 'bg-blue-50 border-l-4 border-blue-500' : ''}`}
-                        onClick={() => { setSelectedGuardian(guardian); setSelectedMatchInvoice(null); }}
-                      >
-                        <div className="flex justify-between items-start">
-                          <div>
-                            <p className="font-medium">{guardian.guardianName}</p>
-                            <div className="flex gap-2 text-xs text-gray-500">
-                              {guardian.guardianNo && <span>ID: {guardian.guardianNo}</span>}
-                              {guardian.guardianNameKana && <span>{guardian.guardianNameKana}</span>}
-                            </div>
-                          </div>
-                          {selectedGuardian?.guardianId === guardian.guardianId && <Check className="w-5 h-5 text-blue-500" />}
-                        </div>
-                        {guardian.invoices.length > 0 && selectedGuardian?.guardianId === guardian.guardianId && (
-                          <div className="mt-2 space-y-1">
-                            {guardian.invoices.map((inv) => (
-                              <div
-                                key={inv.invoiceId}
-                                className={`p-2 rounded text-sm flex justify-between ${selectedMatchInvoice === inv.invoiceId ? 'bg-blue-100' : 'bg-gray-100 hover:bg-gray-200'}`}
-                                onClick={(e) => { e.stopPropagation(); setSelectedMatchInvoice(selectedMatchInvoice === inv.invoiceId ? null : inv.invoiceId); }}
-                              >
-                                <span>{inv.billingLabel}</span>
-                                <span className={inv.balanceDue > 0 ? 'text-red-600' : ''}>未払: {formatAmount(inv.balanceDue)}</span>
+              {/* 候補リスト（過去の照合履歴 + 検索結果） */}
+              <div className="border rounded-lg max-h-72 overflow-auto">
+                {/* 過去の照合履歴からの候補（自動表示） */}
+                {matchingTransfer?.candidateGuardians && matchingTransfer.candidateGuardians.length > 0 && (
+                  <div className="border-b bg-yellow-50">
+                    <div className="px-3 py-2 text-xs font-medium text-yellow-800 bg-yellow-100">
+                      💡 もしかして？（過去の照合履歴から）
+                    </div>
+                    <div className="divide-y divide-yellow-100">
+                      {matchingTransfer.candidateGuardians.map((guardian) => (
+                        <div
+                          key={`history-${guardian.guardianId}`}
+                          className={`p-3 hover:bg-yellow-100 cursor-pointer ${selectedGuardian?.guardianId === guardian.guardianId ? 'bg-blue-50 border-l-4 border-blue-500' : ''}`}
+                          onClick={() => { setSelectedGuardian(guardian); setSelectedMatchInvoice(null); }}
+                        >
+                          <div className="flex justify-between items-start">
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <p className="font-medium">{guardian.guardianName}</p>
+                                {guardian.matchLabel && (
+                                  <Badge className={guardian.matchSource === 'history' ? 'bg-yellow-200 text-yellow-800' : 'bg-gray-200 text-gray-700'} variant="outline">
+                                    {guardian.matchLabel}
+                                  </Badge>
+                                )}
                               </div>
-                            ))}
+                              <div className="flex gap-2 text-xs text-gray-500 mt-0.5">
+                                {guardian.guardianNo && <span>ID: {guardian.guardianNo}</span>}
+                                {guardian.guardianNameKana && <span>{guardian.guardianNameKana}</span>}
+                              </div>
+                            </div>
+                            {selectedGuardian?.guardianId === guardian.guardianId && <Check className="w-5 h-5 text-blue-500" />}
                           </div>
-                        )}
+                          {guardian.invoices.length > 0 && selectedGuardian?.guardianId === guardian.guardianId && (
+                            <div className="mt-2 space-y-1">
+                              {guardian.invoices.map((inv) => (
+                                <div
+                                  key={inv.invoiceId}
+                                  className={`p-2 rounded text-sm flex justify-between ${selectedMatchInvoice === inv.invoiceId ? 'bg-blue-100' : 'bg-gray-100 hover:bg-gray-200'}`}
+                                  onClick={(e) => { e.stopPropagation(); setSelectedMatchInvoice(selectedMatchInvoice === inv.invoiceId ? null : inv.invoiceId); }}
+                                >
+                                  <span>{inv.billingLabel}</span>
+                                  <span className={inv.balanceDue > 0 ? 'text-red-600' : ''}>未払: {formatAmount(inv.balanceDue)}</span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* 検索結果 */}
+                {guardianSearchResults.length > 0 ? (
+                  <div>
+                    {guardianSearchResults.length > 0 && (
+                      <div className="px-3 py-2 text-xs font-medium text-gray-600 bg-gray-50 border-b">
+                        検索結果
                       </div>
-                    ))}
+                    )}
+                    <div className="divide-y">
+                      {guardianSearchResults.map((guardian) => (
+                        <div
+                          key={guardian.guardianId}
+                          className={`p-3 hover:bg-gray-50 cursor-pointer ${selectedGuardian?.guardianId === guardian.guardianId ? 'bg-blue-50 border-l-4 border-blue-500' : ''}`}
+                          onClick={() => { setSelectedGuardian(guardian); setSelectedMatchInvoice(null); }}
+                        >
+                          <div className="flex justify-between items-start">
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <p className="font-medium">{guardian.guardianName}</p>
+                                {guardian.matchLabel && (
+                                  <Badge className={guardian.matchSource === 'history' ? 'bg-yellow-200 text-yellow-800' : 'bg-gray-200 text-gray-700'} variant="outline">
+                                    {guardian.matchLabel}
+                                  </Badge>
+                                )}
+                              </div>
+                              <div className="flex gap-2 text-xs text-gray-500 mt-0.5">
+                                {guardian.guardianNo && <span>ID: {guardian.guardianNo}</span>}
+                                {guardian.guardianNameKana && <span>{guardian.guardianNameKana}</span>}
+                              </div>
+                            </div>
+                            {selectedGuardian?.guardianId === guardian.guardianId && <Check className="w-5 h-5 text-blue-500" />}
+                          </div>
+                          {guardian.invoices.length > 0 && selectedGuardian?.guardianId === guardian.guardianId && (
+                            <div className="mt-2 space-y-1">
+                              {guardian.invoices.map((inv) => (
+                                <div
+                                  key={inv.invoiceId}
+                                  className={`p-2 rounded text-sm flex justify-between ${selectedMatchInvoice === inv.invoiceId ? 'bg-blue-100' : 'bg-gray-100 hover:bg-gray-200'}`}
+                                  onClick={(e) => { e.stopPropagation(); setSelectedMatchInvoice(selectedMatchInvoice === inv.invoiceId ? null : inv.invoiceId); }}
+                                >
+                                  <span>{inv.billingLabel}</span>
+                                  <span className={inv.balanceDue > 0 ? 'text-red-600' : ''}>未払: {formatAmount(inv.balanceDue)}</span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 ) : (
-                  <div className="p-8 text-center text-gray-500">
-                    <User className="w-8 h-8 mx-auto mb-2 text-gray-300" />
-                    <p>保護者を検索してください</p>
-                  </div>
+                  !matchingTransfer?.candidateGuardians?.length && (
+                    <div className="p-8 text-center text-gray-500">
+                      <User className="w-8 h-8 mx-auto mb-2 text-gray-300" />
+                      <p>保護者を検索してください</p>
+                    </div>
+                  )
                 )}
               </div>
               {matchError && (

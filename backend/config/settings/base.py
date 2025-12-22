@@ -39,6 +39,7 @@ INSTALLED_APPS = [
     'django_filters',
     'drf_spectacular',
     'django_celery_beat',
+    'import_export',
 
     # Local apps
     'apps.core',

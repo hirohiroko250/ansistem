@@ -338,46 +338,57 @@ class BankTransferSerializer(serializers.ModelSerializer):
         ]
 
     def get_candidate_guardians(self, obj):
-        """照合候補の保護者リストを取得"""
+        """照合候補の保護者リストを取得（過去の照合履歴の完全一致のみ）"""
         if obj.status != BankTransfer.Status.PENDING:
             return []
 
-        from apps.students.models import Guardian
         candidates = []
+        seen_guardian_ids = set()
 
-        # 振込人名義で部分一致検索
-        payer_name = obj.payer_name.replace('　', ' ').strip()
-        if payer_name:
-            # 名前での検索
-            guardians = Guardian.objects.filter(
+        # 過去の振込履歴から同じ振込人名義（完全一致）で照合実績のある保護者を取得
+        payer_name = obj.payer_name.replace('　', ' ').strip() if obj.payer_name else ''
+        payer_name_kana = obj.payer_name_kana.replace('　', ' ').strip() if obj.payer_name_kana else ''
+
+        if payer_name or payer_name_kana:
+            # 完全一致で検索
+            query = models.Q()
+            if payer_name:
+                query |= models.Q(payer_name__iexact=payer_name)
+            if payer_name_kana:
+                query |= models.Q(payer_name_kana__iexact=payer_name_kana)
+
+            past_transfers = BankTransfer.objects.filter(
                 tenant_id=obj.tenant_id,
-                deleted_at__isnull=True
-            ).filter(
-                models.Q(last_name__icontains=payer_name.split()[0] if ' ' in payer_name else payer_name) |
-                models.Q(first_name__icontains=payer_name.split()[-1] if ' ' in payer_name else payer_name) |
-                models.Q(last_name_kana__icontains=obj.payer_name_kana.split()[0] if obj.payer_name_kana and ' ' in obj.payer_name_kana else obj.payer_name_kana or '') |
-                models.Q(first_name_kana__icontains=obj.payer_name_kana.split()[-1] if obj.payer_name_kana and ' ' in obj.payer_name_kana else '')
-            )[:5]
+                status__in=[BankTransfer.Status.MATCHED, BankTransfer.Status.APPLIED],
+                guardian__isnull=False,
+            ).filter(query).exclude(id=obj.id).select_related('guardian').order_by('-transfer_date')[:10]
 
-            for g in guardians:
-                # 請求書を取得
-                invoices = Invoice.objects.filter(
-                    guardian=g,
-                    status__in=[Invoice.Status.ISSUED, Invoice.Status.PARTIAL, Invoice.Status.OVERDUE]
-                ).order_by('-billing_year', '-billing_month')[:3]
+            for pt in past_transfers:
+                if pt.guardian_id and str(pt.guardian_id) not in seen_guardian_ids:
+                    g = pt.guardian
+                    seen_guardian_ids.add(str(g.id))
 
-                candidates.append({
-                    'guardian_id': str(g.id),
-                    'guardian_name': g.full_name,
-                    'guardian_name_kana': f"{g.last_name_kana or ''} {g.first_name_kana or ''}".strip(),
-                    'invoices': [{
-                        'invoice_id': str(inv.id),
-                        'invoice_no': inv.invoice_no,
-                        'billing_label': f"{inv.billing_year}年{inv.billing_month}月分",
-                        'total_amount': int(inv.total_amount),
-                        'balance_due': int(inv.balance_due),
-                    } for inv in invoices]
-                })
+                    # 請求書を取得
+                    invoices = Invoice.objects.filter(
+                        guardian=g,
+                        status__in=[Invoice.Status.ISSUED, Invoice.Status.PARTIAL, Invoice.Status.OVERDUE]
+                    ).order_by('-billing_year', '-billing_month')[:3]
+
+                    candidates.append({
+                        'guardianId': str(g.id),
+                        'guardianNo': g.guardian_no or '',
+                        'guardianName': g.full_name,
+                        'guardianNameKana': f"{g.last_name_kana or ''} {g.first_name_kana or ''}".strip(),
+                        'matchSource': 'history',
+                        'matchLabel': '過去の照合履歴',
+                        'invoices': [{
+                            'invoiceId': str(inv.id),
+                            'invoiceNo': inv.invoice_no,
+                            'billingLabel': f"{inv.billing_year}年{inv.billing_month}月分",
+                            'totalAmount': int(inv.total_amount),
+                            'balanceDue': int(inv.balance_due),
+                        } for inv in invoices]
+                    })
 
         return candidates
 

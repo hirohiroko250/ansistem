@@ -3027,22 +3027,26 @@ class BankTransferImportViewSet(viewsets.ModelViewSet):
         if tenant_id:
             guardians = guardians.filter(tenant_id=tenant_id)
 
+        # 複数条件での検索（すべてAND条件）
+
         # 保護者番号で検索
         if guardian_no:
             guardians = guardians.filter(
                 models.Q(guardian_no__icontains=guardian_no) |
                 models.Q(old_id__icontains=guardian_no)
             )
+
         # 名前で検索
-        elif query and len(query) >= 2:
+        if query and len(query) >= 1:
             guardians = guardians.filter(
                 models.Q(last_name__icontains=query) |
                 models.Q(first_name__icontains=query) |
                 models.Q(last_name_kana__icontains=query) |
                 models.Q(first_name_kana__icontains=query)
             )
+
         # 金額で検索（未払い請求金額と一致する保護者を取得）
-        elif amount:
+        if amount:
             try:
                 amount_decimal = Decimal(amount)
                 # 未払い金額が一致する請求書を持つ保護者を取得
