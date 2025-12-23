@@ -579,8 +579,8 @@ class Course(TenantModel):
 
     class Meta:
         db_table = 't08_courses'
-        verbose_name = 'T08_コース'
-        verbose_name_plural = 'T08_コース'
+        verbose_name = 'T08_金魚の糞付き'
+        verbose_name_plural = 'T08_金魚の糞付き'
         ordering = ['sort_order', 'course_code']
         unique_together = ['tenant_id', 'course_code']
 
@@ -1453,6 +1453,15 @@ class Contract(TenantModel):
         max_length=20,
         choices=Status.choices,
         default=Status.ACTIVE
+    )
+
+    # 選択した教材（教材費の支払い方法選択用）
+    selected_textbooks = models.ManyToManyField(
+        'Product',
+        blank=True,
+        related_name='selected_in_contracts',
+        verbose_name='選択教材',
+        help_text='この契約で選択した教材費（月払い or 半年払い等）'
     )
 
     # 金額

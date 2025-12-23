@@ -424,6 +424,12 @@ class ContractListSerializer(serializers.ModelSerializer):
     day_of_week = serializers.SerializerMethodField()
     start_time = serializers.SerializerMethodField()
     end_time = serializers.SerializerMethodField()
+    # 入会時費用
+    enrollment_fees = serializers.SerializerMethodField()
+    is_enrollment_month = serializers.SerializerMethodField()
+    # 教材費関連
+    textbook_options = serializers.SerializerMethodField()
+    selected_textbook_ids = serializers.SerializerMethodField()
 
     def get_student_name(self, obj):
         if obj.student:
@@ -451,6 +457,10 @@ class ContractListSerializer(serializers.ModelSerializer):
             'day_of_week', 'start_time', 'end_time',
             # 料金内訳
             'student_items',
+            # 教材費関連
+            'textbook_options', 'selected_textbook_ids',
+            # 入会時費用
+            'enrollment_fees', 'is_enrollment_month',
             # タイムスタンプ
             'created_at', 'updated_at',
         ]
@@ -501,16 +511,30 @@ class ContractListSerializer(serializers.ModelSerializer):
         return None
 
     def get_student_items(self, obj):
-        """契約に紐づく生徒商品を取得"""
+        """契約に紐づく生徒商品を取得（教材費は除外、選択されたもののみ含む）"""
         # 1. コースの商品構成から生成（優先）
         if obj.course:
             course_items = obj.course.course_items.filter(is_active=True).select_related('product')
             if course_items.exists():
                 items = []
+                # 選択された教材のIDを取得
+                selected_textbook_ids = set(obj.selected_textbooks.values_list('id', flat=True))
+
                 for ci in course_items:
+                    if not ci.product:
+                        continue
+
+                    # 教材費の場合
+                    if ci.product.item_type == Product.ItemType.TEXTBOOK:
+                        # 選択されていない場合はスキップ
+                        if ci.product_id not in selected_textbook_ids:
+                            continue
+
                     items.append({
                         'id': str(ci.id),
+                        'product_id': str(ci.product_id),
                         'product_name': ci.product.product_name if ci.product else '',
+                        'item_type': ci.product.item_type if ci.product else '',
                         'quantity': ci.quantity,
                         'unit_price': ci.get_price(),
                         'final_price': ci.get_price() * ci.quantity,
@@ -525,15 +549,124 @@ class ContractListSerializer(serializers.ModelSerializer):
 
         return []
 
-    def get_monthly_total(self, obj):
-        """月額合計を計算"""
-        # 契約に設定されている場合はそれを使用
-        if obj.monthly_total and obj.monthly_total > 0:
-            return obj.monthly_total
+    def get_textbook_options(self, obj):
+        """コースで選択可能な教材費オプションを返す"""
+        if not obj.course:
+            return []
 
-        # コースの価格を取得
+        textbook_items = obj.course.course_items.filter(
+            is_active=True,
+            product__item_type=Product.ItemType.TEXTBOOK
+        ).select_related('product')
+
+        options = []
+        for ci in textbook_items:
+            options.append({
+                'id': str(ci.product_id),
+                'product_name': ci.product.product_name if ci.product else '',
+                'price': ci.get_price(),
+            })
+        return options
+
+    def get_selected_textbook_ids(self, obj):
+        """選択された教材のIDリストを返す"""
+        return [str(p.id) for p in obj.selected_textbooks.all()]
+
+    def get_is_enrollment_month(self, obj):
+        """入会月かどうかを判定（start_dateの年月が現在表示対象月）"""
+        if not obj.start_date:
+            return False
+        # 契約の開始月を入会月とみなす
+        return True  # フロントエンドで表示制御
+
+    def get_enrollment_fees(self, obj):
+        """入会時費用を計算して返す
+
+        入会月の場合に以下を計算:
+        - 入会金（世帯で1回のみ）
+        - 入会時授業料（追加チケット分）
+        - 入会時月会費
+        - 入会時設備費
+        - 入会時教材費（傾斜料金）
+        - バッグ（初回のみ）
+        """
+        if not obj.start_date or not obj.course:
+            return []
+
+        from apps.pricing.calculations import calculate_enrollment_fees
+        from apps.pricing.views import calculate_prorated_by_day_of_week
+
+        # 曜日を取得（StudentItemまたはContractから）
+        day_of_week = None
+
+        # 1. StudentItemから曜日を取得
+        related_items = self._find_student_items(obj)
+        if related_items:
+            for item in related_items:
+                if hasattr(item, 'day_of_week') and item.day_of_week:
+                    day_of_week = item.day_of_week
+                    break
+
+        # 曜日がない場合はデフォルト（月曜日=1）
+        if not day_of_week:
+            day_of_week = 1
+
+        try:
+            # 追加チケット数を計算
+            prorated_info = calculate_prorated_by_day_of_week(obj.start_date, day_of_week)
+            additional_tickets = prorated_info.get('remaining_count', 0)
+            total_classes_in_month = prorated_info.get('total_count', 4)
+
+            # 入会時費用を計算
+            enrollment_fees = calculate_enrollment_fees(
+                course=obj.course,
+                tenant_id=str(obj.tenant_id),
+                enrollment_date=obj.start_date,
+                additional_tickets=additional_tickets,
+                total_classes_in_month=total_classes_in_month,
+                student=obj.student,
+                guardian=obj.guardian,
+            )
+
+            # フロントエンド用に整形
+            result = []
+            for fee in enrollment_fees:
+                result.append({
+                    'productId': fee['product_id'],
+                    'productCode': fee['product_code'],
+                    'productName': fee['product_name'],
+                    'itemType': fee['item_type'],
+                    'basePrice': fee['base_price'],
+                    'calculatedPrice': fee['calculated_price'],
+                    'calculationDetail': fee['calculation_detail'],
+                })
+            return result
+
+        except Exception as e:
+            import sys
+            print(f"[ContractListSerializer.get_enrollment_fees] Error: {e}", file=sys.stderr)
+            return []
+
+    def get_monthly_total(self, obj):
+        """月額合計を計算（選択教材のみ含む）"""
+        # コースから計算（選択教材を考慮）
         if obj.course:
-            return obj.course.get_price()
+            from decimal import Decimal
+            total = Decimal('0')
+            selected_textbook_ids = set(obj.selected_textbooks.values_list('id', flat=True))
+
+            for ci in obj.course.course_items.filter(is_active=True):
+                if not ci.product:
+                    continue
+
+                # 教材費の場合は選択されているもののみ
+                if ci.product.item_type == Product.ItemType.TEXTBOOK:
+                    if ci.product_id not in selected_textbook_ids:
+                        continue
+
+                total += ci.get_price() * ci.quantity
+
+            return total
 
         # StudentItemから計算
         related_items = self._find_student_items(obj)

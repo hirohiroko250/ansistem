@@ -19,6 +19,8 @@ from apps.billing.models import MileTransaction
 from apps.pricing.calculations import (
     calculate_all_fees_and_discounts,
     calculate_fs_discount_amount,
+    calculate_enrollment_fees,
+    get_enrollment_products_for_course,
 )
 
 
@@ -395,6 +397,23 @@ class PricingPreviewView(APIView):
     """料金プレビュー"""
     permission_classes = [IsAuthenticated]
 
+    def _extract_billing_months(self, product_name: str) -> list:
+        """商品名から請求月を抽出
+
+        例:
+        - 「半年払い（4月・10月）」→ [4, 10]
+        - 「月払い」→ [] (毎月)
+        - 「（4月・8月・12月）」→ [4, 8, 12]
+        """
+        import re
+        months = []
+        # 「○月」のパターンを抽出
+        pattern = r'(\d+)月'
+        matches = re.findall(pattern, product_name)
+        if matches:
+            months = [int(m) for m in matches]
+        return months
+
     def post(self, request):
         """
         料金のプレビューを返す
@@ -595,6 +614,9 @@ class PricingPreviewView(APIView):
             'month2': {'label': '', 'month': 0, 'items': [], 'total': 0},
         }
 
+        # 教材費の選択肢（月払い、半年払いなど）
+        textbook_options = []
+
         if course:
             course_items = CourseItem.objects.filter(
                 course=course,
@@ -633,7 +655,22 @@ class PricingPreviewView(APIView):
                     # 月別グループに振り分け
                     item_type = product.item_type
                     print(f"[PricingPreview] ProductSet Product: {product.product_name}, item_type: '{item_type}'", file=sys.stderr, flush=True)
-                    if item_type in ['enrollment', 'enrollment_textbook', 'textbook', 'bag']:
+                    if item_type == 'textbook':
+                        # 教材費は選択肢として別管理（月額から除外）
+                        textbook_options.append({
+                            'productId': str(product.id),
+                            'productCode': product.product_code,
+                            'productName': product.product_name,
+                            'itemType': item_type,
+                            'unitPrice': int(base_price),
+                            'priceWithTax': price_with_tax,
+                            'taxRate': float(tax_rate),
+                            'paymentType': 'monthly' if '月払い' in product.product_name else 'semi_annual' if '半年払い' in product.product_name or '半期' in product.product_name else 'annual',
+                            'billingMonths': self._extract_billing_months(product.product_name),
+                            'source': 'product_set',
+                        })
+                        print(f"[PricingPreview]   -> Added to textbook_options (not included in monthly total)", file=sys.stderr)
+                    elif item_type in ['enrollment', 'enrollment_textbook', 'bag']:
                         billing_by_month['enrollment']['items'].append(item_data.copy())
                         billing_by_month['enrollment']['total'] += price_with_tax
                         print(f"[PricingPreview]   -> Added to enrollment", file=sys.stderr)
@@ -681,7 +718,22 @@ class PricingPreviewView(APIView):
                 # 月別グループに振り分け
                 item_type = product.item_type
                 print(f"[PricingPreview] Product: {product.product_name}, item_type: '{item_type}'", file=sys.stderr, flush=True)
-                if item_type in ['enrollment', 'enrollment_textbook', 'textbook', 'bag']:
+                if item_type == 'textbook':
+                    # 教材費は選択肢として別管理（月額から除外）
+                    textbook_options.append({
+                        'productId': str(product.id),
+                        'productCode': product.product_code,
+                        'productName': product.product_name,
+                        'itemType': item_type,
+                        'unitPrice': int(base_price),
+                        'priceWithTax': price_with_tax,
+                        'taxRate': float(tax_rate),
+                        'paymentType': 'monthly' if '月払い' in product.product_name else 'semi_annual' if '半年払い' in product.product_name or '半期' in product.product_name else 'annual',
+                        'billingMonths': self._extract_billing_months(product.product_name),
+                        'source': 'course_item',
+                    })
+                    print(f"[PricingPreview]   -> Added to textbook_options (not included in monthly total)", file=sys.stderr)
+                elif item_type in ['enrollment', 'enrollment_textbook', 'bag']:
                     # 入会時費用（一回のみ）
                     billing_by_month['enrollment']['items'].append(item_data)
                     billing_by_month['enrollment']['total'] += price_with_tax
@@ -751,6 +803,84 @@ class PricingPreviewView(APIView):
                         'taxAmount': tax_amount,
                     }
                     subtotal += Decimal(str(price_with_tax))
+
+        # ========================================
+        # 入会時費用の自動計算（新ロジック）
+        # ========================================
+        enrollment_fees_calculated = []
+        if course and start_date and day_of_week:
+            try:
+                # 追加チケット数を計算（曜日ベース）
+                dow_int = int(day_of_week) if day_of_week else None
+                if dow_int and 1 <= dow_int <= 7:
+                    prorated_info = calculate_prorated_by_day_of_week(start_date, dow_int)
+                    additional_tickets = prorated_info['remaining_count']
+                    total_classes_in_month = prorated_info['total_count']
+
+                    print(f"[PricingPreview] Enrollment fees calculation: additional_tickets={additional_tickets}, total_classes={total_classes_in_month}", file=sys.stderr)
+
+                    # 入会時費用を計算
+                    enrollment_fees_calculated = calculate_enrollment_fees(
+                        course=course,
+                        tenant_id=str(course.tenant_id),
+                        enrollment_date=start_date,
+                        additional_tickets=additional_tickets,
+                        total_classes_in_month=total_classes_in_month,
+                        student=student,
+                        guardian=guardian,
+                    )
+
+                    # billing_by_month['enrollment']をクリアして新しい計算結果で上書き
+                    billing_by_month['enrollment']['items'] = []
+                    billing_by_month['enrollment']['total'] = 0
+
+                    for fee in enrollment_fees_calculated:
+                        if fee['calculated_price'] >= 0:  # ¥0のバッグも含める
+                            tax_rate = Decimal('0.1')
+                            tax_amount = int(Decimal(str(fee['calculated_price'])) * tax_rate)
+                            price_with_tax = fee['calculated_price'] + tax_amount
+
+                            item_data = {
+                                'productId': fee['product_id'],
+                                'productCode': fee['product_code'],
+                                'productName': fee['product_name'],
+                                'billingCategoryName': fee['product_name'].split('【')[1].split('】')[0] if '【' in fee['product_name'] else fee['item_type'],
+                                'itemType': fee['item_type'],
+                                'quantity': 1,
+                                'unitPrice': fee['calculated_price'],
+                                'priceWithTax': price_with_tax,
+                                'taxRate': float(tax_rate),
+                                'calculationDetail': fee['calculation_detail'],
+                            }
+                            billing_by_month['enrollment']['items'].append(item_data)
+                            billing_by_month['enrollment']['total'] += price_with_tax
+
+                            # additional_feesにも追加（既存のフロントエンド互換）
+                            if fee['item_type'] == 'enrollment':
+                                additional_fees['enrollmentFee'] = {
+                                    'productId': fee['product_id'],
+                                    'productName': fee['product_name'],
+                                    'price': price_with_tax,
+                                    'priceExcludingTax': fee['calculated_price'],
+                                    'taxRate': float(tax_rate),
+                                    'taxAmount': tax_amount,
+                                }
+                            elif fee['item_type'] == 'enrollment_textbook':
+                                additional_fees['materialsFee'] = {
+                                    'productId': fee['product_id'],
+                                    'productName': fee['product_name'],
+                                    'price': price_with_tax,
+                                    'priceExcludingTax': fee['calculated_price'],
+                                    'taxRate': float(tax_rate),
+                                    'taxAmount': tax_amount,
+                                }
+
+                    print(f"[PricingPreview] Enrollment fees: {len(enrollment_fees_calculated)} items, total={billing_by_month['enrollment']['total']}", file=sys.stderr)
+
+            except Exception as e:
+                print(f"[PricingPreview] Error calculating enrollment fees: {e}", file=sys.stderr)
+                import traceback
+                traceback.print_exc()
 
         # マイル割引の計算（兄弟全員の合計マイル数ベース）
         if guardian and course:
@@ -913,6 +1043,11 @@ class PricingPreviewView(APIView):
                 'taxRate': 0.1,
             })
 
+        # 教材費選択肢のログ
+        print(f"[PricingPreview] textbookOptions: {len(textbook_options)} items", file=sys.stderr)
+        for opt in textbook_options:
+            print(f"[PricingPreview]   - {opt['productName']}: {opt['paymentType']}, ¥{opt['unitPrice']}, billing={opt['billingMonths']}", file=sys.stderr)
+
         return Response({
             'items': items,
             'subtotal': int(subtotal),  # 税込合計（参考値）
@@ -929,6 +1064,8 @@ class PricingPreviewView(APIView):
             'courseItems': course_items_list,  # コース商品一覧（そのまま表示用）
             'billingByMonth': billing_by_month,  # 月別料金グループ
             'mileInfo': mile_info,  # マイル情報
+            'enrollmentFeesCalculated': enrollment_fees_calculated,  # 入会時費用計算結果
+            'textbookOptions': textbook_options,  # 教材費選択肢（月払い/半年払いなど）
         })
 
 
@@ -958,10 +1095,13 @@ class PricingConfirmView(APIView):
         miles_to_use = request.data.get('miles_to_use', 0)
         if miles_to_use:
             miles_to_use = int(miles_to_use)
+        # 選択された教材費（複数選択可能）
+        selected_textbook_ids = request.data.get('selected_textbook_ids', [])
 
         print(f"[PricingConfirm] preview_id={preview_id}, student_id={student_id}, course_id={course_id}", file=sys.stderr)
         print(f"[PricingConfirm] brand_id={brand_id}, school_id={school_id}, start_date={start_date_str}", file=sys.stderr)
         print(f"[PricingConfirm] schedules={schedules}, ticket_id={ticket_id}, miles_to_use={miles_to_use}", file=sys.stderr)
+        print(f"[PricingConfirm] selected_textbook_ids={selected_textbook_ids}", file=sys.stderr)
 
         # 注文IDを生成
         order_id = f"ORD-{uuid.uuid4().hex[:8].upper()}"
@@ -1131,6 +1271,11 @@ class PricingConfirmView(APIView):
 
             for course_item in course_items:
                 product = course_item.product
+                # 教材費（textbook）は除外（別途選択した教材費を登録）
+                if product and product.item_type == 'textbook':
+                    print(f"[PricingConfirm] Skipping textbook from CourseItem: {product.product_name}", file=sys.stderr)
+                    continue
+
                 unit_price = course_item.get_price()
 
                 StudentItem.objects.create(
@@ -1155,6 +1300,38 @@ class PricingConfirmView(APIView):
                     end_time=schedule_end_time,
                     class_schedule=selected_class_schedule,  # 選択されたクラス
                 )
+
+            # 選択された教材費のStudentItemを作成
+            if selected_textbook_ids:
+                for textbook_id in selected_textbook_ids:
+                    try:
+                        textbook_product = Product.objects.get(id=textbook_id)
+                        unit_price = textbook_product.base_price or Decimal('0')
+
+                        StudentItem.objects.create(
+                            tenant_id=student.tenant_id,
+                            student=student,
+                            contract=created_contract,
+                            product=textbook_product,
+                            billing_month=billing_month,
+                            quantity=1,
+                            unit_price=unit_price,
+                            discount_amount=0,
+                            final_price=unit_price,
+                            notes=f'注文番号: {order_id} / 教材費（選択）: {textbook_product.product_name}',
+                            brand=brand,
+                            school=school,
+                            course=course,
+                            start_date=start_date,
+                            day_of_week=schedule_day_of_week,
+                            start_time=schedule_start_time,
+                            end_time=schedule_end_time,
+                            class_schedule=selected_class_schedule,
+                        )
+                        print(f"[PricingConfirm] Created selected textbook StudentItem: {textbook_product.product_name} = ¥{unit_price}", file=sys.stderr)
+
+                    except Product.DoesNotExist:
+                        print(f"[PricingConfirm] Selected textbook not found: {textbook_id}", file=sys.stderr)
 
             # StudentSchool（生徒所属）を作成/更新
             # これにより、カレンダー表示時に生徒がどの校舎に通っているかがわかる
@@ -1201,37 +1378,67 @@ class PricingConfirmView(APIView):
                     student.save(update_fields=['status', 'updated_at'])
                     print(f"[PricingConfirm] Updated student status to ENROLLED: {student}", file=sys.stderr)
 
-            # 入会時授業料（追加チケット）を計算してStudentItemに追加
-            if start_date and start_date.day > 1:
-                tickets = calculate_enrollment_tuition_tickets(start_date)
-                enrollment_product = get_enrollment_tuition_product(course, tickets)
+            # ========================================
+            # 入会時費用を自動計算してStudentItemに追加（新ロジック）
+            # ========================================
+            if start_date and schedule_day_of_week:
+                try:
+                    # 追加チケット数を計算
+                    prorated_info = calculate_prorated_by_day_of_week(start_date, schedule_day_of_week)
+                    additional_tickets = prorated_info['remaining_count']
+                    total_classes_in_month = prorated_info['total_count']
 
-                if enrollment_product:
-                    # ProductPrice（T05）から入会月別料金を取得
-                    enrollment_price = get_product_price_for_enrollment(enrollment_product, start_date)
-                    StudentItem.objects.create(
-                        tenant_id=student.tenant_id,
-                        student=student,
-                        contract=created_contract,  # 契約をリンク
-                        product=enrollment_product,
-                        billing_month=billing_month,
-                        quantity=1,
-                        unit_price=enrollment_price,
-                        discount_amount=0,
-                        final_price=enrollment_price,
-                        notes=f'注文番号: {order_id} / 入会時授業料（{tickets}回分）',
-                        brand=brand,
-                        school=school,
+                    # 入会時費用を計算
+                    enrollment_fees = calculate_enrollment_fees(
                         course=course,
-                        start_date=start_date,
-                        # 授業スケジュール
-                        day_of_week=schedule_day_of_week,
-                        start_time=schedule_start_time,
-                        end_time=schedule_end_time,
-                        class_schedule=selected_class_schedule,  # 選択されたクラス
+                        tenant_id=str(student.tenant_id),
+                        enrollment_date=start_date,
+                        additional_tickets=additional_tickets,
+                        total_classes_in_month=total_classes_in_month,
+                        student=student,
+                        guardian=guardian,
                     )
-                    enrollment_tuition_info = f'{enrollment_product.product_name} ¥{int(enrollment_price):,}'
-                    print(f"[PricingConfirm] Created enrollment tuition StudentItem: {enrollment_product.product_name}, price={enrollment_price}", file=sys.stderr)
+
+                    # 各入会時費用のStudentItemを作成
+                    for fee in enrollment_fees:
+                        if fee['calculated_price'] >= 0:  # ¥0のバッグも含める
+                            # 商品を取得
+                            try:
+                                product = Product.objects.get(id=fee['product_id'])
+                            except Product.DoesNotExist:
+                                print(f"[PricingConfirm] Product not found: {fee['product_id']}", file=sys.stderr)
+                                continue
+
+                            StudentItem.objects.create(
+                                tenant_id=student.tenant_id,
+                                student=student,
+                                contract=created_contract,
+                                product=product,
+                                billing_month=billing_month,
+                                quantity=1,
+                                unit_price=fee['calculated_price'],
+                                discount_amount=0,
+                                final_price=fee['calculated_price'],
+                                notes=f'注文番号: {order_id} / {fee["calculation_detail"]}',
+                                brand=brand,
+                                school=school,
+                                course=course,
+                                start_date=start_date,
+                                day_of_week=schedule_day_of_week,
+                                start_time=schedule_start_time,
+                                end_time=schedule_end_time,
+                                class_schedule=selected_class_schedule,
+                            )
+                            print(f"[PricingConfirm] Created enrollment StudentItem: {fee['item_type']} = ¥{fee['calculated_price']}", file=sys.stderr)
+
+                            # 入会時授業料情報（タスク表示用）
+                            if fee['item_type'] == 'enrollment_tuition':
+                                enrollment_tuition_info = f"{fee['product_name']} ¥{fee['calculated_price']:,}"
+
+                except Exception as e:
+                    print(f"[PricingConfirm] Error creating enrollment fees: {e}", file=sys.stderr)
+                    import traceback
+                    traceback.print_exc()
 
             # 当月分の回数割料金をStudentItemに追加（曜日が指定された場合）
             current_month_prorated_info = None

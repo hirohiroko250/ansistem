@@ -1814,6 +1814,13 @@ class ConfirmedBilling(TenantModel):
         OTHER = 'other', 'その他'
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    billing_no = models.CharField(
+        '請求番号',
+        max_length=20,
+        blank=True,
+        db_index=True,
+        help_text='例: CB202501-0001'
+    )
 
     # 対象
     student = models.ForeignKey(
@@ -1919,6 +1926,33 @@ class ConfirmedBilling(TenantModel):
         student_name = self.student.full_name if self.student else '生徒なし'
         return f"{self.year}年{self.month}月分 - {student_name} ({self.total_amount:,}円)"
 
+    def save(self, *args, **kwargs):
+        # billing_noを自動採番
+        if not self.billing_no:
+            self.billing_no = self._generate_billing_no()
+        super().save(*args, **kwargs)
+
+    def _generate_billing_no(self):
+        """請求番号を生成: CB202501-0001"""
+        prefix = f"CB{self.year}{str(self.month).zfill(2)}"
+
+        # 同一年月の最大番号を取得
+        last = ConfirmedBilling.objects.filter(
+            tenant_id=self.tenant_id,
+            billing_no__startswith=prefix
+        ).order_by('-billing_no').first()
+
+        if last and last.billing_no:
+            try:
+                last_num = int(last.billing_no.split('-')[-1])
+                next_num = last_num + 1
+            except (ValueError, IndexError):
+                next_num = 1
+        else:
+            next_num = 1
+
+        return f"{prefix}-{str(next_num).zfill(4)}"
+
     def update_payment_status(self):
         """入金状況に基づいてステータスを更新"""
         self.balance = self.total_amount - self.paid_amount
@@ -1966,8 +2000,13 @@ class ConfirmedBilling(TenantModel):
         items_snapshot = []
         subtotal = Decimal('0')
         for item in items:
+            # 旧ID優先順: StudentItem.old_id > Product.product_code
+            old_id = item.old_id or ''
+            if not old_id and item.product:
+                old_id = item.product.product_code or ''
             item_data = {
                 'id': str(item.id),
+                'old_id': old_id,  # 旧システムID（例: 24AEC_1000007_1）
                 'product_name': item.product.product_name if item.product else None,
                 'course_name': item.course.course_name if item.course else None,
                 'brand_name': item.brand.brand_name if item.brand else None,
@@ -1980,15 +2019,18 @@ class ConfirmedBilling(TenantModel):
             items_snapshot.append(item_data)
             subtotal += item.final_price or Decimal('0')
 
-        # 割引を取得
+        # 割引を取得（生徒レベル + 保護者レベル）
+        billing_date = f"{year}-{str(month).zfill(2)}-01"
         discounts = StudentDiscount.objects.filter(
             tenant_id=tenant_id,
-            student=student,
             is_active=True,
             deleted_at__isnull=True
         ).filter(
-            models.Q(start_date__isnull=True) | models.Q(start_date__lte=f"{year}-{str(month).zfill(2)}-01"),
-            models.Q(end_date__isnull=True) | models.Q(end_date__gte=f"{year}-{str(month).zfill(2)}-01")
+            # 生徒に紐づく割引 OR 保護者に紐づく割引（生徒未指定）
+            models.Q(student=student) | models.Q(guardian=guardian, student__isnull=True)
+        ).filter(
+            models.Q(start_date__isnull=True) | models.Q(start_date__lte=billing_date),
+            models.Q(end_date__isnull=True) | models.Q(end_date__gte=billing_date)
         )
 
         discounts_snapshot = []
@@ -2000,6 +2042,7 @@ class ConfirmedBilling(TenantModel):
                 amount = discount.amount
             discount_data = {
                 'id': str(discount.id),
+                'old_id': discount.old_id or '',  # 旧システムID
                 'discount_name': discount.discount_name,
                 'amount': str(amount),
                 'discount_unit': discount.discount_unit,
@@ -2074,14 +2117,36 @@ class ConfirmedBilling(TenantModel):
                 continue
 
             # CourseItem（コース商品構成）から明細を取得
+            # 月額請求対象の商品タイプのみ含める（一時費用は除外）
+            from apps.contracts.models import Product
+            MONTHLY_BILLING_TYPES = [
+                Product.ItemType.TUITION,        # 月謝
+                Product.ItemType.MONTHLY_FEE,    # 月額費用
+                Product.ItemType.FACILITY,       # 施設費
+                Product.ItemType.CUSTODY,        # お預かり
+                Product.ItemType.SNACK,          # おやつ
+                Product.ItemType.LUNCH,          # 給食
+                Product.ItemType.ABACUS,         # そろばん
+                Product.ItemType.EXTRA_TUITION,  # 追加月謝
+                Product.ItemType.TEXTBOOK,       # 教材費（選択されたもののみ）
+            ]
             course_items = course.course_items.filter(
-                is_active=True
+                is_active=True,
+                product__item_type__in=MONTHLY_BILLING_TYPES
             ).select_related('product')
+
+            # 選択された教材のIDを取得
+            selected_textbook_ids = set(contract.selected_textbooks.values_list('id', flat=True))
 
             for course_item in course_items:
                 product = course_item.product
                 if not product or not product.is_active:
                     continue
+
+                # 教材費の場合、選択されたもののみを含める
+                if product.item_type == Product.ItemType.TEXTBOOK:
+                    if product.id not in selected_textbook_ids:
+                        continue  # 選択されていない教材はスキップ
 
                 # 価格を取得（price_overrideがあればそちらを使用）
                 unit_price = course_item.price_override if course_item.price_override is not None else (product.base_price or Decimal('0'))
@@ -2091,6 +2156,7 @@ class ConfirmedBilling(TenantModel):
                 item_data = {
                     'contract_id': str(contract.id),
                     'contract_no': contract.contract_no,
+                    'old_id': product.product_code or contract.old_id or '',  # 旧システムID（24AEC_1000007_1形式）
                     'course_id': str(course.id) if course else None,
                     'course_name': course.course_name if course else None,
                     'product_id': str(product.id),
@@ -2105,15 +2171,18 @@ class ConfirmedBilling(TenantModel):
                 items_snapshot.append(item_data)
                 subtotal += final_price
 
-        # 割引を取得
+        # 割引を取得（生徒レベル + 保護者レベル）
+        billing_date = f"{year}-{str(month).zfill(2)}-01"
         discounts = StudentDiscount.objects.filter(
             tenant_id=tenant_id,
-            student=student,
             is_active=True,
             deleted_at__isnull=True
         ).filter(
-            models.Q(start_date__isnull=True) | models.Q(start_date__lte=f"{year}-{str(month).zfill(2)}-01"),
-            models.Q(end_date__isnull=True) | models.Q(end_date__gte=f"{year}-{str(month).zfill(2)}-01")
+            # 生徒に紐づく割引 OR 保護者に紐づく割引（生徒未指定）
+            models.Q(student=student) | models.Q(guardian=guardian, student__isnull=True)
+        ).filter(
+            models.Q(start_date__isnull=True) | models.Q(start_date__lte=billing_date),
+            models.Q(end_date__isnull=True) | models.Q(end_date__gte=billing_date)
         )
 
         discounts_snapshot = []
@@ -2125,6 +2194,7 @@ class ConfirmedBilling(TenantModel):
                 amount = discount.amount
             discount_data = {
                 'id': str(discount.id),
+                'old_id': discount.old_id or '',  # 旧システムID
                 'discount_name': discount.discount_name,
                 'amount': str(amount),
                 'discount_unit': discount.discount_unit,
@@ -2132,12 +2202,139 @@ class ConfirmedBilling(TenantModel):
             discounts_snapshot.append(discount_data)
             discount_total += amount
 
+        # 前月からの繰越額を取得
+        carry_over = cls.get_previous_month_balance(tenant_id, student, year, month)
+
         # 確定データを更新
         confirmed.guardian = guardian
         confirmed.subtotal = subtotal
         confirmed.discount_total = discount_total
         confirmed.total_amount = subtotal - discount_total
-        confirmed.balance = confirmed.total_amount - confirmed.paid_amount
+        confirmed.carry_over_amount = carry_over
+        # 残高 = 今月請求 + 繰越 - 入金済
+        confirmed.balance = confirmed.total_amount + carry_over - confirmed.paid_amount
+        confirmed.items_snapshot = items_snapshot
+        confirmed.discounts_snapshot = discounts_snapshot
+        if user:
+            confirmed.confirmed_by = user
+        confirmed.save()
+
+        # ステータス更新
+        if confirmed.paid_amount > 0:
+            confirmed.update_payment_status()
+
+        return confirmed, created
+
+    @classmethod
+    def create_from_student_items(cls, tenant_id, student, guardian, year, month, user=None):
+        """StudentItem（生徒商品）から請求確定データを作成
+
+        インポート済みのStudentItemデータから明細を生成
+        """
+        from apps.contracts.models import StudentItem, StudentDiscount
+
+        # billing_month形式: "2025-01" または "202501" の両方に対応
+        billing_month_hyphen = f"{year}-{str(month).zfill(2)}"  # YYYY-MM形式
+        billing_month_compact = f"{year}{str(month).zfill(2)}"  # YYYYMM形式
+
+        # 既存の確定データがあれば取得（更新用）
+        confirmed, created = cls.objects.get_or_create(
+            tenant_id=tenant_id,
+            student=student,
+            year=year,
+            month=month,
+            defaults={'guardian': guardian}
+        )
+
+        if not created and confirmed.status == cls.Status.PAID:
+            # 既に入金済みの場合は更新しない
+            return confirmed, False
+
+        # 該当月のStudentItemを取得（両形式に対応）
+        student_items = StudentItem.objects.filter(
+            tenant_id=tenant_id,
+            student=student,
+            deleted_at__isnull=True
+        ).filter(
+            models.Q(billing_month=billing_month_hyphen) | models.Q(billing_month=billing_month_compact)
+        ).select_related('product', 'brand', 'school', 'course', 'contract')
+
+        # 明細スナップショットを作成
+        items_snapshot = []
+        subtotal = Decimal('0')
+
+        for item in student_items:
+            product = item.product
+            unit_price = item.unit_price or Decimal('0')
+            quantity = item.quantity or 1
+            discount_amount = item.discount_amount or Decimal('0')
+            final_price = item.final_price or (unit_price * quantity - discount_amount)
+
+            item_data = {
+                'student_item_id': str(item.id),
+                'old_id': item.old_id or '',
+                'contract_id': str(item.contract.id) if item.contract else None,
+                'contract_no': item.contract.contract_no if item.contract else None,
+                'course_id': str(item.course.id) if item.course else None,
+                'course_name': item.course.course_name if item.course else None,
+                'product_id': str(product.id) if product else None,
+                'product_name': product.product_name if product else '',
+                'product_code': product.product_code if product else '',
+                'brand_name': item.brand.brand_name if item.brand else None,
+                'school_name': item.school.school_name if item.school else None,
+                'item_type': product.item_type if product else 'other',
+                'item_type_display': product.get_item_type_display() if product else '',
+                'quantity': quantity,
+                'unit_price': str(unit_price),
+                'discount_amount': str(discount_amount),
+                'final_price': str(final_price),
+                'notes': item.notes or '',
+            }
+            items_snapshot.append(item_data)
+            subtotal += final_price
+
+        # 割引を取得（生徒レベル + 保護者レベル）
+        billing_date = f"{year}-{str(month).zfill(2)}-01"
+        discounts = StudentDiscount.objects.filter(
+            tenant_id=tenant_id,
+            is_active=True,
+            deleted_at__isnull=True
+        ).filter(
+            # 生徒に紐づく割引 OR 保護者に紐づく割引（生徒未指定）
+            models.Q(student=student) | models.Q(guardian=guardian, student__isnull=True)
+        ).filter(
+            models.Q(start_date__isnull=True) | models.Q(start_date__lte=billing_date),
+            models.Q(end_date__isnull=True) | models.Q(end_date__gte=billing_date)
+        )
+
+        discounts_snapshot = []
+        discount_total = Decimal('0')
+        for discount in discounts:
+            if discount.discount_unit == 'percent':
+                amount = subtotal * discount.amount / 100
+            else:
+                amount = discount.amount
+            discount_data = {
+                'id': str(discount.id),
+                'old_id': discount.old_id or '',  # 旧システムID
+                'discount_name': discount.discount_name,
+                'amount': str(amount),
+                'discount_unit': discount.discount_unit,
+            }
+            discounts_snapshot.append(discount_data)
+            discount_total += amount
+
+        # 前月からの繰越額を取得
+        carry_over = cls.get_previous_month_balance(tenant_id, student, year, month)
+
+        # 確定データを更新
+        confirmed.guardian = guardian
+        confirmed.subtotal = subtotal
+        confirmed.discount_total = discount_total
+        confirmed.total_amount = subtotal - discount_total
+        confirmed.carry_over_amount = carry_over
+        # 残高 = 今月請求 + 繰越 - 入金済
+        confirmed.balance = confirmed.total_amount + carry_over - confirmed.paid_amount
         confirmed.items_snapshot = items_snapshot
         confirmed.discounts_snapshot = discounts_snapshot
         if user:

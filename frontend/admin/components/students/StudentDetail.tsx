@@ -31,6 +31,7 @@ import {
   ExternalLink,
 } from "lucide-react";
 import { ContractEditDialog } from "./ContractEditDialog";
+import { NewContractDialog } from "./NewContractDialog";
 import {
   Dialog,
   DialogContent,
@@ -162,6 +163,9 @@ export function StudentDetail({ student, parents, contracts, invoices, contactLo
   const [activeTab, setActiveTab] = useState("basic");
   const [editingContract, setEditingContract] = useState<Contract | null>(null);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
+
+  // 新規契約登録ダイアログ
+  const [newContractDialogOpen, setNewContractDialogOpen] = useState(false);
 
   // 保護者編集ダイアログ
   const [guardianEditDialogOpen, setGuardianEditDialogOpen] = useState(false);
@@ -1138,6 +1142,71 @@ export function StudentDetail({ student, parents, contracts, invoices, contactLo
                         </div>
                       </div>
 
+                      {/* 教材費選択 */}
+                      {(() => {
+                        const textbookOptions = contract.textbook_options || contract.textbookOptions || [];
+                        const selectedIds = new Set(contract.selected_textbook_ids || contract.selectedTextbookIds || []);
+
+                        if (textbookOptions.length > 0) {
+                          return (
+                            <div className="px-4 py-2 border-b bg-amber-50">
+                              <div className="flex items-center gap-2 mb-2">
+                                <span className="text-xs font-medium text-amber-700">教材費選択:</span>
+                              </div>
+                              <div className="flex flex-wrap gap-2">
+                                {textbookOptions.map((option: { id: string; product_name?: string; productName?: string; price: number }) => {
+                                  const isSelected = selectedIds.has(option.id);
+                                  const optionName = option.product_name || option.productName || "教材費";
+
+                                  return (
+                                    <label
+                                      key={option.id}
+                                      className={`flex items-center gap-1 px-2 py-1 rounded border cursor-pointer text-xs transition-colors ${
+                                        isSelected
+                                          ? 'bg-amber-200 border-amber-400 text-amber-800'
+                                          : 'bg-white border-gray-200 text-gray-600 hover:border-amber-300'
+                                      }`}
+                                    >
+                                      <input
+                                        type="checkbox"
+                                        checked={isSelected}
+                                        onChange={async (e) => {
+                                          const newSelectedIds = new Set(selectedIds);
+                                          if (e.target.checked) {
+                                            newSelectedIds.add(option.id);
+                                          } else {
+                                            newSelectedIds.delete(option.id);
+                                          }
+
+                                          try {
+                                            await apiClient.post(`/contracts/${contract.id}/update-textbooks/`, {
+                                              selected_textbook_ids: Array.from(newSelectedIds)
+                                            });
+                                            // ページをリロードして更新を反映
+                                            window.location.reload();
+                                          } catch (err) {
+                                            console.error('Failed to update textbooks:', err);
+                                            alert('教材費の更新に失敗しました');
+                                          }
+                                        }}
+                                        className="w-3 h-3"
+                                        disabled={isContractPeriodClosed(contract)}
+                                      />
+                                      <span>{optionName}</span>
+                                      <span className="text-gray-500">¥{option.price.toLocaleString()}</span>
+                                    </label>
+                                  );
+                                })}
+                              </div>
+                              {selectedIds.size === 0 && (
+                                <p className="text-xs text-amber-600 mt-1">※ 教材費が選択されていません</p>
+                              )}
+                            </div>
+                          );
+                        }
+                        return null;
+                      })()}
+
                       {/* 料金内訳 */}
                       <div className="p-3">
                         <table className="w-full text-xs">
@@ -1235,7 +1304,12 @@ export function StudentDetail({ student, parents, contracts, invoices, contactLo
               </div>
             )}
             <div className="mt-4">
-              <Button size="sm" variant="outline" className="w-full">
+              <Button
+                size="sm"
+                variant="outline"
+                className="w-full"
+                onClick={() => setNewContractDialogOpen(true)}
+              >
                 <FileText className="w-4 h-4 mr-1" />
                 新規契約登録
               </Button>
@@ -2090,6 +2164,18 @@ export function StudentDetail({ student, parents, contracts, invoices, contactLo
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* 新規契約登録ダイアログ */}
+      <NewContractDialog
+        open={newContractDialogOpen}
+        onOpenChange={setNewContractDialogOpen}
+        student={student}
+        guardian={parents[0]}
+        onSuccess={() => {
+          // 契約一覧を再読み込み（親コンポーネントで処理）
+          window.location.reload();
+        }}
+      />
     </div>
   );
 }

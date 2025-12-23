@@ -743,6 +743,61 @@ class ContractViewSet(CSVMixin, viewsets.ModelViewSet):
         contract.save()
         return Response(ContractDetailSerializer(contract).data)
 
+    @action(detail=True, methods=['post'], url_path='update-textbooks')
+    def update_textbooks(self, request, pk=None):
+        """契約の選択教材を更新
+
+        Request body:
+        {
+            "selected_textbook_ids": ["product-uuid-1", "product-uuid-2"]
+        }
+        """
+        contract = self.get_object()
+        textbook_ids = request.data.get('selected_textbook_ids', [])
+
+        # 教材商品のみ許可（item_type=textbook）
+        from .models import Product
+        valid_textbooks = Product.objects.filter(
+            id__in=textbook_ids,
+            item_type=Product.ItemType.TEXTBOOK
+        )
+
+        # 選択教材を更新
+        contract.selected_textbooks.set(valid_textbooks)
+
+        # monthly_totalを再計算
+        self._recalculate_monthly_total(contract)
+
+        return Response({
+            'success': True,
+            'selected_textbook_ids': [str(p.id) for p in contract.selected_textbooks.all()]
+        })
+
+    def _recalculate_monthly_total(self, contract):
+        """月額合計を再計算（選択教材のみ含む）"""
+        if not contract.course:
+            return
+
+        from .models import Product
+        from decimal import Decimal
+
+        total = Decimal('0')
+        selected_textbook_ids = set(contract.selected_textbooks.values_list('id', flat=True))
+
+        for ci in contract.course.course_items.filter(is_active=True):
+            if not ci.product:
+                continue
+
+            # 教材費の場合は選択されているもののみ
+            if ci.product.item_type == Product.ItemType.TEXTBOOK:
+                if ci.product_id not in selected_textbook_ids:
+                    continue
+
+            total += ci.get_price() * ci.quantity
+
+        contract.monthly_total = total
+        contract.save()
+
     @action(detail=True, methods=['get', 'post'])
     def items(self, request, pk=None):
         """契約の生徒商品一覧/追加"""

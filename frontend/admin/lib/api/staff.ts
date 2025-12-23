@@ -1568,7 +1568,7 @@ export async function getInvoiceDetail(invoiceId: string): Promise<InvoiceDetail
 }
 
 /**
- * 引落データCSVエクスポート
+ * 引落データCSVエクスポート（ConfirmedBillingから）
  */
 export async function exportDirectDebitCSV(params: DirectDebitExportRequest): Promise<Blob | null> {
   try {
@@ -1580,6 +1580,34 @@ export async function exportDirectDebitCSV(params: DirectDebitExportRequest): Pr
       queryParams.end_date = params.end_date;
     } else if (params.billing_year && params.billing_month) {
       // 旧形式（互換性のため）
+      queryParams.year = params.billing_year;
+      queryParams.month = params.billing_month;
+    }
+
+    if (params.provider) {
+      queryParams.provider = params.provider;
+    }
+
+    // ConfirmedBillingからエクスポート（確定データ）
+    const blob = await apiClient.getBlob("/billing/confirmed/export-debit/", queryParams);
+    return blob;
+  } catch (error) {
+    console.error("Error exporting direct debit CSV:", error);
+    return null;
+  }
+}
+
+/**
+ * 引落データCSVエクスポート（Invoiceから、互換性のため残す）
+ */
+export async function exportDirectDebitCSVFromInvoice(params: DirectDebitExportRequest): Promise<Blob | null> {
+  try {
+    const queryParams: Record<string, string | number> = {};
+
+    if (params.start_date && params.end_date) {
+      queryParams.start_date = params.start_date;
+      queryParams.end_date = params.end_date;
+    } else if (params.billing_year && params.billing_month) {
       queryParams.billing_year = params.billing_year;
       queryParams.billing_month = params.billing_month;
     }
@@ -1590,7 +1618,45 @@ export async function exportDirectDebitCSV(params: DirectDebitExportRequest): Pr
     const blob = await apiClient.getBlob("/billing/invoices/export-debit/", queryParams);
     return blob;
   } catch (error) {
-    console.error("Error exporting direct debit CSV:", error);
+    console.error("Error exporting direct debit CSV from invoice:", error);
+    return null;
+  }
+}
+
+/**
+ * 引落データエクスポートプレビュー
+ */
+export interface DirectDebitExportPreview {
+  total_billings: number;
+  total_guardians: number;
+  guardians_with_bank: number;
+  guardians_without_bank: number;
+  total_amount: number;
+  exportable_count: number;
+  missing_bank_guardians: Array<{
+    guardian_no: string;
+    name: string;
+    bank_code: string;
+    account_number: string;
+  }>;
+}
+
+export async function getDirectDebitExportPreview(params: DirectDebitExportRequest): Promise<DirectDebitExportPreview | null> {
+  try {
+    const queryParams: Record<string, string | number> = {};
+
+    if (params.start_date && params.end_date) {
+      queryParams.start_date = params.start_date;
+      queryParams.end_date = params.end_date;
+    } else if (params.billing_year && params.billing_month) {
+      queryParams.year = params.billing_year;
+      queryParams.month = params.billing_month;
+    }
+
+    const response = await apiClient.get<DirectDebitExportPreview>("/billing/confirmed/export-debit-preview/", queryParams);
+    return response;
+  } catch (error) {
+    console.error("Error getting export preview:", error);
     return null;
   }
 }

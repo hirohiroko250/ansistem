@@ -30,7 +30,15 @@ def get_guardian_students_contracts_count(guardian: Guardian) -> int:
 
 
 def has_guardian_paid_enrollment_fee(guardian: Guardian, tenant_id: str) -> bool:
-    """保護者（世帯）が入会金を支払い済みかチェック"""
+    """保護者（世帯）が入会金を支払い済みかチェック
+
+    以下のいずれかに該当する場合、入会金は支払い済みとみなす:
+    1. StudentItemに入会金の履歴がある
+    2. 過去に契約がある（インポートデータ含む、ステータス問わず）
+    """
+    if not guardian:
+        return False
+
     # StudentItemで入会金の履歴を確認
     enrollment_items = StudentItem.objects.filter(
         tenant_id=tenant_id,
@@ -42,14 +50,45 @@ def has_guardian_paid_enrollment_fee(guardian: Guardian, tenant_id: str) -> bool
         return True
 
     # 過去の契約から入会金支払いを確認
-    # 有効な契約があれば、入会金は支払い済みとみなす
-    has_active_contract = Contract.objects.filter(
+    # 過去に契約があれば（ステータス問わず）、入会金は支払い済みとみなす
+    # ※インポートされた過去データも含む
+    has_any_contract = Contract.objects.filter(
         guardian=guardian,
         tenant_id=tenant_id,
-        status=Contract.Status.ACTIVE
     ).exists()
 
-    return has_active_contract
+    return has_any_contract
+
+
+def has_student_received_bag(student: Student, tenant_id: str) -> bool:
+    """生徒がバッグを受け取り済みかチェック
+
+    以下のいずれかに該当する場合、バッグは受け取り済みとみなす:
+    1. StudentItemにバッグの履歴がある
+    2. 過去に契約がある（インポートデータ含む、ステータス問わず）
+    """
+    if not student:
+        return False
+
+    # StudentItemでバッグの履歴を確認
+    bag_items = StudentItem.objects.filter(
+        tenant_id=tenant_id,
+        student=student,
+        product__item_type=Product.ItemType.BAG,
+    ).exists()
+
+    if bag_items:
+        return True
+
+    # 過去の契約からバッグ受け取りを確認
+    # 過去に契約があれば（ステータス問わず）、バッグは受け取り済みとみなす
+    # ※インポートされた過去データも含む
+    has_any_contract = Contract.objects.filter(
+        student=student,
+        tenant_id=tenant_id,
+    ).exists()
+
+    return has_any_contract
 
 
 def get_student_highest_facility_fee(student: Student, tenant_id: str) -> Decimal:
@@ -120,6 +159,217 @@ def get_materials_fee_product(brand: Brand, course: Course, tenant_id: str, is_e
         is_active=True,
         deleted_at__isnull=True
     ).first()
+
+
+def get_enrollment_products_for_course(course: Course, tenant_id: str) -> List[Product]:
+    """コースに対応する入会時商品を自動取得
+
+    コースコードから入会時商品を検索して返す。
+    例: コース 24AEC_1000007 の場合
+        → 24AEC_1000007_50 (入会時授業料)
+        → 24AEC_1000007_54 (入会時月会費)
+        → 24AEC_1000007_55 (入会時設備費)
+        → 24AEC_1000007_60 (入会時教材費)
+
+    Args:
+        course: コース
+        tenant_id: テナントID
+
+    Returns:
+        入会時商品のリスト
+    """
+    if not course or not course.course_code:
+        return []
+
+    # 入会時商品のitem_type一覧
+    enrollment_types = [
+        Product.ItemType.ENROLLMENT,            # 入会金
+        Product.ItemType.ENROLLMENT_TUITION,    # 入会時授業料
+        Product.ItemType.ENROLLMENT_MONTHLY_FEE,# 入会時月会費
+        Product.ItemType.ENROLLMENT_FACILITY,   # 入会時設備費
+        Product.ItemType.ENROLLMENT_TEXTBOOK,   # 入会時教材費
+        Product.ItemType.ENROLLMENT_EXPENSE,    # 入会時諸経費
+        Product.ItemType.ENROLLMENT_MANAGEMENT, # 入会時総合指導管理費
+        Product.ItemType.BAG,                   # バッグ（初回プレゼント）
+    ]
+
+    # コースコードのプレフィックスを取得（例: 24AEC_1000007）
+    course_code = course.course_code
+
+    # 同じコースコードプレフィックスの入会時商品を検索
+    # 商品コード形式: {course_code}_{suffix} (例: 24AEC_1000007_5, 24AEC_1000007_50)
+    products = Product.objects.filter(
+        tenant_id=tenant_id,
+        product_code__startswith=f"{course_code}_",
+        item_type__in=enrollment_types,
+        is_active=True,
+        deleted_at__isnull=True
+    ).order_by('product_code')
+
+    print(f"[get_enrollment_products] Course: {course_code}, Found: {products.count()} enrollment products", file=sys.stderr)
+
+    return list(products)
+
+
+def calculate_enrollment_fees(
+    course: Course,
+    tenant_id: str,
+    enrollment_date: date,
+    additional_tickets: int,
+    total_classes_in_month: int = 4,
+    student: 'Student' = None,
+    guardian: 'Guardian' = None,
+) -> List[Dict[str, Any]]:
+    """入会時費用を計算
+
+    計算ロジック:
+    - 入会金: そのまま（世帯で1回のみ - 2回目以降は請求しない）
+    - 入会時授業料: 単価(per_ticket_price) × 追加チケット数
+    - 入会時月会費: 月会費 ÷ 月内授業回数 × 追加チケット数
+    - 入会時設備費: 設備費 ÷ 月内授業回数 × 追加チケット数
+    - 入会時教材費: enrollment_price_*（入会月に応じた傾斜料金）
+    - バッグ: 初回のみ（2回目以降は請求しない）
+
+    Args:
+        course: コース
+        tenant_id: テナントID
+        enrollment_date: 入会日
+        additional_tickets: 追加チケット数
+        total_classes_in_month: 月内の総授業回数（デフォルト4回）
+        student: 生徒（バッグ重複チェック用）
+        guardian: 保護者（入会金重複チェック用）
+
+    Returns:
+        入会時費用のリスト
+        [{
+            'product_id': str,
+            'product_code': str,
+            'product_name': str,
+            'item_type': str,
+            'base_price': Decimal,
+            'calculated_price': Decimal,
+            'calculation_detail': str,
+        }, ...]
+    """
+    from decimal import ROUND_HALF_UP
+
+    enrollment_products = get_enrollment_products_for_course(course, tenant_id)
+    enrollment_month = enrollment_date.month
+
+    # 入会金支払い済みチェック（世帯単位）
+    enrollment_fee_paid = False
+    if guardian:
+        enrollment_fee_paid = has_guardian_paid_enrollment_fee(guardian, tenant_id)
+        if enrollment_fee_paid:
+            print(f"[calculate_enrollment_fees] 入会金は支払い済み（世帯）", file=sys.stderr)
+
+    # バッグ受け取り済みチェック（生徒単位）
+    bag_received = False
+    if student:
+        bag_received = has_student_received_bag(student, tenant_id)
+        if bag_received:
+            print(f"[calculate_enrollment_fees] バッグは受け取り済み（生徒）", file=sys.stderr)
+
+    results = []
+
+    for product in enrollment_products:
+        item_type = product.item_type
+        base_price = product.base_price or Decimal('0')
+        calculated_price = Decimal('0')
+        calculation_detail = ''
+
+        if item_type == Product.ItemType.ENROLLMENT:
+            # 入会金: そのまま（世帯で1回のみ）
+            if enrollment_fee_paid:
+                # 支払い済みの場合はスキップ
+                print(f"[calculate_enrollment_fees] 入会金スキップ（支払い済み）", file=sys.stderr)
+                continue
+            calculated_price = base_price
+            calculation_detail = f'入会金: ¥{base_price}'
+
+        elif item_type == Product.ItemType.ENROLLMENT_TUITION:
+            # 入会時授業料: 通常授業料の単価 × 追加チケット数
+            # 単価は通常授業料商品（tuition）から取得
+            tuition_product = Product.objects.filter(
+                tenant_id=tenant_id,
+                product_code__startswith=f"{course.course_code}_",
+                item_type=Product.ItemType.TUITION,
+                is_active=True,
+                deleted_at__isnull=True
+            ).first()
+            per_ticket = tuition_product.per_ticket_price if tuition_product and tuition_product.per_ticket_price else Decimal('0')
+            calculated_price = (per_ticket * additional_tickets).quantize(Decimal('1'), rounding=ROUND_HALF_UP)
+            calculation_detail = f'単価¥{per_ticket} × {additional_tickets}回 = ¥{calculated_price}'
+
+        elif item_type in [Product.ItemType.ENROLLMENT_MONTHLY_FEE, Product.ItemType.ENROLLMENT_FACILITY]:
+            # 入会時月会費/設備費: 通常商品の月額 ÷ 月内授業回数 × 追加チケット数
+            # 通常商品の月額を取得
+            regular_item_type = Product.ItemType.MONTHLY_FEE if item_type == Product.ItemType.ENROLLMENT_MONTHLY_FEE else Product.ItemType.FACILITY
+            regular_product = Product.objects.filter(
+                tenant_id=tenant_id,
+                product_code__startswith=f"{course.course_code}_",
+                item_type=regular_item_type,
+                is_active=True,
+                deleted_at__isnull=True
+            ).first()
+            monthly_price = regular_product.base_price if regular_product else base_price
+
+            if total_classes_in_month > 0 and additional_tickets > 0:
+                per_class = monthly_price / Decimal(str(total_classes_in_month))
+                calculated_price = (per_class * additional_tickets).quantize(Decimal('1'), rounding=ROUND_HALF_UP)
+                calculation_detail = f'¥{monthly_price} ÷ {total_classes_in_month}回 × {additional_tickets}回 = ¥{calculated_price}'
+            else:
+                calculated_price = Decimal('0')
+                calculation_detail = '追加チケットなし'
+
+        elif item_type == Product.ItemType.ENROLLMENT_TEXTBOOK:
+            # 入会時教材費: 入会月に応じた傾斜料金
+            month_price_map = {
+                1: product.enrollment_price_jan,
+                2: product.enrollment_price_feb,
+                3: product.enrollment_price_mar,
+                4: product.enrollment_price_apr,
+                5: product.enrollment_price_may,
+                6: product.enrollment_price_jun,
+                7: product.enrollment_price_jul,
+                8: product.enrollment_price_aug,
+                9: product.enrollment_price_sep,
+                10: product.enrollment_price_oct,
+                11: product.enrollment_price_nov,
+                12: product.enrollment_price_dec,
+            }
+            calculated_price = month_price_map.get(enrollment_month) or base_price
+            calculation_detail = f'{enrollment_month}月入会者料金: ¥{calculated_price}'
+
+        elif item_type == Product.ItemType.BAG:
+            # バッグ: 初回のみ（2回目以降は請求しない）
+            if bag_received:
+                # 受け取り済みの場合はスキップ
+                print(f"[calculate_enrollment_fees] バッグスキップ（受け取り済み）", file=sys.stderr)
+                continue
+            calculated_price = base_price
+            calculation_detail = f'初回プレゼント: ¥{base_price}'
+
+        else:
+            # その他の入会時費用: そのまま
+            calculated_price = base_price
+            calculation_detail = f'固定料金: ¥{base_price}'
+
+        results.append({
+            'product_id': str(product.id),
+            'product_code': product.product_code,
+            'product_name': product.product_name,
+            'item_type': item_type,
+            'base_price': int(base_price),
+            'calculated_price': int(calculated_price),
+            'calculation_detail': calculation_detail,
+            'per_ticket_price': int(product.per_ticket_price or 0),
+            'additional_tickets': additional_tickets,
+        })
+
+        print(f"[calculate_enrollment_fees] {item_type}: {calculation_detail}", file=sys.stderr)
+
+    return results
 
 
 def get_active_fs_discount(guardian: Guardian) -> Optional[FSDiscount]:

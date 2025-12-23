@@ -1,5 +1,5 @@
 """
-T3 CSVからCourse, Product, Packにデータを投入するコマンド
+T3 CSVまたはXLSXからCourse, Product, Packにデータを投入するコマンド
 """
 import csv
 import uuid
@@ -11,14 +11,20 @@ from apps.schools.models import Brand, School, Grade
 
 
 class Command(BaseCommand):
-    help = 'T3 CSVからCourse, Product, Packに実データを投入'
+    help = 'T3 CSVまたはXLSXからCourse, Product, Packに実データを投入'
 
     def add_arguments(self, parser):
         parser.add_argument(
             '--csv',
             type=str,
-            required=True,
+            required=False,
             help='T3 CSVファイルパス'
+        )
+        parser.add_argument(
+            '--xlsx',
+            type=str,
+            required=False,
+            help='T3 XLSXファイルパス'
         )
         parser.add_argument(
             '--dry-run',
@@ -32,11 +38,17 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
-        csv_path = options['csv']
+        csv_path = options.get('csv')
+        xlsx_path = options.get('xlsx')
         dry_run = options['dry_run']
         clear = options['clear']
 
-        self.stdout.write(f'CSVファイル: {csv_path}')
+        if not csv_path and not xlsx_path:
+            self.stderr.write(self.style.ERROR('--csv または --xlsx を指定してください'))
+            return
+
+        file_path = xlsx_path or csv_path
+        self.stdout.write(f'ファイル: {file_path}')
         self.stdout.write(f'Dry Run: {dry_run}')
         self.stdout.write(f'Clear: {clear}')
 
@@ -62,10 +74,17 @@ class Command(BaseCommand):
         # 対象学年マスタを作成/取得
         grades = self.create_grades(tenant_id, dry_run)
 
-        # CSVを読み込み、コースとプロダクトを作成
-        with open(csv_path, 'r', encoding='utf-8') as f:
-            reader = csv.DictReader(f)
-            rows = list(reader)
+        # ファイルを読み込み
+        if xlsx_path:
+            import pandas as pd
+            df = pd.read_excel(xlsx_path)
+            # NaN を空文字列に変換
+            df = df.fillna('')
+            rows = df.to_dict('records')
+        else:
+            with open(csv_path, 'r', encoding='utf-8') as f:
+                reader = csv.DictReader(f)
+                rows = list(reader)
 
         self.stdout.write(f'総行数: {len(rows)}')
 
@@ -120,13 +139,15 @@ class Command(BaseCommand):
             product_name = row.get('明細表記', '') or row.get('契約名', '')
             product_code = row.get('請求ID', '') or row.get('契約ID', '')
             item_type_name = row.get('請求カテゴリ名', '')
-            base_price = row.get('単価', '0') or '0'
-            display_price = row.get('保護者表示用金額', '0') or '0'
+            unit_price = row.get('単価', '0') or '0'  # 単価
+            display_price = row.get('保護者表示用金額', '0') or '0'  # 保護者表示用金額
             brand_code = row.get('契約ブランド記号', '')
             brand_name = row.get('契約ブランド名', '')
             grade_name = row.get('対象学年', '')
             tax_type = row.get('税区分', '1')
             contract_name = row.get('契約名', '')
+            mile = row.get('マイル', '0') or '0'
+            discount_max = row.get('割引MAX(%)', '0') or '0'
 
             if product_code and product_code not in seen_products:
                 seen_products.add(product_code)
@@ -139,10 +160,12 @@ class Command(BaseCommand):
                     brand = brands_by_code.get(brand_code) or brands_by_name.get(brand_name)
                     grade = grades.get(grade_name)
 
-                    try:
-                        price_decimal = Decimal(str(base_price).replace(',', ''))
-                    except:
-                        price_decimal = Decimal('0')
+                    # 金額パース用ヘルパー
+                    def parse_price(val):
+                        try:
+                            return Decimal(str(val).replace(',', ''))
+                        except:
+                            return Decimal('0')
 
                     product, created = Product.objects.update_or_create(
                         tenant_id=tenant_id,
@@ -153,9 +176,38 @@ class Command(BaseCommand):
                             'item_type': item_type,
                             'brand': brand,
                             'grade': grade,
-                            'base_price': price_decimal,
-                            'tax_type': tax_type if tax_type in ['1', '2', '3'] else '1',
+                            'base_price': parse_price(display_price),  # 保護者表示用金額
+                            'per_ticket_price': parse_price(unit_price),  # 単価
+                            'mile': int(float(mile)) if mile else 0,
+                            'discount_max': int(float(discount_max)) if discount_max else 0,
+                            'tax_type': str(tax_type) if str(tax_type) in ['1', '2', '3'] else '1',
                             'is_active': is_active,
+                            # 各月の請求金額
+                            'billing_price_jan': parse_price(row.get('1月', '0')),
+                            'billing_price_feb': parse_price(row.get('2月', '0')),
+                            'billing_price_mar': parse_price(row.get('3月', '0')),
+                            'billing_price_apr': parse_price(row.get('4月', '0')),
+                            'billing_price_may': parse_price(row.get('5月', '0')),
+                            'billing_price_jun': parse_price(row.get('6月', '0')),
+                            'billing_price_jul': parse_price(row.get('7月', '0')),
+                            'billing_price_aug': parse_price(row.get('8月', '0')),
+                            'billing_price_sep': parse_price(row.get('9月', '0')),
+                            'billing_price_oct': parse_price(row.get('10月', '0')),
+                            'billing_price_nov': parse_price(row.get('11月', '0')),
+                            'billing_price_dec': parse_price(row.get('12月', '0')),
+                            # 入会者用金額
+                            'enrollment_price_jan': parse_price(row.get('1月入会者', '0')),
+                            'enrollment_price_feb': parse_price(row.get('2月入会者', '0')),
+                            'enrollment_price_mar': parse_price(row.get('3月入会者', '0')),
+                            'enrollment_price_apr': parse_price(row.get('4月入会者', '0')),
+                            'enrollment_price_may': parse_price(row.get('5月入会者', '0')),
+                            'enrollment_price_jun': parse_price(row.get('6月入会者', '0')),
+                            'enrollment_price_jul': parse_price(row.get('7月入会者', '0')),
+                            'enrollment_price_aug': parse_price(row.get('8月入会者', '0')),
+                            'enrollment_price_sep': parse_price(row.get('9月入会者', '0')),
+                            'enrollment_price_oct': parse_price(row.get('10月入会者', '0')),
+                            'enrollment_price_nov': parse_price(row.get('11月入会者', '0')),
+                            'enrollment_price_dec': parse_price(row.get('12月入会者', '0')),
                         }
                     )
                     if created:

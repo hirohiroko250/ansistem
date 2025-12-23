@@ -297,9 +297,21 @@ export interface Contract {
   discountTotal?: number | string;
   discount_max?: number | string;
   discountMax?: number | string;
+  // 教材費関連
+  textbook_options?: TextbookOption[];
+  textbookOptions?: TextbookOption[];
+  selected_textbook_ids?: string[];
+  selectedTextbookIds?: string[];
   // Computed/convenience fields for UI
   contract_type?: string;  // 契約種別（将来的に追加予定）
   monthly_fee?: number;    // 月額（StudentItemから計算）
+}
+
+export interface TextbookOption {
+  id: string;
+  product_name: string;
+  productName?: string;
+  price: number;
 }
 
 export interface Product {
@@ -624,37 +636,38 @@ export interface LessonFilters {
 export interface ConfirmedBilling {
   id: string;
   student: string;
-  student_name: string;
-  student_no?: string;
+  studentName: string;
+  studentNo?: string;
   guardian: string;
-  guardian_name: string;
-  guardian_no?: string;
+  guardianName: string;
+  guardianNo?: string;
   year: number;
   month: number;
-  billing_deadline?: string;
+  billingDeadline?: string;
   subtotal: number;
-  discount_total: number;
-  tax_amount: number;
-  total_amount: number;
-  paid_amount: number;
+  discountTotal: number;
+  taxAmount: number;
+  totalAmount: number;
+  paidAmount: number;
   balance: number;
-  items_snapshot: ConfirmedBillingItem[];
-  discounts_snapshot: ConfirmedBillingDiscount[];
+  carryOverAmount?: number;
+  itemsSnapshot: ConfirmedBillingItem[];
+  discountsSnapshot: ConfirmedBillingDiscount[];
   status: 'confirmed' | 'unpaid' | 'partial' | 'paid' | 'cancelled';
-  status_display: string;
-  payment_method: 'direct_debit' | 'bank_transfer' | 'cash' | 'other';
-  payment_method_display: string;
-  confirmed_at: string;
-  confirmed_by?: string;
-  confirmed_by_name?: string;
-  paid_at?: string;
+  statusDisplay: string;
+  paymentMethod: 'direct_debit' | 'bank_transfer' | 'cash' | 'other';
+  paymentMethodDisplay: string;
+  confirmedAt: string;
+  confirmedBy?: string;
+  confirmedByName?: string;
+  paidAt?: string;
   notes?: string;
-  created_at: string;
-  updated_at: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface ConfirmedBillingItem {
-  id: string;
+  id?: string;
   product_name?: string;
   course_name?: string;
   brand_name?: string;
@@ -667,26 +680,26 @@ export interface ConfirmedBillingItem {
 
 export interface ConfirmedBillingDiscount {
   id: string;
-  discount_name: string;
+  discountName: string;
   amount: string;
-  discount_unit: string;
+  discountUnit: string;
 }
 
 export interface ConfirmedBillingSummary {
   year: number;
   month: number;
-  total_count: number;
-  total_amount: number;
-  total_paid: number;
-  total_balance: number;
-  collection_rate: number;
-  status_counts: {
+  totalCount: number;
+  totalAmount: number;
+  totalPaid: number;
+  totalBalance: number;
+  collectionRate: number;
+  statusCounts: {
     [key: string]: {
       label: string;
       count: number;
     };
   };
-  payment_method_counts: {
+  paymentMethodCounts: {
     [key: string]: {
       label: string;
       count: number;

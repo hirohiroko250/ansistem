@@ -50,8 +50,10 @@ import {
   getInvoices,
   exportDirectDebitCSV,
   importDirectDebitResult,
+  getDirectDebitExportPreview,
   type InvoiceFilters,
   type DirectDebitResult,
+  type DirectDebitExportPreview,
 } from "@/lib/api/staff";
 import apiClient from "@/lib/api/client";
 import type { Invoice, PaginatedResult } from "@/lib/api/types";
@@ -94,6 +96,8 @@ export default function BillingPage() {
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
   });
   const [exportProvider, setExportProvider] = useState("jaccs");
+  const [exportPreview, setExportPreview] = useState<DirectDebitExportPreview | null>(null);
+  const [loadingPreview, setLoadingPreview] = useState(false);
 
   // 引落結果インポートダイアログ
   const [importDialogOpen, setImportDialogOpen] = useState(false);
@@ -301,6 +305,32 @@ export default function BillingPage() {
 
   // 引落データエクスポート
   const [exporting, setExporting] = useState(false);
+
+  // プレビュー取得
+  async function loadExportPreview() {
+    setLoadingPreview(true);
+    try {
+      const preview = await getDirectDebitExportPreview({
+        start_date: exportStartDate,
+        end_date: exportEndDate,
+      });
+      setExportPreview(preview);
+    } catch (error) {
+      console.error("Preview error:", error);
+      setExportPreview(null);
+    } finally {
+      setLoadingPreview(false);
+    }
+  }
+
+  // ダイアログが開いたときにプレビューを取得
+  useEffect(() => {
+    if (exportDialogOpen) {
+      loadExportPreview();
+    } else {
+      setExportPreview(null);
+    }
+  }, [exportDialogOpen, exportStartDate, exportEndDate]);
 
   async function handleExport() {
     setExporting(true);
@@ -869,7 +899,7 @@ export default function BillingPage() {
 
         {/* 引落データエクスポートダイアログ */}
         <Dialog open={exportDialogOpen} onOpenChange={setExportDialogOpen}>
-          <DialogContent>
+          <DialogContent className="max-w-lg">
             <DialogHeader>
               <DialogTitle>引落データ出力</DialogTitle>
             </DialogHeader>
@@ -894,10 +924,52 @@ export default function BillingPage() {
                   />
                 </div>
               </div>
-              <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800">
-                <p className="font-medium mb-1">注意</p>
-                <p>エクスポートを実行すると、選択した期間以前の全ての請求データは編集不可になります。</p>
-              </div>
+
+              {/* プレビュー情報 */}
+              {loadingPreview ? (
+                <div className="p-3 bg-gray-50 border rounded-lg text-center text-sm text-gray-500">
+                  読み込み中...
+                </div>
+              ) : exportPreview ? (
+                <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg text-sm">
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <span className="text-gray-600">請求件数:</span>
+                      <span className="font-medium ml-1">{exportPreview.total_billings.toLocaleString()}件</span>
+                    </div>
+                    <div>
+                      <span className="text-gray-600">保護者数:</span>
+                      <span className="font-medium ml-1">{exportPreview.total_guardians.toLocaleString()}名</span>
+                    </div>
+                    <div>
+                      <span className="text-gray-600">合計金額:</span>
+                      <span className="font-medium ml-1">¥{exportPreview.total_amount.toLocaleString()}</span>
+                    </div>
+                    <div>
+                      <span className="text-gray-600">出力対象:</span>
+                      <span className="font-bold text-blue-600 ml-1">{exportPreview.exportable_count.toLocaleString()}名</span>
+                    </div>
+                  </div>
+                  {exportPreview.guardians_without_bank > 0 && (
+                    <div className="mt-2 pt-2 border-t border-blue-200">
+                      <p className="text-amber-700 font-medium">
+                        ⚠ 銀行口座未登録: {exportPreview.guardians_without_bank}名（スキップされます）
+                      </p>
+                      {exportPreview.missing_bank_guardians.length > 0 && (
+                        <div className="mt-1 max-h-24 overflow-y-auto text-xs text-gray-600">
+                          {exportPreview.missing_bank_guardians.slice(0, 5).map((g, i) => (
+                            <div key={i}>{g.guardian_no}: {g.name}</div>
+                          ))}
+                          {exportPreview.missing_bank_guardians.length > 5 && (
+                            <div className="text-gray-400">...他{exportPreview.guardians_without_bank - 5}名</div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              ) : null}
+
               <div>
                 <label className="text-sm font-medium">決済代行会社</label>
                 <Select
@@ -919,9 +991,12 @@ export default function BillingPage() {
               <Button variant="outline" onClick={() => setExportDialogOpen(false)} disabled={exporting}>
                 キャンセル
               </Button>
-              <Button onClick={handleExport} disabled={exporting}>
+              <Button
+                onClick={handleExport}
+                disabled={exporting || !exportPreview || exportPreview.exportable_count === 0}
+              >
                 <Download className="w-4 h-4 mr-2" />
-                {exporting ? "出力中..." : "エクスポート"}
+                {exporting ? "出力中..." : `エクスポート (${exportPreview?.exportable_count || 0}件)`}
               </Button>
             </DialogFooter>
           </DialogContent>

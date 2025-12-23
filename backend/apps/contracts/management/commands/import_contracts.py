@@ -165,14 +165,30 @@ class Command(BaseCommand):
 
         if brand:
             contract.brand = brand
-            # ブランドからデフォルトの校舎を設定
-            if not contract.school:
+        else:
+            # デフォルトブランドを取得
+            default_brand = Brand.objects.filter(
+                models.Q(tenant_ref=tenant) | models.Q(tenant_id=tenant.id)
+            ).first()
+            if default_brand:
+                contract.brand = default_brand
+
+        # 校舎を設定（必須）
+        if not contract.school:
+            default_school = School.objects.filter(
+                models.Q(tenant_ref=tenant) | models.Q(tenant_id=tenant.id),
+                brand=contract.brand
+            ).first()
+            if not default_school:
                 default_school = School.objects.filter(
-                    models.Q(tenant_ref=tenant) | models.Q(tenant_id=tenant.id),
-                    brand=brand
+                    models.Q(tenant_ref=tenant) | models.Q(tenant_id=tenant.id)
                 ).first()
-                if default_school:
-                    contract.school = default_school
+            if default_school:
+                contract.school = default_school
+
+        # brand/schoolがない場合はスキップ
+        if not contract.brand or not contract.school:
+            return 'skipped'
 
         # 日付
         start_date = self._parse_date(row.get('開始日', ''))
