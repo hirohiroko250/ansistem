@@ -20,6 +20,7 @@ class TaskSerializer(serializers.ModelSerializer):
     brand_name = serializers.CharField(source='brand.brand_name', read_only=True, allow_null=True)
     student_name = serializers.SerializerMethodField()
     guardian_name = serializers.SerializerMethodField()
+    assigned_to_name = serializers.SerializerMethodField()
     task_type_display = serializers.CharField(source='get_task_type_display', read_only=True)
     status_display = serializers.CharField(source='get_status_display', read_only=True)
     priority_display = serializers.CharField(source='get_priority_display', read_only=True)
@@ -31,7 +32,7 @@ class TaskSerializer(serializers.ModelSerializer):
             'title', 'description', 'status', 'status_display', 'priority', 'priority_display',
             'school', 'school_name', 'brand', 'brand_name',
             'student', 'student_name', 'guardian', 'guardian_name',
-            'assigned_to_id', 'created_by_id', 'due_date', 'completed_at',
+            'assigned_to_id', 'assigned_to_name', 'created_by_id', 'due_date', 'completed_at',
             'source_type', 'source_id', 'source_url', 'metadata',
             'created_at', 'updated_at'
         ]
@@ -45,6 +46,17 @@ class TaskSerializer(serializers.ModelSerializer):
     def get_guardian_name(self, obj):
         if obj.guardian:
             return f"{obj.guardian.last_name}{obj.guardian.first_name}"
+        return None
+
+    def get_assigned_to_name(self, obj):
+        """担当者名を取得"""
+        if obj.assigned_to_id:
+            from apps.tenants.models import Employee
+            try:
+                employee = Employee.objects.get(id=obj.assigned_to_id)
+                return employee.full_name
+            except Employee.DoesNotExist:
+                pass
         return None
 
 

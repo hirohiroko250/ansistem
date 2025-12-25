@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -14,6 +14,19 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
 import {
   CheckCircle2,
   Circle,
@@ -38,10 +51,15 @@ import {
   UserPlus,
   Send,
   Landmark,
+  ChevronsUpDown,
+  Check,
+  ArrowRight,
+  EyeOff,
 } from "lucide-react";
 import { getTasks, completeTask, reopenTask, updateTask, Task } from "@/lib/api/staff";
 import apiClient from "@/lib/api/client";
 import { Sidebar } from "@/components/layout/Sidebar";
+import { cn } from "@/lib/utils";
 
 // カテゴリーアイコンを取得
 function getCategoryIcon(taskType: string, size: "sm" | "md" = "sm") {
@@ -125,6 +143,40 @@ interface Staff {
   id: string;
   name: string;
   email?: string;
+  position?: string;
+}
+
+// グループ化されたスタッフの型
+interface StaffGroup {
+  type: 'school' | 'brand';
+  id: string;
+  name: string;
+  employees: Staff[];
+}
+
+interface GroupedStaffResponse {
+  // snake_case (Python) or camelCase (JS) both supported
+  school_groups?: StaffGroup[];
+  schoolGroups?: StaffGroup[];
+  brand_groups?: StaffGroup[];
+  brandGroups?: StaffGroup[];
+  unassigned: Staff[];
+  all_employees?: Array<{
+    id: string;
+    full_name?: string;
+    fullName?: string;
+    email?: string;
+    position_name?: string;
+    positionName?: string;
+  }>;
+  allEmployees?: Array<{
+    id: string;
+    full_name?: string;
+    fullName?: string;
+    email?: string;
+    position_name?: string;
+    positionName?: string;
+  }>;
 }
 
 export default function DashboardPage() {
@@ -135,13 +187,61 @@ export default function DashboardPage() {
   const [deadlines, setDeadlines] = useState<DeadlineInfo[]>([]);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [staffList, setStaffList] = useState<Staff[]>([]);
+  const [staffGroups, setStaffGroups] = useState<StaffGroup[]>([]);
+  const [unassignedStaff, setUnassignedStaff] = useState<Staff[]>([]);
+  const [schools, setSchools] = useState<Array<{id: string; name: string}>>([]);
+  const [brands, setBrands] = useState<Array<{id: string; name: string}>>([]);
+  const [selectedSchool, setSelectedSchool] = useState<string>("");  // 選択された校舎
+  const [selectedBrand, setSelectedBrand] = useState<string>("");   // 選択されたブランド
   const [comment, setComment] = useState("");
+  const [currentUser, setCurrentUser] = useState<{id: string; name: string} | null>(null);
+  const [isAnonymous, setIsAnonymous] = useState(false);
+
+  // Combobox open states
+  const [schoolOpen, setSchoolOpen] = useState(false);
+  const [brandOpen, setBrandOpen] = useState(false);
+  const [staffOpen, setStaffOpen] = useState(false);
 
   useEffect(() => {
     loadTasks();
     loadDeadlines();
     loadStaff();
+    loadSchoolsAndBrands();
+    loadCurrentUser();
   }, []);
+
+  async function loadCurrentUser() {
+    try {
+      const response = await apiClient.get<any>('/auth/me/');
+      const user = response.user || response;
+      setCurrentUser({
+        id: user.id,
+        name: user.fullName || user.full_name || user.username || user.email || '自分',
+      });
+    } catch (error) {
+      console.error('Failed to load current user:', error);
+      // フォールバック
+      setCurrentUser({ id: '', name: '自分' });
+    }
+  }
+
+  async function loadSchoolsAndBrands() {
+    try {
+      // 校舎一覧
+      const schoolsData = await apiClient.get<any>('/schools/schools/');
+      console.log('[Schools] API Response:', schoolsData);
+      const schoolsList = schoolsData.data || schoolsData.results || (Array.isArray(schoolsData) ? schoolsData : []);
+      setSchools(schoolsList.map((s: any) => ({ id: s.id, name: s.schoolName || s.school_name })));
+
+      // ブランド一覧
+      const brandsData = await apiClient.get<any>('/schools/brands/');
+      console.log('[Brands] API Response:', brandsData);
+      const brandsList = brandsData.data || brandsData.results || (Array.isArray(brandsData) ? brandsData : []);
+      setBrands(brandsList.map((b: any) => ({ id: b.id, name: b.brandName || b.brand_name })));
+    } catch (error) {
+      console.error('Failed to load schools/brands:', error);
+    }
+  }
 
   async function loadDeadlines() {
     try {
@@ -153,12 +253,42 @@ export default function DashboardPage() {
   }
 
   async function loadStaff() {
-    // TODO: スタッフ一覧APIを実装
-    setStaffList([
-      { id: "1", name: "山田 太郎", email: "yamada@example.com" },
-      { id: "2", name: "佐藤 花子", email: "sato@example.com" },
-      { id: "3", name: "鈴木 一郎", email: "suzuki@example.com" },
-    ]);
+    try {
+      const data = await apiClient.get<GroupedStaffResponse>('/tenants/employees/grouped/');
+      console.log('[Staff] API Response:', data);
+
+      // camelCase or snake_case どちらにも対応
+      const allEmployees = data.all_employees || data.allEmployees || [];
+      const schoolGroups = data.school_groups || data.schoolGroups || [];
+      const brandGroups = data.brand_groups || data.brandGroups || [];
+      const unassigned = data.unassigned || [];
+
+      // 全スタッフリストを設定
+      if (allEmployees.length > 0) {
+        const allStaff: Staff[] = allEmployees.map(e => ({
+          id: e.id,
+          name: e.full_name || e.fullName || '',
+          email: e.email,
+          position: e.position_name || e.positionName,
+        }));
+        setStaffList(allStaff);
+      } else {
+        console.warn('[Staff] No employees in response');
+        setStaffList([]);
+      }
+
+      // グループ化されたデータを設定（校舎 + ブランド）
+      const groups: StaffGroup[] = [...schoolGroups, ...brandGroups];
+      setStaffGroups(groups);
+
+      // 未割り当てスタッフを設定
+      setUnassignedStaff(unassigned);
+    } catch (error) {
+      console.error('Failed to load staff:', error);
+      setStaffList([]);
+      setStaffGroups([]);
+      setUnassignedStaff([]);
+    }
   }
 
   async function loadTasks() {
@@ -577,22 +707,292 @@ export default function DashboardPage() {
 
               {/* 担当者割り当て */}
               <div className="mb-6">
-                <div className="flex items-center gap-2 mb-2">
+                <div className="flex items-center gap-2 mb-3">
                   <UserPlus className="w-4 h-4 text-gray-400" />
                   <span className="text-sm font-medium text-gray-700">担当者を割り当て</span>
                 </div>
-                <Select onValueChange={assignTask}>
-                  <SelectTrigger className="w-full">
-                    <SelectValue placeholder="担当者を選択..." />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {staffList.map((staff) => (
-                      <SelectItem key={staff.id} value={staff.id}>
-                        {staff.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+
+                {/* 校舎選択（検索可能） */}
+                <div className="mb-2">
+                  <Popover open={schoolOpen} onOpenChange={setSchoolOpen}>
+                    <PopoverTrigger asChild>
+                      <Button
+                        variant="outline"
+                        role="combobox"
+                        aria-expanded={schoolOpen}
+                        className="w-full justify-between"
+                      >
+                        {selectedSchool
+                          ? schools.find((s) => s.id === selectedSchool)?.name
+                          : "🏫 校舎を選択..."}
+                        <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-full p-0" align="start">
+                      <Command>
+                        <CommandInput placeholder="校舎を検索..." />
+                        <CommandList>
+                          <CommandEmpty>見つかりません</CommandEmpty>
+                          <CommandGroup>
+                            <CommandItem
+                              value=""
+                              onSelect={() => {
+                                setSelectedSchool("");
+                                setSchoolOpen(false);
+                              }}
+                            >
+                              <Check className={cn("mr-2 h-4 w-4", !selectedSchool ? "opacity-100" : "opacity-0")} />
+                              未選択
+                            </CommandItem>
+                            {schools.map((school) => (
+                              <CommandItem
+                                key={school.id}
+                                value={school.name}
+                                onSelect={() => {
+                                  setSelectedSchool(school.id);
+                                  setSchoolOpen(false);
+                                }}
+                              >
+                                <Check className={cn("mr-2 h-4 w-4", selectedSchool === school.id ? "opacity-100" : "opacity-0")} />
+                                {school.name}
+                              </CommandItem>
+                            ))}
+                          </CommandGroup>
+                        </CommandList>
+                      </Command>
+                    </PopoverContent>
+                  </Popover>
+                </div>
+
+                {/* ブランド選択（検索可能） */}
+                <div className="mb-2">
+                  <Popover open={brandOpen} onOpenChange={setBrandOpen}>
+                    <PopoverTrigger asChild>
+                      <Button
+                        variant="outline"
+                        role="combobox"
+                        aria-expanded={brandOpen}
+                        className="w-full justify-between"
+                      >
+                        {selectedBrand
+                          ? brands.find((b) => b.id === selectedBrand)?.name
+                          : "🏷️ ブランドを選択..."}
+                        <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-full p-0" align="start">
+                      <Command>
+                        <CommandInput placeholder="ブランドを検索..." />
+                        <CommandList>
+                          <CommandEmpty>見つかりません</CommandEmpty>
+                          <CommandGroup>
+                            <CommandItem
+                              value=""
+                              onSelect={() => {
+                                setSelectedBrand("");
+                                setBrandOpen(false);
+                              }}
+                            >
+                              <Check className={cn("mr-2 h-4 w-4", !selectedBrand ? "opacity-100" : "opacity-0")} />
+                              未選択
+                            </CommandItem>
+                            {brands.map((brand) => (
+                              <CommandItem
+                                key={brand.id}
+                                value={brand.name}
+                                onSelect={() => {
+                                  setSelectedBrand(brand.id);
+                                  setBrandOpen(false);
+                                }}
+                              >
+                                <Check className={cn("mr-2 h-4 w-4", selectedBrand === brand.id ? "opacity-100" : "opacity-0")} />
+                                {brand.name}
+                              </CommandItem>
+                            ))}
+                          </CommandGroup>
+                        </CommandList>
+                      </Command>
+                    </PopoverContent>
+                  </Popover>
+                </div>
+
+                {/* 担当者選択（検索可能） */}
+                <div className="mb-3">
+                  <Popover open={staffOpen} onOpenChange={setStaffOpen}>
+                    <PopoverTrigger asChild>
+                      <Button
+                        variant="outline"
+                        role="combobox"
+                        aria-expanded={staffOpen}
+                        className="w-full justify-between"
+                      >
+                        {selectedTask?.assigned_to_id
+                          ? staffList.find((s) => s.id === selectedTask?.assigned_to_id)?.name || "担当者"
+                          : "👤 担当者を選択..."}
+                        <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-full p-0" align="start">
+                      <Command>
+                        <CommandInput placeholder="担当者を検索..." />
+                        <CommandList>
+                          <CommandEmpty>見つかりません</CommandEmpty>
+                          <CommandGroup>
+                            <CommandItem
+                              value=""
+                              onSelect={() => {
+                                if (selectedTask) {
+                                  setSelectedTask({...selectedTask, assigned_to_id: undefined});
+                                }
+                                setStaffOpen(false);
+                              }}
+                            >
+                              <Check className={cn("mr-2 h-4 w-4", !selectedTask?.assigned_to_id ? "opacity-100" : "opacity-0")} />
+                              未選択
+                            </CommandItem>
+                            {staffList.map((staff) => (
+                              <CommandItem
+                                key={staff.id}
+                                value={`${staff.name} ${staff.position || ''}`}
+                                onSelect={() => {
+                                  if (selectedTask) {
+                                    setSelectedTask({...selectedTask, assigned_to_id: staff.id});
+                                  }
+                                  setStaffOpen(false);
+                                }}
+                              >
+                                <Check className={cn("mr-2 h-4 w-4", selectedTask?.assigned_to_id === staff.id ? "opacity-100" : "opacity-0")} />
+                                <span>{staff.name}</span>
+                                {staff.position && (
+                                  <span className="ml-2 text-xs text-gray-400">({staff.position})</span>
+                                )}
+                              </CommandItem>
+                            ))}
+                          </CommandGroup>
+                        </CommandList>
+                      </Command>
+                    </PopoverContent>
+                  </Popover>
+                </div>
+
+                {/* コメント入力 */}
+                <div className="mb-3">
+                  <div className="flex items-center gap-2 mb-2">
+                    <MessageSquare className="w-4 h-4 text-gray-400" />
+                    <span className="text-sm font-medium text-gray-700">コメント</span>
+                  </div>
+                  <Textarea
+                    placeholder="担当者へのメッセージを入力..."
+                    value={comment}
+                    onChange={(e) => setComment(e.target.value)}
+                    rows={2}
+                    className="text-sm"
+                  />
+                </div>
+
+                {/* 匿名オプション */}
+                <div className="flex items-center space-x-2 mb-3 p-2 bg-gray-50 rounded">
+                  <Checkbox
+                    id="anonymous"
+                    checked={isAnonymous}
+                    onCheckedChange={(checked) => setIsAnonymous(checked === true)}
+                  />
+                  <label
+                    htmlFor="anonymous"
+                    className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 flex items-center gap-1"
+                  >
+                    <EyeOff className="w-3 h-3" />
+                    匿名でタスクを振る
+                  </label>
+                </div>
+
+                {/* 誰から誰へ表示 */}
+                {selectedTask?.assigned_to_id && (
+                  <div className="mb-3 p-3 bg-blue-50 border border-blue-100 rounded-lg">
+                    <div className="flex items-center justify-center gap-2 text-sm">
+                      <div className="flex items-center gap-1 px-2 py-1 bg-white rounded shadow-sm">
+                        <User className="w-3 h-3 text-gray-500" />
+                        <span className="font-medium">
+                          {isAnonymous ? "匿名" : (currentUser?.name || "自分")}
+                        </span>
+                      </div>
+                      <ArrowRight className="w-4 h-4 text-blue-500" />
+                      <div className="flex items-center gap-1 px-2 py-1 bg-white rounded shadow-sm">
+                        <User className="w-3 h-3 text-blue-500" />
+                        <span className="font-medium text-blue-700">
+                          {staffList.find(s => s.id === selectedTask.assigned_to_id)?.name}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* 確定ボタン */}
+                <Button
+                  className="w-full"
+                  variant="default"
+                  onClick={async () => {
+                    if (!selectedTask) return;
+
+                    const updateData: any = {
+                      status: selectedTask.status === "new" ? "in_progress" : selectedTask.status,
+                    };
+
+                    if (selectedSchool) updateData.school = selectedSchool;
+                    if (selectedBrand) updateData.brand = selectedBrand;
+                    if (selectedTask.assigned_to_id) updateData.assigned_to_id = selectedTask.assigned_to_id;
+                    // 匿名でない場合は作成者IDを設定
+                    if (!isAnonymous && currentUser?.id) {
+                      updateData.created_by_id = currentUser.id;
+                    }
+
+                    const result = await updateTask(selectedTask.id, updateData);
+                    if (result) {
+                      // コメントがあれば送信
+                      if (comment.trim()) {
+                        try {
+                          const assigneeName = staffList.find(s => s.id === selectedTask.assigned_to_id)?.name || '担当者';
+                          const fromName = isAnonymous ? '匿名' : (currentUser?.name || '自分');
+
+                          // 割り当て情報をコメントに含める
+                          let fullComment = comment;
+                          if (selectedTask.assigned_to_id) {
+                            fullComment = `【${fromName} → ${assigneeName} に割り当て】\n${comment}`;
+                          }
+
+                          await apiClient.post('/tasks/comments/', {
+                            task: selectedTask.id,
+                            comment: fullComment,
+                            commented_by_id: isAnonymous ? null : currentUser?.id,
+                            is_internal: false,
+                          });
+                        } catch (error) {
+                          console.error('Failed to add comment:', error);
+                        }
+                      }
+
+                      loadTasks();
+                      setSelectedTask(result);
+                      // 選択をリセット
+                      setSelectedSchool("");
+                      setSelectedBrand("");
+                      setIsAnonymous(false);
+                      setComment("");
+                    }
+                  }}
+                  disabled={!selectedSchool && !selectedBrand && !selectedTask?.assigned_to_id}
+                >
+                  <Send className="w-4 h-4 mr-2" />
+                  確定して割り当て{comment.trim() ? "（コメント付き）" : ""}
+                </Button>
+
+                {/* 選択中の表示 */}
+                {(selectedSchool || selectedBrand) && (
+                  <div className="mt-2 p-2 bg-gray-50 rounded text-xs text-gray-600">
+                    {selectedSchool && <div>🏫 {schools.find(s => s.id === selectedSchool)?.name}</div>}
+                    {selectedBrand && <div>🏷️ {brands.find(b => b.id === selectedBrand)?.name}</div>}
+                  </div>
+                )}
               </div>
 
               {/* ソースリンク */}
@@ -606,20 +1006,6 @@ export default function DashboardPage() {
                   詳細ページを開く
                 </Button>
               )}
-
-              {/* コメント入力 */}
-              <div className="mb-4">
-                <div className="flex items-center gap-2 mb-2">
-                  <MessageSquare className="w-4 h-4 text-gray-400" />
-                  <span className="text-sm font-medium text-gray-700">コメント</span>
-                </div>
-                <Textarea
-                  placeholder="コメントを入力..."
-                  value={comment}
-                  onChange={(e) => setComment(e.target.value)}
-                  rows={3}
-                />
-              </div>
             </div>
 
             {/* アクションボタン */}
@@ -640,12 +1026,6 @@ export default function DashboardPage() {
                 >
                   <Undo2 className="w-4 h-4 mr-2" />
                   再開する
-                </Button>
-              )}
-              {comment && (
-                <Button variant="outline" className="w-full">
-                  <Send className="w-4 h-4 mr-2" />
-                  コメントを送信
                 </Button>
               )}
             </div>

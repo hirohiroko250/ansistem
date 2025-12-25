@@ -306,3 +306,90 @@ export async function getChatLogStatistics(): Promise<{
 }> {
   return api.get('/communications/chat-logs/statistics/');
 }
+
+// ============================================
+// スタッフ間チャット関連
+// ============================================
+
+export interface StaffChannel {
+  id: string;
+  name: string;
+  channelType: string;
+  description?: string;
+  updatedAt: string;
+  members?: Array<{
+    id: string;
+    user?: { id: string; fullName?: string; email: string };
+  }>;
+  unreadCount?: number;
+}
+
+export interface Staff {
+  id: string;
+  name: string;
+  email?: string;
+  position?: string;
+}
+
+/**
+ * 自分が参加している内部チャンネル一覧を取得
+ */
+export async function getStaffChannels(): Promise<StaffChannel[]> {
+  const response = await api.get<PaginatedResponse<StaffChannel>>(
+    '/communications/channels/my-channels/?channel_type=INTERNAL'
+  );
+  return response?.data || response?.results || (response as unknown as StaffChannel[]) || [];
+}
+
+/**
+ * スタッフ一覧を取得
+ */
+export async function getStaffList(): Promise<Staff[]> {
+  const response = await api.get<PaginatedResponse<any>>('/tenants/employees/');
+  const data = response?.data || response?.results || (response as unknown as any[]) || [];
+  return data.map((e: any) => ({
+    id: e.id,
+    name: e.fullName || e.full_name || e.email,
+    email: e.email,
+    position: e.positionName || e.position_name,
+  }));
+}
+
+/**
+ * スタッフとのDMを作成または取得
+ */
+export async function createStaffDM(targetUserId: string): Promise<StaffChannel> {
+  return api.post<StaffChannel>('/communications/channels/create-dm/', {
+    target_user_id: targetUserId,
+  });
+}
+
+/**
+ * スタッフグループチャットを作成
+ */
+export async function createStaffGroup(name: string, memberIds: string[]): Promise<StaffChannel> {
+  return api.post<StaffChannel>('/communications/channels/create-group/', {
+    name,
+    member_ids: memberIds,
+  });
+}
+
+/**
+ * チャンネルのメッセージを送信
+ */
+export async function sendStaffMessage(channelId: string, content: string): Promise<Message> {
+  return api.post<Message>(`/communications/channels/${channelId}/send_message/`, {
+    content,
+    message_type: 'TEXT',
+  });
+}
+
+/**
+ * チャンネルのメッセージを取得
+ */
+export async function getStaffMessages(channelId: string): Promise<Message[]> {
+  const response = await api.get<PaginatedResponse<Message>>(
+    `/communications/channels/${channelId}/messages/`
+  );
+  return response?.data || response?.results || (response as unknown as Message[]) || [];
+}

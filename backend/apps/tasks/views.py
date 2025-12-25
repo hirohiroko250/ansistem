@@ -30,7 +30,7 @@ class TaskViewSet(viewsets.ModelViewSet):
     ).order_by('-created_at')
     permission_classes = [AllowAny]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
-    filterset_fields = ['status', 'priority', 'task_type', 'school', 'brand', 'student']
+    filterset_fields = ['status', 'priority', 'task_type', 'school', 'brand', 'student', 'assigned_to_id']
     search_fields = ['title', 'description', 'student__last_name', 'student__first_name']
     ordering_fields = ['created_at', 'due_date', 'priority', 'status']
     ordering = ['-created_at']
@@ -39,6 +39,52 @@ class TaskViewSet(viewsets.ModelViewSet):
         if self.action in ['create', 'update', 'partial_update']:
             return TaskCreateUpdateSerializer
         return TaskSerializer
+
+    @action(detail=False, methods=['get'])
+    def my_tasks(self, request):
+        """自分に割り当てられたタスク一覧"""
+        user = request.user
+        if not user.is_authenticated:
+            return Response({'error': '認証が必要です'}, status=status.HTTP_401_UNAUTHORIZED)
+
+        # ユーザーIDでフィルタリング
+        tasks = self.queryset.filter(assigned_to_id=user.id).exclude(status__in=['completed', 'cancelled'])
+
+        # ステータスフィルター
+        status_filter = request.query_params.get('status')
+        if status_filter:
+            tasks = tasks.filter(status=status_filter)
+
+        page = self.paginate_queryset(tasks)
+        if page is not None:
+            serializer = TaskSerializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+        serializer = TaskSerializer(tasks, many=True)
+        return Response(serializer.data)
+
+    @action(detail=False, methods=['get'])
+    def by_assignee(self, request):
+        """担当者別タスク一覧"""
+        assignee_id = request.query_params.get('assignee_id')
+        if not assignee_id:
+            return Response({'error': 'assignee_id is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        tasks = self.queryset.filter(assigned_to_id=assignee_id)
+
+        # ステータスフィルター
+        status_filter = request.query_params.get('status')
+        if status_filter:
+            tasks = tasks.filter(status=status_filter)
+        else:
+            # デフォルトで未完了のみ
+            tasks = tasks.exclude(status__in=['completed', 'cancelled'])
+
+        page = self.paginate_queryset(tasks)
+        if page is not None:
+            serializer = TaskSerializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+        serializer = TaskSerializer(tasks, many=True)
+        return Response(serializer.data)
 
     @action(detail=False, methods=['get'])
     def pending(self, request):

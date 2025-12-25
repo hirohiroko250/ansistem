@@ -169,6 +169,143 @@ class ChannelViewSet(viewsets.ModelViewSet):
         channel.save(update_fields=['is_archived'])
         return Response(ChannelDetailSerializer(channel).data)
 
+    @action(detail=False, methods=['post'], url_path='create-dm')
+    def create_dm(self, request):
+        """社員間DM（1対1チャット）を作成または取得"""
+        target_user_id = request.data.get('target_user_id')
+        if not target_user_id:
+            return Response(
+                {'error': 'target_user_id is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        from django.contrib.auth import get_user_model
+        User = get_user_model()
+
+        try:
+            target_user = User.objects.get(id=target_user_id)
+        except User.DoesNotExist:
+            return Response(
+                {'error': 'User not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        tenant_id = getattr(request, 'tenant_id', None)
+        if not tenant_id:
+            tenant_id = request.user.tenant_id
+
+        # 既存のDMチャンネルを探す
+        existing_channel = Channel.objects.filter(
+            tenant_id=tenant_id,
+            channel_type=Channel.ChannelType.INTERNAL,
+            is_archived=False,
+            members__user=request.user
+        ).filter(
+            members__user=target_user
+        ).annotate(
+            member_count=Count('members')
+        ).filter(member_count=2).first()
+
+        if existing_channel:
+            return Response(ChannelDetailSerializer(existing_channel).data)
+
+        # 新規DMチャンネル作成
+        channel = Channel.objects.create(
+            tenant_id=tenant_id,
+            channel_type=Channel.ChannelType.INTERNAL,
+            name=f"{request.user.full_name or request.user.email} & {target_user.full_name or target_user.email}",
+            description="ダイレクトメッセージ"
+        )
+
+        # メンバー追加
+        ChannelMember.objects.create(
+            channel=channel,
+            user=request.user,
+            role=ChannelMember.Role.MEMBER
+        )
+        ChannelMember.objects.create(
+            channel=channel,
+            user=target_user,
+            role=ChannelMember.Role.MEMBER
+        )
+
+        return Response(ChannelDetailSerializer(channel).data, status=status.HTTP_201_CREATED)
+
+    @action(detail=False, methods=['post'], url_path='create-group')
+    def create_group(self, request):
+        """グループチャットを作成"""
+        name = request.data.get('name')
+        member_ids = request.data.get('member_ids', [])
+
+        if not name:
+            return Response(
+                {'error': 'name is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        tenant_id = getattr(request, 'tenant_id', None)
+        if not tenant_id:
+            tenant_id = request.user.tenant_id
+
+        # グループチャンネル作成
+        channel = Channel.objects.create(
+            tenant_id=tenant_id,
+            channel_type=Channel.ChannelType.INTERNAL,
+            name=name,
+            description=request.data.get('description', '')
+        )
+
+        # 作成者を管理者として追加
+        ChannelMember.objects.create(
+            channel=channel,
+            user=request.user,
+            role=ChannelMember.Role.ADMIN
+        )
+
+        # 他のメンバーを追加
+        from django.contrib.auth import get_user_model
+        User = get_user_model()
+        for member_id in member_ids:
+            if str(member_id) != str(request.user.id):
+                try:
+                    user = User.objects.get(id=member_id)
+                    ChannelMember.objects.create(
+                        channel=channel,
+                        user=user,
+                        role=ChannelMember.Role.MEMBER
+                    )
+                except User.DoesNotExist:
+                    pass
+
+        return Response(ChannelDetailSerializer(channel).data, status=status.HTTP_201_CREATED)
+
+    @action(detail=False, methods=['get'], url_path='my-channels')
+    def my_channels(self, request):
+        """自分が参加しているチャンネル一覧"""
+        tenant_id = getattr(request, 'tenant_id', None)
+        if not tenant_id:
+            tenant_id = request.user.tenant_id
+
+        channels = Channel.objects.filter(
+            tenant_id=tenant_id,
+            is_archived=False,
+            members__user=request.user
+        ).select_related('school').prefetch_related('members__user').distinct()
+
+        channel_type = request.query_params.get('channel_type')
+        if channel_type:
+            channels = channels.filter(channel_type=channel_type)
+
+        channels = channels.order_by('-updated_at')
+
+        page = self.paginate_queryset(channels)
+        if page is not None:
+            serializer = ChannelListSerializer(page, many=True, context={'request': request})
+            return self.get_paginated_response(serializer.data)
+
+        serializer = ChannelListSerializer(channels, many=True, context={'request': request})
+        return Response(serializer.data)
+
     @action(detail=False, methods=['post'], url_path='get-or-create-for-guardian')
     def get_or_create_for_guardian(self, request):
         """保護者用チャンネルを取得または作成"""

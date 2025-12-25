@@ -5,11 +5,12 @@ from rest_framework import viewsets, permissions, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
-from .models import Tenant, Position, FeatureMaster, PositionPermission
+from .models import Tenant, Position, FeatureMaster, PositionPermission, Employee
 from .serializers import (
     TenantSerializer, TenantDetailSerializer,
     PositionSerializer, FeatureMasterSerializer,
     PositionPermissionSerializer, BulkPermissionUpdateSerializer,
+    EmployeeListSerializer, EmployeeDetailSerializer,
 )
 
 
@@ -195,4 +196,119 @@ class PositionPermissionViewSet(viewsets.ModelViewSet):
         return Response({
             'success': True,
             'has_permission': perm.has_permission,
+        })
+
+
+class EmployeeViewSet(viewsets.ModelViewSet):
+    """社員ViewSet"""
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        queryset = Employee.objects.filter(
+            tenant_ref=self.request.user.tenant_id,
+            is_active=True
+        ).select_related('position').prefetch_related('schools', 'brands').order_by(
+            'department', 'last_name', 'first_name'
+        )
+
+        # フィルター
+        school_id = self.request.query_params.get('school')
+        brand_id = self.request.query_params.get('brand')
+
+        if school_id:
+            queryset = queryset.filter(schools__id=school_id)
+        if brand_id:
+            queryset = queryset.filter(brands__id=brand_id)
+
+        return queryset.distinct()
+
+    def get_serializer_class(self):
+        if self.action == 'retrieve':
+            return EmployeeDetailSerializer
+        return EmployeeListSerializer
+
+    def perform_create(self, serializer):
+        serializer.save(tenant_ref=self.request.user.tenant_id)
+
+    @action(detail=False, methods=['get'])
+    def grouped(self, request):
+        """校舎・ブランド別にグループ化した社員一覧"""
+        from apps.schools.models import School, Brand
+
+        tenant_id = request.user.tenant_id
+
+        # 校舎一覧を取得
+        schools = School.objects.filter(
+            tenant_ref=tenant_id, is_active=True
+        ).order_by('school_name')
+
+        # ブランド一覧を取得
+        brands = Brand.objects.filter(
+            tenant_ref=tenant_id, is_active=True
+        ).order_by('brand_name')
+
+        # 全社員を取得
+        employees = Employee.objects.filter(
+            tenant_ref=tenant_id, is_active=True
+        ).select_related('position').prefetch_related('schools', 'brands').order_by(
+            'last_name', 'first_name'
+        )
+
+        # 校舎別グループ化
+        school_groups = []
+        for school in schools:
+            school_employees = [
+                {
+                    'id': str(e.id),
+                    'name': f"{e.last_name} {e.first_name}",
+                    'position': e.position.position_name if e.position else e.position_text or '',
+                    'email': e.email or '',
+                }
+                for e in employees if school in e.schools.all()
+            ]
+            if school_employees:
+                school_groups.append({
+                    'type': 'school',
+                    'id': str(school.id),
+                    'name': school.school_name,
+                    'employees': school_employees,
+                })
+
+        # ブランド別グループ化
+        brand_groups = []
+        for brand in brands:
+            brand_employees = [
+                {
+                    'id': str(e.id),
+                    'name': f"{e.last_name} {e.first_name}",
+                    'position': e.position.position_name if e.position else e.position_text or '',
+                    'email': e.email or '',
+                }
+                for e in employees if brand in e.brands.all()
+            ]
+            if brand_employees:
+                brand_groups.append({
+                    'type': 'brand',
+                    'id': str(brand.id),
+                    'name': brand.brand_name,
+                    'employees': brand_employees,
+                })
+
+        # 所属なし（校舎・ブランドどちらもない）
+        unassigned_employees = [
+            {
+                'id': str(e.id),
+                'name': f"{e.last_name} {e.first_name}",
+                'position': e.position.position_name if e.position else e.position_text or '',
+                'email': e.email or '',
+            }
+            for e in employees
+            if not e.schools.exists() and not e.brands.exists()
+        ]
+
+        return Response({
+            'school_groups': school_groups,
+            'brand_groups': brand_groups,
+            'unassigned': unassigned_employees,
+            'all_employees': EmployeeListSerializer(employees, many=True).data,
         })

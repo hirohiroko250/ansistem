@@ -11,10 +11,13 @@ import {
   BookOpen,
   FileText,
   MessageSquare,
+  MessagesSquare,
   Calendar,
   Settings,
   Receipt,
   Landmark,
+  Library,
+  ClipboardList,
 } from "lucide-react";
 
 const menuItems = [
@@ -67,6 +70,21 @@ const menuItems = [
     name: "Messages",
     href: "/messages",
     icon: MessageSquare,
+  },
+  {
+    name: "Staff Chat",
+    href: "/chat",
+    icon: MessagesSquare,
+  },
+  {
+    name: "Manuals",
+    href: "/knowledge/manuals",
+    icon: Library,
+  },
+  {
+    name: "Templates",
+    href: "/knowledge/templates",
+    icon: ClipboardList,
   },
   {
     name: "Settings",

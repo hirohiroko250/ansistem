@@ -30,14 +30,22 @@ import {
   sendMessage,
   markChannelAsRead,
   archiveChannel,
+  getStaffChannels,
+  getStaffMessages,
+  sendStaffMessage,
+  createStaffDM,
+  createStaffGroup,
+  getStaffList,
   type Channel,
   type Message,
+  type StaffChannel,
+  type Staff,
 } from '@/lib/api/chat';
 import { getAccessToken } from '@/lib/api/client';
 
 export default function ChatPage() {
   const router = useRouter();
-  const [activeTab, setActiveTab] = useState<'guardian' | 'group'>('guardian');
+  const [activeTab, setActiveTab] = useState<'guardian' | 'group' | 'staff'>('guardian');
   const [channels, setChannels] = useState<Channel[]>([]);
   const [selectedChannel, setSelectedChannel] = useState<Channel | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -46,6 +54,16 @@ export default function ChatPage() {
   const [isSending, setIsSending] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // Staff chat state
+  const [staffChannels, setStaffChannels] = useState<StaffChannel[]>([]);
+  const [selectedStaffChannel, setSelectedStaffChannel] = useState<StaffChannel | null>(null);
+  const [staffMessages, setStaffMessages] = useState<Message[]>([]);
+  const [staffList, setStaffList] = useState<Staff[]>([]);
+  const [showNewDM, setShowNewDM] = useState(false);
+  const [showNewGroup, setShowNewGroup] = useState(false);
+  const [groupName, setGroupName] = useState('');
+  const [selectedMembers, setSelectedMembers] = useState<string[]>([]);
 
   // 認証チェック
   useEffect(() => {
@@ -57,7 +75,12 @@ export default function ChatPage() {
 
   // チャンネル一覧を取得
   useEffect(() => {
-    loadChannels();
+    if (activeTab === 'staff') {
+      loadStaffChannels();
+      loadStaffList();
+    } else {
+      loadChannels();
+    }
   }, [activeTab]);
 
   // 選択したチャンネルのメッセージを取得
@@ -66,6 +89,17 @@ export default function ChatPage() {
       loadMessages();
     }
   }, [selectedChannel?.id]);
+
+  // 選択したスタッフチャンネルのメッセージを取得
+  useEffect(() => {
+    if (selectedStaffChannel) {
+      loadStaffMessagesForChannel();
+      const interval = setInterval(() => {
+        loadStaffMessagesForChannel();
+      }, 5000);
+      return () => clearInterval(interval);
+    }
+  }, [selectedStaffChannel?.id]);
 
   // メッセージ更新時に自動スクロール
   useEffect(() => {

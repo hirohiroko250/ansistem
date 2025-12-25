@@ -4,17 +4,19 @@ import { useEffect, useState } from "react";
 import { ThreePaneLayout } from "@/components/layout/ThreePaneLayout";
 import { TaskList } from "@/components/tasks/TaskList";
 import { TaskDetail } from "@/components/tasks/TaskDetail";
-import { getTasks, getTaskDetail, Task } from "@/lib/api/staff";
+import { getTasks, getTaskDetail, getMyTasks, Task } from "@/lib/api/staff";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 export default function TasksPage() {
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [myTasks, setMyTasks] = useState<Task[]>([]);
   const [selectedTaskId, setSelectedTaskId] = useState<string>();
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     loadTasks();
+    loadMyTasks();
   }, []);
 
   useEffect(() => {
@@ -28,6 +30,11 @@ export default function TasksPage() {
     const data = await getTasks();
     setTasks(data);
     setLoading(false);
+  }
+
+  async function loadMyTasks() {
+    const data = await getMyTasks();
+    setMyTasks(data);
   }
 
   async function loadTaskDetail(taskId: string) {
@@ -55,7 +62,7 @@ export default function TasksPage() {
     );
   });
 
-  const pendingTasks = tasks.filter((task) => task.status === "pending");
+  const pendingTasks = tasks.filter((task) => task.status === "pending" || task.status === "new");
   const inProgressTasks = tasks.filter((task) => task.status === "in_progress");
   const completedTasks = tasks.filter((task) => task.status === "completed");
 
@@ -82,8 +89,11 @@ export default function TasksPage() {
         {loading ? (
           <div className="text-center text-gray-500 py-8">読み込み中...</div>
         ) : (
-          <Tabs defaultValue="today" className="w-full">
+          <Tabs defaultValue="my_tasks" className="w-full">
             <TabsList className="mb-4">
+              <TabsTrigger value="my_tasks">
+                自分のタスク ({myTasks.length})
+              </TabsTrigger>
               <TabsTrigger value="today">
                 今日のタスク ({todayTasks.length})
               </TabsTrigger>
@@ -98,6 +108,20 @@ export default function TasksPage() {
               </TabsTrigger>
               <TabsTrigger value="all">すべて ({tasks.length})</TabsTrigger>
             </TabsList>
+
+            <TabsContent value="my_tasks">
+              {myTasks.length > 0 ? (
+                <TaskList
+                  tasks={myTasks}
+                  selectedTaskId={selectedTaskId}
+                  onSelectTask={handleSelectTask}
+                />
+              ) : (
+                <div className="text-center text-gray-500 py-8">
+                  自分に割り当てられたタスクはありません
+                </div>
+              )}
+            </TabsContent>
 
             <TabsContent value="today">
               {todayTasks.length > 0 ? (

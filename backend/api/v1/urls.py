@@ -41,4 +41,7 @@ urlpatterns = [
 
     # 作業管理
     path('tasks/', include('apps.tasks.urls', namespace='tasks')),
+
+    # ナレッジ管理（マニュアル・テンプレート）
+    path('knowledge/', include('apps.knowledge.urls', namespace='knowledge')),
 ]

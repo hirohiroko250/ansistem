@@ -61,6 +61,7 @@ export type Task = {
   guardian?: string;
   guardian_name?: string;
   assigned_to_id?: string;
+  assigned_to_name?: string;
   created_by_id?: string;
   due_date?: string;
   completed_at?: string;
@@ -867,6 +868,46 @@ export async function reopenTask(id: string): Promise<Task | null> {
   } catch (error) {
     console.error("Error reopening task:", error);
     return null;
+  }
+}
+
+export async function getMyTasks(filters?: {
+  status?: string;
+}): Promise<Task[]> {
+  try {
+    const params: Record<string, string | undefined> = {};
+    if (filters?.status) params.status = filters.status;
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const response = await apiClient.get<any>("/tasks/my_tasks/", params);
+    if (Array.isArray(response)) {
+      return response;
+    }
+    return response.data || response.results || [];
+  } catch (error) {
+    console.error("Error fetching my tasks:", error);
+    return [];
+  }
+}
+
+export async function getTasksByAssignee(assigneeId: string, filters?: {
+  status?: string;
+}): Promise<Task[]> {
+  try {
+    const params: Record<string, string | undefined> = {
+      assignee_id: assigneeId,
+    };
+    if (filters?.status) params.status = filters.status;
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const response = await apiClient.get<any>("/tasks/by_assignee/", params);
+    if (Array.isArray(response)) {
+      return response;
+    }
+    return response.data || response.results || [];
+  } catch (error) {
+    console.error("Error fetching tasks by assignee:", error);
+    return [];
   }
 }
 

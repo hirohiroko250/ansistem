@@ -2,7 +2,7 @@
 Tenants Serializers
 """
 from rest_framework import serializers
-from .models import Tenant, Position, FeatureMaster, PositionPermission
+from .models import Tenant, Position, FeatureMaster, PositionPermission, Employee
 
 
 class TenantSerializer(serializers.ModelSerializer):
@@ -87,3 +87,62 @@ class PositionPermissionMatrixSerializer(serializers.Serializer):
 class BulkPermissionUpdateSerializer(serializers.Serializer):
     """一括権限更新用シリアライザ"""
     permissions = PositionPermissionMatrixSerializer(many=True)
+
+
+# =============================================================================
+# 社員関連
+# =============================================================================
+
+class EmployeeListSerializer(serializers.ModelSerializer):
+    """社員一覧シリアライザ（ドロップダウン用）"""
+    full_name = serializers.SerializerMethodField()
+    position_name = serializers.CharField(source='position.position_name', read_only=True, allow_null=True)
+    schools_list = serializers.SerializerMethodField()
+    brands_list = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Employee
+        fields = [
+            'id', 'employee_no', 'full_name', 'last_name', 'first_name',
+            'email', 'department', 'position', 'position_name',
+            'schools_list', 'brands_list', 'is_active',
+        ]
+
+    def get_full_name(self, obj):
+        return f"{obj.last_name} {obj.first_name}"
+
+    def get_schools_list(self, obj):
+        return [{'id': str(s.id), 'name': s.school_name} for s in obj.schools.all()]
+
+    def get_brands_list(self, obj):
+        return [{'id': str(b.id), 'name': b.brand_name} for b in obj.brands.all()]
+
+
+class EmployeeDetailSerializer(serializers.ModelSerializer):
+    """社員詳細シリアライザ"""
+    full_name = serializers.SerializerMethodField()
+    position_name = serializers.CharField(source='position.position_name', read_only=True, allow_null=True)
+    schools_list = serializers.SerializerMethodField()
+    brands_list = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Employee
+        fields = [
+            'id', 'employee_no', 'full_name', 'last_name', 'first_name',
+            'email', 'phone', 'department', 'position', 'position_name', 'position_text',
+            'schools_list', 'brands_list',
+            'hire_date', 'termination_date',
+            'postal_code', 'prefecture', 'city', 'address', 'nationality',
+            'discount_flag', 'discount_amount', 'discount_unit',
+            'discount_category_name', 'discount_category_code',
+            'ozaworks_registered', 'is_active',
+        ]
+
+    def get_full_name(self, obj):
+        return f"{obj.last_name} {obj.first_name}"
+
+    def get_schools_list(self, obj):
+        return [{'id': str(s.id), 'name': s.school_name} for s in obj.schools.all()]
+
+    def get_brands_list(self, obj):
+        return [{'id': str(b.id), 'name': b.brand_name} for b in obj.brands.all()]
