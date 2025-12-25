@@ -8,7 +8,8 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
-import { User, Bell, Shield, Palette, LogOut } from "lucide-react";
+import { User, Bell, Shield, Palette, LogOut, Users, ChevronRight } from "lucide-react";
+import Link from "next/link";
 import apiClient from "@/lib/api/client";
 
 export default function SettingsPage() {
@@ -155,6 +156,24 @@ export default function SettingsPage() {
               </div>
               <Button>パスワードを変更</Button>
             </div>
+          </Card>
+
+          <Card className="p-6">
+            <div className="flex items-center gap-3 mb-4">
+              <Users className="w-5 h-5 text-gray-600" />
+              <h2 className="text-lg font-semibold text-gray-900">
+                権限管理
+              </h2>
+            </div>
+            <p className="text-sm text-gray-600 mb-4">
+              役職ごとの機能アクセス権限を設定
+            </p>
+            <Link href="/settings/permissions">
+              <Button variant="outline" className="w-full justify-between">
+                <span>権限設定を開く</span>
+                <ChevronRight className="w-4 h-4" />
+              </Button>
+            </Link>
           </Card>
 
           <Card className="p-6 border-red-200 bg-red-50">

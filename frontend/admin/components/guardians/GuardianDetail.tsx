@@ -946,7 +946,10 @@ export function GuardianDetail({
                 {(guardian.payment_registered_at || guardian.paymentRegisteredAt) && (
                   <div className="pt-2 border-t border-gray-100">
                     <p className="text-xs text-gray-400">
-                      登録日時: {new Date(guardian.payment_registered_at || guardian.paymentRegisteredAt || '').toLocaleString('ja-JP')}
+                      登録日時: {(() => {
+                        const dateStr = guardian.payment_registered_at || guardian.paymentRegisteredAt;
+                        return dateStr ? new Date(dateStr).toLocaleString('ja-JP') : '-';
+                      })()}
                     </p>
                   </div>
                 )}
@@ -1038,7 +1041,7 @@ export function GuardianDetail({
                           {log.contact_type_display || log.contact_type}
                         </Badge>
                         <span className="text-xs text-gray-400">
-                          {new Date(log.created_at).toLocaleDateString("ja-JP")}
+                          {log.created_at ? new Date(log.created_at).toLocaleDateString("ja-JP") : "-"}
                         </span>
                       </div>
                       <p className="text-sm font-medium">{log.subject}</p>
@@ -1089,12 +1092,12 @@ export function GuardianDetail({
                           </span>
                         </div>
                         <span className="text-xs text-gray-400">
-                          {new Date(msg.created_at).toLocaleString("ja-JP", {
+                          {msg.created_at ? new Date(msg.created_at).toLocaleString("ja-JP", {
                             month: "numeric",
                             day: "numeric",
                             hour: "2-digit",
                             minute: "2-digit"
-                          })}
+                          }) : "-"}
                         </span>
                       </div>
                       <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
@@ -1175,18 +1178,18 @@ export function GuardianDetail({
                       <tbody>
                         {passbookData.transactions.map((tx) => {
                           const isDeposit = tx.amount > 0;
-                          const txDate = new Date(tx.created_at || tx.createdAt || '');
+                          const dateStr = tx.created_at || tx.createdAt;
                           const description = tx.transaction_type_display || tx.transactionTypeDisplay || tx.transaction_type;
                           const invoiceLabel = tx.invoice_billing_label || tx.invoiceBillingLabel;
 
                           return (
                             <tr key={tx.id} className="border-t hover:bg-gray-50">
                               <td className="px-3 py-2 text-gray-500">
-                                {txDate.toLocaleDateString('ja-JP', {
+                                {dateStr ? new Date(dateStr).toLocaleDateString('ja-JP', {
                                   year: 'numeric',
                                   month: 'numeric',
                                   day: 'numeric'
-                                })}
+                                }) : "-"}
                               </td>
                               <td className="px-3 py-2">
                                 <div className="flex items-center gap-2">

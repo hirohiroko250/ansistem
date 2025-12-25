@@ -1904,11 +1904,21 @@ class ConfirmedBilling(TenantModel):
     # メモ
     notes = models.TextField('備考', blank=True)
 
+    # 退会日情報
+    withdrawal_date = models.DateField('全退会日', null=True, blank=True, help_text='生徒の退会日')
+    brand_withdrawal_dates = models.JSONField(
+        'ブランド退会日',
+        default=dict,
+        blank=True,
+        help_text='ブランドごとの退会日 {brand_id: "YYYY-MM-DD"}'
+    )
+
     class Meta:
         db_table = 't_confirmed_billing'
         verbose_name = '請求確定'
         verbose_name_plural = '請求確定'
-        ordering = ['-year', '-month', '-confirmed_at']
+        # 並び順: 保護者 → 生徒 → 請求番号
+        ordering = ['guardian__last_name', 'guardian__first_name', 'student__last_name', 'student__first_name', 'billing_no']
         indexes = [
             models.Index(fields=['student', 'year', 'month']),
             models.Index(fields=['guardian', 'year', 'month']),
@@ -1994,7 +2004,7 @@ class ConfirmedBilling(TenantModel):
             student=student,
             billing_month__in=billing_month_formats,
             deleted_at__isnull=True
-        ).select_related('product', 'course', 'brand')
+        ).select_related('product', 'course', 'brand', 'contract')
 
         # 明細スナップショットを作成
         items_snapshot = []
@@ -2004,12 +2014,35 @@ class ConfirmedBilling(TenantModel):
             old_id = item.old_id or ''
             if not old_id and item.product:
                 old_id = item.product.product_code or ''
+
+            # 請求カテゴリ（商品種別）
+            item_type = ''
+            item_type_display = ''
+            product_name_short = ''
+            if item.product:
+                item_type = item.product.item_type or ''
+                item_type_display = item.product.get_item_type_display() if item.product.item_type else ''
+                product_name_short = item.product.product_name_short or ''
+
+            # 契約番号
+            contract_no = ''
+            contract_id = ''
+            if item.contract:
+                contract_no = item.contract.contract_no or ''
+                contract_id = str(item.contract.id) if item.contract.id else ''
+
             item_data = {
                 'id': str(item.id),
                 'old_id': old_id,  # 旧システムID（例: 24AEC_1000007_1）
                 'product_name': item.product.product_name if item.product else None,
+                'product_name_short': product_name_short,  # 契約名
+                'item_type': item_type,  # 請求カテゴリコード
+                'item_type_display': item_type_display,  # 請求カテゴリ表示名
                 'course_name': item.course.course_name if item.course else None,
+                'brand_id': str(item.brand.id) if item.brand else None,
                 'brand_name': item.brand.brand_name if item.brand else None,
+                'contract_no': contract_no,  # 契約番号
+                'contract_id': contract_id,  # 契約ID
                 'quantity': item.quantity,
                 'unit_price': str(item.unit_price),
                 'discount_amount': str(item.discount_amount),
@@ -2017,7 +2050,19 @@ class ConfirmedBilling(TenantModel):
                 'notes': item.notes,
             }
             items_snapshot.append(item_data)
-            subtotal += item.final_price or Decimal('0')
+
+        # 設備費は1生徒につき1つのみ（最高額を採用）
+        facility_types = ['facility', 'enrollment_facility']
+        facility_items = [i for i in items_snapshot if i.get('item_type') in facility_types]
+        non_facility_items = [i for i in items_snapshot if i.get('item_type') not in facility_types]
+
+        if len(facility_items) > 1:
+            # 最高額の設備費を選択
+            highest_facility = max(facility_items, key=lambda x: Decimal(str(x.get('final_price', 0) or 0)))
+            items_snapshot = non_facility_items + [highest_facility]
+
+        # 小計を再計算
+        subtotal = sum(Decimal(str(i.get('final_price', 0) or 0)) for i in items_snapshot)
 
         # 割引を取得（生徒レベル + 保護者レベル）
         billing_date = f"{year}-{str(month).zfill(2)}-01"
@@ -2035,8 +2080,64 @@ class ConfirmedBilling(TenantModel):
 
         discounts_snapshot = []
         discount_total = Decimal('0')
+
+        # 社割用：各授業料アイテムの割引Maxを考慮した割引額を計算
+        from apps.contracts.models import Product as ProductModel
+        tuition_types = ['tuition', 'TUITION']
+
+        # 社割対象の授業料アイテムと割引額を計算
+        shawari_items = []
+        for item in items_snapshot:
+            if item.get('item_type') not in tuition_types:
+                continue
+            product_name = item.get('product_name', '') or ''
+            if '社割' in product_name:
+                continue
+            item_amount = Decimal(str(item.get('final_price', 0) or item.get('unit_price', 0)))
+            if item_amount <= 0:
+                continue
+            product_code = item.get('product_code', '') or item.get('old_id', '')
+            discount_max_rate = Decimal('50')
+            if product_code:
+                product_obj = ProductModel.objects.filter(product_code=product_code).first()
+                if product_obj and product_obj.discount_max is not None:
+                    # discount_max=0の場合は割引なし
+                    discount_max_rate = min(Decimal('50'), Decimal(str(product_obj.discount_max)))
+            if discount_max_rate > 0:
+                shawari_items.append({
+                    'product_name': product_name,
+                    'item_amount': item_amount,
+                    'discount_rate': discount_max_rate,
+                    'discount_amount': item_amount * discount_max_rate / Decimal('100'),
+                    'item_id': item.get('id', ''),
+                })
+
+        # 社割が既に適用されたかチェック（複数の社割レコードがあっても1回のみ適用）
+        shawari_applied = False
+
         for discount in discounts:
-            if discount.discount_unit == 'percent':
+            # 社割は各授業料ごとに割引を適用（複数あっても1回のみ）
+            if '社割' in (discount.discount_name or ''):
+                if shawari_applied:
+                    continue  # 既に社割が適用されている場合はスキップ
+                if shawari_items:
+                    shawari_applied = True
+                    # 授業料1本ごとに社割を追加
+                    for idx, shawari_item in enumerate(shawari_items):
+                        discount_data = {
+                            'id': f"{discount.id}_item{idx}" if discount.id else f"shawari_item{idx}",
+                            'old_id': discount.old_id or '',
+                            'discount_name': f"社割（{shawari_item['product_name']}）",
+                            'amount': str(shawari_item['discount_amount']),
+                            'discount_unit': 'yen',
+                            'discount_rate': str(shawari_item['discount_rate']),
+                            'target_item_id': shawari_item['item_id'],
+                            'is_shawari': True,
+                        }
+                        discounts_snapshot.append(discount_data)
+                        discount_total += shawari_item['discount_amount']
+                continue
+            elif discount.discount_unit == 'percent':
                 amount = subtotal * discount.amount / 100
             else:
                 amount = discount.amount
@@ -2050,6 +2151,24 @@ class ConfirmedBilling(TenantModel):
             discounts_snapshot.append(discount_data)
             discount_total += amount
 
+        # 退会日情報を取得
+        from apps.students.models import StudentEnrollment
+
+        # 全退会日（生徒の退会日）
+        student_withdrawal_date = student.withdrawal_date if hasattr(student, 'withdrawal_date') else None
+
+        # ブランド退会日（各ブランドの終了日）
+        brand_withdrawal_dates = {}
+        enrollments = StudentEnrollment.objects.filter(
+            tenant_id=tenant_id,
+            student=student,
+            end_date__isnull=False,
+            deleted_at__isnull=True
+        ).select_related('brand')
+        for enrollment in enrollments:
+            if enrollment.brand_id and enrollment.end_date:
+                brand_withdrawal_dates[str(enrollment.brand_id)] = enrollment.end_date.isoformat()
+
         # 確定データを更新
         confirmed.guardian = guardian
         confirmed.subtotal = subtotal
@@ -2058,6 +2177,8 @@ class ConfirmedBilling(TenantModel):
         confirmed.balance = confirmed.total_amount - confirmed.paid_amount
         confirmed.items_snapshot = items_snapshot
         confirmed.discounts_snapshot = discounts_snapshot
+        confirmed.withdrawal_date = student_withdrawal_date
+        confirmed.brand_withdrawal_dates = brand_withdrawal_dates
         if user:
             confirmed.confirmed_by = user
         confirmed.save()
@@ -2161,15 +2282,31 @@ class ConfirmedBilling(TenantModel):
                     'course_name': course.course_name if course else None,
                     'product_id': str(product.id),
                     'product_name': product.product_name,
+                    'product_name_short': product.product_name_short or '',  # 契約名
+                    'brand_id': str(contract.brand.id) if contract.brand else None,
                     'brand_name': contract.brand.brand_name if contract.brand else None,
                     'quantity': quantity,
                     'unit_price': str(unit_price),
                     'discount_amount': '0',
                     'final_price': str(final_price),
-                    'item_type': product.item_type,
+                    'item_type': product.item_type,  # 請求カテゴリコード
+                    'item_type_display': product.get_item_type_display() if product.item_type else '',  # 請求カテゴリ表示名
                 }
                 items_snapshot.append(item_data)
                 subtotal += final_price
+
+        # 設備費は1生徒につき1つのみ（最高額を採用）
+        facility_types = ['facility', 'enrollment_facility']
+        facility_items = [i for i in items_snapshot if i.get('item_type') in facility_types]
+        non_facility_items = [i for i in items_snapshot if i.get('item_type') not in facility_types]
+
+        if len(facility_items) > 1:
+            # 最高額の設備費を選択
+            highest_facility = max(facility_items, key=lambda x: Decimal(str(x.get('final_price', 0) or 0)))
+            items_snapshot = non_facility_items + [highest_facility]
+
+        # 小計を再計算
+        subtotal = sum(Decimal(str(i.get('final_price', 0) or 0)) for i in items_snapshot)
 
         # 割引を取得（生徒レベル + 保護者レベル）
         billing_date = f"{year}-{str(month).zfill(2)}-01"
@@ -2185,10 +2322,78 @@ class ConfirmedBilling(TenantModel):
             models.Q(end_date__isnull=True) | models.Q(end_date__gte=billing_date)
         )
 
+        # 教材費があるかチェック（コロナ割等のカテゴリ限定割引用）
+        from apps.contracts.models import Product as ContractProduct
+        has_material_fee = any(
+            item.get('item_type') in [ContractProduct.ItemType.TEXTBOOK, ContractProduct.ItemType.ENROLLMENT_TEXTBOOK, 'textbook', 'enrollment_textbook']
+            for item in items_snapshot
+        )
+
         discounts_snapshot = []
         discount_total = Decimal('0')
+
+        # 社割用：各授業料アイテムの割引Maxを考慮した割引額を計算
+        tuition_types = ['tuition', 'TUITION']
+
+        # 社割対象の授業料アイテムと割引額を計算
+        shawari_items = []
+        for item in items_snapshot:
+            if item.get('item_type') not in tuition_types:
+                continue
+            # 社割のマイナス行は除外
+            product_name = item.get('product_name', '') or ''
+            if '社割' in product_name:
+                continue
+            item_amount = Decimal(str(item.get('final_price', 0) or item.get('unit_price', 0)))
+            if item_amount <= 0:
+                continue
+            # 商品の割引Maxを取得（最大50%）
+            product_code = item.get('product_code', '') or item.get('old_id', '')
+            discount_max_rate = Decimal('50')
+            if product_code:
+                product_obj = ContractProduct.objects.filter(product_code=product_code).first()
+                if product_obj and product_obj.discount_max is not None:
+                    # discount_max=0の場合は割引なし
+                    discount_max_rate = min(Decimal('50'), Decimal(str(product_obj.discount_max)))
+            if discount_max_rate > 0:
+                shawari_items.append({
+                    'product_name': product_name,
+                    'item_amount': item_amount,
+                    'discount_rate': discount_max_rate,
+                    'discount_amount': item_amount * discount_max_rate / Decimal('100'),
+                    'item_id': item.get('id', ''),
+                })
+
+        # 社割が既に適用されたかチェック（複数の社割レコードがあっても1回のみ適用）
+        shawari_applied = False
+
         for discount in discounts:
-            if discount.discount_unit == 'percent':
+            # コロナ割（教材費のみ）のチェック：教材費がない場合はスキップ
+            if 'コロナ' in (discount.discount_name or '') and not has_material_fee:
+                continue  # 教材費がない場合はコロナ割を適用しない
+
+            # 社割は各授業料ごとに割引を適用（複数あっても1回のみ）
+            if '社割' in (discount.discount_name or ''):
+                if shawari_applied:
+                    continue  # 既に社割が適用されている場合はスキップ
+                if shawari_items:
+                    shawari_applied = True
+                    # 授業料1本ごとに社割を追加
+                    for idx, shawari_item in enumerate(shawari_items):
+                        discount_data = {
+                            'id': f"{discount.id}_item{idx}" if discount.id else f"shawari_item{idx}",
+                            'old_id': discount.old_id or '',
+                            'discount_name': f"社割（{shawari_item['product_name']}）",
+                            'amount': str(shawari_item['discount_amount']),
+                            'discount_unit': 'yen',
+                            'discount_rate': str(shawari_item['discount_rate']),
+                            'target_item_id': shawari_item['item_id'],
+                            'is_shawari': True,
+                        }
+                        discounts_snapshot.append(discount_data)
+                        discount_total += shawari_item['discount_amount']
+                continue
+            elif discount.discount_unit == 'percent':
                 amount = subtotal * discount.amount / 100
             else:
                 amount = discount.amount
@@ -2202,8 +2407,66 @@ class ConfirmedBilling(TenantModel):
             discounts_snapshot.append(discount_data)
             discount_total += amount
 
+        # FS割引（友達紹介割引）を取得
+        from apps.students.models import FSDiscount as FSDiscountModel
+        from datetime import date as date_cls
+        billing_date_obj = date_cls(year, month, 1)
+        fs_discounts = FSDiscountModel.objects.filter(
+            tenant_id=tenant_id,
+            guardian=guardian,
+            status=FSDiscountModel.Status.ACTIVE,
+            valid_from__lte=billing_date_obj,
+            valid_until__gte=billing_date_obj
+        )
+        for fs in fs_discounts:
+            if fs.discount_type == FSDiscountModel.DiscountType.PERCENTAGE:
+                amount = subtotal * fs.discount_value / 100
+            else:
+                amount = fs.discount_value
+            discount_data = {
+                'id': str(fs.id),
+                'old_id': '',
+                'discount_name': 'FS割引（友達紹介）',
+                'amount': str(amount),
+                'discount_unit': 'percent' if fs.discount_type == FSDiscountModel.DiscountType.PERCENTAGE else 'yen',
+            }
+            discounts_snapshot.append(discount_data)
+            discount_total += amount
+
+        # マイル割引（家族割）を取得
+        from apps.pricing.calculations import calculate_mile_discount
+        mile_discount_amount, total_miles, mile_discount_name = calculate_mile_discount(guardian)
+        if mile_discount_amount > 0:
+            discount_data = {
+                'id': '',
+                'old_id': '',
+                'discount_name': mile_discount_name or f'家族割（{total_miles}マイル）',
+                'amount': str(mile_discount_amount),
+                'discount_unit': 'yen',
+            }
+            discounts_snapshot.append(discount_data)
+            discount_total += mile_discount_amount
+
         # 前月からの繰越額を取得
         carry_over = cls.get_previous_month_balance(tenant_id, student, year, month)
+
+        # 退会日情報を取得
+        from apps.students.models import StudentEnrollment
+
+        # 全退会日（生徒の退会日）
+        student_withdrawal_date = student.withdrawal_date if hasattr(student, 'withdrawal_date') else None
+
+        # ブランド退会日（各ブランドの終了日）
+        brand_withdrawal_dates = {}
+        enrollments = StudentEnrollment.objects.filter(
+            tenant_id=tenant_id,
+            student=student,
+            end_date__isnull=False,
+            deleted_at__isnull=True
+        ).select_related('brand')
+        for enrollment in enrollments:
+            if enrollment.brand_id and enrollment.end_date:
+                brand_withdrawal_dates[str(enrollment.brand_id)] = enrollment.end_date.isoformat()
 
         # 確定データを更新
         confirmed.guardian = guardian
@@ -2215,6 +2478,8 @@ class ConfirmedBilling(TenantModel):
         confirmed.balance = confirmed.total_amount + carry_over - confirmed.paid_amount
         confirmed.items_snapshot = items_snapshot
         confirmed.discounts_snapshot = discounts_snapshot
+        confirmed.withdrawal_date = student_withdrawal_date
+        confirmed.brand_withdrawal_dates = brand_withdrawal_dates
         if user:
             confirmed.confirmed_by = user
         confirmed.save()
@@ -2280,6 +2545,7 @@ class ConfirmedBilling(TenantModel):
                 'product_id': str(product.id) if product else None,
                 'product_name': product.product_name if product else '',
                 'product_code': product.product_code if product else '',
+                'brand_id': str(item.brand.id) if item.brand else None,
                 'brand_name': item.brand.brand_name if item.brand else None,
                 'school_name': item.school.school_name if item.school else None,
                 'item_type': product.item_type if product else 'other',
@@ -2307,10 +2573,76 @@ class ConfirmedBilling(TenantModel):
             models.Q(end_date__isnull=True) | models.Q(end_date__gte=billing_date)
         )
 
+        # 教材費があるかチェック（コロナ割等のカテゴリ限定割引用）
+        from apps.contracts.models import Product
+        has_material_fee = any(
+            item.get('item_type') in [Product.ItemType.TEXTBOOK, Product.ItemType.ENROLLMENT_TEXTBOOK, 'textbook', 'enrollment_textbook']
+            for item in items_snapshot
+        )
+
         discounts_snapshot = []
         discount_total = Decimal('0')
+
+        # 社割用：各授業料アイテムの割引Maxを考慮した割引額を計算
+        tuition_types = ['tuition', 'TUITION']
+
+        # 社割対象の授業料アイテムと割引額を計算
+        shawari_items = []
+        for item in items_snapshot:
+            if item.get('item_type') not in tuition_types:
+                continue
+            product_name = item.get('product_name', '') or ''
+            if '社割' in product_name:
+                continue
+            item_amount = Decimal(str(item.get('final_price', 0) or item.get('unit_price', 0)))
+            if item_amount <= 0:
+                continue
+            product_code = item.get('product_code', '') or item.get('old_id', '')
+            discount_max_rate = Decimal('50')
+            if product_code:
+                product_obj = Product.objects.filter(product_code=product_code).first()
+                if product_obj and product_obj.discount_max is not None:
+                    # discount_max=0の場合は割引なし
+                    discount_max_rate = min(Decimal('50'), Decimal(str(product_obj.discount_max)))
+            if discount_max_rate > 0:
+                shawari_items.append({
+                    'product_name': product_name,
+                    'item_amount': item_amount,
+                    'discount_rate': discount_max_rate,
+                    'discount_amount': item_amount * discount_max_rate / Decimal('100'),
+                    'item_id': item.get('id', ''),
+                })
+
+        # 社割が既に適用されたかチェック（複数の社割レコードがあっても1回のみ適用）
+        shawari_applied = False
+
         for discount in discounts:
-            if discount.discount_unit == 'percent':
+            # コロナ割（教材費のみ）のチェック：教材費がない場合はスキップ
+            if 'コロナ' in (discount.discount_name or '') and not has_material_fee:
+                continue  # 教材費がない場合はコロナ割を適用しない
+
+            # 社割は各授業料ごとに割引を適用（複数あっても1回のみ）
+            if '社割' in (discount.discount_name or ''):
+                if shawari_applied:
+                    continue  # 既に社割が適用されている場合はスキップ
+                if shawari_items:
+                    shawari_applied = True
+                    # 授業料1本ごとに社割を追加
+                    for idx, shawari_item in enumerate(shawari_items):
+                        discount_data = {
+                            'id': f"{discount.id}_item{idx}" if discount.id else f"shawari_item{idx}",
+                            'old_id': discount.old_id or '',
+                            'discount_name': f"社割（{shawari_item['product_name']}）",
+                            'amount': str(shawari_item['discount_amount']),
+                            'discount_unit': 'yen',
+                            'discount_rate': str(shawari_item['discount_rate']),
+                            'target_item_id': shawari_item['item_id'],
+                            'is_shawari': True,
+                        }
+                        discounts_snapshot.append(discount_data)
+                        discount_total += shawari_item['discount_amount']
+                continue
+            elif discount.discount_unit == 'percent':
                 amount = subtotal * discount.amount / 100
             else:
                 amount = discount.amount
@@ -2324,8 +2656,66 @@ class ConfirmedBilling(TenantModel):
             discounts_snapshot.append(discount_data)
             discount_total += amount
 
+        # FS割引（友達紹介割引）を取得
+        from apps.students.models import FSDiscount
+        from datetime import date as date_class
+        billing_date_obj = date_class(year, month, 1)
+        fs_discounts = FSDiscount.objects.filter(
+            tenant_id=tenant_id,
+            guardian=guardian,
+            status=FSDiscount.Status.ACTIVE,
+            valid_from__lte=billing_date_obj,
+            valid_until__gte=billing_date_obj
+        )
+        for fs in fs_discounts:
+            if fs.discount_type == FSDiscount.DiscountType.PERCENTAGE:
+                amount = subtotal * fs.discount_value / 100
+            else:
+                amount = fs.discount_value
+            discount_data = {
+                'id': str(fs.id),
+                'old_id': '',
+                'discount_name': 'FS割引（友達紹介）',
+                'amount': str(amount),
+                'discount_unit': 'percent' if fs.discount_type == FSDiscount.DiscountType.PERCENTAGE else 'yen',
+            }
+            discounts_snapshot.append(discount_data)
+            discount_total += amount
+
+        # マイル割引（家族割）を取得
+        from apps.pricing.calculations import calculate_mile_discount
+        mile_discount_amount, total_miles, mile_discount_name = calculate_mile_discount(guardian)
+        if mile_discount_amount > 0:
+            discount_data = {
+                'id': '',
+                'old_id': '',
+                'discount_name': mile_discount_name or f'家族割（{total_miles}マイル）',
+                'amount': str(mile_discount_amount),
+                'discount_unit': 'yen',
+            }
+            discounts_snapshot.append(discount_data)
+            discount_total += mile_discount_amount
+
         # 前月からの繰越額を取得
         carry_over = cls.get_previous_month_balance(tenant_id, student, year, month)
+
+        # 退会日情報を取得
+        from apps.students.models import StudentEnrollment
+
+        # 全退会日（生徒の退会日）
+        student_withdrawal_date = student.withdrawal_date if hasattr(student, 'withdrawal_date') else None
+
+        # ブランド退会日（各ブランドの終了日）
+        brand_withdrawal_dates = {}
+        enrollments = StudentEnrollment.objects.filter(
+            tenant_id=tenant_id,
+            student=student,
+            end_date__isnull=False,
+            deleted_at__isnull=True
+        ).select_related('brand')
+        for enrollment in enrollments:
+            if enrollment.brand_id and enrollment.end_date:
+                brand_withdrawal_dates[str(enrollment.brand_id)] = enrollment.end_date.isoformat()
 
         # 確定データを更新
         confirmed.guardian = guardian
@@ -2337,6 +2727,8 @@ class ConfirmedBilling(TenantModel):
         confirmed.balance = confirmed.total_amount + carry_over - confirmed.paid_amount
         confirmed.items_snapshot = items_snapshot
         confirmed.discounts_snapshot = discounts_snapshot
+        confirmed.withdrawal_date = student_withdrawal_date
+        confirmed.brand_withdrawal_dates = brand_withdrawal_dates
         if user:
             confirmed.confirmed_by = user
         confirmed.save()

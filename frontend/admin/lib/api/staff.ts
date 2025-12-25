@@ -21,6 +21,7 @@ import type {
   DashboardStats,
   BrandStats,
   SchoolStats,
+  DiscountMaster,
 } from "./types";
 
 // Re-export types for backward compatibility
@@ -1627,17 +1628,18 @@ export async function exportDirectDebitCSVFromInvoice(params: DirectDebitExportR
  * 引落データエクスポートプレビュー
  */
 export interface DirectDebitExportPreview {
-  total_billings: number;
-  total_guardians: number;
-  guardians_with_bank: number;
-  guardians_without_bank: number;
-  total_amount: number;
-  exportable_count: number;
-  missing_bank_guardians: Array<{
-    guardian_no: string;
+  // API returns camelCase
+  totalBillings: number;
+  totalGuardians: number;
+  guardiansWithBank: number;
+  guardiansWithoutBank: number;
+  totalAmount: number;
+  exportableCount: number;
+  missingBankGuardians: Array<{
+    guardianNo: string;
     name: string;
-    bank_code: string;
-    account_number: string;
+    bankCode: string;
+    accountNumber: string;
   }>;
 }
 
@@ -1651,6 +1653,11 @@ export async function getDirectDebitExportPreview(params: DirectDebitExportReque
     } else if (params.billing_year && params.billing_month) {
       queryParams.year = params.billing_year;
       queryParams.month = params.billing_month;
+    }
+
+    // 決済代行会社でフィルタ
+    if (params.provider) {
+      queryParams.provider = params.provider;
     }
 
     const response = await apiClient.get<DirectDebitExportPreview>("/billing/confirmed/export-debit-preview/", queryParams);
@@ -1847,4 +1854,196 @@ export async function matchPaymentToInvoice(paymentId: string, invoiceId: string
     invoice_id: invoiceId,
   });
   return response;
+}
+
+// =============================================================================
+// 相殺ログ・返金申請
+// =============================================================================
+
+/**
+ * 相殺ログ
+ */
+export interface OffsetLog {
+  id: string;
+  guardian: string;
+  guardianName?: string;
+  guardian_name?: string;
+  invoice?: string | null;
+  invoiceNo?: string | null;
+  invoice_no?: string | null;
+  invoiceBillingLabel?: string | null;
+  invoice_billing_label?: string | null;
+  payment?: string | null;
+  paymentNo?: string | null;
+  payment_no?: string | null;
+  paymentMethodDisplay?: string | null;
+  payment_method_display?: string | null;
+  transactionType: 'deposit' | 'offset' | 'refund' | 'adjustment';
+  transaction_type?: 'deposit' | 'offset' | 'refund' | 'adjustment';
+  transactionTypeDisplay?: string;
+  transaction_type_display?: string;
+  amount: number;
+  balanceAfter: number;
+  balance_after?: number;
+  reason?: string;
+  createdAt: string;
+  created_at?: string;
+}
+
+/**
+ * 返金申請
+ */
+export interface RefundRequest {
+  id: string;
+  requestNo: string;
+  request_no?: string;
+  guardian: string;
+  guardianName?: string;
+  guardian_name?: string;
+  invoice?: string | null;
+  refundAmount: number;
+  refund_amount?: number;
+  refundMethod: 'bank_transfer' | 'cash' | 'offset_next';
+  refund_method?: 'bank_transfer' | 'cash' | 'offset_next';
+  refundMethodDisplay?: string;
+  refund_method_display?: string;
+  reason: string;
+  status: 'pending' | 'approved' | 'processing' | 'completed' | 'rejected' | 'cancelled';
+  statusDisplay?: string;
+  status_display?: string;
+  requestedBy?: string;
+  requested_by?: string;
+  requestedAt: string;
+  requested_at?: string;
+  approvedBy?: string | null;
+  approved_by?: string | null;
+  approvedAt?: string | null;
+  approved_at?: string | null;
+  processedAt?: string | null;
+  processed_at?: string | null;
+  processNotes?: string;
+  process_notes?: string;
+}
+
+/**
+ * 相殺ログ一覧を取得
+ */
+export async function getOffsetLogs(params?: {
+  guardian_id?: string;
+  transaction_type?: string;
+  page?: number;
+  page_size?: number;
+}): Promise<{ results: OffsetLog[]; count: number }> {
+  try {
+    const response = await apiClient.get<{ results: OffsetLog[]; count: number }>('/billing/offset-logs/', params);
+    return response;
+  } catch (error) {
+    console.error("Error fetching offset logs:", error);
+    return { results: [], count: 0 };
+  }
+}
+
+/**
+ * 返金申請一覧を取得
+ */
+export async function getRefundRequests(params?: {
+  guardian_id?: string;
+  status?: string;
+  page?: number;
+  page_size?: number;
+}): Promise<{ results: RefundRequest[]; count: number }> {
+  try {
+    const response = await apiClient.get<{ results: RefundRequest[]; count: number }>('/billing/refund-requests/', params);
+    return response;
+  } catch (error) {
+    console.error("Error fetching refund requests:", error);
+    return { results: [], count: 0 };
+  }
+}
+
+/**
+ * 返金申請を作成
+ */
+export async function createRefundRequest(data: {
+  guardian_id: string;
+  invoice_id?: string;
+  refund_amount: number;
+  refund_method: 'bank_transfer' | 'cash' | 'offset_next';
+  reason: string;
+}): Promise<RefundRequest> {
+  const response = await apiClient.post<RefundRequest>('/billing/refund-requests/create_request/', data);
+  return response;
+}
+
+/**
+ * 返金申請を承認/却下
+ */
+export async function approveRefundRequest(data: {
+  request_id: string;
+  approve: boolean;
+  reject_reason?: string;
+}): Promise<RefundRequest> {
+  const response = await apiClient.post<RefundRequest>('/billing/refund-requests/approve/', data);
+  return response;
+}
+
+// =============================================================================
+// 割引マスタ（Discount Master）
+// =============================================================================
+
+export interface DiscountMasterFilters {
+  is_active?: boolean;
+  discount_type?: string;
+  applicable_brand?: string;
+  is_employee_discount?: boolean;
+  search?: string;
+}
+
+/**
+ * 割引マスタ一覧を取得
+ */
+export async function getDiscountMasters(filters?: DiscountMasterFilters): Promise<DiscountMaster[]> {
+  try {
+    const params: Record<string, string | number | boolean | undefined> = {
+      limit: 200,
+    };
+    if (filters?.is_active !== undefined) params.is_active = filters.is_active;
+    if (filters?.discount_type) params.discount_type = filters.discount_type;
+    if (filters?.applicable_brand) params.applicable_brand = filters.applicable_brand;
+    if (filters?.is_employee_discount !== undefined) params.is_employee_discount = filters.is_employee_discount;
+    if (filters?.search) params.search = filters.search;
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const response = await apiClient.get<any>("/contracts/discounts/", params);
+    return response.data || response.results || [];
+  } catch (error) {
+    console.error("Error fetching discount masters:", error);
+    return [];
+  }
+}
+
+/**
+ * 割引マスタ詳細を取得
+ */
+export async function getDiscountMasterDetail(id: string): Promise<DiscountMaster | null> {
+  try {
+    return await apiClient.get<DiscountMaster>(`/contracts/discounts/${id}/`);
+  } catch (error) {
+    console.error("Error fetching discount master detail:", error);
+    return null;
+  }
+}
+
+/**
+ * 有効な割引マスタ一覧を取得（選択肢用）
+ */
+export async function getActiveDiscountMasters(): Promise<DiscountMaster[]> {
+  return getDiscountMasters({ is_active: true });
+}
+
+/**
+ * 社割以外の割引マスタを取得（手動割引選択用）
+ */
+export async function getManualDiscountMasters(): Promise<DiscountMaster[]> {
+  return getDiscountMasters({ is_active: true, is_employee_discount: false });
 }

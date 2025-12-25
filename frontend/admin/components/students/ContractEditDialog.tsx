@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Contract, StudentDiscount, StudentItem } from "@/lib/api/types";
+import { Contract, StudentDiscount, StudentItem, DiscountMaster } from "@/lib/api/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -21,6 +21,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Plus, Trash2, Save, X, AlertTriangle, ChevronDown, ChevronUp } from "lucide-react";
+import { getManualDiscountMasters } from "@/lib/api/staff";
 
 interface ContractEditDialogProps {
   open: boolean;
@@ -542,65 +543,148 @@ function AddDiscountForm({
   onAdd: (discount: { name: string; amount: number; unit: "yen" | "percent" }) => void;
   onCancel: () => void;
 }) {
+  const [discountMasters, setDiscountMasters] = useState<DiscountMaster[]>([]);
+  const [selectedMasterId, setSelectedMasterId] = useState<string>("");
   const [name, setName] = useState("");
   const [amount, setAmount] = useState<number>(0);
   const [unit, setUnit] = useState<"yen" | "percent">("yen");
+  const [isManualEntry, setIsManualEntry] = useState(false);
+
+  // Load discount masters on mount
+  useEffect(() => {
+    const loadMasters = async () => {
+      const masters = await getManualDiscountMasters();
+      setDiscountMasters(masters);
+    };
+    loadMasters();
+  }, []);
+
+  // Handle discount master selection
+  const handleMasterSelect = (masterId: string) => {
+    if (masterId === "manual") {
+      setIsManualEntry(true);
+      setSelectedMasterId("");
+      setName("");
+      setAmount(0);
+      setUnit("yen");
+      return;
+    }
+
+    setIsManualEntry(false);
+    setSelectedMasterId(masterId);
+    const master = discountMasters.find(m => m.id === masterId);
+    if (master) {
+      setName(master.discount_name || master.discountName || "");
+      const value = Number(master.value) || 0;
+      setAmount(value);
+      const calcType = master.calculation_type || master.calculationType;
+      setUnit(calcType === "percentage" ? "percent" : "yen");
+    }
+  };
 
   return (
     <div className="p-3 bg-blue-50 border border-blue-200 rounded space-y-3">
+      {/* Discount Master Selection */}
       <div className="flex items-center gap-2">
-        <Input
-          placeholder="割引名（例：社割_正社員、マイル割引）"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          className="flex-1 h-8 text-sm"
-          onClick={(e) => e.stopPropagation()}
-        />
-      </div>
-      <div className="flex items-center gap-2">
-        <Input
-          type="number"
-          placeholder="金額"
-          value={amount || ""}
-          onChange={(e) => setAmount(Number(e.target.value))}
-          className="w-32 h-8 text-sm"
-          onClick={(e) => e.stopPropagation()}
-        />
         <Select
-          value={unit}
-          onValueChange={(value: "yen" | "percent") => setUnit(value)}
+          value={selectedMasterId || (isManualEntry ? "manual" : "")}
+          onValueChange={handleMasterSelect}
         >
-          <SelectTrigger className="w-20 h-8" onClick={(e) => e.stopPropagation()}>
-            <SelectValue />
+          <SelectTrigger className="flex-1 h-8 text-sm" onClick={(e) => e.stopPropagation()}>
+            <SelectValue placeholder="割引マスタから選択..." />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="yen">円</SelectItem>
-            <SelectItem value="percent">%</SelectItem>
+            <SelectItem value="manual">手動入力</SelectItem>
+            {discountMasters.map((master) => (
+              <SelectItem key={master.id} value={master.id}>
+                {master.discount_name || master.discountName}
+                {" - "}
+                {(master.calculation_type || master.calculationType) === "percentage"
+                  ? `${master.value}%`
+                  : `¥${Number(master.value).toLocaleString()}`
+                }
+              </SelectItem>
+            ))}
           </SelectContent>
         </Select>
-        <Button
-          size="sm"
-          onClick={(e) => {
-            e.stopPropagation();
-            onAdd({ name, amount, unit });
-          }}
-          disabled={!name || amount <= 0}
-          className="h-8"
-        >
-          追加
-        </Button>
-        <Button
-          size="sm"
-          variant="ghost"
-          onClick={(e) => {
-            e.stopPropagation();
-            onCancel();
-          }}
-          className="h-8"
-        >
-          <X className="w-4 h-4" />
-        </Button>
       </div>
+
+      {/* Manual Entry or Adjustment */}
+      {(isManualEntry || selectedMasterId) && (
+        <>
+          <div className="flex items-center gap-2">
+            <Input
+              placeholder="割引名（例：社割_正社員、マイル割引）"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              className="flex-1 h-8 text-sm"
+              onClick={(e) => e.stopPropagation()}
+              readOnly={!isManualEntry && !!selectedMasterId}
+            />
+          </div>
+          <div className="flex items-center gap-2">
+            <Input
+              type="number"
+              placeholder="金額"
+              value={amount || ""}
+              onChange={(e) => setAmount(Number(e.target.value))}
+              className="w-32 h-8 text-sm"
+              onClick={(e) => e.stopPropagation()}
+            />
+            <Select
+              value={unit}
+              onValueChange={(value: "yen" | "percent") => setUnit(value)}
+            >
+              <SelectTrigger className="w-20 h-8" onClick={(e) => e.stopPropagation()}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="yen">円</SelectItem>
+                <SelectItem value="percent">%</SelectItem>
+              </SelectContent>
+            </Select>
+            <Button
+              size="sm"
+              onClick={(e) => {
+                e.stopPropagation();
+                onAdd({ name, amount, unit });
+              }}
+              disabled={!name || amount <= 0}
+              className="h-8"
+            >
+              追加
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={(e) => {
+                e.stopPropagation();
+                onCancel();
+              }}
+              className="h-8"
+            >
+              <X className="w-4 h-4" />
+            </Button>
+          </div>
+        </>
+      )}
+
+      {/* Cancel button when no selection */}
+      {!isManualEntry && !selectedMasterId && (
+        <div className="flex justify-end">
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={(e) => {
+              e.stopPropagation();
+              onCancel();
+            }}
+            className="h-8"
+          >
+            キャンセル
+          </Button>
+        </div>
+      )}
     </div>
   );
 }

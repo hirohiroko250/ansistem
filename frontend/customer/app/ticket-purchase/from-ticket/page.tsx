@@ -68,6 +68,8 @@ import api from '@/lib/api/client';
 import type { Child, PublicCourse, PublicPack, PublicBrand, PublicBrandCategory } from '@/lib/api/types';
 import type { ApiError, PricingPreviewResponse } from '@/lib/api/types';
 import { getMe } from '@/lib/api/auth';
+import { SeminarSelection } from '@/components/ticket-purchase/SeminarSelection';
+import { CertificationSelection } from '@/components/ticket-purchase/CertificationSelection';
 
 // ブランドコードごとのアイコンとカラー設定
 const brandStyleMap: Record<string, { icon: LucideIcon; color: string }> = {
@@ -175,6 +177,7 @@ export default function FromTicketPurchasePage() {
   const [selectedCategory, setSelectedCategory] = useState<PublicBrandCategory | null>(null);
   const [selectedBrand, setSelectedBrand] = useState<PublicBrand | null>(null);
   const [selectedSchoolId, setSelectedSchoolId] = useState<string | null>(null);
+  const [itemType, setItemType] = useState<'regular' | 'seminar' | 'certification' | 'event' | null>(null);
   const [courseType, setCourseType] = useState<'single' | 'pack' | null>(null);
   const [selectedCourse, setSelectedCourse] = useState<PublicCourse | PublicPack | null>(null);
   const [startDate, setStartDate] = useState<Date>();
@@ -467,7 +470,7 @@ export default function FromTicketPurchasePage() {
       setIsLoadingPricing(false);
     }
 
-    setStep(6); // 開始日選択へ（校舎は既にStep 3で選択済み）
+    setStep(8); // 開始日選択へ
   };
 
   // 購入確定（クラス予約も含めて処理）
@@ -649,13 +652,13 @@ export default function FromTicketPurchasePage() {
 
   const handleChildSelect = (child: Child) => {
     setSelectedChild(child);
-    setStep(2);
+    setStep(3); // カテゴリ選択へ
   };
 
   const handleBrandSelect = (brand: PublicBrand) => {
     setSelectedBrand(brand);
     setSelectedSchoolId(null);
-    setStep(4);
+    setStep(5); // 校舎選択へ
   };
 
   const handleSchoolSelect = async (schoolId: string) => {
@@ -683,12 +686,12 @@ export default function FromTicketPurchasePage() {
 
   // 校舎確認後に次のステップへ進む
   const handleConfirmSchool = () => {
-    setStep(4); // コースタイプ選択へ
+    setStep(6); // コースタイプ選択へ
   };
 
   const handleCourseTypeSelect = (type: 'single' | 'pack') => {
     setCourseType(type);
-    setStep(5); // コース選択へ
+    setStep(7); // コース選択へ
   };
 
   const handleBackToStep = (targetStep: number) => {
@@ -942,7 +945,7 @@ export default function FromTicketPurchasePage() {
 
         <div className="mb-6">
           <div className="flex items-center justify-center space-x-2">
-            {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((s) => (
+            {(itemType === 'regular' ? [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11] : [1, 2, 3]).map((s) => (
               <div
                 key={s}
                 className={`h-2 flex-1 rounded-full transition-colors ${
@@ -952,14 +955,111 @@ export default function FromTicketPurchasePage() {
             ))}
           </div>
           <p className="text-center text-sm text-gray-600 mt-2">
-            {step === 7 && preSelectClassMode ? 'クラス選択' :
-             step === 8 ? '利用規約' :
-             step === 9 ? '購入確認' :
-             `Step ${step} / 9`}
+            {step === 9 && preSelectClassMode ? 'クラス選択' :
+             step === 10 ? '利用規約' :
+             step === 11 ? '購入確認' :
+             `Step ${step} / ${itemType === 'regular' ? 11 : 3}`}
           </p>
         </div>
 
-        {step === 1 && (
+        {/* Step 1: 項目選択 */}
+        {step === 1 && !itemType && (
+          <div>
+            <h2 className="text-lg font-semibold text-gray-800 mb-4">購入する項目を選択</h2>
+            <div className="space-y-4">
+              <Card
+                className="rounded-xl shadow-md hover:shadow-lg transition-all cursor-pointer border-2 border-transparent hover:border-blue-500"
+                onClick={() => {
+                  setItemType('regular');
+                  setStep(2);
+                }}
+              >
+                <CardContent className="p-6">
+                  <div className="flex items-center gap-4 mb-3">
+                    <div className="w-16 h-16 rounded-full bg-blue-100 flex items-center justify-center">
+                      <BookOpen className="h-8 w-8 text-blue-600" />
+                    </div>
+                    <div className="flex-1">
+                      <h3 className="font-bold text-lg text-gray-800">通常授業</h3>
+                      <p className="text-sm text-gray-600">単品コース・月額パック</p>
+                    </div>
+                  </div>
+                  <p className="text-sm text-gray-600">
+                    通常の授業コースやお得な月額パックプランです。
+                  </p>
+                </CardContent>
+              </Card>
+
+              <Card
+                className="rounded-xl shadow-md hover:shadow-lg transition-all cursor-pointer border-2 border-transparent hover:border-purple-500"
+                onClick={() => {
+                  setItemType('seminar');
+                  setStep(2);
+                }}
+              >
+                <CardContent className="p-6">
+                  <div className="flex items-center gap-4 mb-3">
+                    <div className="w-16 h-16 rounded-full bg-purple-100 flex items-center justify-center">
+                      <CalendarIcon className="h-8 w-8 text-purple-600" />
+                    </div>
+                    <div className="flex-1">
+                      <h3 className="font-bold text-lg text-gray-800">講習会</h3>
+                      <p className="text-sm text-gray-600">夏期・冬期・春期講習</p>
+                    </div>
+                  </div>
+                  <p className="text-sm text-gray-600">
+                    季節講習や特別講習に申し込めます。
+                  </p>
+                </CardContent>
+              </Card>
+
+              <Card
+                className="rounded-xl shadow-md hover:shadow-lg transition-all cursor-pointer border-2 border-transparent hover:border-amber-500"
+                onClick={() => {
+                  setItemType('certification');
+                  setStep(2);
+                }}
+              >
+                <CardContent className="p-6">
+                  <div className="flex items-center gap-4 mb-3">
+                    <div className="w-16 h-16 rounded-full bg-amber-100 flex items-center justify-center">
+                      <Trophy className="h-8 w-8 text-amber-600" />
+                    </div>
+                    <div className="flex-1">
+                      <h3 className="font-bold text-lg text-gray-800">検定</h3>
+                      <p className="text-sm text-gray-600">英検・漢検・数検など</p>
+                    </div>
+                  </div>
+                  <p className="text-sm text-gray-600">
+                    各種検定試験に申し込めます。
+                  </p>
+                </CardContent>
+              </Card>
+
+              <Card
+                className="rounded-xl shadow-md hover:shadow-lg transition-all cursor-pointer border-2 border-transparent hover:border-green-500 opacity-50"
+              >
+                <CardContent className="p-6">
+                  <div className="flex items-center gap-4 mb-3">
+                    <div className="w-16 h-16 rounded-full bg-green-100 flex items-center justify-center">
+                      <Users className="h-8 w-8 text-green-600" />
+                    </div>
+                    <div className="flex-1">
+                      <h3 className="font-bold text-lg text-gray-800">イベント</h3>
+                      <p className="text-sm text-gray-600">特別イベント・体験会</p>
+                    </div>
+                  </div>
+                  <p className="text-sm text-gray-600">
+                    近日公開予定
+                  </p>
+                </CardContent>
+              </Card>
+            </div>
+          </div>
+        )}
+
+        {/* Step 2: お子様選択（全ての項目タイプ共通） */}
+        {step === 2 && (
           <div>
             <h2 className="text-lg font-semibold text-gray-800 mb-4">お子様を選択</h2>
 
@@ -1010,7 +1110,28 @@ export default function FromTicketPurchasePage() {
           </div>
         )}
 
-        {step === 2 && (
+        {/* Step 3: 講習会選択フロー */}
+        {step === 3 && itemType === 'seminar' && (
+          <SeminarSelection
+            childId={selectedChild?.id || ''}
+            brandId={selectedBrand?.id || ''}
+            schoolId={selectedSchoolId || ''}
+            onBack={() => setStep(2)}
+          />
+        )}
+
+        {/* Step 3: 検定選択フロー */}
+        {step === 3 && itemType === 'certification' && (
+          <CertificationSelection
+            childId={selectedChild?.id || ''}
+            brandId={selectedBrand?.id || ''}
+            schoolId={selectedSchoolId || ''}
+            onBack={() => setStep(2)}
+          />
+        )}
+
+        {/* Step 3: カテゴリ選択（通常授業の場合） */}
+        {step === 3 && itemType === 'regular' && (
           <div>
             <div className="mb-4">
               <Card className="rounded-xl shadow-sm bg-blue-50 border-blue-200">
@@ -1059,8 +1180,8 @@ export default function FromTicketPurchasePage() {
                         if (categoryBrands.length > 0) {
                           setSelectedBrand(categoryBrands[0]);
                         }
-                        // 校舎選択へ
-                        setStep(3);
+                        // ブランド選択へ
+                        setStep(4);
                       }}
                     >
                       <CardContent className="p-4 flex items-center justify-between">
@@ -1086,8 +1207,8 @@ export default function FromTicketPurchasePage() {
           </div>
         )}
 
-        {/* Step 3: 校舎選択 */}
-        {step === 3 && (
+        {/* Step 4-5: 校舎選択 */}
+        {(step === 4 || step === 5) && (
           <div className="flex flex-col h-full">
             {/* コンパクトな選択状況表示 */}
             <div className="flex items-center gap-2 mb-3 text-sm">
@@ -1162,8 +1283,8 @@ export default function FromTicketPurchasePage() {
           </div>
         )}
 
-        {/* Step 4: コースタイプ選択 */}
-        {step === 4 && (
+        {/* Step 6: コースタイプ選択（単品/パック） */}
+        {step === 6 && (
           <div>
             <div className="mb-4">
               <Card className="rounded-xl shadow-sm bg-blue-50 border-blue-200">
@@ -1181,7 +1302,7 @@ export default function FromTicketPurchasePage() {
                 className="rounded-xl shadow-md hover:shadow-lg transition-all cursor-pointer border-2 border-transparent hover:border-blue-500"
                 onClick={() => {
                   setCourseType('single');
-                  setStep(5);
+                  setStep(7);
                 }}
               >
                 <CardContent className="p-6">
@@ -1204,7 +1325,7 @@ export default function FromTicketPurchasePage() {
                 className="rounded-xl shadow-md hover:shadow-lg transition-all cursor-pointer border-2 border-transparent hover:border-blue-500"
                 onClick={() => {
                   setCourseType('pack');
-                  setStep(5);
+                  setStep(7);
                 }}
               >
                 <CardContent className="p-6">
@@ -1226,8 +1347,8 @@ export default function FromTicketPurchasePage() {
           </div>
         )}
 
-        {/* Step 5: コース選択（校舎で開講しているチケットのみ） */}
-        {step === 5 && (
+        {/* Step 7: コース選択（校舎で開講しているチケットのみ） */}
+        {step === 7 && (
           <div>
             <div className="mb-4">
               <Card className="rounded-xl shadow-sm bg-blue-50 border-blue-200">
@@ -1354,7 +1475,8 @@ export default function FromTicketPurchasePage() {
           </div>
         )}
 
-        {step === 6 && (
+        {/* Step 8: 開始日選択 */}
+        {step === 8 && (
           <div>
             {/* コンパクトな選択状況表示 */}
             <div className="flex items-center gap-1 mb-3 text-xs text-gray-500 flex-wrap">
@@ -1479,10 +1601,10 @@ export default function FromTicketPurchasePage() {
                     } else {
                       fetchClassSchedules();
                     }
-                    setStep(7); // クラス選択ステップへ
+                    setStep(9); // クラス選択ステップへ
                   } else {
                     // 単品コースは直接規約確認へ
-                    setStep(8);
+                    setStep(10);
                   }
                 }}
                 className="w-full h-14 rounded-full bg-blue-600 hover:bg-blue-700 text-white font-semibold text-lg"
@@ -1493,8 +1615,8 @@ export default function FromTicketPurchasePage() {
           </div>
         )}
 
-        {/* Step 7: 月額コースの場合のクラス選択（購入前） */}
-        {step === 7 && preSelectClassMode && (() => {
+        {/* Step 9: 月額コースの場合のクラス選択（購入前） */}
+        {step === 9 && preSelectClassMode && (() => {
           const dayLabels = classScheduleData?.dayLabels || ['月', '火', '水', '木', '金', '土', '日'];
 
           // パックアイテム（tickets または courses）を取得
@@ -1578,7 +1700,7 @@ export default function FromTicketPurchasePage() {
               fetchClassSchedules(packItems[nextIndex].ticketCode);
             } else {
               // すべてのアイテムの選択が完了したら規約確認へ
-              setStep(8);
+              setStep(10);
             }
           };
 
@@ -1747,7 +1869,7 @@ export default function FromTicketPurchasePage() {
                     if (hasPackItems) {
                       handleNextItem();
                     } else {
-                      setStep(8);
+                      setStep(10);
                     }
                   }}
                   disabled={!selectedTime && classScheduleData?.timeSlots.length !== undefined && classScheduleData.timeSlots.length > 0}
@@ -1765,8 +1887,8 @@ export default function FromTicketPurchasePage() {
           );
         })()}
 
-        {/* Step 8: 利用規約 */}
-        {step === 8 && (
+        {/* Step 10: 利用規約 */}
+        {step === 10 && (
           <div>
             <h2 className="text-lg font-semibold text-gray-800 mb-4">利用規約の確認</h2>
 
@@ -1855,7 +1977,7 @@ export default function FromTicketPurchasePage() {
             </div>
 
             <Button
-              onClick={() => setStep(9)}
+              onClick={() => setStep(11)}
               disabled={!agreedToTerms}
               className="w-full h-14 rounded-full bg-blue-600 hover:bg-blue-700 text-white font-semibold text-lg disabled:opacity-50 disabled:cursor-not-allowed"
             >
@@ -1864,8 +1986,8 @@ export default function FromTicketPurchasePage() {
           </div>
         )}
 
-        {/* Step 9: 購入内容の確認 */}
-        {step === 9 && (
+        {/* Step 11: 購入内容の確認 */}
+        {step === 11 && (
           <div>
             <h2 className="text-lg font-semibold text-gray-800 mb-4">購入内容の確認</h2>
 

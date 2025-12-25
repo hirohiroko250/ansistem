@@ -187,16 +187,17 @@ class DirectDebitExportService:
 
         for line in lines:
             row = [
-                provider.consignor_code,          # 委託者コード
-                target_period,                    # 対象年月
+                provider.consignor_code,          # 委託者コード (6桁)
+                target_period,                    # 対象年月 (YYYYMM)
                 line.bank_code,                   # 銀行コード
                 line.branch_code,                 # 支店コード
                 line.account_type,                # 預金種目
                 line.account_number,              # 口座番号
-                line.account_holder_kana,         # 名義カナ
+                line.account_holder_kana,         # 名義カナ（半角カナ）
                 int(line.amount),                 # 金額
                 '1',                              # 区分（通常は1）
-                line.customer_code,               # 顧客番号
+                line.customer_code,               # 顧客番号 (10桁)
+                '0',                              # 予備フラグ
             ]
             writer.writerow(row)
 

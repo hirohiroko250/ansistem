@@ -30,7 +30,6 @@ import {
 } from "@/components/ui/dialog";
 import {
   Search,
-  Download,
   Upload,
   FileText,
   ChevronLeft,
@@ -44,16 +43,14 @@ import {
   Unlock,
   Banknote,
   FileCheck,
+  Undo2,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import {
   getInvoices,
-  exportDirectDebitCSV,
   importDirectDebitResult,
-  getDirectDebitExportPreview,
   type InvoiceFilters,
   type DirectDebitResult,
-  type DirectDebitExportPreview,
 } from "@/lib/api/staff";
 import apiClient from "@/lib/api/client";
 import type { Invoice, PaginatedResult } from "@/lib/api/types";
@@ -83,21 +80,6 @@ export default function BillingPage() {
   });
   const [searchQuery, setSearchQuery] = useState("");
   const [loading, setLoading] = useState(true);
-
-  // 引落エクスポートダイアログ
-  const [exportDialogOpen, setExportDialogOpen] = useState(false);
-  const [exportStartDate, setExportStartDate] = useState(() => {
-    const now = new Date();
-    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
-  });
-  const [exportEndDate, setExportEndDate] = useState(() => {
-    const now = new Date();
-    const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
-    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
-  });
-  const [exportProvider, setExportProvider] = useState("jaccs");
-  const [exportPreview, setExportPreview] = useState<DirectDebitExportPreview | null>(null);
-  const [loadingPreview, setLoadingPreview] = useState(false);
 
   // 引落結果インポートダイアログ
   const [importDialogOpen, setImportDialogOpen] = useState(false);
@@ -303,65 +285,6 @@ export default function BillingPage() {
     }));
   }
 
-  // 引落データエクスポート
-  const [exporting, setExporting] = useState(false);
-
-  // プレビュー取得
-  async function loadExportPreview() {
-    setLoadingPreview(true);
-    try {
-      const preview = await getDirectDebitExportPreview({
-        start_date: exportStartDate,
-        end_date: exportEndDate,
-      });
-      setExportPreview(preview);
-    } catch (error) {
-      console.error("Preview error:", error);
-      setExportPreview(null);
-    } finally {
-      setLoadingPreview(false);
-    }
-  }
-
-  // ダイアログが開いたときにプレビューを取得
-  useEffect(() => {
-    if (exportDialogOpen) {
-      loadExportPreview();
-    } else {
-      setExportPreview(null);
-    }
-  }, [exportDialogOpen, exportStartDate, exportEndDate]);
-
-  async function handleExport() {
-    setExporting(true);
-    try {
-      const blob = await exportDirectDebitCSV({
-        start_date: exportStartDate,
-        end_date: exportEndDate,
-        provider: exportProvider,
-      });
-
-      if (blob) {
-        // CSVダウンロード
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = `debit_export_${exportStartDate}_${exportEndDate}_${exportProvider}.csv`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-      }
-      setExportDialogOpen(false);
-      // 一覧を更新（ロック状態を反映）
-      loadInvoices();
-    } catch (error) {
-      console.error("Export error:", error);
-    } finally {
-      setExporting(false);
-    }
-  }
-
   // 引落結果インポート
   async function handleImport() {
     if (!importFile) return;
@@ -528,6 +451,10 @@ export default function BillingPage() {
             <Button variant="outline" onClick={() => router.push("/billing/confirmed")}>
               <FileCheck className="w-4 h-4 mr-2" />
               請求確定データ
+            </Button>
+            <Button variant="outline" onClick={() => router.push("/billing/offsets")}>
+              <Undo2 className="w-4 h-4 mr-2" />
+              返金・相殺
             </Button>
           </div>
         </div>
@@ -766,13 +693,6 @@ export default function BillingPage() {
             <div className="flex gap-2">
               <Button
                 variant="outline"
-                onClick={() => setExportDialogOpen(true)}
-              >
-                <Download className="w-4 h-4 mr-2" />
-                引落データ出力
-              </Button>
-              <Button
-                variant="outline"
                 onClick={() => setImportDialogOpen(true)}
               >
                 <Upload className="w-4 h-4 mr-2" />
@@ -897,116 +817,14 @@ export default function BillingPage() {
           </div>
         )}
 
-        {/* 引落データエクスポートダイアログ */}
-        <Dialog open={exportDialogOpen} onOpenChange={setExportDialogOpen}>
-          <DialogContent className="max-w-lg">
-            <DialogHeader>
-              <DialogTitle>引落データ出力</DialogTitle>
-            </DialogHeader>
-            <div className="space-y-4 py-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="text-sm font-medium">開始日</label>
-                  <Input
-                    type="date"
-                    value={exportStartDate}
-                    onChange={(e) => setExportStartDate(e.target.value)}
-                    className="mt-1"
-                  />
-                </div>
-                <div>
-                  <label className="text-sm font-medium">終了日</label>
-                  <Input
-                    type="date"
-                    value={exportEndDate}
-                    onChange={(e) => setExportEndDate(e.target.value)}
-                    className="mt-1"
-                  />
-                </div>
-              </div>
-
-              {/* プレビュー情報 */}
-              {loadingPreview ? (
-                <div className="p-3 bg-gray-50 border rounded-lg text-center text-sm text-gray-500">
-                  読み込み中...
-                </div>
-              ) : exportPreview ? (
-                <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg text-sm">
-                  <div className="grid grid-cols-2 gap-2">
-                    <div>
-                      <span className="text-gray-600">請求件数:</span>
-                      <span className="font-medium ml-1">{exportPreview.total_billings.toLocaleString()}件</span>
-                    </div>
-                    <div>
-                      <span className="text-gray-600">保護者数:</span>
-                      <span className="font-medium ml-1">{exportPreview.total_guardians.toLocaleString()}名</span>
-                    </div>
-                    <div>
-                      <span className="text-gray-600">合計金額:</span>
-                      <span className="font-medium ml-1">¥{exportPreview.total_amount.toLocaleString()}</span>
-                    </div>
-                    <div>
-                      <span className="text-gray-600">出力対象:</span>
-                      <span className="font-bold text-blue-600 ml-1">{exportPreview.exportable_count.toLocaleString()}名</span>
-                    </div>
-                  </div>
-                  {exportPreview.guardians_without_bank > 0 && (
-                    <div className="mt-2 pt-2 border-t border-blue-200">
-                      <p className="text-amber-700 font-medium">
-                        ⚠ 銀行口座未登録: {exportPreview.guardians_without_bank}名（スキップされます）
-                      </p>
-                      {exportPreview.missing_bank_guardians.length > 0 && (
-                        <div className="mt-1 max-h-24 overflow-y-auto text-xs text-gray-600">
-                          {exportPreview.missing_bank_guardians.slice(0, 5).map((g, i) => (
-                            <div key={i}>{g.guardian_no}: {g.name}</div>
-                          ))}
-                          {exportPreview.missing_bank_guardians.length > 5 && (
-                            <div className="text-gray-400">...他{exportPreview.guardians_without_bank - 5}名</div>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              ) : null}
-
-              <div>
-                <label className="text-sm font-medium">決済代行会社</label>
-                <Select
-                  value={exportProvider}
-                  onValueChange={setExportProvider}
-                >
-                  <SelectTrigger className="mt-1">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="jaccs">JACCS</SelectItem>
-                    <SelectItem value="ufj_factor">UFJファクター</SelectItem>
-                    <SelectItem value="chukyo_finance">中京ファイナンス</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setExportDialogOpen(false)} disabled={exporting}>
-                キャンセル
-              </Button>
-              <Button
-                onClick={handleExport}
-                disabled={exporting || !exportPreview || exportPreview.exportable_count === 0}
-              >
-                <Download className="w-4 h-4 mr-2" />
-                {exporting ? "出力中..." : `エクスポート (${exportPreview?.exportable_count || 0}件)`}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-
         {/* 引落結果インポートダイアログ */}
         <Dialog open={importDialogOpen} onOpenChange={setImportDialogOpen}>
-          <DialogContent>
+          <DialogContent aria-describedby="import-dialog-description">
             <DialogHeader>
               <DialogTitle>引落結果取込</DialogTitle>
+              <p id="import-dialog-description" className="text-sm text-gray-500">
+                引落結果CSVファイルを取り込みます
+              </p>
             </DialogHeader>
             <div className="space-y-4 py-4">
               <div>
@@ -1053,9 +871,12 @@ export default function BillingPage() {
 
         {/* 振込CSVインポートダイアログ */}
         <Dialog open={transferImportDialogOpen} onOpenChange={setTransferImportDialogOpen}>
-          <DialogContent className="max-w-lg">
+          <DialogContent className="max-w-lg" aria-describedby="transfer-import-dialog-description">
             <DialogHeader>
               <DialogTitle>振込データ取込</DialogTitle>
+              <p id="transfer-import-dialog-description" className="text-sm text-gray-500">
+                銀行振込データを取り込みます
+              </p>
             </DialogHeader>
             <div className="space-y-4 py-4">
               <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-800">
@@ -1123,12 +944,12 @@ export default function BillingPage() {
 
         {/* 締日設定ダイアログ */}
         <Dialog open={deadlineSettingOpen} onOpenChange={setDeadlineSettingOpen}>
-          <DialogContent>
+          <DialogContent aria-describedby="deadline-setting-description">
             <DialogHeader>
               <DialogTitle>締日設定</DialogTitle>
             </DialogHeader>
             <div className="space-y-4 py-4">
-              <p className="text-sm text-gray-600">
+              <p id="deadline-setting-description" className="text-sm text-gray-600">
                 毎月の請求締日を設定します
               </p>
               <div>
@@ -1173,13 +994,13 @@ export default function BillingPage() {
 
         {/* 手動締めダイアログ */}
         <Dialog open={closeDialogOpen} onOpenChange={setCloseDialogOpen}>
-          <DialogContent>
+          <DialogContent aria-describedby="close-dialog-description">
             <DialogHeader>
               <DialogTitle>手動締め</DialogTitle>
             </DialogHeader>
             {editingDeadline && (
               <div className="space-y-4 py-4">
-                <p className="text-sm text-gray-600">
+                <p id="close-dialog-description" className="text-sm text-gray-600">
                   {editingDeadline.year}年{editingDeadline.month}月分を手動で締め処理します
                 </p>
                 <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800">
@@ -1212,13 +1033,13 @@ export default function BillingPage() {
 
         {/* 締め解除ダイアログ */}
         <Dialog open={reopenDialogOpen} onOpenChange={setReopenDialogOpen}>
-          <DialogContent>
+          <DialogContent aria-describedby="reopen-dialog-description">
             <DialogHeader>
               <DialogTitle>締め解除</DialogTitle>
             </DialogHeader>
             {editingDeadline && (
               <div className="space-y-4 py-4">
-                <p className="text-sm text-gray-600">
+                <p id="reopen-dialog-description" className="text-sm text-gray-600">
                   {editingDeadline.year}年{editingDeadline.month}月分の締めを解除して編集可能にします
                 </p>
                 <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-800">

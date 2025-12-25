@@ -327,6 +327,61 @@ export interface Product {
   updated_at: string;
 }
 
+// ============================================================================
+// 割引マスタ
+// ============================================================================
+
+export type DiscountType = 'employee' | 'sibling' | 'multi_subject' | 'campaign' | 'early_enrollment' | 'referral' | 'other';
+export type CalculationType = 'percentage' | 'fixed';
+export type ApplicableCategory = 'tuition' | 'material' | 'enrollment' | 'monthly_fee' | 'all';
+export type EndCondition = 'once' | 'monthly' | 'until_end_date' | 'on_contract_decrease' | 'on_brand_withdrawal' | 'on_contract_end' | 'on_withdrawal';
+
+export interface DiscountMaster {
+  id: string;
+  discount_code: string;
+  discountCode?: string;
+  discount_name: string;
+  discountName?: string;
+  discount_type: DiscountType;
+  discountType?: DiscountType;
+  discount_type_display?: string;
+  discountTypeDisplay?: string;
+  calculation_type: CalculationType;
+  calculationType?: CalculationType;
+  calculation_type_display?: string;
+  calculationTypeDisplay?: string;
+  value: number | string;
+  // 社割関連
+  is_employee_discount: boolean;
+  isEmployeeDiscount?: boolean;
+  // 適用対象
+  applicable_brand?: string | Brand | null;
+  applicableBrand?: string | Brand | null;
+  applicable_brand_id?: string | null;
+  applicable_brand_name?: string | null;
+  applicable_category: ApplicableCategory;
+  applicableCategory?: ApplicableCategory;
+  applicable_category_display?: string;
+  applicableCategoryDisplay?: string;
+  // 終了条件
+  end_condition: EndCondition;
+  endCondition?: EndCondition;
+  end_condition_display?: string;
+  endConditionDisplay?: string;
+  is_recurring: boolean;
+  isRecurring?: boolean;
+  // 有効期間
+  valid_from?: string | null;
+  validFrom?: string | null;
+  valid_until?: string | null;
+  validUntil?: string | null;
+  is_active: boolean;
+  isActive?: boolean;
+  notes?: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
 export interface StudentItem {
   id: string;
   old_id?: string;

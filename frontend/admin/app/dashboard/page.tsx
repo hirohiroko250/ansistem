@@ -481,10 +481,10 @@ export default function DashboardPage() {
                     {/* 時刻 */}
                     <div className="flex-shrink-0 text-right" title={formatDate(task.created_at)}>
                       <div className="text-xs font-medium text-gray-600">
-                        {new Date(task.created_at).toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" })}
+                        {task.created_at ? new Date(task.created_at).toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" }) : "-"}
                       </div>
                       <div className="text-[10px] text-gray-400">
-                        {new Date(task.created_at).toLocaleDateString("ja-JP", { month: "short", day: "numeric" })}
+                        {task.created_at ? new Date(task.created_at).toLocaleDateString("ja-JP", { month: "short", day: "numeric" }) : "-"}
                       </div>
                     </div>
 

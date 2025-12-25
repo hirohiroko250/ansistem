@@ -268,6 +268,8 @@ class GuardianDetailSerializer(serializers.ModelSerializer):
     """保護者詳細"""
     full_name = serializers.CharField(read_only=True)
     has_account = serializers.SerializerMethodField()
+    is_employee = serializers.BooleanField(read_only=True)
+    employee_discount_info = serializers.DictField(read_only=True)
 
     class Meta:
         model = Guardian
@@ -283,9 +285,11 @@ class GuardianDetailSerializer(serializers.ModelSerializer):
             'withdrawal_day', 'payment_registered', 'payment_registered_at',
             'notes',
             'has_account',
+            # 社員情報
+            'is_employee', 'employee_discount_info',
             'created_at', 'updated_at'
         ]
-        read_only_fields = ['id', 'created_at', 'updated_at', 'has_account']
+        read_only_fields = ['id', 'created_at', 'updated_at', 'has_account', 'is_employee', 'employee_discount_info']
 
     def get_has_account(self, obj):
         """保護者にログインアカウントが紐付いているか"""

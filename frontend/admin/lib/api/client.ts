@@ -157,6 +157,8 @@ class ApiClient {
       requestHeaders["Authorization"] = `Bearer ${token}`;
     }
 
+    console.log(`[API] GET Blob ${endpoint}`, { hasToken: !!token });
+
     const response = await fetch(url, {
       method: "GET",
       headers: requestHeaders,
@@ -164,6 +166,15 @@ class ApiClient {
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
+      console.error(`[API] Error ${response.status}:`, endpoint, errorData);
+      // 401エラーの場合、トークンをクリアしてログイン画面にリダイレクト
+      if (response.status === 401 && typeof window !== "undefined") {
+        console.error('[API] 401 Unauthorized - clearing token and redirecting to login');
+        this.setToken(null);
+        window.location.href = "/login";
+        // リダイレクト中はPromiseを永久にpendingにしてクラッシュを防ぐ
+        return new Promise<Blob>(() => {});
+      }
       throw new ApiError(response.status, errorData.detail || response.statusText, errorData);
     }
 

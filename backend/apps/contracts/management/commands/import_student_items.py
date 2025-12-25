@@ -1,5 +1,6 @@
 """
-StudentItemにT4契約情報とT5追加請求をインポート
+StudentItemにユーザー契約情報をインポート
+授業料・月会費・設備費を3行に分けて作成
 """
 import csv
 from datetime import datetime
@@ -13,13 +14,18 @@ from apps.tenants.models import Tenant
 
 
 class Command(BaseCommand):
-    help = 'T4契約情報とT5追加請求をStudentItemにインポート'
+    help = 'ユーザー契約情報をStudentItemにインポート（授業料・月会費・設備費を分離）'
 
     def add_arguments(self, parser):
         parser.add_argument(
+            '--csv',
+            type=str,
+            help='ユーザー契約情報CSVファイルパス'
+        )
+        parser.add_argument(
             '--contracts-csv',
             type=str,
-            help='T4契約情報CSVファイルパス'
+            help='T4契約情報CSVファイルパス（旧形式）'
         )
         parser.add_argument(
             '--billing-csv',
@@ -43,6 +49,7 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
+        user_csv = options.get('csv')
         contracts_csv = options.get('contracts_csv')
         billing_csv = options.get('billing_csv')
         dry_run = options['dry_run']
@@ -75,20 +82,28 @@ class Command(BaseCommand):
             b.brand_name: b for b in Brand.objects.all()
         }
         self.products_by_name = {}
+        self.products_by_code = {}
         for p in Product.objects.all():
             if p.product_name:
                 self.products_by_name[p.product_name] = p
+            if p.product_code:
+                self.products_by_code[p.product_code] = p
 
         self.stdout.write(f"キャッシュ作成完了:")
         self.stdout.write(f"  生徒: {len(self.students_by_old_id)}件")
         self.stdout.write(f"  コース: {len(self.courses_by_code)}件")
         self.stdout.write(f"  パック: {len(self.packs_by_code)}件")
         self.stdout.write(f"  ブランド: {len(self.brands_by_name)}件")
-        self.stdout.write(f"  商品: {len(self.products_by_name)}件")
+        self.stdout.write(f"  商品(コード): {len(self.products_by_code)}件")
 
         total_created = 0
 
-        # T4契約情報をインポート
+        # 新形式: ユーザー契約情報CSVをインポート
+        if user_csv:
+            created = self.import_user_contracts(user_csv, dry_run)
+            total_created += created
+
+        # 旧形式: T4契約情報をインポート
         if contracts_csv:
             created = self.import_contracts(contracts_csv, dry_run, include_all)
             total_created += created
@@ -109,8 +124,143 @@ class Command(BaseCommand):
                 f"{total_created}件のStudentItemを作成しました"
             ))
 
+    def import_user_contracts(self, csv_path, dry_run):
+        """ユーザー契約情報CSVをインポート（授業料・月会費・設備費を分離）"""
+        self.stdout.write(f"\n=== ユーザー契約情報インポート ===")
+        self.stdout.write(f"ファイル: {csv_path}")
+
+        created_count = 0
+        skipped_count = 0
+        error_count = 0
+        no_student_count = 0
+        no_product_count = 0
+
+        with open(csv_path, 'r', encoding='utf-8-sig') as f:
+            reader = csv.DictReader(f)
+            rows = list(reader)
+
+        self.stdout.write(f"CSV行数: {len(rows)}")
+
+        items_to_create = []
+
+        for i, row in enumerate(rows):
+            try:
+                course_id = row.get('受講ID', '').strip()
+                student_old_id = row.get('生徒ID', '').strip()
+                contract_id = row.get('契約ID', '').strip()
+                contract_name = row.get('契約名', '').strip()
+                brand_name = row.get('Class用ブランド名', '').strip()
+                start_date_str = row.get('開始日', '').strip()
+
+                if not course_id or not student_old_id:
+                    skipped_count += 1
+                    continue
+
+                # 生徒を検索
+                student = self.students_by_old_id.get(student_old_id)
+                if not student:
+                    no_student_count += 1
+                    skipped_count += 1
+                    continue
+
+                # ブランドを取得
+                brand = self.brands_by_name.get(brand_name)
+
+                # 開始日をパース
+                start_date = None
+                if start_date_str:
+                    try:
+                        start_date = datetime.strptime(start_date_str, '%Y/%m/%d').date()
+                    except ValueError:
+                        pass
+
+                billing_month = start_date.strftime('%Y-%m') if start_date else '2025-01'
+                tenant_id = student.tenant_id if student else self.default_tenant.id
+
+                # 商品を検索（授業料・月会費・設備費の3つを探す）
+                item_types_to_find = [
+                    ('_1', 'tuition', '授業料'),
+                    ('_2', 'monthly_fee', '月会費'),
+                    ('_3', 'facility', '設備費'),
+                ]
+
+                found_products = []
+                for suffix, item_type, label in item_types_to_find:
+                    product_code = f"{contract_id}{suffix}"
+                    product = self.products_by_code.get(product_code)
+                    if product:
+                        found_products.append((product, item_type, label))
+
+                # 商品が見つからない場合は契約IDそのものを試す
+                if not found_products:
+                    product = self.products_by_code.get(contract_id)
+                    if product:
+                        found_products.append((product, product.item_type or 'tuition', '授業料'))
+
+                if not found_products:
+                    no_product_count += 1
+                    # 商品がなくてもStudentItemを作成（金額0で）
+                    item = StudentItem(
+                        tenant_id=tenant_id,
+                        old_id=course_id,
+                        student=student,
+                        product=None,
+                        brand=brand,
+                        start_date=start_date,
+                        billing_month=billing_month,
+                        quantity=1,
+                        unit_price=Decimal('0'),
+                        discount_amount=Decimal('0'),
+                        final_price=Decimal('0'),
+                        notes=f'{contract_id}: {contract_name}',
+                    )
+                    items_to_create.append(item)
+                    created_count += 1
+                else:
+                    # 見つかった商品ごとにStudentItemを作成
+                    for idx, (product, item_type, label) in enumerate(found_products):
+                        # old_idは最初の商品のみcourse_idを使い、残りは連番を追加
+                        old_id = course_id if idx == 0 else f"{course_id}_{idx+1}"
+
+                        item = StudentItem(
+                            tenant_id=tenant_id,
+                            old_id=old_id,
+                            student=student,
+                            product=product,
+                            brand=brand,
+                            start_date=start_date,
+                            billing_month=billing_month,
+                            quantity=1,
+                            unit_price=product.base_price or Decimal('0'),
+                            discount_amount=Decimal('0'),
+                            final_price=product.base_price or Decimal('0'),
+                            notes=f'{contract_id}: {contract_name} ({label})',
+                        )
+                        items_to_create.append(item)
+                        created_count += 1
+
+                if (i + 1) % 1000 == 0:
+                    self.stdout.write(f"  処理中... {i + 1}/{len(rows)}件")
+
+            except Exception as e:
+                error_count += 1
+                if error_count <= 10:
+                    self.stdout.write(self.style.ERROR(f"エラー: {e} - {row.get('受講ID', '')}"))
+
+        self.stdout.write(f"作成予定: {len(items_to_create)}件")
+
+        if not dry_run and items_to_create:
+            self.stdout.write('データベースに保存中...')
+            with transaction.atomic():
+                StudentItem.objects.bulk_create(items_to_create, batch_size=1000)
+            self.stdout.write(self.style.SUCCESS('保存完了'))
+
+        self.stdout.write(f"作成: {created_count}件, スキップ: {skipped_count}件, エラー: {error_count}件")
+        self.stdout.write(f"  (生徒なし: {no_student_count}件, 商品なし: {no_product_count}件)")
+        return created_count
+
     def import_contracts(self, csv_path, dry_run, include_all):
-        """T4契約情報をインポート"""
+        """T4契約情報をインポート（旧形式）"""
         self.stdout.write(f"\n=== T4契約情報インポート ===")
         self.stdout.write(f"ファイル: {csv_path}")
 

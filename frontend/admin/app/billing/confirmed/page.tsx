@@ -47,6 +47,7 @@ import {
   RefreshCw,
   Download,
   Search,
+  Building2,
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { ja } from 'date-fns/locale';
@@ -80,6 +81,9 @@ export default function ConfirmedBillingPage() {
   const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
   const [paymentAmount, setPaymentAmount] = useState('');
   const [recordingPayment, setRecordingPayment] = useState(false);
+
+  // 引落データエクスポート
+  const [exportingDebit, setExportingDebit] = useState<string | null>(null);
 
   // 締日情報を取得して請求月を設定
   useEffect(() => {
@@ -236,6 +240,50 @@ export default function ConfirmedBillingPage() {
     setSearchInput('');
     setSearchQuery('');
     setPage(1);
+  };
+
+  // 引落データダウンロード
+  const handleExportDebit = async (provider: 'jaccs' | 'ufj_factor' | 'chukyo_finance') => {
+    if (year === null || month === null) return;
+
+    const providerNames = {
+      jaccs: 'JACCS',
+      ufj_factor: 'UFJファクター',
+      chukyo_finance: '中京ファイナンス',
+    };
+
+    setExportingDebit(provider);
+    try {
+      const response = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL}/billing/confirmed/export-debit/?year=${year}&month=${month}&provider=${provider}`,
+        {
+          method: 'GET',
+          credentials: 'include',
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem('auth_token') || ''}`,
+          },
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error('引落データダウンロードに失敗しました');
+      }
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `debit_${provider}_${year}_${month}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+    } catch (error) {
+      console.error('Failed to export debit data:', error);
+      alert(`${providerNames[provider]}引落データのダウンロードに失敗しました`);
+    } finally {
+      setExportingDebit(null);
+    }
   };
 
   // CSVダウンロード
@@ -434,6 +482,36 @@ export default function ConfirmedBillingPage() {
               )}
               CSVダウンロード
             </Button>
+
+            {/* 引落データ出力ドロップダウン */}
+            <Select
+              value=""
+              onValueChange={(value) => {
+                if (value === 'jaccs' || value === 'ufj_factor' || value === 'chukyo_finance') {
+                  handleExportDebit(value);
+                }
+              }}
+              disabled={!!exportingDebit || !confirmedBillings.length}
+            >
+              <SelectTrigger className="w-[180px]">
+                {exportingDebit ? (
+                  <div className="flex items-center">
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    エクスポート中...
+                  </div>
+                ) : (
+                  <div className="flex items-center">
+                    <Building2 className="w-4 h-4 mr-2" />
+                    引落データ出力
+                  </div>
+                )}
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="jaccs">JACCS</SelectItem>
+                <SelectItem value="ufj_factor">UFJファクター</SelectItem>
+                <SelectItem value="chukyo_finance">中京ファイナンス</SelectItem>
+              </SelectContent>
+            </Select>
 
             <Button
               onClick={handleGenerateConfirmedBilling}

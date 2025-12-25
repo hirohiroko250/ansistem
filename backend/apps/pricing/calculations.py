@@ -403,12 +403,14 @@ def calculate_mile_discount(
 ) -> Tuple[Decimal, int, str]:
     """マイル割引を計算（兄弟全員の合計マイル数ベース）
 
-    計算式: (合計マイル - 2) × 500円
+    計算式: (合計マイル - 1) × 500円
     ※1コースのみの場合は割引なし
 
     Returns:
         (割引額, 合計マイル数, 割引名)
     """
+    from apps.contracts.models import CourseItem
+
     # 兄弟全員（保護者配下の全生徒）の有効な契約からマイル数を集計
     active_contracts = Contract.objects.filter(
         guardian=guardian,
@@ -419,19 +421,51 @@ def calculate_mile_discount(
     contract_count = 0
 
     for contract in active_contracts:
-        if contract.course and contract.course.mile:
-            total_miles += int(contract.course.mile)
+        if not contract.course:
+            continue
+
+        # コースの商品構成からマイルを取得（授業料のみ）
+        course_items = CourseItem.objects.filter(
+            course=contract.course,
+            is_active=True,
+            product__item_type='tuition',  # 授業料のみ
+            product__mile__gt=0
+        ).select_related('product')
+
+        contract_miles = 0
+        for item in course_items:
+            if item.product and item.product.mile:
+                contract_miles += int(item.product.mile)
+
+        if contract_miles > 0:
+            total_miles += contract_miles
             contract_count += 1
 
     # 新規コースのマイルを追加
     new_course_miles = 0
-    if new_course and new_course.mile:
-        new_course_miles = int(new_course.mile)
+    if new_course:
+        course_items = CourseItem.objects.filter(
+            course=new_course,
+            is_active=True,
+            product__item_type='tuition',
+            product__mile__gt=0
+        ).select_related('product')
+        for item in course_items:
+            if item.product and item.product.mile:
+                new_course_miles += int(item.product.mile)
     elif new_pack:
         # パックの場合、パック内コースのマイル合計
         for pack_course in new_pack.pack_courses.select_related('course').all():
-            if pack_course.course and pack_course.course.mile:
-                new_course_miles += int(pack_course.course.mile)
+            if pack_course.course:
+                course_items = CourseItem.objects.filter(
+                    course=pack_course.course,
+                    is_active=True,
+                    product__item_type='tuition',
+                    product__mile__gt=0
+                ).select_related('product')
+                for item in course_items:
+                    if item.product and item.product.mile:
+                        new_course_miles += int(item.product.mile)
 
     total_miles += new_course_miles
     total_contracts = contract_count + (1 if new_course or new_pack else 0)
@@ -440,10 +474,34 @@ def calculate_mile_discount(
     if total_contracts <= 1:
         return (Decimal('0'), total_miles, '')
 
-    # 割引計算: (合計マイル - 2) × 500円
-    if total_miles > 2:
-        discount_amount = (total_miles - 2) * 500
-        return (Decimal(str(discount_amount)), total_miles, f'マイル割引き（{total_miles}マイル）')
+    # 2マイル以上のコースがあるかチェック（ぽっきり以外）
+    has_regular_course = False
+    for contract in active_contracts:
+        if not contract.course:
+            continue
+        course_items = CourseItem.objects.filter(
+            course=contract.course,
+            is_active=True,
+            product__item_type='tuition',
+            product__mile__gte=2  # 2マイル以上
+        ).exists()
+        if course_items:
+            has_regular_course = True
+            break
+
+    # 割引計算
+    # ぽっきり（1マイル）のみ: (合計 - 1) × 500円
+    # 通常コース含む: (合計 - 2) × 500円
+    if has_regular_course:
+        # 通常コースあり: -2して計算
+        if total_miles > 2:
+            discount_amount = (total_miles - 2) * 500
+            return (Decimal(str(discount_amount)), total_miles, f'マイル割引き（{total_miles}マイル）')
+    else:
+        # ぽっきりのみ: -1して計算
+        if total_miles > 1:
+            discount_amount = (total_miles - 1) * 500
+            return (Decimal(str(discount_amount)), total_miles, f'マイル割引き（{total_miles}マイル）')
 
     return (Decimal('0'), total_miles, '')
 

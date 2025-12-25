@@ -1,3 +1,3 @@
-# HR admin - placeholder
-# Models will be added later
+# HR admin
+# Employee model is registered in tenants/admin.py
 from django.contrib import admin

@@ -418,24 +418,46 @@ class ProductSetItemAdmin(CSVImportExportMixin, admin.ModelAdmin):
 class DiscountAdmin(CSVImportExportMixin, admin.ModelAdmin):
     list_display = [
         'discount_code', 'discount_name', 'discount_type',
-        'calculation_type', 'get_value_display', 'valid_from', 'valid_until', 'is_active', 'tenant_ref'
+        'is_employee_discount', 'applicable_brand', 'applicable_category',
+        'calculation_type', 'get_value_display', 'end_condition', 'is_recurring',
+        'valid_from', 'valid_until', 'is_active', 'tenant_ref'
     ]
-    list_filter = ['tenant_ref', 'discount_type', 'calculation_type', 'is_active']
+    list_filter = [
+        'tenant_ref', 'discount_type', 'calculation_type',
+        'is_employee_discount', 'applicable_category', 'end_condition',
+        'is_recurring', 'is_active'
+    ]
     search_fields = ['discount_code', 'discount_name']
     ordering = ['discount_code']
-    raw_id_fields = ['tenant_ref']
+    raw_id_fields = ['tenant_ref', 'applicable_brand']
 
     fieldsets = (
         ('基本情報', {
             'fields': ('discount_code', 'discount_name', 'discount_type')
         }),
+        ('社割設定', {
+            'fields': ('is_employee_discount',),
+            'description': '社員の場合に自動適用される割引にチェック'
+        }),
         ('割引設定', {
             'fields': ('calculation_type', 'value'),
             'description': '割合の場合は%、固定金額の場合は円で入力'
         }),
+        ('適用対象', {
+            'fields': ('applicable_brand', 'applicable_category'),
+            'description': 'ブランドが空の場合は全ブランドに適用'
+        }),
+        ('終了条件', {
+            'fields': ('end_condition', 'is_recurring'),
+            'description': '割引の終了条件と繰り返し設定'
+        }),
         ('適用期間', {
             'fields': ('valid_from', 'valid_until'),
             'description': '空欄の場合は常に適用'
+        }),
+        ('備考', {
+            'fields': ('notes',),
+            'classes': ('collapse',)
         }),
         ('ステータス', {
             'fields': ('is_active', 'tenant_ref')

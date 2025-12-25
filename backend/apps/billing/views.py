@@ -1882,24 +1882,24 @@ class MonthlyBillingDeadlineViewSet(viewsets.ModelViewSet):
                 'year': deadline.year,
                 'month': deadline.month,
                 'label': f'{deadline.year}年{deadline.month}月分',
-                'closing_day': deadline.closing_day,
-                'closing_date': deadline.closing_date.strftime('%Y-%m-%d'),
+                'closingDay': deadline.closing_day,
+                'closingDate': deadline.closing_date.strftime('%Y-%m-%d'),
                 'status': deadline.status,
-                'status_display': deadline.status_display,
-                'is_closed': deadline.is_closed,
-                'is_under_review': deadline.is_under_review,
-                'can_edit': deadline.can_edit,
-                'is_manually_closed': deadline.is_manually_closed,
-                'is_reopened': deadline.is_reopened,
-                'is_current': is_current,
+                'statusDisplay': deadline.status_display,
+                'isClosed': deadline.is_closed,
+                'isUnderReview': deadline.is_under_review,
+                'canEdit': deadline.can_edit,
+                'isManuallyClosed': deadline.is_manually_closed,
+                'isReopened': deadline.is_reopened,
+                'isCurrent': is_current,
             })
 
         return Response({
-            'current_year': today.year,
-            'current_month': today.month,
-            'billing_year': current_billing_year,
-            'billing_month': current_billing_month,
-            'default_closing_day': default_closing_day,
+            'currentYear': today.year,
+            'currentMonth': today.month,
+            'billingYear': current_billing_year,
+            'billingMonth': current_billing_month,
+            'defaultClosingDay': default_closing_day,
             'months': months,
         })
 
@@ -3247,11 +3247,46 @@ class ConfirmedBillingViewSet(viewsets.ModelViewSet):
         else:
             billing_end = date(year, month + 1, 1)
 
+        # 滞納がある退会者のIDを取得（未払い残高がある生徒）
+        from apps.billing.models import GuardianBalance
+
+        # 未払い残高がある保護者を取得
+        guardians_with_balance = GuardianBalance.objects.filter(
+            tenant_id=tenant_id,
+            deleted_at__isnull=True,
+            balance__lt=0  # マイナス=未収金
+        ).values_list('guardian_id', flat=True)
+
+        # 過去の未払い請求がある生徒（balance > 0 = 未払いあり）
+        students_with_unpaid = ConfirmedBilling.objects.filter(
+            tenant_id=tenant_id,
+            deleted_at__isnull=True,
+            balance__gt=0
+        ).values_list('student_id', flat=True).distinct()
+
+        # 滞納のある退会者のID
+        withdrawn_with_debt_ids = set(
+            Student.objects.filter(
+                tenant_id=tenant_id,
+                status=Student.Status.WITHDRAWN,
+                deleted_at__isnull=True
+            ).filter(
+                models.Q(id__in=students_with_unpaid) |
+                models.Q(guardian_id__in=guardians_with_balance)
+            ).values_list('id', flat=True)
+        )
+
         if student_ids:
+            # 休会者は除外、退会者は滞納がある場合のみ含める
             students = Student.objects.filter(
                 tenant_id=tenant_id,
                 id__in=student_ids,
                 deleted_at__isnull=True
+            ).exclude(
+                status=Student.Status.SUSPENDED  # 休会者は完全除外
+            ).exclude(
+                # 退会者で滞納がない場合は除外
+                models.Q(status=Student.Status.WITHDRAWN) & ~models.Q(id__in=withdrawn_with_debt_ids)
             )
         else:
             # 該当月にStudentItemがある生徒を取得（両形式に対応）
@@ -3274,10 +3309,19 @@ class ConfirmedBillingViewSet(viewsets.ModelViewSet):
             # 両方の生徒IDを統合
             all_student_ids = set(student_ids_with_items) | set(student_ids_with_contracts)
 
+            # 滞納のある退会者も追加
+            all_student_ids = all_student_ids | withdrawn_with_debt_ids
+
+            # 休会者は除外、退会者は滞納がある場合のみ含める
             students = Student.objects.filter(
                 tenant_id=tenant_id,
                 id__in=all_student_ids,
                 deleted_at__isnull=True
+            ).exclude(
+                status=Student.Status.SUSPENDED  # 休会者は完全除外
+            ).exclude(
+                # 退会者で滞納がない場合は除外
+                models.Q(status=Student.Status.WITHDRAWN) & ~models.Q(id__in=withdrawn_with_debt_ids)
             )
 
         created_count = 0
@@ -3335,6 +3379,9 @@ class ConfirmedBillingViewSet(viewsets.ModelViewSet):
                         'student_name': student.full_name,
                         'error': str(e)
                     })
+
+            # マイル割引を適用（保護者単位で1回のみ）
+            self._apply_mile_discounts(tenant_id, year, month)
 
         return Response({
             'success': True,
@@ -3494,6 +3541,72 @@ class ConfirmedBillingViewSet(viewsets.ModelViewSet):
             'payment_method_counts': payment_method_counts,
         })
 
+    def _apply_mile_discounts(self, tenant_id, year, month):
+        """マイル割引を適用（保護者単位で1回のみ）"""
+        from decimal import Decimal
+        from collections import defaultdict
+        from apps.pricing.calculations import calculate_mile_discount
+
+        # 該当月の確定データを取得
+        billings = ConfirmedBilling.objects.filter(
+            tenant_id=tenant_id,
+            year=year,
+            month=month,
+            deleted_at__isnull=True
+        ).select_related('student', 'guardian')
+
+        # 保護者ごとにグループ化
+        guardian_billings = defaultdict(list)
+        for b in billings:
+            if b.guardian_id:
+                guardian_billings[b.guardian_id].append(b)
+
+        # 保護者ごとにマイル割引を適用
+        for guardian_id, family_billings in guardian_billings.items():
+            if not family_billings:
+                continue
+
+            guardian = family_billings[0].guardian
+            if not guardian:
+                continue
+
+            # 既存のマイル割引を全て削除
+            for b in family_billings:
+                discounts = b.discounts_snapshot or []
+                new_discounts = [d for d in discounts if 'マイル' not in (d.get('discount_name', '') or '')]
+                if len(new_discounts) != len(discounts):
+                    b.discounts_snapshot = new_discounts
+
+            # マイル割引を計算
+            mile_discount_amount, total_miles, mile_discount_name = calculate_mile_discount(guardian)
+
+            if mile_discount_amount > 0:
+                # 最初の生徒の請求にのみマイル割引を追加
+                first_billing = family_billings[0]
+                discounts = first_billing.discounts_snapshot or []
+                discounts.append({
+                    'discount_name': mile_discount_name,
+                    'amount': str(mile_discount_amount),
+                    'discount_unit': 'yen',
+                    'source': 'mile_discount',
+                    'total_miles': total_miles,
+                    'is_family_discount': True,
+                })
+                first_billing.discounts_snapshot = discounts
+
+            # 各請求の合計を再計算して保存
+            for b in family_billings:
+                discounts = b.discounts_snapshot or []
+                discount_total = sum(Decimal(str(d.get('amount', 0))) for d in discounts)
+                total_amount = Decimal(str(b.subtotal)) - discount_total
+                if total_amount < 0:
+                    total_amount = Decimal('0')
+
+                b.discount_total = discount_total
+                b.total_amount = total_amount
+                b.balance = total_amount - Decimal(str(b.paid_amount or 0))
+                b.save(update_fields=['discounts_snapshot', 'discount_total', 'total_amount', 'balance'])
+
     @extend_schema(summary='確定データをCSVエクスポート')
     @action(detail=False, methods=['get'])
     def export_csv(self, request):
@@ -3521,41 +3634,43 @@ class ConfirmedBillingViewSet(viewsets.ModelViewSet):
             deleted_at__isnull=True
         ).select_related('student', 'guardian').order_by('guardian__guardian_no', 'student__student_no')
 
+        # 過不足金を取得（保護者ごと）
+        from apps.billing.models import GuardianBalance
+        guardian_balances = {}
+        for gb in GuardianBalance.objects.filter(tenant_id=tenant_id, deleted_at__isnull=True).select_related('guardian'):
+            if gb.guardian_id:
+                guardian_balances[gb.guardian_id] = gb.balance
+
+        # 過不足金を出力済みの保護者を追跡
+        balance_exported_guardians = set()
+
         # CSVレスポンスを作成
         response = HttpResponse(content_type='text/csv; charset=utf-8-sig')
         response['Content-Disposition'] = f'attachment; filename="confirmed_billing_{year}_{month}.csv"'
 
         writer = csv.writer(response)
 
-        # ヘッダー行
+        # ヘッダー行（旧システム形式に合わせる）
         writer.writerow([
-            'No.',
-            'テーブル名',
-            '請求確定ID',
-            '契約ID',
-            '旧ID',
             '保護者ID',
             '生徒ID',
-            '保護者名',
+            '保護者',
             '学年',
             '生徒名',
+            '契約ID',
+            'テーブル名',
             'ブランド名',
-            '商品名',
-            '請求カテゴリ',
-            '単価',
-            '数量',
-            '割引額',
-            '金額',
-            '請求年月',
-            '支払方法',
-            'ステータス',
-            '小計',
-            '割引合計',
-            '生徒合計',
+            '契約名',
+            '削除',
+            '請求ID',
+            '請求カテ',
+            '顧客表示用(明細T3のブランド月額料金)',
+            '合計',
+            'ブランド退会日',
+            '全退会日',
         ])
 
         # データ行（明細単位）
-        row_no = 1
         for billing in confirmed_billings:
             student = billing.student
             guardian = billing.guardian
@@ -3563,105 +3678,140 @@ class ConfirmedBillingViewSet(viewsets.ModelViewSet):
             discounts_snapshot = billing.discounts_snapshot or []
 
             student_no = student.student_no if student else ''
-            student_name = f'{student.last_name} {student.first_name}' if student else ''
+            student_name = f'{student.last_name}{student.first_name}' if student else ''
+            student_last_name = student.last_name if student else ''
             guardian_no = guardian.guardian_no if guardian else ''
-            guardian_name = f'{guardian.last_name} {guardian.first_name}' if guardian else ''
+            guardian_last_name = guardian.last_name if guardian else ''
             grade_text = student.grade_text if student else ''
-            # billing_noを優先、なければUUID
-            billing_id = billing.billing_no or str(billing.id)
+
+            # 退会日情報
+            withdrawal_date_str = billing.withdrawal_date.isoformat() if billing.withdrawal_date else ''
+            brand_withdrawal_dates = billing.brand_withdrawal_dates or {}
 
             # 商品明細を出力
             if items_snapshot:
-                for idx, item in enumerate(items_snapshot):
-                    # contract_noを優先（人が読める形式）、なければcontract_id（UUID）
-                    contract_id = item.get('contract_no', '') or item.get('contract_id', '')
-                    old_id = item.get('old_id', '')  # 旧システムID（例: 24AEC_1000007_1）
+                for item in items_snapshot:
+                    # 契約ID（旧システム形式: 24SOR_10T3_契約情報）
+                    contract_id = item.get('old_id', '') or item.get('contract_no', '')
+                    # 契約IDにテーブル名がなければ追加
+                    if contract_id and '_契約情報' not in contract_id and '_10T3' not in contract_id:
+                        # old_idからベースを取得（24SOR_1000005_1 → 24SOR）
+                        parts = contract_id.split('_')
+                        if len(parts) >= 1:
+                            contract_id = f"{parts[0]}_10T3_契約情報"
+
+                    # 請求ID（旧システム形式: 24SOR_1000005_1）
+                    billing_id = item.get('old_id', '') or item.get('id', '')
+
+                    # 契約名（コース名を優先）
+                    contract_name = item.get('course_name', '') or item.get('product_name_short', '') or ''
+
+                    # 請求カテゴリ
+                    item_type_display = item.get('item_type_display', '') or item.get('item_type', '') or ''
+
+                    # 顧客表示用（商品名）
+                    product_display = item.get('product_name', '') or ''
+
+                    # ブランド退会日（brand_idから取得）
+                    brand_id = item.get('brand_id', '')
+                    brand_withdrawal_date = brand_withdrawal_dates.get(brand_id, '') if brand_id else ''
+
                     writer.writerow([
-                        row_no,
-                        'ConfirmedBilling',  # テーブル名
-                        billing_id if idx == 0 else '',
+                        guardian_no,
+                        student_no,
+                        guardian_last_name,
+                        grade_text,
+                        student_name,
                         contract_id,
-                        old_id,
-                        guardian_no if idx == 0 else '',
-                        student_no if idx == 0 else '',
-                        guardian_name if idx == 0 else '',
-                        grade_text if idx == 0 else '',
-                        student_name if idx == 0 else '',
+                        'T3_契約情報',  # テーブル名
                         item.get('brand_name', ''),
-                        item.get('product_name', '') or item.get('course_name', ''),
-                        item.get('item_type_display', '') or item.get('item_type', ''),
-                        int(float(item.get('unit_price', 0) or 0)),
-                        item.get('quantity', 1),
-                        int(float(item.get('discount_amount', 0) or 0)),
-                        int(float(item.get('final_price', 0) or 0)),
-                        f'{billing.year}年{billing.month}月' if idx == 0 else '',
-                        billing.get_payment_method_display() if idx == 0 else '',
-                        billing.get_status_display() if idx == 0 else '',
-                        int(billing.subtotal) if idx == 0 else '',
-                        int(billing.discount_total) if idx == 0 else '',
-                        int(billing.total_amount) if idx == 0 else '',
+                        contract_name,
+                        '',  # 削除
+                        billing_id,
+                        item_type_display,
+                        product_display,
+                        int(float(item.get('final_price') or item.get('subtotal') or item.get('unit_price') or 0)),
+                        brand_withdrawal_date,  # ブランド退会日
+                        withdrawal_date_str,  # 全退会日
                     ])
-                    row_no += 1
 
             # 割引明細を出力
             if discounts_snapshot:
                 for discount in discounts_snapshot:
                     discount_amount = int(float(discount.get('amount', 0) or 0))
+                    discount_name = discount.get('discount_name', '')
+
+                    # 割引の種類に応じてテーブル名を設定
+                    if 'FS' in discount_name or '友達' in discount_name or '紹介' in discount_name:
+                        table_name = 'T6_割引情報'
+                    elif 'マイル' in discount_name or '家族' in discount_name:
+                        table_name = '家族割'
+                    else:
+                        table_name = 'T6_割引情報'
+
                     writer.writerow([
-                        row_no,
-                        'StudentDiscount',  # テーブル名
-                        '',  # 請求確定ID
-                        '',  # 契約ID
-                        discount.get('old_id', ''),  # 旧ID
-                        '',  # 保護者ID
-                        '',  # 生徒ID
-                        '',  # 保護者名
+                        guardian_no,
+                        '',  # 生徒ID（割引は保護者単位）
+                        guardian_last_name,
                         '',  # 学年
                         '',  # 生徒名
+                        '',  # 契約ID
+                        table_name,
                         '',  # ブランド名
-                        discount.get('discount_name', ''),  # 商品名（割引名）
-                        '割引',  # 請求カテゴリ
-                        discount_amount,  # 単価（割引額）
-                        1,  # 数量
-                        0,  # 割引額
-                        discount_amount,  # 金額（マイナス値）
-                        '',  # 請求年月
-                        '',  # 支払方法
-                        '',  # ステータス
-                        '',  # 小計
-                        '',  # 割引合計
-                        '',  # 生徒合計
+                        discount_name,
+                        '',  # 削除
+                        discount.get('old_id', ''),  # 請求ID（旧ID）
+                        '割引',
+                        discount_name,
+                        -discount_amount,  # 割引はマイナス
+                        '',  # ブランド退会日
+                        '',  # 全退会日
                     ])
-                    row_no += 1
+
+            # 過不足金を出力（保護者ごとに1回のみ）
+            if guardian and guardian.id not in balance_exported_guardians:
+                balance = guardian_balances.get(guardian.id)
+                if balance and balance != 0:
+                    writer.writerow([
+                        guardian_no,
+                        '',  # 生徒ID
+                        guardian_last_name,
+                        '',  # 学年
+                        '',  # 生徒名
+                        '',  # 契約ID
+                        '過不足金',  # テーブル名
+                        '',  # ブランド名
+                        '過不足金（前月繰越）',  # 契約名
+                        '',  # 削除
+                        '',  # 請求ID
+                        '過不足金',  # 請求カテ
+                        '過不足金（前月繰越）',  # 顧客表示用
+                        int(balance),  # 金額（マイナスは未収、プラスは過払い）
+                        '',  # ブランド退会日
+                        '',  # 全退会日
+                    ])
+                balance_exported_guardians.add(guardian.id)
 
             # 明細がない場合も1行出力
             if not items_snapshot and not discounts_snapshot:
                 writer.writerow([
-                    row_no,
-                    'ConfirmedBilling',
-                    billing_id,
-                    '',  # 契約ID
-                    '',  # 旧ID
                     guardian_no,
                     student_no,
-                    guardian_name,
+                    guardian_last_name,
                     grade_text,
                     student_name,
-                    '',
-                    '',
-                    '',
-                    '',
-                    '',
-                    '',
-                    '',
-                    f'{billing.year}年{billing.month}月',
-                    billing.get_payment_method_display(),
-                    billing.get_status_display(),
-                    int(billing.subtotal),
-                    int(billing.discount_total),
-                    int(billing.total_amount),
+                    '',  # 契約ID
+                    '',  # テーブル名
+                    '',  # ブランド名
+                    '',  # 契約名
+                    '',  # 削除
+                    '',  # 請求ID
+                    '',  # 請求カテ
+                    '',  # 顧客表示用
+                    int(billing.total_amount),  # 合計
+                    '',  # ブランド退会日
+                    withdrawal_date_str,  # 全退会日
                 ])
-                row_no += 1
 
         return response
 
@@ -3737,6 +3887,17 @@ class ConfirmedBillingViewSet(viewsets.ModelViewSet):
         if payment_method:
             queryset = queryset.filter(payment_method=payment_method)
 
+        # 決済代行会社でフィルタ（保護者のpayment_providerで絞り込み）
+        # provider=jaccs → 保護者のpayment_provider='jaccs'の人のみ
+        # provider=ufj_factor → 保護者のpayment_provider='ufjfactors'の人のみ
+        provider_filter_map = {
+            'jaccs': 'jaccs',
+            'ufj_factor': 'ufjfactors',
+            'chukyo_finance': 'chukyo_finance',
+        }
+        if provider in provider_filter_map:
+            queryset = queryset.filter(guardian__payment_provider=provider_filter_map[provider])
+
         # 保護者単位で集計（同じ保護者の複数生徒をまとめる）
         guardian_totals = {}
         for billing in queryset:
@@ -3757,26 +3918,67 @@ class ConfirmedBillingViewSet(viewsets.ModelViewSet):
 
         writer = csv.writer(response)
 
-        # ヘッダー行（全銀形式ベース）
-        if provider == 'ufj_factor':
-            # UFJファクター形式
-            writer.writerow([
-                'データ区分', '顧客番号', '引落金額', '氏名カナ',
-                '銀行コード', '銀行名', '支店コード', '支店名',
-                '預金種目', '口座番号', '備考'
-            ])
+        # JACCS委託者コード（設定から取得、デフォルト490508）
+        jaccs_consignor_code = '490508'
+        try:
+            from apps.billing.models import PaymentProvider
+            jaccs_provider = PaymentProvider.objects.filter(code='jaccs').first()
+            if jaccs_provider and jaccs_provider.consignor_code:
+                jaccs_consignor_code = jaccs_provider.consignor_code
+        except Exception:
+            pass
+
+        # 対象年月（YYYYMM形式）
+        if year and month:
+            target_period = f"{year}{int(month):02d}"
+        elif start_date:
+            # start_dateから年月を取得
+            from datetime import datetime
+            try:
+                dt = datetime.strptime(start_date, '%Y-%m-%d')
+                target_period = f"{dt.year}{dt.month:02d}"
+            except Exception:
+                target_period = timezone.now().strftime('%Y%m')
         else:
-            # JACCS/汎用形式
-            writer.writerow([
-                '顧客番号', '氏名カナ', '銀行コード', '支店コード',
-                '口座種別', '口座番号', '引落金額', '備考'
-            ])
+            target_period = timezone.now().strftime('%Y%m')
+
+        # UFJファクター委託者コード（設定から取得、デフォルト38222）
+        ufj_consignor_code = '38222'
+        ufj_consignor_name = 'ﾒｲﾀﾞｲｽｶｲ(ｶ'
+        try:
+            from apps.billing.models import PaymentProvider
+            ufj_provider = PaymentProvider.objects.filter(code='ufj_factor').first()
+            if ufj_provider and ufj_provider.consignor_code:
+                ufj_consignor_code = ufj_provider.consignor_code
+        except Exception:
+            pass
 
         exported_count = 0
         skipped_no_guardian = 0
         skipped_zero_amount = 0
         skipped_no_bank = 0
         skipped_guardians = []  # 銀行情報がない保護者リスト
+        total_amount_sum = 0
+
+        # UFJファクター形式: ヘッダーレコード（データ区分=1）
+        if provider == 'ufj_factor':
+            writer.writerow([
+                '1',                    # データ区分
+                '91',                   # 種別コード
+                '0',                    # 予備
+                ufj_consignor_code,     # 委託者コード
+                ufj_consignor_name,     # 委託者名カナ
+                '1127',                 # 振込指定日（MMDD形式、仮）
+                '5',                    # 振込種別
+                'ﾐﾂﾋﾞｼUFJ',             # 振込先銀行名
+                '10',                   # 振込先支店コード
+                'ｶﾝﾀﾞｴｷﾏｴ',             # 振込先支店名
+                '1',                    # 振込先口座種別
+                '9876543',              # 振込先口座番号
+                '',                     # 予備
+                '',                     # 予備
+            ])
+        # JACCS形式はヘッダー行なし
 
         # データ行
         for guardian_id, data in guardian_totals.items():
@@ -3801,42 +4003,88 @@ class ConfirmedBillingViewSet(viewsets.ModelViewSet):
                 })
                 continue
 
-            # カナ名を取得（フルカナ名優先、なければ姓名カナを結合）
-            name_kana = guardian.full_name_kana or f"{guardian.last_name_kana or ''}{guardian.first_name_kana or ''}"
+            # カナ名を取得（account_holder_kana優先、次にフルカナ名、なければ姓名カナを結合）
+            name_kana = guardian.account_holder_kana or guardian.full_name_kana or f"{guardian.last_name_kana or ''}{guardian.first_name_kana or ''}"
 
-            # 備考（対象年月）
-            billing_periods = list(set([f"{b.year}/{b.month:02d}" for b in data['billings']]))
-            notes = ', '.join(sorted(billing_periods))
+            # 銀行名カナ（bank_name_kanaがあれば使用、なければbank_nameを半角カナに変換試行）
+            bank_name_kana = getattr(guardian, 'bank_name_kana', None) or guardian.bank_name or ''
+            branch_name_kana = getattr(guardian, 'branch_name_kana', None) or guardian.branch_name or ''
 
             if provider == 'ufj_factor':
-                # UFJファクター形式
+                # UFJファクター形式（14列）
+                # データ区分=2のデータレコード
                 writer.writerow([
-                    '1',  # データ区分（1:データ）
-                    guardian.guardian_no or '',
-                    amount,
-                    name_kana,
-                    guardian.bank_code or '',
-                    guardian.bank_name or '',
-                    guardian.branch_code or '',
-                    guardian.branch_name or '',
-                    '1' if guardian.account_type == 'ordinary' else '2',
-                    guardian.account_number or '',
-                    notes,
+                    '2',                                                     # データ区分
+                    guardian.bank_code or '',                                # 銀行コード
+                    bank_name_kana,                                          # 銀行名カナ
+                    guardian.branch_code or '',                              # 支店コード
+                    branch_name_kana,                                        # 支店名カナ
+                    '',                                                      # 予備
+                    '1' if guardian.account_type == 'ordinary' else '2',     # 口座種別
+                    guardian.account_number or '',                           # 口座番号
+                    name_kana,                                               # 名義カナ
+                    int(amount),                                             # 金額
+                    '1',                                                     # 予備（常に1）
+                    ufj_consignor_code,                                      # 委託者コード
+                    guardian.guardian_no or '',                              # 顧客番号
+                    '0',                                                     # フラグ
                 ])
             else:
-                # JACCS/汎用形式
+                # JACCS形式（サンプルファイルに合わせた11列フォーマット）
+                # 列: 委託者コード, 年月, 銀行コード, 支店コード, 種目, 口座番号, 名義カナ, 金額, 区分, 顧客番号, フラグ
                 writer.writerow([
-                    guardian.guardian_no or '',
-                    name_kana,
-                    guardian.bank_code or '',
-                    guardian.branch_code or '',
-                    '1' if guardian.account_type == 'ordinary' else '2',
-                    guardian.account_number or '',
-                    amount,
-                    notes,
+                    jaccs_consignor_code,                                    # 委託者コード (6桁)
+                    target_period,                                           # 対象年月 (YYYYMM)
+                    guardian.bank_code or '',                                # 銀行コード
+                    guardian.branch_code or '',                              # 支店コード
+                    '1' if guardian.account_type == 'ordinary' else '2',     # 預金種目 (1:普通, 2:当座)
+                    guardian.account_number or '',                           # 口座番号
+                    name_kana,                                               # 名義カナ（半角）
+                    int(amount),                                             # 金額
+                    '1',                                                     # 区分（通常は1）
+                    guardian.guardian_no or '',                              # 顧客番号
+                    '0',                                                     # 予備フラグ
                 ])
 
             exported_count += 1
+            total_amount_sum += int(amount)
+
+        # UFJファクター形式: トレーラーレコード（データ区分=8）とエンドレコード（データ区分=9）
+        if provider == 'ufj_factor':
+            # トレーラーレコード
+            writer.writerow([
+                '8',                    # データ区分
+                str(exported_count),    # データ件数
+                str(total_amount_sum),  # 合計金額
+                '0',                    # 予備
+                '0',                    # 予備
+                '0',                    # 予備
+                '0',                    # 予備
+                '',                     # 予備
+                '',                     # 予備
+                '',                     # 予備
+                '',                     # 予備
+                '',                     # 予備
+                '',                     # 予備
+                '',                     # 予備
+            ])
+            # エンドレコード
+            writer.writerow([
+                '9',                    # データ区分
+                '',                     # 予備
+                '',                     # 予備
+                '',                     # 予備
+                '',                     # 予備
+                '',                     # 予備
+                '',                     # 予備
+                '',                     # 予備
+                '',                     # 予備
+                '',                     # 予備
+                '',                     # 予備
+                '',                     # 予備
+                '',                     # 予備
+                '',                     # 予備
+            ])
 
         # レスポンスヘッダーに件数情報を追加
         response['X-Export-Count'] = str(exported_count)
@@ -3907,12 +4155,22 @@ class ConfirmedBillingViewSet(viewsets.ModelViewSet):
         else:
             return Response({'error': '期間を指定してください'}, status=400)
 
+        # 決済代行会社でフィルタ（保護者のpayment_providerで絞り込み）
+        provider = request.query_params.get('provider', 'jaccs')
+        provider_filter_map = {
+            'jaccs': 'jaccs',
+            'ufj_factor': 'ufjfactors',
+            'chukyo_finance': 'chukyo_finance',
+        }
+        if provider in provider_filter_map:
+            queryset = queryset.filter(guardian__payment_provider=provider_filter_map[provider])
+
         # 集計
         total_billings = queryset.count()
         guardian_ids = set(queryset.values_list('guardian_id', flat=True))
         total_guardians = len(guardian_ids)
 
-        # 銀行情報チェック
+        # 銀行情報チェック（対象の決済代行会社の保護者のみ）
         guardians_with_bank = Guardian.objects.filter(
             id__in=guardian_ids
         ).exclude(bank_code='').exclude(bank_code__isnull=True).exclude(
@@ -3935,20 +4193,20 @@ class ConfirmedBillingViewSet(viewsets.ModelViewSet):
 
         missing_bank_list = [
             {
-                'guardian_no': g.guardian_no,
+                'guardianNo': g.guardian_no,
                 'name': f"{g.last_name or ''}{g.first_name or ''}",
-                'bank_code': g.bank_code or '',
-                'account_number': g.account_number or '',
+                'bankCode': g.bank_code or '',
+                'accountNumber': g.account_number or '',
             }
             for g in guardians_missing_bank
         ]
 
         return Response({
-            'total_billings': total_billings,
-            'total_guardians': total_guardians,
-            'guardians_with_bank': guardians_with_bank,
-            'guardians_without_bank': guardians_without_bank,
-            'total_amount': int(total_amount),
-            'exportable_count': guardians_with_bank,
-            'missing_bank_guardians': missing_bank_list,
+            'totalBillings': total_billings,
+            'totalGuardians': total_guardians,
+            'guardiansWithBank': guardians_with_bank,
+            'guardiansWithoutBank': guardians_without_bank,
+            'totalAmount': int(total_amount),
+            'exportableCount': guardians_with_bank,
+            'missingBankGuardians': missing_bank_list,
         })

@@ -310,13 +310,24 @@ export function StudentDetail({ student, parents, contracts, invoices, contactLo
     }
   }, [student.id]);
 
-  // 契約フィルター用の年月選択
-  const [contractYear, setContractYear] = useState<string>("all");
-  const [contractMonth, setContractMonth] = useState<string>("all");
+  // デフォルトの年月（翌月）を計算
+  const getNextMonth = () => {
+    const now = new Date();
+    const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+    return {
+      year: String(nextMonth.getFullYear()),
+      month: String(nextMonth.getMonth() + 1),
+    };
+  };
+  const defaultYearMonth = getNextMonth();
 
-  // 請求フィルター用の年月選択
-  const [invoiceYear, setInvoiceYear] = useState<string>("all");
-  const [invoiceMonth, setInvoiceMonth] = useState<string>("all");
+  // 契約フィルター用の年月選択（デフォルト：翌月）
+  const [contractYear, setContractYear] = useState<string>(defaultYearMonth.year);
+  const [contractMonth, setContractMonth] = useState<string>(defaultYearMonth.month);
+
+  // 請求フィルター用の年月選択（デフォルト：翌月）
+  const [invoiceYear, setInvoiceYear] = useState<string>(defaultYearMonth.year);
+  const [invoiceMonth, setInvoiceMonth] = useState<string>(defaultYearMonth.month);
 
   // やりとりタブのサブタブと日付フィルター
   const [commTab, setCommTab] = useState<"logs" | "chat" | "requests">("logs");
@@ -1647,7 +1658,7 @@ export function StudentDetail({ student, parents, contracts, invoices, contactLo
                           </Badge>
                         </div>
                         <span className="text-xs text-gray-400">
-                          {new Date(log.created_at).toLocaleDateString("ja-JP")}
+                          {log.created_at ? new Date(log.created_at).toLocaleDateString("ja-JP") : "-"}
                         </span>
                       </div>
                       <h4 className="font-medium text-sm mb-1">{log.subject}</h4>
@@ -1696,12 +1707,15 @@ export function StudentDetail({ student, parents, contracts, invoices, contactLo
                             {senderLabel}
                           </span>
                           <span className="text-xs text-gray-400">
-                            {new Date(msg.created_at || msg.timestamp).toLocaleString("ja-JP", {
-                              month: "numeric",
-                              day: "numeric",
-                              hour: "2-digit",
-                              minute: "2-digit",
-                            })}
+                            {(() => {
+                              const dateStr = msg.created_at || msg.timestamp;
+                              return dateStr ? new Date(dateStr).toLocaleString("ja-JP", {
+                                month: "numeric",
+                                day: "numeric",
+                                hour: "2-digit",
+                                minute: "2-digit",
+                              }) : "-";
+                            })()}
                           </span>
                         </div>
                         <p className="text-gray-800 whitespace-pre-wrap">{msg.content}</p>

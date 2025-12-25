@@ -249,6 +249,21 @@ class Guardian(TenantModel):
     account_holder_kana = models.CharField('口座名義（カナ）', max_length=100, blank=True)
 
     # 引き落とし設定
+    class PaymentProvider(models.TextChoices):
+        JACCS = 'jaccs', 'JACCS'
+        UFJ_FACTOR = 'ufjfactors', 'UFJファクター'
+        CHUKYO_FINANCE = 'chukyo_finance', '中京ファイナンス'
+        NONE = '', '未設定'
+
+    payment_provider = models.CharField(
+        '決済代行会社',
+        max_length=20,
+        choices=PaymentProvider.choices,
+        default='',
+        blank=True,
+        help_text='口座振替の決済代行会社（JACCS/UFJファクター等）'
+    )
+    debit_start_date = models.CharField('引落開始月', max_length=10, blank=True, help_text='YYYY/MM形式')
     withdrawal_day = models.IntegerField('引き落とし日', null=True, blank=True)  # 毎月何日
     payment_registered = models.BooleanField('支払い方法登録済み', default=False)
     payment_registered_at = models.DateTimeField('支払い方法登録日時', null=True, blank=True)
@@ -293,6 +308,36 @@ class Guardian(TenantModel):
     @property
     def full_name_kana(self):
         return f"{self.last_name_kana} {self.first_name_kana}".strip()
+
+    @property
+    def is_employee(self) -> bool:
+        """この保護者が社員かどうか"""
+        return hasattr(self, 'employees') and self.employees.filter(
+            is_active=True, deleted_at__isnull=True
+        ).exists()
+
+    @property
+    def employee(self):
+        """紐付いている社員情報を取得（アクティブなもの）"""
+        if hasattr(self, 'employees'):
+            return self.employees.filter(
+                is_active=True, deleted_at__isnull=True
+            ).first()
+        return None
+
+    @property
+    def employee_discount_info(self):
+        """社員割引情報を取得"""
+        emp = self.employee
+        if emp and emp.discount_flag:
+            return {
+                'has_discount': True,
+                'amount': emp.discount_amount,
+                'unit': emp.discount_unit,
+                'category_name': emp.discount_category_name,
+                'category_code': emp.discount_category_code,
+            }
+        return {'has_discount': False}
 
 
 class StudentSchool(TenantModel):
