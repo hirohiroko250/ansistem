@@ -1471,6 +1471,33 @@ export async function getStudentContactLogs(studentId: string): Promise<ContactL
 }
 
 /**
+ * 対応履歴を作成
+ */
+export type ContactLogCreateData = {
+  contact_type: 'PHONE_IN' | 'PHONE_OUT' | 'EMAIL_IN' | 'EMAIL_OUT' | 'VISIT' | 'MEETING' | 'ONLINE_MEETING' | 'CHAT' | 'OTHER';
+  subject: string;
+  content: string;
+  student_id?: string;
+  guardian_id?: string;
+  school_id?: string;
+  priority?: 'LOW' | 'NORMAL' | 'HIGH' | 'URGENT';
+  status?: 'OPEN' | 'IN_PROGRESS' | 'RESOLVED' | 'CLOSED';
+  follow_up_date?: string;
+  follow_up_notes?: string;
+  tags?: string[];
+};
+
+export async function createContactLog(data: ContactLogCreateData): Promise<ContactLog | null> {
+  try {
+    const response = await apiClient.post<ContactLog>("/communications/contact-logs/", data);
+    return response;
+  } catch (error) {
+    console.error("Error creating contact log:", error);
+    throw error;
+  }
+}
+
+/**
  * 保護者のチャットログを取得
  */
 export async function getGuardianChatLogs(guardianId: string): Promise<ChatLog[]> {

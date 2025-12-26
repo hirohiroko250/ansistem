@@ -1474,6 +1474,46 @@ class MonthlyBillingDeadline(TenantModel):
             # レコードがない場合は編集可能（まだ締切管理されていない）
             return True
 
+    @classmethod
+    def get_billing_month_for_date(cls, target_date, closing_day: int = 10) -> tuple:
+        """日付から請求月を計算
+
+        締め日ロジック:
+        - 締め日を過ぎた日付は翌月請求
+        - 例: 締め日=10の場合、12/11〜1/10 → 1月請求、1/11〜2/10 → 2月請求
+
+        Args:
+            target_date: 対象日付
+            closing_day: 締め日（デフォルト10日）
+
+        Returns:
+            tuple: (year, month) 請求月
+        """
+        from dateutil.relativedelta import relativedelta
+
+        if isinstance(target_date, str):
+            from datetime import datetime
+            target_date = datetime.strptime(target_date, '%Y-%m-%d').date()
+
+        if target_date.day > closing_day:
+            # 締め日を過ぎている場合は翌月請求
+            next_month = target_date.replace(day=1) + relativedelta(months=1)
+            return (next_month.year, next_month.month)
+        else:
+            # 締め日以内の場合は当月請求
+            return (target_date.year, target_date.month)
+
+    @classmethod
+    def get_current_billing_period(cls, tenant_id: int, closing_day: int = 10) -> tuple:
+        """現在の編集可能な請求期間を取得
+
+        Returns:
+            tuple: (year, month) 現在の請求期間
+        """
+        from datetime import date
+        today = date.today()
+        return cls.get_billing_month_for_date(today, closing_day)
+
 
 # =============================================================================
 # DebitExportBatch (引落データエクスポートバッチ)

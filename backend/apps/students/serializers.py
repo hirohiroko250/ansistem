@@ -3,7 +3,7 @@ Students Serializers
 """
 from rest_framework import serializers
 from .models import Student, Guardian, StudentSchool, StudentGuardian, SuspensionRequest, WithdrawalRequest, BankAccount, BankAccountChangeRequest
-from apps.schools.models import Brand
+from apps.schools.models import Brand, School
 
 
 class StudentListSerializer(serializers.ModelSerializer):
@@ -164,24 +164,64 @@ class StudentDetailSerializer(serializers.ModelSerializer):
         return None
 
     def get_guardian(self, obj):
-        """保護者情報をシリアライズ"""
+        """保護者情報をシリアライズ（FS割の紹介者情報を含む）"""
         if obj.guardian:
+            guardian = obj.guardian
+
+            # FS割の紹介者/被紹介者情報を取得
+            fs_discounts = []
+            try:
+                from apps.students.models import FSDiscount
+                for fs in FSDiscount.objects.filter(
+                    guardian=guardian,
+                    status='active'
+                ).select_related('friendship__requester', 'friendship__target'):
+                    friendship = fs.friendship
+                    if friendship:
+                        # この保護者が紹介者か被紹介者かを判定
+                        if friendship.requester_id == guardian.id:
+                            # この保護者が紹介者 → 被紹介者を表示
+                            partner = friendship.target
+                            role = 'referrer'  # 紹介した側
+                            role_display = '紹介者'
+                        else:
+                            # この保護者が被紹介者 → 紹介者を表示
+                            partner = friendship.requester
+                            role = 'referred'  # 紹介された側
+                            role_display = '被紹介者'
+
+                        fs_discounts.append({
+                            'id': str(fs.id),
+                            'role': role,
+                            'role_display': role_display,
+                            'partner_name': partner.full_name if partner else None,
+                            'partner_id': str(partner.id) if partner else None,
+                            'discount_type': fs.discount_type,
+                            'discount_type_display': fs.get_discount_type_display(),
+                            'discount_value': float(fs.discount_value),
+                            'valid_from': str(fs.valid_from) if fs.valid_from else None,
+                            'valid_until': str(fs.valid_until) if fs.valid_until else None,
+                        })
+            except Exception:
+                pass
+
             return {
-                'id': str(obj.guardian.id),
-                'guardian_no': obj.guardian.guardian_no,
-                'last_name': obj.guardian.last_name,
-                'first_name': obj.guardian.first_name,
-                'last_name_kana': obj.guardian.last_name_kana,
-                'first_name_kana': obj.guardian.first_name_kana,
-                'full_name': obj.guardian.full_name,
-                'email': obj.guardian.email,
-                'phone': obj.guardian.phone,
-                'phone_mobile': obj.guardian.phone_mobile,
-                'postal_code': obj.guardian.postal_code,
-                'prefecture': obj.guardian.prefecture,
-                'city': obj.guardian.city,
-                'address1': obj.guardian.address1,
-                'address2': obj.guardian.address2,
+                'id': str(guardian.id),
+                'guardian_no': guardian.guardian_no,
+                'last_name': guardian.last_name,
+                'first_name': guardian.first_name,
+                'last_name_kana': guardian.last_name_kana,
+                'first_name_kana': guardian.first_name_kana,
+                'full_name': guardian.full_name,
+                'email': guardian.email,
+                'phone': guardian.phone,
+                'phone_mobile': guardian.phone_mobile,
+                'postal_code': guardian.postal_code,
+                'prefecture': guardian.prefecture,
+                'city': guardian.city,
+                'address1': guardian.address1,
+                'address2': guardian.address2,
+                'fs_discounts': fs_discounts,
             }
         return None
 
@@ -458,6 +498,16 @@ class SuspensionRequestSerializer(serializers.ModelSerializer):
 
 class SuspensionRequestCreateSerializer(serializers.ModelSerializer):
     """休会申請作成用シリアライザ"""
+    brand = serializers.PrimaryKeyRelatedField(
+        queryset=Brand.objects.all(),
+        required=False,
+        allow_null=True
+    )
+    school = serializers.PrimaryKeyRelatedField(
+        queryset=School.objects.all(),
+        required=False,
+        allow_null=True
+    )
 
     class Meta:
         model = SuspensionRequest
@@ -513,6 +563,16 @@ class WithdrawalRequestSerializer(serializers.ModelSerializer):
 
 class WithdrawalRequestCreateSerializer(serializers.ModelSerializer):
     """退会申請作成用シリアライザ"""
+    brand = serializers.PrimaryKeyRelatedField(
+        queryset=Brand.objects.all(),
+        required=False,
+        allow_null=True
+    )
+    school = serializers.PrimaryKeyRelatedField(
+        queryset=School.objects.all(),
+        required=False,
+        allow_null=True
+    )
 
     class Meta:
         model = WithdrawalRequest

@@ -657,19 +657,29 @@ class PricingPreviewView(APIView):
                     print(f"[PricingPreview] ProductSet Product: {product.product_name}, item_type: '{item_type}'", file=sys.stderr, flush=True)
                     if item_type == 'textbook':
                         # 教材費は選択肢として別管理（月額から除外）
+                        # 入会月に応じた傾斜料金を適用
+                        enrollment_month = start_date.month if start_date else None
+                        if enrollment_month:
+                            textbook_price = product.get_price_for_enrollment_month(enrollment_month)
+                        else:
+                            textbook_price = base_price
+                        textbook_tax_amount = int(textbook_price * tax_rate)
+                        textbook_price_with_tax = int(textbook_price) + textbook_tax_amount
                         textbook_options.append({
                             'productId': str(product.id),
                             'productCode': product.product_code,
                             'productName': product.product_name,
                             'itemType': item_type,
-                            'unitPrice': int(base_price),
-                            'priceWithTax': price_with_tax,
+                            'unitPrice': int(textbook_price),
+                            'priceWithTax': textbook_price_with_tax,
+                            'basePrice': int(base_price),  # 元の価格も保持
+                            'enrollmentMonth': enrollment_month,
                             'taxRate': float(tax_rate),
                             'paymentType': 'monthly' if '月払い' in product.product_name else 'semi_annual' if '半年払い' in product.product_name or '半期' in product.product_name else 'annual',
                             'billingMonths': self._extract_billing_months(product.product_name),
                             'source': 'product_set',
                         })
-                        print(f"[PricingPreview]   -> Added to textbook_options (not included in monthly total)", file=sys.stderr)
+                        print(f"[PricingPreview]   -> Added to textbook_options (enrollment_month={enrollment_month}, price={textbook_price})", file=sys.stderr)
                     elif item_type in ['enrollment', 'enrollment_textbook', 'bag']:
                         billing_by_month['enrollment']['items'].append(item_data.copy())
                         billing_by_month['enrollment']['total'] += price_with_tax
@@ -720,19 +730,29 @@ class PricingPreviewView(APIView):
                 print(f"[PricingPreview] Product: {product.product_name}, item_type: '{item_type}'", file=sys.stderr, flush=True)
                 if item_type == 'textbook':
                     # 教材費は選択肢として別管理（月額から除外）
+                    # 入会月に応じた傾斜料金を適用
+                    enrollment_month = start_date.month if start_date else None
+                    if enrollment_month:
+                        textbook_price = product.get_price_for_enrollment_month(enrollment_month)
+                    else:
+                        textbook_price = base_price
+                    textbook_tax_amount = int(textbook_price * tax_rate)
+                    textbook_price_with_tax = int(textbook_price) + textbook_tax_amount
                     textbook_options.append({
                         'productId': str(product.id),
                         'productCode': product.product_code,
                         'productName': product.product_name,
                         'itemType': item_type,
-                        'unitPrice': int(base_price),
-                        'priceWithTax': price_with_tax,
+                        'unitPrice': int(textbook_price),
+                        'priceWithTax': textbook_price_with_tax,
+                        'basePrice': int(base_price),  # 元の価格も保持
+                        'enrollmentMonth': enrollment_month,
                         'taxRate': float(tax_rate),
                         'paymentType': 'monthly' if '月払い' in product.product_name else 'semi_annual' if '半年払い' in product.product_name or '半期' in product.product_name else 'annual',
                         'billingMonths': self._extract_billing_months(product.product_name),
                         'source': 'course_item',
                     })
-                    print(f"[PricingPreview]   -> Added to textbook_options (not included in monthly total)", file=sys.stderr)
+                    print(f"[PricingPreview]   -> Added to textbook_options (enrollment_month={enrollment_month}, price={textbook_price})", file=sys.stderr)
                 elif item_type in ['enrollment', 'enrollment_textbook', 'bag']:
                     # 入会時費用（一回のみ）
                     billing_by_month['enrollment']['items'].append(item_data)

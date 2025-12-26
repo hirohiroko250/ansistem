@@ -455,24 +455,11 @@ class StudentItemViewSet(CSVMixin, viewsets.ModelViewSet):
         - 確定済み: 誰も編集不可
         - 確認中: 経理・管理者のみ編集可
         - 未締め: 誰でも編集可
+        - 現在または将来の請求期間: 編集可
         """
         from rest_framework.exceptions import PermissionDenied
         from apps.billing.models import MonthlyBillingDeadline
-
-        year, month = None, None
-        if instance.billing_month:
-            if '-' in instance.billing_month:
-                parts = instance.billing_month.split('-')
-                year, month = int(parts[0]), int(parts[1])
-            elif len(instance.billing_month) == 6:
-                year = int(instance.billing_month[:4])
-                month = int(instance.billing_month[4:])
-        elif instance.start_date:
-            year = instance.start_date.year
-            month = instance.start_date.month
-
-        if not year or not month:
-            return
+        from datetime import date
 
         tenant_id = getattr(self.request, 'tenant_id', None)
         if not tenant_id:
@@ -481,6 +468,48 @@ class StudentItemViewSet(CSVMixin, viewsets.ModelViewSet):
             if default_tenant:
                 tenant_id = default_tenant.id
 
+        # 現在の請求期間を取得
+        current_year, current_month = MonthlyBillingDeadline.get_current_billing_period(tenant_id)
+        current_period = (current_year, current_month)
+
+        # start_dateがある場合は、それから正しい請求期間を計算して編集可否をチェック
+        if instance.start_date:
+            calc_year, calc_month = MonthlyBillingDeadline.get_billing_month_for_date(instance.start_date)
+            calculated_period = (calc_year, calc_month)
+            if calculated_period >= current_period:
+                # 開始日ベースで現在以降の請求期間なので編集可能
+                return
+
+        # created_atがある場合もチェック（最近作成されたアイテムは編集可能）
+        if hasattr(instance, 'created_at') and instance.created_at:
+            created_date = instance.created_at.date() if hasattr(instance.created_at, 'date') else instance.created_at
+            created_year, created_month = MonthlyBillingDeadline.get_billing_month_for_date(created_date)
+            created_period = (created_year, created_month)
+            if created_period >= current_period:
+                # 作成日ベースで現在以降の請求期間なので編集可能
+                return
+
+        # billing_monthから請求期間を取得
+        year, month = None, None
+        if instance.billing_month:
+            if '-' in instance.billing_month:
+                parts = instance.billing_month.split('-')
+                year, month = int(parts[0]), int(parts[1])
+            elif len(instance.billing_month) == 6:
+                year = int(instance.billing_month[:4])
+                month = int(instance.billing_month[4:])
+
+        if not year or not month:
+            # billing_monthがない場合は編集可能（請求対象外の可能性）
+            return
+
+        item_period = (year, month)
+
+        if item_period >= current_period:
+            # 現在または将来の請求期間なので編集可能
+            return
+
+        # 過去の請求期間の場合は締め日チェック
         deadline = MonthlyBillingDeadline.objects.filter(
             tenant_id=tenant_id,
             year=year,
@@ -1120,14 +1149,25 @@ class ContractViewSet(CSVMixin, viewsets.ModelViewSet):
         # Guardianが見つかったらそのtenant_idを使用
         tenant_id = guardian.tenant_id
 
-        # 保護者に紐づく生徒を取得（StudentGuardian中間テーブル経由）
-        student_ids = StudentGuardian.objects.filter(
+        # 保護者に紐づく生徒を取得
+        # 1. StudentGuardian中間テーブル経由
+        student_ids_from_sg = set(StudentGuardian.objects.filter(
             guardian=guardian,
             tenant_id=tenant_id
-        ).values_list('student_id', flat=True)
+        ).values_list('student_id', flat=True))
+
+        # 2. Student.guardian直接参照（主保護者）
+        student_ids_from_direct = set(Student.objects.filter(
+            guardian=guardian,
+            tenant_id=tenant_id,
+            deleted_at__isnull=True
+        ).values_list('id', flat=True))
+
+        # 両方を統合
+        all_student_ids = student_ids_from_sg | student_ids_from_direct
 
         students = Student.objects.filter(
-            id__in=student_ids,
+            id__in=all_student_ids,
             tenant_id=tenant_id,
             deleted_at__isnull=True
         )

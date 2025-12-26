@@ -211,9 +211,32 @@ class Product(TenantModel):
 
     def get_price_for_enrollment_month(self, enrollment_month):
         """入会月に応じた料金を取得"""
+        # まずProductPriceから取得を試みる
         price_record = self.prices.filter(is_active=True).first()
         if price_record:
-            return price_record.get_enrollment_price(enrollment_month)
+            price = price_record.get_enrollment_price(enrollment_month)
+            if price is not None and price > 0:
+                return price
+
+        # ProductPrice がない場合は Product 自体のenrollment_price フィールドから取得
+        enrollment_price_map = {
+            1: self.enrollment_price_jan,
+            2: self.enrollment_price_feb,
+            3: self.enrollment_price_mar,
+            4: self.enrollment_price_apr,
+            5: self.enrollment_price_may,
+            6: self.enrollment_price_jun,
+            7: self.enrollment_price_jul,
+            8: self.enrollment_price_aug,
+            9: self.enrollment_price_sep,
+            10: self.enrollment_price_oct,
+            11: self.enrollment_price_nov,
+            12: self.enrollment_price_dec,
+        }
+        product_enrollment_price = enrollment_price_map.get(enrollment_month)
+        if product_enrollment_price is not None and product_enrollment_price > 0:
+            return product_enrollment_price
+
         return self.base_price
 
     def get_price_for_billing_month(self, billing_month):

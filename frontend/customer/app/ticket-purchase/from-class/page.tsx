@@ -1405,7 +1405,7 @@ export default function FromClassPurchasePage() {
                               : contract.course?.courseName || contract.ticket?.ticketName || '受講中'}
                           </p>
                           <p className="text-sm text-gray-600">
-                            {contract.brand.brandName} / {contract.school.schoolName}
+                            {contract.brand?.brandName || ''} / {contract.school?.schoolName || '未設定'}
                           </p>
                         </div>
                         <Badge className="bg-green-500 text-white">受講中</Badge>

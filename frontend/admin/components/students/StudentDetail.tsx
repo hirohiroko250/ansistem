@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useEffect } from "react";
 import { Student, Guardian, Contract, Invoice, StudentDiscount } from "@/lib/api/types";
-import { ContactLog, ChatLog, ChatMessage } from "@/lib/api/staff";
+import { ContactLog, ChatLog, ChatMessage, createContactLog, ContactLogCreateData, getStudentContactLogs } from "@/lib/api/staff";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -29,6 +29,8 @@ import {
   Calendar,
   Pencil,
   ExternalLink,
+  Plus,
+  Loader2,
 } from "lucide-react";
 import { ContractEditDialog } from "./ContractEditDialog";
 import { NewContractDialog } from "./NewContractDialog";
@@ -209,6 +211,62 @@ export function StudentDetail({ student, parents, contracts, invoices, contactLo
   const [suspensionRequests, setSuspensionRequests] = useState<any[]>([]);
   const [withdrawalRequests, setWithdrawalRequests] = useState<any[]>([]);
 
+  // 対応履歴追加ダイアログ
+  const [contactLogDialogOpen, setContactLogDialogOpen] = useState(false);
+  const [contactLogForm, setContactLogForm] = useState<ContactLogCreateData>({
+    contact_type: 'PHONE_OUT',
+    subject: '',
+    content: '',
+    priority: 'NORMAL',
+    status: 'RESOLVED',
+  });
+  const [isSubmittingContactLog, setIsSubmittingContactLog] = useState(false);
+  const [localContactLogs, setLocalContactLogs] = useState<ContactLog[]>(contactLogs);
+
+  // contactLogs propが変わったらlocalContactLogsを更新
+  useEffect(() => {
+    setLocalContactLogs(contactLogs);
+  }, [contactLogs]);
+
+  // 対応履歴を追加
+  const handleCreateContactLog = async () => {
+    if (!contactLogForm.subject || !contactLogForm.content) {
+      alert('件名と内容は必須です');
+      return;
+    }
+
+    setIsSubmittingContactLog(true);
+    try {
+      const data: ContactLogCreateData = {
+        ...contactLogForm,
+        student_id: student.id,
+        guardian_id: parents[0]?.id,
+      };
+
+      const result = await createContactLog(data);
+      if (result) {
+        // ローカルの対応履歴を更新
+        const updatedLogs = await getStudentContactLogs(student.id);
+        setLocalContactLogs(updatedLogs);
+
+        // フォームをリセット
+        setContactLogForm({
+          contact_type: 'PHONE_OUT',
+          subject: '',
+          content: '',
+          priority: 'NORMAL',
+          status: 'RESOLVED',
+        });
+        setContactLogDialogOpen(false);
+      }
+    } catch (error) {
+      console.error('対応履歴の追加に失敗しました:', error);
+      alert('対応履歴の追加に失敗しました');
+    } finally {
+      setIsSubmittingContactLog(false);
+    }
+  };
+
   // 締め済み月の情報
   const [closedMonths, setClosedMonths] = useState<Set<string>>(new Set());
 
@@ -268,8 +326,44 @@ export function StudentDetail({ student, parents, contracts, invoices, contactLo
     fetchBillingDeadlines();
   }, []);
 
+  // 日付から請求月を計算（締め日ロジック）
+  // 例: 締め日=10の場合
+  // - 12/11〜1/10 → 1月期間 → 2月請求
+  // - 1/11〜2/10 → 2月期間 → 3月請求
+  const getBillingMonthForDate = (date: Date, closingDay: number = 10): { year: number; month: number } => {
+    let periodYear: number;
+    let periodMonth: number;
+
+    if (date.getDate() > closingDay) {
+      // 締め日を過ぎている場合は翌月期間
+      const nextMonth = new Date(date.getFullYear(), date.getMonth() + 1, 1);
+      periodYear = nextMonth.getFullYear();
+      periodMonth = nextMonth.getMonth() + 1;
+    } else {
+      // 締め日以内の場合は当月期間
+      periodYear = date.getFullYear();
+      periodMonth = date.getMonth() + 1;
+    }
+
+    // 請求月は期間の翌月
+    const billingDate = new Date(periodYear, periodMonth, 1); // periodMonthは1-indexed、Dateの月は0-indexed
+    return { year: billingDate.getFullYear(), month: billingDate.getMonth() + 1 };
+  };
+
+  // 現在の請求月を計算（今日の日付から）
+  const currentBillingPeriod = getBillingMonthForDate(new Date());
+
+  // 契約の請求月を取得（表示用）
+  const getContractBillingMonth = (contract: Contract): string => {
+    const startDateStr = contract.start_date || (contract as any).startDate;
+    if (!startDateStr) return "";
+    const startDate = new Date(startDateStr);
+    if (isNaN(startDate.getTime())) return "";
+    const billing = getBillingMonthForDate(startDate);
+    return `${billing.year}-${String(billing.month).padStart(2, '0')}`;
+  };
+
   // 契約の請求月が締め済みかどうかをチェック
-  // 現在の請求月（2026年2月）は常に編集可能
   const isContractPeriodClosed = (contract: Contract): boolean => {
     const startDateStr = contract.start_date || (contract as any).startDate;
     if (!startDateStr) return false;
@@ -277,19 +371,20 @@ export function StudentDetail({ student, parents, contracts, invoices, contactLo
     const startDate = new Date(startDateStr);
     if (isNaN(startDate.getTime())) return false;
 
-    // 契約の年月を取得
-    const contractYear = startDate.getFullYear();
-    const contractMonth = startDate.getMonth() + 1;
+    // 契約の開始日から請求期間を計算
+    const contractBillingPeriod = getBillingMonthForDate(startDate);
 
-    // 現在の請求月（ハードコード）と一致する場合は編集可能
-    const currentBillingYear = parseInt(currentBillingMonth.year);
-    const currentBillingMonthNum = parseInt(currentBillingMonth.month);
-    if (contractYear === currentBillingYear && contractMonth === currentBillingMonthNum) {
-      return false; // 現在の請求月は締め済みではない
+    // 契約の請求期間が現在以降であれば編集可能
+    const contractPeriodValue = contractBillingPeriod.year * 100 + contractBillingPeriod.month;
+    const currentPeriodValue = currentBillingPeriod.year * 100 + currentBillingPeriod.month;
+
+    if (contractPeriodValue >= currentPeriodValue) {
+      return false; // 現在または将来の請求期間は編集可能
     }
 
-    // それ以外は締め済み
-    return true;
+    // 過去の請求期間は締め済みセットでチェック
+    const monthKey = `${contractBillingPeriod.year}-${String(contractBillingPeriod.month).padStart(2, '0')}`;
+    return closedMonths.has(monthKey);
   };
 
   // 休会・退会申請を取得
@@ -313,11 +408,10 @@ export function StudentDetail({ student, parents, contracts, invoices, contactLo
     }
   }, [student.id]);
 
-  // 現在の請求月（2026年2月）を固定
-  // TODO: APIから現在の請求月を取得する
+  // 現在の請求月（動的に計算）
   const currentBillingMonth = {
-    year: "2026",
-    month: "2",
+    year: String(currentBillingPeriod.year),
+    month: String(currentBillingPeriod.month),
   };
   const defaultYearMonth = currentBillingMonth;
 
@@ -336,13 +430,13 @@ export function StudentDetail({ student, parents, contracts, invoices, contactLo
 
   // 日付フィルタリングされた対応ログ
   const filteredContactLogs = useMemo(() => {
-    return contactLogs.filter((log) => {
+    return localContactLogs.filter((log) => {
       const logDate = new Date(log.created_at);
       if (commDateFrom && logDate < new Date(commDateFrom)) return false;
       if (commDateTo && logDate > new Date(commDateTo + "T23:59:59")) return false;
       return true;
     });
-  }, [contactLogs, commDateFrom, commDateTo]);
+  }, [localContactLogs, commDateFrom, commDateTo]);
 
   // 日付フィルタリングされたメッセージ
   const filteredMessages = useMemo(() => {
@@ -393,7 +487,7 @@ export function StudentDetail({ student, parents, contracts, invoices, contactLo
     return null;
   };
 
-  // 契約フィルター処理
+  // 契約フィルター処理（請求月ベース）
   const filteredContracts = useMemo(() => {
     if (contractYear === "all" && contractMonth === "all") {
       return contracts;
@@ -413,15 +507,37 @@ export function StudentDetail({ student, parents, contracts, invoices, contactLo
 
       if (!startDate) return false; // パース失敗は非表示
 
-      // フィルター期間の設定
+      // フィルター期間の設定（請求月ベースで判定）
       if (filterYear && filterMonth) {
-        // 年と月両方指定: その年月に請求対象となる契約のみ
+        // 締め日ロジック: フィルターの請求月に対応する期間を計算
+        // 例: 2月請求 → 12/11〜1/10の期間に開始した契約
+        // 期間 = 請求月 - 1ヶ月
+        const periodMonth = filterMonth - 1 === 0 ? 12 : filterMonth - 1;
+        const periodYear = filterMonth - 1 === 0 ? filterYear - 1 : filterYear;
+
+        // 期間の開始日（前月11日）と終了日（当月10日）
+        const prevMonth = periodMonth - 1 === 0 ? 12 : periodMonth - 1;
+        const prevYear = periodMonth - 1 === 0 ? periodYear - 1 : periodYear;
+        const periodStart = new Date(prevYear, prevMonth - 1, 11); // 前月11日
+        const periodEnd = new Date(periodYear, periodMonth - 1, 10, 23, 59, 59); // 当月10日
+
+        // フィルター月の範囲（表示用：請求月の月初〜月末も含める）
         const filterMonthStart = new Date(filterYear, filterMonth - 1, 1);
         const filterMonthEnd = new Date(filterYear, filterMonth, 0, 23, 59, 59);
 
-        // 契約開始日がフィルター月の末日以前 AND
-        // 契約終了日がフィルター月の初日以降（または終了日なし）
-        const startBeforeOrInMonth = startDate <= filterMonthEnd;
+        // 契約の請求月を計算
+        const contractBilling = getBillingMonthForDate(startDate);
+        const isBillingMonthMatch = contractBilling.year === filterYear && contractBilling.month === filterMonth;
+
+        // 請求月が一致するか、契約期間がフィルター月に有効かどうか
+        // 月額契約は開始月以降も有効なので、請求月以降のフィルターでも表示
+        if (isBillingMonthMatch) {
+          return true; // 請求月が一致
+        }
+
+        // 継続契約の場合: 開始月の請求月がフィルター月以前、かつ終了日がフィルター月以降
+        const startBeforeOrInMonth = contractBilling.year < filterYear ||
+          (contractBilling.year === filterYear && contractBilling.month <= filterMonth);
         const endAfterOrInMonth = !endDate || endDate >= filterMonthStart;
 
         return startBeforeOrInMonth && endAfterOrInMonth;
@@ -437,10 +553,16 @@ export function StudentDetail({ student, parents, contracts, invoices, contactLo
       } else if (filterMonth) {
         // 月のみ指定: 現在の年のその月に有効な契約
         const thisYear = new Date().getFullYear();
-        const filterMonthStart = new Date(thisYear, filterMonth - 1, 1);
-        const filterMonthEnd = new Date(thisYear, filterMonth, 0, 23, 59, 59);
+        const contractBilling = getBillingMonthForDate(startDate);
+        const isBillingMonthMatch = contractBilling.year === thisYear && contractBilling.month === filterMonth;
 
-        const startBeforeOrInMonth = startDate <= filterMonthEnd;
+        if (isBillingMonthMatch) {
+          return true;
+        }
+
+        const filterMonthStart = new Date(thisYear, filterMonth - 1, 1);
+        const startBeforeOrInMonth = contractBilling.year < thisYear ||
+          (contractBilling.year === thisYear && contractBilling.month <= filterMonth);
         const endAfterOrInMonth = !endDate || endDate >= filterMonthStart;
 
         return startBeforeOrInMonth && endAfterOrInMonth;
@@ -563,7 +685,8 @@ export function StudentDetail({ student, parents, contracts, invoices, contactLo
     try {
       const response = await apiClient.post<{ id: string }>('/students/suspension-requests/', {
         student: student.id,
-        school: student.primary_school?.id || student.primary_school_id,
+        brand: student.primary_brand?.id || student.primary_brand_id || (student as any).primaryBrand?.id,
+        school: student.primary_school?.id || student.primary_school_id || (student as any).primarySchool?.id,
         ...suspensionForm,
       });
 
@@ -587,7 +710,8 @@ export function StudentDetail({ student, parents, contracts, invoices, contactLo
     try {
       const response = await apiClient.post<{ id: string }>('/students/withdrawal-requests/', {
         student: student.id,
-        school: student.primary_school?.id || student.primary_school_id,
+        brand: student.primary_brand?.id || student.primary_brand_id || (student as any).primaryBrand?.id,
+        school: student.primary_school?.id || student.primary_school_id || (student as any).primarySchool?.id,
         ...withdrawalForm,
       });
 
@@ -670,110 +794,120 @@ export function StudentDetail({ student, parents, contracts, invoices, contactLo
 
         {/* 基本情報タブ */}
         <TabsContent value="basic" className="flex-1 overflow-auto p-0 m-0">
-          <div className="p-4 space-y-4">
-            {/* 生徒基本情報 */}
-            <div>
-              <h3 className="text-sm font-semibold text-gray-700 mb-2">生徒情報</h3>
-              <table className="w-full text-sm border">
-                <tbody>
-                  <tr className="border-b bg-gray-50">
-                    <th className="px-3 py-2 text-left text-gray-600 font-medium w-28 border-r">生徒ID</th>
-                    <td className="px-3 py-2 font-mono">{studentNo}</td>
-                  </tr>
-                  <tr className="border-b">
-                    <th className="px-3 py-2 text-left text-gray-600 font-medium border-r">学年</th>
-                    <td className="px-3 py-2">{gradeText || "-"}</td>
-                  </tr>
-                  <tr className="border-b bg-gray-50">
-                    <th className="px-3 py-2 text-left text-gray-600 font-medium border-r">生年月日</th>
-                    <td className="px-3 py-2">{formatDate(birthDate)}</td>
-                  </tr>
-                  <tr className="border-b">
-                    <th className="px-3 py-2 text-left text-gray-600 font-medium border-r">性別</th>
-                    <td className="px-3 py-2">{gender === "male" ? "男" : gender === "female" ? "女" : "-"}</td>
-                  </tr>
-                  <tr className="border-b bg-gray-50">
-                    <th className="px-3 py-2 text-left text-gray-600 font-medium border-r">学校名</th>
-                    <td className="px-3 py-2">{schoolName || "-"}</td>
-                  </tr>
-                  <tr className="border-b">
-                    <th className="px-3 py-2 text-left text-gray-600 font-medium border-r">電話番号</th>
-                    <td className="px-3 py-2">{phone || "-"}</td>
-                  </tr>
-                  <tr className="border-b bg-gray-50">
-                    <th className="px-3 py-2 text-left text-gray-600 font-medium border-r">メール</th>
-                    <td className="px-3 py-2 break-all">{email || "-"}</td>
-                  </tr>
-                </tbody>
-              </table>
+          <div className="p-3 space-y-2">
+            {/* 上段: 生徒情報 + 在籍情報 (2列) */}
+            <div className="grid grid-cols-2 gap-2">
+              {/* 生徒基本情報 */}
+              <div>
+                <h3 className="text-xs font-semibold text-gray-700 mb-1">生徒情報</h3>
+                <table className="w-full text-xs border">
+                  <tbody>
+                    <tr className="border-b bg-gray-50">
+                      <th className="px-2 py-1 text-left text-gray-600 font-medium w-16 border-r">生徒ID</th>
+                      <td className="px-2 py-1 font-mono">{studentNo}</td>
+                    </tr>
+                    <tr className="border-b">
+                      <th className="px-2 py-1 text-left text-gray-600 font-medium border-r">学年</th>
+                      <td className="px-2 py-1">{gradeText || "-"}</td>
+                    </tr>
+                    <tr className="border-b bg-gray-50">
+                      <th className="px-2 py-1 text-left text-gray-600 font-medium border-r">生年月日</th>
+                      <td className="px-2 py-1">{formatDate(birthDate)}</td>
+                    </tr>
+                    <tr className="border-b">
+                      <th className="px-2 py-1 text-left text-gray-600 font-medium border-r">性別</th>
+                      <td className="px-2 py-1">{gender === "male" ? "男" : gender === "female" ? "女" : "-"}</td>
+                    </tr>
+                    <tr className="border-b bg-gray-50">
+                      <th className="px-2 py-1 text-left text-gray-600 font-medium border-r">学校名</th>
+                      <td className="px-2 py-1 truncate max-w-[120px]">{schoolName || "-"}</td>
+                    </tr>
+                    <tr className="border-b">
+                      <th className="px-2 py-1 text-left text-gray-600 font-medium border-r">電話</th>
+                      <td className="px-2 py-1">{phone || "-"}</td>
+                    </tr>
+                    <tr className="border-b bg-gray-50">
+                      <th className="px-2 py-1 text-left text-gray-600 font-medium border-r">メール</th>
+                      <td className="px-2 py-1 truncate max-w-[120px]">{email || "-"}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+
+              {/* 在籍情報 */}
+              <div>
+                <h3 className="text-xs font-semibold text-gray-700 mb-1">在籍情報</h3>
+                <table className="w-full text-xs border">
+                  <tbody>
+                    <tr className="border-b bg-gray-50">
+                      <th className="px-2 py-1 text-left text-gray-600 font-medium w-16 border-r">校舎</th>
+                      <td className="px-2 py-1">{primarySchoolName || "-"}</td>
+                    </tr>
+                    <tr className="border-b">
+                      <th className="px-2 py-1 text-left text-gray-600 font-medium border-r">ブランド</th>
+                      <td className="px-2 py-1 truncate max-w-[120px]">
+                        {primaryBrandName || (brandNames.length > 0 ? brandNames.join(", ") : "-")}
+                      </td>
+                    </tr>
+                    <tr className="border-b bg-gray-50">
+                      <th className="px-2 py-1 text-left text-gray-600 font-medium border-r">体験日</th>
+                      <td className="px-2 py-1">{formatDate(trialDate)}</td>
+                    </tr>
+                    <tr className="border-b">
+                      <th className="px-2 py-1 text-left text-gray-600 font-medium border-r">入会日</th>
+                      <td className="px-2 py-1">{formatDate(enrollmentDate)}</td>
+                    </tr>
+                    <tr className="border-b bg-gray-50">
+                      <th className="px-2 py-1 text-left text-gray-600 font-medium border-r">登録日</th>
+                      <td className="px-2 py-1">{formatDate(registeredDate)}</td>
+                    </tr>
+                    <tr className="border-b">
+                      <th className="px-2 py-1 text-left text-gray-600 font-medium border-r">契約</th>
+                      <td className="px-2 py-1">
+                        {contracts.length > 0 ? (
+                          <div className="flex flex-wrap gap-0.5">
+                            {Array.from(new Set(contracts.map(c => (c as any).brand_name || (c as any).brandName).filter(Boolean))).slice(0, 2).map((brandName, i) => (
+                              <Badge key={i} variant="outline" className="text-[10px] px-1 py-0">{brandName as string}</Badge>
+                            ))}
+                            {Array.from(new Set(contracts.map(c => (c as any).brand_name || (c as any).brandName).filter(Boolean))).length > 2 && (
+                              <span className="text-[10px] text-gray-400">+{Array.from(new Set(contracts.map(c => (c as any).brand_name || (c as any).brandName).filter(Boolean))).length - 2}</span>
+                            )}
+                          </div>
+                        ) : "-"}
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
             </div>
 
-            {/* 在籍情報 */}
+            {/* 中段: 保護者情報 (コンパクト) + FS割 */}
             <div>
-              <h3 className="text-sm font-semibold text-gray-700 mb-2">在籍情報</h3>
-              <table className="w-full text-sm border">
-                <tbody>
-                  <tr className="border-b bg-gray-50">
-                    <th className="px-3 py-2 text-left text-gray-600 font-medium w-28 border-r">校舎</th>
-                    <td className="px-3 py-2">{primarySchoolName || "-"}</td>
-                  </tr>
-                  <tr className="border-b">
-                    <th className="px-3 py-2 text-left text-gray-600 font-medium border-r">ブランド</th>
-                    <td className="px-3 py-2">
-                      {primaryBrandName || (brandNames.length > 0 ? brandNames.join(", ") : "-")}
-                    </td>
-                  </tr>
-                  <tr className="border-b bg-gray-50">
-                    <th className="px-3 py-2 text-left text-gray-600 font-medium w-28 border-r">体験日</th>
-                    <td className="px-3 py-2">{formatDate(trialDate)}</td>
-                  </tr>
-                  <tr className="border-b">
-                    <th className="px-3 py-2 text-left text-gray-600 font-medium border-r">入会日</th>
-                    <td className="px-3 py-2">{formatDate(enrollmentDate)}</td>
-                  </tr>
-                  <tr className="border-b bg-gray-50">
-                    <th className="px-3 py-2 text-left text-gray-600 font-medium border-r">登録日</th>
-                    <td className="px-3 py-2">{formatDate(registeredDate)}</td>
-                  </tr>
-                  <tr className="border-b">
-                    <th className="px-3 py-2 text-left text-gray-600 font-medium border-r">契約ブランド</th>
-                    <td className="px-3 py-2">
-                      {contracts.length > 0 ? (
-                        <div className="flex flex-wrap gap-1">
-                          {Array.from(new Set(contracts.map(c => (c as any).brand_name || (c as any).brandName).filter(Boolean))).map((brandName, i) => (
-                            <Badge key={i} variant="outline" className="text-xs">{brandName as string}</Badge>
-                          ))}
-                        </div>
-                      ) : "-"}
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-
-            {/* 保護者情報（概要） */}
-            <div>
-              <h3 className="text-sm font-semibold text-gray-700 mb-2">保護者情報</h3>
-              <table className="w-full text-sm border">
-                <tbody>
-                  <tr className="border-b bg-gray-50">
-                    <th className="px-3 py-2 text-left text-gray-600 font-medium w-28 border-r">保護者名</th>
-                    <td className="px-3 py-2">{guardianName || "-"}</td>
-                  </tr>
-                  <tr className="border-b">
-                    <th className="px-3 py-2 text-left text-gray-600 font-medium border-r">保護者ID</th>
-                    <td className="px-3 py-2 font-mono">{guardianNo || "-"}</td>
-                  </tr>
-                  <tr className="border-b bg-gray-50">
-                    <th className="px-3 py-2 text-left text-gray-600 font-medium border-r">電話番号</th>
-                    <td className="px-3 py-2">{guardianPhone || "-"}</td>
-                  </tr>
-                  <tr className="border-b">
-                    <th className="px-3 py-2 text-left text-gray-600 font-medium border-r">メール</th>
-                    <td className="px-3 py-2 break-all">{guardianEmail || "-"}</td>
-                  </tr>
-                </tbody>
-              </table>
+              <h3 className="text-xs font-semibold text-gray-700 mb-1">保護者情報</h3>
+              <div className="grid grid-cols-4 gap-x-3 gap-y-1 text-xs border rounded p-2 bg-gray-50">
+                <div><span className="text-gray-500">名前:</span> <span className="font-medium">{guardianName || "-"}</span></div>
+                <div><span className="text-gray-500">ID:</span> <span className="font-mono">{guardianNo || "-"}</span></div>
+                <div><span className="text-gray-500">電話:</span> {guardianPhone || "-"}</div>
+                <div className="truncate"><span className="text-gray-500">メール:</span> {guardianEmail || "-"}</div>
+              </div>
+              {/* FS割情報 */}
+              {guardian?.fs_discounts && guardian.fs_discounts.length > 0 && (
+                <div className="mt-1 p-2 bg-green-50 border border-green-200 rounded text-xs">
+                  <span className="text-green-700 font-medium">FS割:</span>
+                  {guardian.fs_discounts.map((fs: any, idx: number) => (
+                    <span key={fs.id || idx} className="ml-2 text-green-800">
+                      {fs.role === 'referrer' ? (
+                        <>紹介 → <span className="font-medium">{fs.partner_name}</span></>
+                      ) : (
+                        <><span className="font-medium">{fs.partner_name}</span> → 紹介</>
+                      )}
+                      <span className="text-green-600 ml-1">
+                        ({fs.discount_type_display}: {fs.discount_type === 'percentage' ? `${fs.discount_value}%` : fs.discount_type === 'months_free' ? `${fs.discount_value}ヶ月無料` : `¥${fs.discount_value}`})
+                      </span>
+                    </span>
+                  ))}
+                </div>
+              )}
             </div>
 
             {/* 兄弟情報 */}
@@ -991,9 +1125,50 @@ export function StudentDetail({ student, parents, contracts, invoices, contactLo
               </span>
             </div>
 
-            {filteredContracts.length > 0 ? (
+            {/* 設備費の重複排除: 全契約から設備費を集め、最高額のみを有効にする */}
+            {(() => {
+              // 全契約の設備費を収集
+              const facilityTypes = ['facility', 'enrollment_facility'];
+              const allFacilityItems: { contractId: string; itemId: string; price: number }[] = [];
+
+              filteredContracts.forEach((contract: any) => {
+                const items = contract.student_items || contract.studentItems || contract.items || [];
+                items.forEach((item: any) => {
+                  const itemType = (item.item_type || item.itemType || '').toLowerCase();
+                  if (facilityTypes.includes(itemType)) {
+                    const price = Number(item.final_price || item.finalPrice || item.unit_price || item.unitPrice || 0);
+                    allFacilityItems.push({
+                      contractId: contract.id,
+                      itemId: item.id || item.product_id || item.productId || '',
+                      price,
+                    });
+                  }
+                });
+              });
+
+              // 最高額の設備費を特定
+              const highestFacility = allFacilityItems.length > 0
+                ? allFacilityItems.reduce((max, item) => item.price > max.price ? item : max, allFacilityItems[0])
+                : null;
+
+              // 除外すべき設備費のセット（最高額以外）
+              const excludedFacilitySet = new Set(
+                allFacilityItems
+                  .filter(item => highestFacility && (item.contractId !== highestFacility.contractId || item.itemId !== highestFacility.itemId))
+                  .map(item => `${item.contractId}-${item.itemId}`)
+              );
+
+              return filteredContracts.length > 0 ? (
               <div className="space-y-3">
                 {filteredContracts.map((contract) => {
+                  // 除外される設備費をチェックするヘルパー
+                  const isFacilityExcluded = (item: any) => {
+                    const itemType = (item.item_type || item.itemType || '').toLowerCase();
+                    if (!facilityTypes.includes(itemType)) return false;
+                    const itemId = item.id || item.product_id || item.productId || '';
+                    return excludedFacilitySet.has(`${contract.id}-${itemId}`);
+                  };
+
                   // 各種フィールド取得
                   const courseName = contract.course_name || contract.courseName || "";
                   const brandName = contract.brand_name || contract.brandName || "";
@@ -1081,9 +1256,11 @@ export function StudentDetail({ student, parents, contracts, invoices, contactLo
                     return false;
                   });
 
-                  // フィルタ後のアイテムから月額合計を計算（一回限りの費用を除外）
+                  // フィルタ後のアイテムから月額合計を計算（一回限りの費用と除外設備費を除外）
                   const monthlyTotal = monthlyItems.length > 0
-                    ? monthlyItems.reduce((sum: number, item: { final_price?: number | string; finalPrice?: number | string; unit_price?: number | string; unitPrice?: number | string }) => {
+                    ? monthlyItems.reduce((sum: number, item: any) => {
+                        // 除外された設備費は合計から除外
+                        if (isFacilityExcluded(item)) return sum;
                         const price = Number(item.final_price || item.finalPrice || item.unit_price || item.unitPrice || 0);
                         return sum + price;
                       }, 0)
@@ -1127,7 +1304,10 @@ export function StudentDetail({ student, parents, contracts, invoices, contactLo
                           </Badge>
                           {startYearMonth !== "-" && (
                             <Badge variant="outline" className="text-xs bg-blue-50 text-blue-700 border-blue-200">
-                              {startYearMonth}
+                              {/* フィルターで年月指定がある場合はフィルター月を表示、なければ契約の初回請求月を表示 */}
+                              {(contractYear !== "all" && contractMonth !== "all")
+                                ? `${contractYear}-${String(contractMonth).padStart(2, '0')}`
+                                : getContractBillingMonth(contract)}請求分
                             </Badge>
                           )}
                         </div>
@@ -1269,17 +1449,25 @@ export function StudentDetail({ student, parents, contracts, invoices, contactLo
                                 unitPrice?: number | string;
                                 final_price?: number | string;
                                 finalPrice?: number | string;
+                                item_type?: string;
+                                itemType?: string;
+                                product_id?: string;
+                                productId?: string;
                               }, idx: number) => {
                                 const itemName = item.product_name || item.productName || item.notes || "-";
                                 const qty = item.quantity || 1;
                                 const unitPrice = item.unit_price || item.unitPrice || 0;
                                 const finalPrice = item.final_price || item.finalPrice || 0;
+                                const isExcluded = isFacilityExcluded(item);
                                 return (
-                                  <tr key={item.id || idx} className="border-b border-gray-100">
-                                    <td className="py-1">{itemName}</td>
-                                    <td className="py-1 text-right">{qty}</td>
-                                    <td className="py-1 text-right">¥{Number(unitPrice).toLocaleString()}</td>
-                                    <td className="py-1 text-right">¥{Number(finalPrice).toLocaleString()}</td>
+                                  <tr key={item.id || idx} className={`border-b border-gray-100 ${isExcluded ? 'opacity-50' : ''}`}>
+                                    <td className={`py-1 ${isExcluded ? 'line-through' : ''}`}>
+                                      {itemName}
+                                      {isExcluded && <span className="ml-1 text-xs text-orange-600">(重複除外)</span>}
+                                    </td>
+                                    <td className={`py-1 text-right ${isExcluded ? 'line-through' : ''}`}>{qty}</td>
+                                    <td className={`py-1 text-right ${isExcluded ? 'line-through' : ''}`}>¥{Number(unitPrice).toLocaleString()}</td>
+                                    <td className={`py-1 text-right ${isExcluded ? 'line-through' : ''}`}>¥{Number(finalPrice).toLocaleString()}</td>
                                   </tr>
                                 );
                               })
@@ -1378,7 +1566,8 @@ export function StudentDetail({ student, parents, contracts, invoices, contactLo
               <div className="text-center text-gray-500 py-8">
                 {contracts.length > 0 ? "該当期間の契約がありません" : "契約情報がありません"}
               </div>
-            )}
+            );
+            })()}
             <div className="mt-4">
               <Button
                 size="sm"
@@ -1546,14 +1735,14 @@ export function StudentDetail({ student, parents, contracts, invoices, contactLo
                               <div className="flex justify-between border-t pt-1">
                                 <span className="text-gray-600 font-medium">残高:</span>
                                 <span className={`font-bold ${balanceColor}`}>
-                                  {balance > 0 ? "+" : ""}¥{Math.abs(balance).toLocaleString()}
+                                  {balance > 0 ? "-" : balance < 0 ? "+" : ""}¥{Math.abs(balance).toLocaleString()}
                                 </span>
                               </div>
                               {needsCarryForward && (
                                 <div className="flex justify-between text-orange-600">
                                   <span className="text-xs">→ 翌月繰越</span>
                                   <span className="text-xs font-medium">
-                                    {balance > 0 ? `+¥${balance.toLocaleString()}` : `-¥${Math.abs(balance).toLocaleString()}`}
+                                    {balance > 0 ? `-¥${balance.toLocaleString()}` : `+¥${Math.abs(balance).toLocaleString()}`}
                                   </span>
                                 </div>
                               )}
@@ -1710,6 +1899,18 @@ export function StudentDetail({ student, parents, contracts, invoices, contactLo
             {/* 対応履歴 */}
             {commTab === "logs" && (
               <div className="space-y-3">
+                {/* 追加ボタン */}
+                <div className="flex justify-end">
+                  <Button
+                    size="sm"
+                    onClick={() => setContactLogDialogOpen(true)}
+                    className="flex items-center gap-1"
+                  >
+                    <Plus className="w-4 h-4" />
+                    対応履歴を追加
+                  </Button>
+                </div>
+
                 {filteredContactLogs.length > 0 ? (
                   filteredContactLogs.map((log) => (
                     <div key={log.id} className="border rounded-lg p-3 hover:bg-gray-50">
@@ -1723,19 +1924,26 @@ export function StudentDetail({ student, parents, contracts, invoices, contactLo
                           </Badge>
                         </div>
                         <span className="text-xs text-gray-400">
-                          {log.created_at ? new Date(log.created_at).toLocaleDateString("ja-JP") : "-"}
+                          {log.created_at ? new Date(log.created_at).toLocaleDateString("ja-JP", {
+                            year: 'numeric',
+                            month: 'numeric',
+                            day: 'numeric',
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          }) : "-"}
                         </span>
+                      </div>
+                      {/* 誰から誰へ */}
+                      <div className="text-xs text-gray-500 mb-1">
+                        {log.handled_by_name || "スタッフ"} → {log.guardian_name || log.student_name || student.full_name}
                       </div>
                       <h4 className="font-medium text-sm mb-1">{log.subject}</h4>
                       <p className="text-xs text-gray-600 whitespace-pre-wrap">{log.content}</p>
-                      {log.handled_by_name && (
-                        <p className="text-xs text-gray-400 mt-2">対応者: {log.handled_by_name}</p>
-                      )}
                     </div>
                   ))
                 ) : (
                   <div className="text-center text-gray-500 py-8 text-sm">
-                    {contactLogs.length === 0
+                    {localContactLogs.length === 0
                       ? "対応履歴がありません"
                       : "該当する期間の対応履歴がありません"}
                   </div>
@@ -2255,6 +2463,125 @@ export function StudentDetail({ student, parents, contracts, invoices, contactLo
           window.location.reload();
         }}
       />
+
+      {/* 対応履歴追加ダイアログ */}
+      <Dialog open={contactLogDialogOpen} onOpenChange={setContactLogDialogOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>対応履歴を追加</DialogTitle>
+            <DialogDescription>
+              {student.full_name} への対応内容を記録します
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="contact_type">対応種別</Label>
+                <Select
+                  value={contactLogForm.contact_type}
+                  onValueChange={(value) => setContactLogForm({ ...contactLogForm, contact_type: value as ContactLogCreateData['contact_type'] })}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="PHONE_IN">電話（受信）</SelectItem>
+                    <SelectItem value="PHONE_OUT">電話（発信）</SelectItem>
+                    <SelectItem value="EMAIL_IN">メール（受信）</SelectItem>
+                    <SelectItem value="EMAIL_OUT">メール（送信）</SelectItem>
+                    <SelectItem value="VISIT">来校</SelectItem>
+                    <SelectItem value="MEETING">面談</SelectItem>
+                    <SelectItem value="ONLINE_MEETING">オンライン面談</SelectItem>
+                    <SelectItem value="CHAT">チャット</SelectItem>
+                    <SelectItem value="OTHER">その他</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="priority">優先度</Label>
+                <Select
+                  value={contactLogForm.priority}
+                  onValueChange={(value) => setContactLogForm({ ...contactLogForm, priority: value as ContactLogCreateData['priority'] })}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="LOW">低</SelectItem>
+                    <SelectItem value="NORMAL">通常</SelectItem>
+                    <SelectItem value="HIGH">高</SelectItem>
+                    <SelectItem value="URGENT">緊急</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="contact_status">ステータス</Label>
+              <Select
+                value={contactLogForm.status}
+                onValueChange={(value) => setContactLogForm({ ...contactLogForm, status: value as ContactLogCreateData['status'] })}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="OPEN">未対応</SelectItem>
+                  <SelectItem value="IN_PROGRESS">対応中</SelectItem>
+                  <SelectItem value="RESOLVED">解決済</SelectItem>
+                  <SelectItem value="CLOSED">クローズ</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="subject">件名 *</Label>
+              <Input
+                id="subject"
+                value={contactLogForm.subject}
+                onChange={(e) => setContactLogForm({ ...contactLogForm, subject: e.target.value })}
+                placeholder="対応内容の件名"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="content">内容 *</Label>
+              <Textarea
+                id="content"
+                value={contactLogForm.content}
+                onChange={(e) => setContactLogForm({ ...contactLogForm, content: e.target.value })}
+                placeholder="対応内容の詳細を入力"
+                rows={5}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="follow_up_date">フォローアップ日</Label>
+              <Input
+                id="follow_up_date"
+                type="date"
+                value={contactLogForm.follow_up_date || ''}
+                onChange={(e) => setContactLogForm({ ...contactLogForm, follow_up_date: e.target.value || undefined })}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setContactLogDialogOpen(false)} disabled={isSubmittingContactLog}>
+              キャンセル
+            </Button>
+            <Button onClick={handleCreateContactLog} disabled={isSubmittingContactLog}>
+              {isSubmittingContactLog ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  保存中...
+                </>
+              ) : (
+                '保存'
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

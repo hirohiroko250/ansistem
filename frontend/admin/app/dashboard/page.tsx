@@ -60,6 +60,13 @@ import { getTasks, completeTask, reopenTask, updateTask, Task } from "@/lib/api/
 import apiClient from "@/lib/api/client";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { cn } from "@/lib/utils";
+import {
+  getOrCreateChannelForGuardian,
+  getMessages,
+  sendMessage,
+  type Message as ChatMessage,
+  type Channel,
+} from "@/lib/api/chat";
 
 // カテゴリーアイコンを取得
 function getCategoryIcon(taskType: string, size: "sm" | "md" = "sm") {
@@ -202,6 +209,14 @@ export default function DashboardPage() {
   const [brandOpen, setBrandOpen] = useState(false);
   const [staffOpen, setStaffOpen] = useState(false);
 
+  // チャット関連
+  const [chatChannel, setChatChannel] = useState<Channel | null>(null);
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [chatLoading, setChatLoading] = useState(false);
+  const [replyMessage, setReplyMessage] = useState("");
+  const [sendingReply, setSendingReply] = useState(false);
+  const [detailTab, setDetailTab] = useState<"info" | "chat" | "assign">("info");
+
   useEffect(() => {
     loadTasks();
     loadDeadlines();
@@ -335,9 +350,66 @@ export default function DashboardPage() {
   }
 
   // タスクを選択
-  function selectTask(task: Task) {
+  async function selectTask(task: Task) {
     setSelectedTask(task);
     setComment("");
+    setReplyMessage("");
+    setDetailTab("info");
+    setChatChannel(null);
+    setChatMessages([]);
+
+    // 保護者がいる場合はチャット履歴を読み込む
+    if (task.guardian) {
+      loadChatHistory(task.guardian);
+    }
+  }
+
+  // チャット履歴を読み込む
+  async function loadChatHistory(guardianId: string) {
+    try {
+      setChatLoading(true);
+      const channel = await getOrCreateChannelForGuardian(guardianId);
+      setChatChannel(channel);
+
+      if (channel?.id) {
+        const response = await getMessages(channel.id, { pageSize: 50 });
+        const messages = response?.data || response?.results || [];
+        // 古い順に並べ替え
+        setChatMessages(messages.reverse());
+      }
+    } catch (error) {
+      console.error("Failed to load chat history:", error);
+    } finally {
+      setChatLoading(false);
+    }
+  }
+
+  // チャットメッセージを送信
+  async function handleSendReply() {
+    if (!chatChannel || !replyMessage.trim() || sendingReply) return;
+
+    try {
+      setSendingReply(true);
+      await sendMessage({
+        channelId: chatChannel.id,
+        content: replyMessage.trim(),
+        messageType: "text",
+      });
+
+      // メッセージリストを更新
+      if (chatChannel.id) {
+        const response = await getMessages(chatChannel.id, { pageSize: 50 });
+        const messages = response?.data || response?.results || [];
+        setChatMessages(messages.reverse());
+      }
+
+      setReplyMessage("");
+    } catch (error) {
+      console.error("Failed to send reply:", error);
+      alert("メッセージの送信に失敗しました");
+    } finally {
+      setSendingReply(false);
+    }
   }
 
   // 担当者を割り当て
@@ -601,6 +673,15 @@ export default function DashboardPage() {
                             <span>{task.student_name || task.guardian_name}</span>
                           </>
                         )}
+                        {task.assigned_to_name && (
+                          <>
+                            <span>•</span>
+                            <span className="text-blue-600 font-medium">
+                              <User className="w-3 h-3 inline mr-0.5" />
+                              {task.assigned_to_name}
+                            </span>
+                          </>
+                        )}
                         <span>•</span>
                         <span className="text-gray-400" title={formatDate(task.created_at)}>
                           {formatRelativeTime(task.created_at)}
@@ -645,67 +726,210 @@ export default function DashboardPage() {
               </Button>
             </div>
 
-            {/* 詳細コンテンツ */}
-            <div className="flex-1 overflow-y-auto p-4">
-              {/* タイトル */}
-              <h2 className="text-lg font-bold text-gray-900 mb-2">{selectedTask.title}</h2>
-
-              {/* カテゴリ */}
-              <div className="flex items-center gap-2 mb-4">
-                <div className={`p-1.5 rounded ${
+            {/* タイトル */}
+            <div className="p-4 border-b">
+              <h2 className="text-lg font-bold text-gray-900 mb-1">{selectedTask.title}</h2>
+              <div className="flex items-center gap-2">
+                <div className={`p-1 rounded ${
                   selectedTask.task_type === "bank_account_request" ? "bg-purple-100 text-purple-600" :
                   "bg-gray-100 text-gray-600"
                 }`}>
-                  {getCategoryIcon(selectedTask.task_type, "md")}
+                  {getCategoryIcon(selectedTask.task_type, "sm")}
                 </div>
-                <span className="text-sm text-gray-600">{selectedTask.task_type_display}</span>
+                <span className="text-xs text-gray-600">{selectedTask.task_type_display}</span>
+                <span className="text-xs text-gray-400">•</span>
+                <span className="text-xs text-gray-400">{formatDate(selectedTask.created_at)}</span>
               </div>
+            </div>
 
-              {/* 説明 */}
-              {selectedTask.description && (
-                <div className="mb-4 p-3 bg-gray-50 rounded-lg">
-                  <p className="text-sm text-gray-700 whitespace-pre-wrap">{selectedTask.description}</p>
+            {/* タブ */}
+            <div className="flex border-b">
+              <button
+                onClick={() => setDetailTab("info")}
+                className={`flex-1 px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+                  detailTab === "info"
+                    ? "border-blue-500 text-blue-600"
+                    : "border-transparent text-gray-500 hover:text-gray-700"
+                }`}
+              >
+                <FileText className="w-4 h-4 inline mr-1" />
+                詳細
+              </button>
+              {selectedTask.guardian && (
+                <button
+                  onClick={() => setDetailTab("chat")}
+                  className={`flex-1 px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+                    detailTab === "chat"
+                      ? "border-blue-500 text-blue-600"
+                      : "border-transparent text-gray-500 hover:text-gray-700"
+                  }`}
+                >
+                  <MessageSquare className="w-4 h-4 inline mr-1" />
+                  チャット
+                  {chatMessages.length > 0 && (
+                    <Badge variant="secondary" className="ml-1 text-[10px]">{chatMessages.length}</Badge>
+                  )}
+                </button>
+              )}
+              <button
+                onClick={() => setDetailTab("assign")}
+                className={`flex-1 px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+                  detailTab === "assign"
+                    ? "border-blue-500 text-blue-600"
+                    : "border-transparent text-gray-500 hover:text-gray-700"
+                }`}
+              >
+                <UserPlus className="w-4 h-4 inline mr-1" />
+                割り当て
+              </button>
+            </div>
+
+            {/* 詳細コンテンツ */}
+            <div className="flex-1 overflow-y-auto p-4">
+              {/* 情報タブ */}
+              {detailTab === "info" && (
+                <>
+                  {/* 説明 */}
+                  {selectedTask.description && (
+                    <div className="mb-4 p-3 bg-gray-50 rounded-lg">
+                      <p className="text-sm text-gray-700 whitespace-pre-wrap">{selectedTask.description}</p>
+                    </div>
+                  )}
+
+                  {/* 詳細情報 */}
+                  <div className="space-y-3 mb-6">
+                    {selectedTask.student_name && (
+                      <div className="flex items-center gap-2 text-sm">
+                        <User className="w-4 h-4 text-gray-400" />
+                        <span className="text-gray-500">生徒:</span>
+                        <span className="font-medium">{selectedTask.student_name}</span>
+                      </div>
+                    )}
+                    {selectedTask.guardian_name && (
+                      <div className="flex items-center gap-2 text-sm">
+                        <User className="w-4 h-4 text-gray-400" />
+                        <span className="text-gray-500">保護者:</span>
+                        <span className="font-medium">{selectedTask.guardian_name}</span>
+                      </div>
+                    )}
+                    {selectedTask.school_name && (
+                      <div className="flex items-center gap-2 text-sm">
+                        <Building className="w-4 h-4 text-gray-400" />
+                        <span className="text-gray-500">校舎:</span>
+                        <span className="font-medium">{selectedTask.school_name}</span>
+                      </div>
+                    )}
+                    {selectedTask.due_date && (
+                      <div className="flex items-center gap-2 text-sm">
+                        <Calendar className="w-4 h-4 text-gray-400" />
+                        <span className="text-gray-500">期限:</span>
+                        <span className="font-medium">{selectedTask.due_date}</span>
+                      </div>
+                    )}
+                    <div className="flex items-center gap-2 text-sm">
+                      <Clock className="w-4 h-4 text-gray-400" />
+                      <span className="text-gray-500">作成日時:</span>
+                      <span className="font-medium">{formatDate(selectedTask.created_at)}</span>
+                    </div>
+                    {selectedTask.assigned_to_name && (
+                      <div className="flex items-center gap-2 text-sm">
+                        <User className="w-4 h-4 text-blue-400" />
+                        <span className="text-gray-500">担当者:</span>
+                        <span className="font-medium text-blue-600">{selectedTask.assigned_to_name}</span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* ソースリンク */}
+                  {selectedTask.source_type && (
+                    <Button
+                      variant="outline"
+                      className="w-full"
+                      onClick={goToSource}
+                    >
+                      <ExternalLink className="w-4 h-4 mr-2" />
+                      詳細ページを開く
+                    </Button>
+                  )}
+                </>
+              )}
+
+              {/* チャットタブ */}
+              {detailTab === "chat" && selectedTask.guardian && (
+                <div className="flex flex-col h-full">
+                  {chatLoading ? (
+                    <div className="flex items-center justify-center py-8">
+                      <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
+                    </div>
+                  ) : (
+                    <>
+                      {/* メッセージ履歴 */}
+                      <div className="flex-1 overflow-y-auto space-y-3 mb-4" style={{ maxHeight: "300px" }}>
+                        {chatMessages.length > 0 ? (
+                          chatMessages.map((msg) => (
+                            <div
+                              key={msg.id}
+                              className={`flex ${msg.senderGuardian ? "justify-start" : "justify-end"}`}
+                            >
+                              <div
+                                className={`max-w-[80%] p-3 rounded-lg ${
+                                  msg.senderGuardian
+                                    ? "bg-gray-100 text-gray-800"
+                                    : "bg-blue-500 text-white"
+                                }`}
+                              >
+                                <div className="text-xs opacity-70 mb-1">
+                                  {msg.senderGuardianName || msg.senderName || "スタッフ"}
+                                  <span className="ml-2">
+                                    {new Date(msg.createdAt).toLocaleString("ja-JP", {
+                                      month: "numeric",
+                                      day: "numeric",
+                                      hour: "2-digit",
+                                      minute: "2-digit",
+                                    })}
+                                  </span>
+                                </div>
+                                <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
+                              </div>
+                            </div>
+                          ))
+                        ) : (
+                          <div className="text-center text-gray-500 py-8">
+                            <MessageSquare className="w-8 h-8 mx-auto mb-2 text-gray-300" />
+                            <p className="text-sm">メッセージ履歴がありません</p>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* 返信入力 */}
+                      <div className="border-t pt-3">
+                        <Textarea
+                          placeholder="保護者へメッセージを送信..."
+                          value={replyMessage}
+                          onChange={(e) => setReplyMessage(e.target.value)}
+                          rows={3}
+                          className="text-sm mb-2"
+                        />
+                        <Button
+                          className="w-full"
+                          onClick={handleSendReply}
+                          disabled={!replyMessage.trim() || sendingReply}
+                        >
+                          {sendingReply ? (
+                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                          ) : (
+                            <Send className="w-4 h-4 mr-2" />
+                          )}
+                          送信
+                        </Button>
+                      </div>
+                    </>
+                  )}
                 </div>
               )}
 
-              {/* 詳細情報 */}
-              <div className="space-y-3 mb-6">
-                {selectedTask.student_name && (
-                  <div className="flex items-center gap-2 text-sm">
-                    <User className="w-4 h-4 text-gray-400" />
-                    <span className="text-gray-500">生徒:</span>
-                    <span className="font-medium">{selectedTask.student_name}</span>
-                  </div>
-                )}
-                {selectedTask.guardian_name && (
-                  <div className="flex items-center gap-2 text-sm">
-                    <User className="w-4 h-4 text-gray-400" />
-                    <span className="text-gray-500">保護者:</span>
-                    <span className="font-medium">{selectedTask.guardian_name}</span>
-                  </div>
-                )}
-                {selectedTask.school_name && (
-                  <div className="flex items-center gap-2 text-sm">
-                    <Building className="w-4 h-4 text-gray-400" />
-                    <span className="text-gray-500">校舎:</span>
-                    <span className="font-medium">{selectedTask.school_name}</span>
-                  </div>
-                )}
-                {selectedTask.due_date && (
-                  <div className="flex items-center gap-2 text-sm">
-                    <Calendar className="w-4 h-4 text-gray-400" />
-                    <span className="text-gray-500">期限:</span>
-                    <span className="font-medium">{selectedTask.due_date}</span>
-                  </div>
-                )}
-                <div className="flex items-center gap-2 text-sm">
-                  <Clock className="w-4 h-4 text-gray-400" />
-                  <span className="text-gray-500">作成日時:</span>
-                  <span className="font-medium">{formatDate(selectedTask.created_at)}</span>
-                </div>
-              </div>
-
-              {/* 担当者割り当て */}
+              {/* 割り当てタブ */}
+              {detailTab === "assign" && (
               <div className="mb-6">
                 <div className="flex items-center gap-2 mb-3">
                   <UserPlus className="w-4 h-4 text-gray-400" />
@@ -994,17 +1218,6 @@ export default function DashboardPage() {
                   </div>
                 )}
               </div>
-
-              {/* ソースリンク */}
-              {selectedTask.source_type && (
-                <Button
-                  variant="outline"
-                  className="w-full mb-6"
-                  onClick={goToSource}
-                >
-                  <ExternalLink className="w-4 h-4 mr-2" />
-                  詳細ページを開く
-                </Button>
               )}
             </div>
 

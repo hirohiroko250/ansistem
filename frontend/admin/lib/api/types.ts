@@ -111,6 +111,8 @@ export interface Student {
   contract_status?: string;
   primary_school?: School | null;
   primary_school_id?: string | null;
+  primary_brand?: Brand | null;
+  primary_brand_id?: string | null;
   guardian_id?: string | null;
   registered_date?: string | null;
   created_at?: string;
@@ -134,6 +136,8 @@ export interface Student {
   contractStatus?: string;
   primarySchool?: School | null;
   primarySchoolId?: string | null;
+  primaryBrand?: Brand | null;
+  primaryBrandId?: string | null;
   guardianId?: string | null;
   registeredDate?: string | null;
   createdAt?: string;
@@ -240,6 +244,16 @@ export interface Guardian {
   name?: string;
   relationship?: string;
   students?: Student[];
+  // FS割引情報
+  fs_discounts?: {
+    id: string;
+    discount_type: string;
+    discount_type_display?: string;
+    discount_value: number;
+    status: string;
+    valid_from?: string | null;
+    valid_until?: string | null;
+  }[];
 }
 
 // ============================================================================

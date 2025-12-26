@@ -70,6 +70,10 @@ interface PaymentHistory {
 interface BillingSummary {
   guardianId: string;
   guardianName: string;
+  // 請求月情報
+  billingYear?: number;
+  billingMonth?: number;
+  billingLabel?: string;
   children: {
     studentId: string;
     studentName: string;
@@ -122,6 +126,25 @@ interface BillingSummary {
     validFrom: string | null;
     validUntil: string | null;
   }[];
+  // マイル情報
+  mileInfo?: {
+    balance: number;
+    canUse: boolean;
+    potentialDiscount: number;
+    recentTransactions: {
+      id: string;
+      type: string;
+      typeDisplay: string;
+      miles: number;
+      balanceAfter: number;
+      discountAmount: number;
+      earnSource: string;
+      earnDate: string | null;
+      expireDate: string | null;
+      notes: string;
+      createdAt: string | null;
+    }[];
+  };
   totalAmount: number;
   totalDiscount: number;
   netAmount: number;
@@ -507,162 +530,107 @@ export function GuardianDetail({
         <TabsContent value="billing" className="space-y-4">
           {billingSummary ? (
             <>
-              {/* Account Balance Card - 残高表示 */}
-              {billingSummary.accountBalance !== undefined && billingSummary.accountBalance !== 0 && (
-                <Card className={cn(
-                  billingSummary.accountBalance < 0
-                    ? "bg-gradient-to-r from-blue-100 to-blue-50 border-blue-300"
-                    : "bg-gradient-to-r from-red-100 to-orange-50 border-red-300"
-                )}>
-                  <CardContent className="p-4">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <Receipt className="w-5 h-5" />
-                        <span className="font-medium">口座残高</span>
-                      </div>
-                      <div className="text-right">
-                        <Badge className={cn(
-                          "text-sm",
-                          billingSummary.accountBalance < 0 ? "bg-blue-600" : "bg-red-600"
-                        )}>
-                          {billingSummary.accountBalanceLabel}
-                        </Badge>
-                        <p className={cn(
-                          "text-2xl font-bold mt-1",
-                          billingSummary.accountBalance < 0 ? "text-blue-700" : "text-red-700"
-                        )}>
-                          {billingSummary.accountBalance < 0 ? "+" : "-"}¥{Math.abs(billingSummary.accountBalance).toLocaleString()}
-                        </p>
-                        <p className="text-xs text-gray-500">
-                          {billingSummary.accountBalance < 0
-                            ? "次回請求から差し引かれます"
-                            : "未払い残高があります"}
-                        </p>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              )}
-
-              {/* Payment Status Card */}
-              <Card className={cn(
-                billingSummary.isOverdue
-                  ? "bg-gradient-to-r from-red-50 to-orange-50 border-red-200"
-                  : "bg-gradient-to-r from-green-50 to-blue-50"
-              )}>
+              {/* ===== セクション1: 今月の請求サマリー ===== */}
+              <Card className="border-2 border-blue-200 bg-gradient-to-r from-blue-50 to-white">
                 <CardContent className="p-4">
-                  <div className="flex items-center justify-between mb-3">
-                    <div className="flex items-center gap-2">
-                      <Wallet className="w-5 h-5" />
-                      <span className="font-medium">支払い方法: {billingSummary.paymentMethodDisplay || "口座引落"}</span>
-                    </div>
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="font-bold text-gray-800 flex items-center gap-2">
+                      <Receipt className="w-5 h-5 text-blue-600" />
+                      {billingSummary.billingLabel || '今月の請求'}
+                    </h3>
                     {billingSummary.isOverdue ? (
                       <Badge variant="destructive" className="flex items-center gap-1">
                         <AlertTriangle className="w-3 h-3" />
-                        滞納あり ({billingSummary.overdueCount}件)
+                        滞納あり
                       </Badge>
                     ) : (
-                      <Badge variant="default" className="flex items-center gap-1 bg-green-600">
+                      <Badge className="bg-green-600 flex items-center gap-1">
                         <CheckCircle className="w-3 h-3" />
                         正常
                       </Badge>
                     )}
                   </div>
-                  {billingSummary.unpaidAmount && billingSummary.unpaidAmount > 0 && (
-                    <p className="text-sm text-orange-600 mb-2">
-                      未入金額: ¥{billingSummary.unpaidAmount.toLocaleString()}
+                  <div className="text-center py-2">
+                    <p className="text-xs text-gray-500 mb-1">請求額</p>
+                    <p className="text-3xl font-bold text-blue-700">
+                      ¥{billingSummary.netAmount.toLocaleString()}
                     </p>
-                  )}
-                  <div className="grid grid-cols-3 gap-4 text-center pt-2 border-t">
-                    <div>
-                      <p className="text-xs text-gray-500">月額合計</p>
-                      <p className="text-lg font-bold">¥{billingSummary.totalAmount.toLocaleString()}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-gray-500">割引合計</p>
-                      <p className="text-lg font-bold text-red-600">-¥{billingSummary.totalDiscount.toLocaleString()}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-gray-500">請求額</p>
-                      <p className="text-xl font-bold text-blue-600">¥{billingSummary.netAmount.toLocaleString()}</p>
-                    </div>
+                    {billingSummary.totalDiscount > 0 && (
+                      <p className="text-xs text-green-600 mt-1">
+                        (割引 -¥{billingSummary.totalDiscount.toLocaleString()} 適用済)
+                      </p>
+                    )}
                   </div>
                 </CardContent>
               </Card>
 
-              {/* Bank Account Card */}
-              {billingSummary.bankAccount && (
-                <Card>
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-sm flex items-center gap-2">
-                      <Banknote className="w-4 h-4" />
-                      引落口座
-                      {billingSummary.bankAccount.isRegistered ? (
+              {/* ===== セクション2: 支払い状況 ===== */}
+              <div className="grid grid-cols-2 gap-3">
+                {/* 引落口座 */}
+                <Card className="bg-gray-50">
+                  <CardContent className="p-3">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-xs text-gray-500 flex items-center gap-1">
+                        <Banknote className="w-3 h-3" />
+                        引落口座
+                      </span>
+                      {billingSummary.bankAccount?.isRegistered ? (
                         <Badge variant="outline" className="text-xs text-green-600 border-green-300">登録済</Badge>
                       ) : (
                         <Badge variant="outline" className="text-xs text-orange-600 border-orange-300">未登録</Badge>
                       )}
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent className="text-sm space-y-1">
-                    {billingSummary.bankAccount.bankName ? (
-                      <>
-                        <p className="font-medium">
-                          {billingSummary.bankAccount.bankName}
-                          {billingSummary.bankAccount.bankCode && ` (${billingSummary.bankAccount.bankCode})`}
-                        </p>
-                        <p>
-                          {billingSummary.bankAccount.branchName}支店
-                          {billingSummary.bankAccount.branchCode && ` (${billingSummary.bankAccount.branchCode})`}
-                        </p>
-                        <p className="text-gray-600">
-                          {billingSummary.bankAccount.accountTypeDisplay}
-                          {billingSummary.bankAccount.accountNumber}
-                        </p>
-                        <p className="text-gray-600">
-                          名義: {billingSummary.bankAccount.accountHolder}
-                          {billingSummary.bankAccount.accountHolderKana && ` (${billingSummary.bankAccount.accountHolderKana})`}
-                        </p>
-                        {billingSummary.bankAccount.withdrawalDay && (
-                          <p className="text-gray-500 text-xs">
-                            引落日: 毎月{billingSummary.bankAccount.withdrawalDay}日
-                          </p>
-                        )}
-                      </>
+                    </div>
+                    {billingSummary.bankAccount?.bankName ? (
+                      <p className="text-sm font-medium truncate">
+                        {billingSummary.bankAccount.bankName}
+                      </p>
                     ) : (
-                      <p className="text-gray-400">口座情報未登録</p>
+                      <p className="text-sm text-gray-400">未設定</p>
                     )}
                   </CardContent>
                 </Card>
-              )}
 
-              {/* Passbook Button */}
-              <Card className="bg-gradient-to-r from-indigo-50 to-purple-50 border-indigo-200 hover:shadow-md transition-shadow cursor-pointer" onClick={openPassbook}>
-                <CardContent className="p-4">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <div className="p-2 bg-indigo-100 rounded-lg">
-                        <BookOpen className="w-5 h-5 text-indigo-600" />
-                      </div>
-                      <div>
-                        <p className="font-medium text-indigo-900">入出金履歴（通帳）</p>
-                        <p className="text-xs text-indigo-600">預り金残高・取引履歴を確認</p>
-                      </div>
+                {/* 預り金残高 */}
+                <Card
+                  className={cn(
+                    "cursor-pointer hover:shadow-md transition-shadow",
+                    billingSummary.accountBalance && billingSummary.accountBalance > 0
+                      ? "bg-red-50 border-red-200"
+                      : billingSummary.accountBalance && billingSummary.accountBalance < 0
+                      ? "bg-blue-50 border-blue-200"
+                      : "bg-gray-50"
+                  )}
+                  onClick={openPassbook}
+                >
+                  <CardContent className="p-3">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-xs text-gray-500 flex items-center gap-1">
+                        <BookOpen className="w-3 h-3" />
+                        預り金残高
+                      </span>
+                      <ChevronDown className="w-4 h-4 text-gray-400" />
                     </div>
-                    <div className="flex items-center gap-2">
-                      {billingSummary.accountBalance !== undefined && (
-                        <Badge className={cn(
-                          "text-sm",
-                          billingSummary.accountBalance < 0 ? "bg-blue-600" : billingSummary.accountBalance > 0 ? "bg-orange-600" : "bg-gray-400"
-                        )}>
-                          残高: {billingSummary.accountBalance < 0 ? '+' : ''}{Math.abs(billingSummary.accountBalance || 0).toLocaleString()}円
-                        </Badge>
-                      )}
-                      <ChevronDown className="w-5 h-5 text-indigo-400" />
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
+                    <p className={cn(
+                      "text-lg font-bold",
+                      billingSummary.accountBalance && billingSummary.accountBalance > 0
+                        ? "text-red-600"
+                        : billingSummary.accountBalance && billingSummary.accountBalance < 0
+                        ? "text-blue-600"
+                        : "text-gray-600"
+                    )}>
+                      {billingSummary.accountBalance && billingSummary.accountBalance < 0 ? '+' : ''}
+                      ¥{Math.abs(billingSummary.accountBalance || 0).toLocaleString()}
+                    </p>
+                  </CardContent>
+                </Card>
+              </div>
+
+              {/* ===== セクション3: 料金内訳（子供ごと）===== */}
+              <div className="space-y-2">
+                <h4 className="text-sm font-medium text-gray-600 flex items-center gap-2">
+                  <GraduationCap className="w-4 h-4" />
+                  お子様別料金
+                </h4>
 
               {/* Children billing breakdown */}
               {billingSummary.children.map((child) => (
@@ -737,6 +705,7 @@ export function GuardianDetail({
                   )}
                 </Card>
               ))}
+              </div>
 
               {/* Guardian-level discounts */}
               {(billingSummary.guardianDiscounts.length > 0 || billingSummary.fsDiscounts.length > 0) && (
@@ -768,6 +737,36 @@ export function GuardianDetail({
                         </span>
                       </div>
                     ))}
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* マイル情報 */}
+              {billingSummary.mileInfo && billingSummary.mileInfo.balance > 0 && (
+                <Card className="bg-gradient-to-r from-amber-50 to-orange-50 border-amber-200">
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm flex items-center gap-2 text-amber-700">
+                      <Gift className="w-4 h-4" />
+                      マイルポイント
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-2">
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm">保有マイル</span>
+                      <span className="text-lg font-bold text-amber-600">{billingSummary.mileInfo.balance} pt</span>
+                    </div>
+                    {billingSummary.mileInfo.canUse && billingSummary.mileInfo.potentialDiscount > 0 && (
+                      <div className="flex justify-between items-center text-sm text-green-600">
+                        <span>割引可能額</span>
+                        <span className="font-medium">-¥{billingSummary.mileInfo.potentialDiscount.toLocaleString()}</span>
+                      </div>
+                    )}
+                    {!billingSummary.mileInfo.canUse && billingSummary.mileInfo.balance >= 4 && (
+                      <p className="text-xs text-gray-500">※コース契約が2つ以上の場合に使用可能</p>
+                    )}
+                    {billingSummary.mileInfo.balance < 4 && (
+                      <p className="text-xs text-gray-500">※4pt以上から使用可能</p>
+                    )}
                   </CardContent>
                 </Card>
               )}

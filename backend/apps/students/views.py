@@ -932,62 +932,137 @@ class GuardianViewSet(CSVMixin, viewsets.ModelViewSet):
             1: '月', 2: '火', 3: '水', 4: '木', 5: '金', 6: '土', 7: '日'
         }
 
-        for child in children:
-            child_name = f"{child.last_name}{child.first_name}"
+        # 最新の請求確定データから請求月を取得
+        # （confirmed_billingsは上のtryブロックで取得済み、エラー時はNoneになる可能性あり）
+        try:
+            latest_confirmed = confirmed_billings.first() if confirmed_billings.exists() else None
+        except NameError:
+            latest_confirmed = None
+        if latest_confirmed:
+            billing_year = latest_confirmed.year
+            billing_month = latest_confirmed.month
+        else:
+            # ConfirmedBillingがない場合は今日の日付から計算
+            from datetime import date as date_cls
+            today = date_cls.today()
+            billing_year = today.year
+            billing_month = today.month
+            if today.day > 10:
+                billing_month += 1
+                if billing_month > 12:
+                    billing_month = 1
+                    billing_year += 1
 
-            # StudentItem（月謝等）を取得
-            items = StudentItem.objects.filter(
+        for child in children:
+            child_name = f"{child.last_name} {child.first_name}"
+
+            # ConfirmedBillingから最新請求月のデータを取得
+            child_confirmed = ConfirmedBilling.objects.filter(
                 student=child,
+                year=billing_year,
+                month=billing_month,
                 deleted_at__isnull=True
-            ).select_related('product', 'product__brand', 'contract', 'contract__school', 'class_schedule')
+            ).first()
 
             child_items = []
             child_total = Decimal('0')
             enrollments = []  # 在籍情報（ブランド・曜日・時間）
 
-            for item in items:
-                unit_price = item.unit_price or Decimal('0')
-                discount_amount = item.discount_amount or Decimal('0')
-                final_price = item.final_price or (unit_price - discount_amount)
-                child_total += final_price
+            if child_confirmed and child_confirmed.items_snapshot:
+                # ConfirmedBillingのスナップショットからアイテムを取得
+                import json
+                items_data = child_confirmed.items_snapshot
+                if isinstance(items_data, str):
+                    items_data = json.loads(items_data)
 
-                # スケジュール情報
-                day_display = day_of_week_map.get(item.day_of_week, '') if item.day_of_week else ''
-                time_display = item.start_time.strftime('%H:%M') if item.start_time else ''
-                class_name = item.class_schedule.class_name if item.class_schedule else ''
+                for item in items_data:
+                    unit_price = Decimal(str(item.get('unit_price', 0) or 0))
+                    discount_amount = Decimal(str(item.get('discount_amount', 0) or 0))
+                    final_price = Decimal(str(item.get('final_price', 0) or 0))
+                    child_total += final_price
 
-                child_items.append({
-                    'id': str(item.id),
-                    'productName': item.product.product_name if item.product else '',
-                    'brandName': item.product.brand.brand_name if item.product and item.product.brand else '',
-                    'brandCode': item.product.brand.brand_code if item.product and item.product.brand else '',
-                    'schoolName': item.contract.school.school_name if item.contract and item.contract.school else '',
-                    'billingMonth': item.billing_month,
-                    'unitPrice': int(unit_price),
-                    'discountAmount': int(discount_amount),
-                    'finalPrice': int(final_price),
+                    child_items.append({
+                        'id': item.get('product_id', '') or item.get('id', ''),
+                        'productName': item.get('product_name', ''),
+                        'brandName': item.get('brand_name', ''),
+                        'brandCode': '',
+                        'schoolName': '',
+                        'billingMonth': f"{billing_year}-{billing_month:02d}",
+                        'unitPrice': int(unit_price),
+                        'discountAmount': int(discount_amount),
+                        'finalPrice': int(final_price),
+                        'dayOfWeek': None,
+                        'dayDisplay': '',
+                        'startTime': '',
+                        'className': '',
+                    })
+
+                    # 在籍情報を集約（授業料アイテムのみ）
+                    item_type = item.get('item_type', '')
+                    brand_name = item.get('brand_name', '')
+                    if item_type in ['tuition', 'TUITION'] and brand_name:
+                        enrollment_key = f"{brand_name}"
+                        if enrollment_key not in [e.get('key') for e in enrollments]:
+                            enrollments.append({
+                                'key': enrollment_key,
+                                'brandName': brand_name,
+                                'brandCode': '',
+                                'dayOfWeek': None,
+                                'dayDisplay': '',
+                                'startTime': '',
+                                'className': '',
+                                'schoolName': '',
+                            })
+            else:
+                # ConfirmedBillingがない場合はStudentItemから取得（フォールバック）
+                items = StudentItem.objects.filter(
+                    student=child,
+                    deleted_at__isnull=True
+                ).select_related('product', 'product__brand', 'contract', 'contract__school', 'class_schedule')
+
+                for item in items:
+                    unit_price = item.unit_price or Decimal('0')
+                    discount_amount = item.discount_amount or Decimal('0')
+                    final_price = item.final_price or (unit_price - discount_amount)
+                    child_total += final_price
+
                     # スケジュール情報
-                    'dayOfWeek': item.day_of_week,
-                    'dayDisplay': day_display,
-                    'startTime': time_display,
-                    'className': class_name,
-                })
+                    day_display = day_of_week_map.get(item.day_of_week, '') if item.day_of_week else ''
+                    time_display = item.start_time.strftime('%H:%M') if item.start_time else ''
+                    class_name = item.class_schedule.class_name if item.class_schedule else ''
 
-                # 在籍情報を集約（月謝アイテムのみ）
-                if item.product and item.product.item_type == 'monthly' and item.day_of_week:
-                    brand_name = item.product.brand.brand_name if item.product.brand else ''
-                    enrollment_key = f"{brand_name}_{item.day_of_week}_{time_display}"
-                    if enrollment_key not in [e.get('key') for e in enrollments]:
-                        enrollments.append({
-                            'key': enrollment_key,
-                            'brandName': brand_name,
-                            'brandCode': item.product.brand.brand_code if item.product.brand else '',
-                            'dayOfWeek': item.day_of_week,
-                            'dayDisplay': day_display,
-                            'startTime': time_display,
-                            'className': class_name,
-                            'schoolName': item.contract.school.school_name if item.contract and item.contract.school else '',
-                        })
+                    child_items.append({
+                        'id': str(item.id),
+                        'productName': item.product.product_name if item.product else '',
+                        'brandName': item.product.brand.brand_name if item.product and item.product.brand else '',
+                        'brandCode': item.product.brand.brand_code if item.product and item.product.brand else '',
+                        'schoolName': item.contract.school.school_name if item.contract and item.contract.school else '',
+                        'billingMonth': item.billing_month,
+                        'unitPrice': int(unit_price),
+                        'discountAmount': int(discount_amount),
+                        'finalPrice': int(final_price),
+                        # スケジュール情報
+                        'dayOfWeek': item.day_of_week,
+                        'dayDisplay': day_display,
+                        'startTime': time_display,
+                        'className': class_name,
+                    })
+
+                    # 在籍情報を集約（月謝アイテムのみ）
+                    if item.product and item.product.item_type == 'monthly' and item.day_of_week:
+                        brand_name = item.product.brand.brand_name if item.product.brand else ''
+                        enrollment_key = f"{brand_name}_{item.day_of_week}_{time_display}"
+                        if enrollment_key not in [e.get('key') for e in enrollments]:
+                            enrollments.append({
+                                'key': enrollment_key,
+                                'brandName': brand_name,
+                                'brandCode': item.product.brand.brand_code if item.product.brand else '',
+                                'dayOfWeek': item.day_of_week,
+                                'dayDisplay': day_display,
+                                'startTime': time_display,
+                                'className': class_name,
+                                'schoolName': item.contract.school.school_name if item.contract and item.contract.school else '',
+                            })
 
             # 生徒割引
             child_discounts = StudentDiscount.objects.filter(
@@ -1064,6 +1139,47 @@ class GuardianViewSet(CSVMixin, viewsets.ModelViewSet):
             # テーブルが存在しない場合などはスキップ
             pass
 
+        # マイル情報
+        mile_info = {
+            'balance': 0,
+            'canUse': False,
+            'potentialDiscount': 0,
+            'recentTransactions': [],
+        }
+        try:
+            from apps.billing.models import MileTransaction
+            mile_balance = MileTransaction.get_balance(guardian)
+            can_use = MileTransaction.can_use_miles(guardian)
+            potential_discount = MileTransaction.calculate_discount(mile_balance) if mile_balance >= 4 else Decimal('0')
+
+            # 最近のマイル取引
+            recent_miles = MileTransaction.objects.filter(guardian=guardian).order_by('-created_at')[:10]
+            recent_transactions = []
+            for mt in recent_miles:
+                recent_transactions.append({
+                    'id': str(mt.id),
+                    'type': mt.transaction_type,
+                    'typeDisplay': mt.get_transaction_type_display(),
+                    'miles': mt.miles,
+                    'balanceAfter': mt.balance_after,
+                    'discountAmount': int(mt.discount_amount),
+                    'earnSource': mt.earn_source,
+                    'earnDate': mt.earn_date.isoformat() if mt.earn_date else None,
+                    'expireDate': mt.expire_date.isoformat() if mt.expire_date else None,
+                    'notes': mt.notes,
+                    'createdAt': mt.created_at.isoformat() if mt.created_at else None,
+                })
+
+            mile_info = {
+                'balance': mile_balance,
+                'canUse': can_use,
+                'potentialDiscount': int(potential_discount),
+                'recentTransactions': recent_transactions,
+            }
+        except Exception:
+            # テーブルが存在しない場合などはスキップ
+            pass
+
         # 口座種別の日本語変換
         account_type_map = {
             'ordinary': '普通',
@@ -1074,9 +1190,14 @@ class GuardianViewSet(CSVMixin, viewsets.ModelViewSet):
         return Response({
             'guardianId': str(guardian.id),
             'guardianName': f"{guardian.last_name}{guardian.first_name}",
+            # 請求月情報
+            'billingYear': billing_year,
+            'billingMonth': billing_month,
+            'billingLabel': f"{billing_year}年{billing_month}月分",
             'children': children_billing,
             'guardianDiscounts': guardian_discount_list,
             'fsDiscounts': fs_discount_list,
+            'mileInfo': mile_info,
             'totalAmount': int(total_amount),
             'totalDiscount': int(total_discount),
             'netAmount': int(total_amount - total_discount),
@@ -1408,6 +1529,20 @@ class SuspensionRequestViewSet(viewsets.ModelViewSet):
         brand = serializer.validated_data.get('brand') or student.primary_brand
         school = serializer.validated_data.get('school') or student.primary_school
 
+        # primary_brand/schoolがない場合は契約から取得
+        if not brand or not school:
+            from apps.contracts.models import Contract
+            active_contract = Contract.objects.filter(
+                student=student,
+                status='active',
+                deleted_at__isnull=True
+            ).select_related('brand', 'school').first()
+            if active_contract:
+                if not brand:
+                    brand = active_contract.brand
+                if not school:
+                    school = active_contract.school
+
         instance = serializer.save(
             tenant_id=tenant_id,
             brand=brand,
@@ -1593,6 +1728,20 @@ class WithdrawalRequestViewSet(viewsets.ModelViewSet):
         student = serializer.validated_data.get('student')
         brand = serializer.validated_data.get('brand') or student.primary_brand
         school = serializer.validated_data.get('school') or student.primary_school
+
+        # primary_brand/schoolがない場合は契約から取得
+        if not brand or not school:
+            from apps.contracts.models import Contract
+            active_contract = Contract.objects.filter(
+                student=student,
+                status='active',
+                deleted_at__isnull=True
+            ).select_related('brand', 'school').first()
+            if active_contract:
+                if not brand:
+                    brand = active_contract.brand
+                if not school:
+                    school = active_contract.school
 
         # 残チケット数を計算
         from apps.contracts.models import StudentItem

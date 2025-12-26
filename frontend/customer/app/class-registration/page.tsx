@@ -426,10 +426,12 @@ export default function ClassRegistrationPage() {
                       </div>
 
                       <div className="space-y-2">
+                        {contract.school && (
                         <div className="flex items-center gap-2 text-sm text-gray-600">
                           <MapPin className="h-4 w-4" />
                           <span>{contract.school.schoolName}</span>
                         </div>
+                        )}
                         {contract.dayOfWeek !== undefined && contract.startTime && (
                           <div className="flex items-center gap-2 text-sm text-gray-600">
                             <Clock className="h-4 w-4" />
@@ -484,6 +486,7 @@ export default function ClassRegistrationPage() {
                     </div>
                   </div>
 
+                  {selectedContract.school && (
                   <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
                     <MapPin className="h-5 w-5 text-blue-600" />
                     <div>
@@ -491,6 +494,7 @@ export default function ClassRegistrationPage() {
                       <p className="font-semibold text-gray-800">{selectedContract.school.schoolName}</p>
                     </div>
                   </div>
+                  )}
 
                   {selectedContract.dayOfWeek !== undefined && selectedContract.startTime && (
                     <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
@@ -640,7 +644,7 @@ export default function ClassRegistrationPage() {
                 <span className="font-semibold">クラス変更</span>
               </p>
               <p className="text-xs text-blue-700 mt-1">
-                現在: {selectedContract.school.schoolName} / {selectedContract.dayOfWeek !== undefined && selectedContract.dayOfWeek !== null ? `${DAY_LABELS[selectedContract.dayOfWeek]}曜日 ${selectedContract.startTime?.slice(0, 5) || ''}` : '未設定'}
+                現在: {selectedContract.school?.schoolName || '未設定'} / {selectedContract.dayOfWeek !== undefined && selectedContract.dayOfWeek !== null ? `${DAY_LABELS[selectedContract.dayOfWeek]}曜日 ${selectedContract.startTime?.slice(0, 5) || ''}` : '未設定'}
               </p>
             </div>
 
@@ -781,7 +785,7 @@ export default function ClassRegistrationPage() {
                 <span className="font-semibold">校舎変更</span> - 校舎選択
               </p>
               <p className="text-xs text-purple-700 mt-1">
-                現在: {selectedContract.school.schoolName}
+                現在: {selectedContract.school?.schoolName || '未設定'}
               </p>
             </div>
 
@@ -879,7 +883,7 @@ export default function ClassRegistrationPage() {
                 <span className="font-semibold">校舎変更</span> - クラス選択
               </p>
               <p className="text-xs text-purple-700 mt-1">
-                {selectedContract.school.schoolName} → {selectedNewSchool.name}
+                {selectedContract.school?.schoolName || '未設定'} → {selectedNewSchool.name}
               </p>
             </div>
 
@@ -1012,7 +1016,7 @@ export default function ClassRegistrationPage() {
                 <span className="font-semibold">休会申請</span>
               </p>
               <p className="text-xs text-orange-700 mt-1">
-                {selectedContract.brand.brandName} / {selectedContract.school.schoolName}
+                {selectedContract.brand?.brandName || ''} / {selectedContract.school?.schoolName || '未設定'}
               </p>
             </div>
 
@@ -1134,7 +1138,7 @@ export default function ClassRegistrationPage() {
                 <span className="font-semibold">退会申請</span>
               </p>
               <p className="text-xs text-red-700 mt-1">
-                {selectedContract.brand.brandName} / {selectedContract.school.schoolName}
+                {selectedContract.brand?.brandName || ''} / {selectedContract.school?.schoolName || '未設定'}
               </p>
             </div>
 

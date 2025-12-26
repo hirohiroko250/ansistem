@@ -2043,6 +2043,77 @@ class MonthlyBillingDeadlineViewSet(viewsets.ModelViewSet):
             # 締める
             deadline.close_manually(request.user, notes)
 
+            # 次月の請求データを自動生成
+            next_month = month + 1
+            next_year = year
+            if next_month > 12:
+                next_month = 1
+                next_year += 1
+
+            # 次月の締日を作成（なければ）
+            next_deadline, _ = MonthlyBillingDeadline.get_or_create_for_month(
+                tenant_id=tenant_id,
+                year=next_year,
+                month=next_month,
+                closing_day=deadline.closing_day
+            )
+
+            # 次月の請求対象期間
+            next_billing_start = date(next_year, next_month, 1)
+            if next_month == 12:
+                next_billing_end = date(next_year + 1, 1, 1)
+            else:
+                next_billing_end = date(next_year, next_month + 1, 1)
+
+            # 次月に有効な契約がある生徒を取得
+            next_student_ids = Contract.objects.filter(
+                tenant_id=tenant_id,
+                status=Contract.Status.ACTIVE,
+                start_date__lt=next_billing_end,
+            ).filter(
+                models.Q(end_date__isnull=True) | models.Q(end_date__gte=next_billing_start)
+            ).values_list('student_id', flat=True).distinct()
+
+            next_students = Student.objects.filter(
+                tenant_id=tenant_id,
+                id__in=next_student_ids,
+                deleted_at__isnull=True
+            )
+
+            next_created_count = 0
+            next_skipped_count = 0
+
+            for student in next_students:
+                try:
+                    guardian = student.guardian
+                    if not guardian:
+                        next_skipped_count += 1
+                        continue
+
+                    # 次月の請求確定データを作成（まだ確定前の状態で）
+                    confirmed, was_created = ConfirmedBilling.create_from_contracts(
+                        tenant_id=tenant_id,
+                        student=student,
+                        guardian=guardian,
+                        year=next_year,
+                        month=next_month,
+                        user=request.user
+                    )
+
+                    # 空の請求は削除
+                    if confirmed.subtotal == 0 and not confirmed.items_snapshot and not confirmed.discounts_snapshot:
+                        confirmed.delete()
+                        next_skipped_count += 1
+                        continue
+
+                    if was_created:
+                        next_created_count += 1
+                    else:
+                        next_skipped_count += 1
+                except Exception as e:
+                    logger.error(f'Error creating next month billing for student {student.id}: {e}')
+                    next_skipped_count += 1
+
         return Response({
             'success': True,
             'message': f'{deadline.year}年{deadline.month}月分を締めました',
@@ -2051,6 +2122,12 @@ class MonthlyBillingDeadlineViewSet(viewsets.ModelViewSet):
             'updated_count': updated_count,
             'skipped_count': skipped_count,
             'error_count': len(errors),
+            'next_month': {
+                'year': next_year,
+                'month': next_month,
+                'created_count': next_created_count,
+                'skipped_count': next_skipped_count,
+            },
         })
 
     @extend_schema(summary='確認中にする')

@@ -233,12 +233,12 @@ export function NewContractDialog({
 
   // Filter courses by selected brand
   const filteredCourses = selectedBrandId
-    ? courses.filter((c) => c.brand_id === selectedBrandId || c.brandId === selectedBrandId)
+    ? courses.filter((c) => c.brand_id === selectedBrandId)
     : courses;
 
   // Filter schools by selected brand
   const filteredSchools = selectedBrandId
-    ? schools.filter((s) => s.brand_id === selectedBrandId || s.brandId === selectedBrandId)
+    ? schools.filter((s) => s.brand_id === selectedBrandId)
     : schools;
 
   // Get selected course

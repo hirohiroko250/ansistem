@@ -550,7 +550,7 @@ class ContractListSerializer(serializers.ModelSerializer):
         return []
 
     def get_textbook_options(self, obj):
-        """コースで選択可能な教材費オプションを返す"""
+        """コースで選択可能な教材費オプションを返す（入会月の傾斜料金を適用）"""
         if not obj.course:
             return []
 
@@ -559,12 +559,28 @@ class ContractListSerializer(serializers.ModelSerializer):
             product__item_type=Product.ItemType.TEXTBOOK
         ).select_related('product')
 
+        # 入会月を取得（契約開始日から）
+        enrollment_month = None
+        if obj.start_date:
+            enrollment_month = obj.start_date.month
+
         options = []
         for ci in textbook_items:
+            if not ci.product:
+                continue
+
+            # 入会月に応じた料金を取得（傾斜料金）
+            if enrollment_month:
+                price = ci.product.get_price_for_enrollment_month(enrollment_month)
+            else:
+                price = ci.get_price()
+
             options.append({
                 'id': str(ci.product_id),
-                'product_name': ci.product.product_name if ci.product else '',
-                'price': ci.get_price(),
+                'product_name': ci.product.product_name,
+                'price': float(price) if price else 0,
+                'base_price': float(ci.product.base_price) if ci.product.base_price else 0,
+                'enrollment_month': enrollment_month,
             })
         return options
 

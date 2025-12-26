@@ -78,15 +78,15 @@ const getBrandSortOrder = (brandCode?: string): number => {
 const sortContracts = (contracts: MyContract[]): MyContract[] => {
   return [...contracts].sort((a, b) => {
     // 1. 校舎名でソート
-    const schoolNameA = a.school.schoolName || '';
-    const schoolNameB = b.school.schoolName || '';
+    const schoolNameA = a.school?.schoolName || '';
+    const schoolNameB = b.school?.schoolName || '';
     if (schoolNameA !== schoolNameB) {
       return schoolNameA.localeCompare(schoolNameB, 'ja');
     }
 
     // 2. ブランドコードでソート
-    const brandCodeA = a.brand.brandCode || '';
-    const brandCodeB = b.brand.brandCode || '';
+    const brandCodeA = a.brand?.brandCode || '';
+    const brandCodeB = b.brand?.brandCode || '';
     const brandOrderA = getBrandSortOrder(brandCodeA);
     const brandOrderB = getBrandSortOrder(brandCodeB);
     if (brandOrderA !== brandOrderB) {
@@ -684,7 +684,7 @@ export default function ClassManagementPage() {
                           <div className="space-y-1 text-sm text-gray-600">
                             <div className="flex items-center gap-2">
                               <MapPin className="w-4 h-4" />
-                              <span>{contract.school.schoolName}</span>
+                              <span>{contract.school?.schoolName}</span>
                             </div>
                             {contract.dayOfWeek !== undefined && contract.startTime && (
                               <div className="flex items-center gap-2">
@@ -713,7 +713,7 @@ export default function ClassManagementPage() {
             <div className="space-y-4">
               <div className="bg-green-100 rounded-lg p-3 mb-4">
                 <p className="text-sm text-green-800">
-                  <span className="font-semibold">{selectedStudent?.fullName}</span>さん / {selectedContract.brand.brandName}
+                  <span className="font-semibold">{selectedStudent?.fullName}</span>さん / {selectedContract.brand?.brandName || ''}
                 </p>
                 {/* チケット情報 */}
                 {selectedContract.ticket && (
@@ -723,7 +723,7 @@ export default function ClassManagementPage() {
                   </p>
                 )}
                 <p className="text-xs text-green-700 mt-1">
-                  {selectedContract.school.schoolName} / {selectedContract.dayOfWeek !== undefined ? `${DAY_LABELS[selectedContract.dayOfWeek]}曜日` : ''}
+                  {selectedContract.school?.schoolName || '未設定'} / {selectedContract.dayOfWeek !== undefined ? `${DAY_LABELS[selectedContract.dayOfWeek]}曜日` : ''}
                 </p>
               </div>
 
@@ -866,7 +866,7 @@ export default function ClassManagementPage() {
                   <span className="font-semibold">クラス変更</span>
                 </p>
                 <p className="text-xs text-blue-700 mt-1">
-                  現在: {selectedContract.school.schoolName} / {selectedContract.dayOfWeek !== undefined && selectedContract.dayOfWeek !== null ? `${DAY_LABELS[selectedContract.dayOfWeek]}曜日 ${selectedContract.startTime?.slice(0, 5) || ''}` : '未設定'}
+                  現在: {selectedContract.school?.schoolName || '未設定'} / {selectedContract.dayOfWeek !== undefined && selectedContract.dayOfWeek !== null ? `${DAY_LABELS[selectedContract.dayOfWeek]}曜日 ${selectedContract.startTime?.slice(0, 5) || ''}` : '未設定'}
                 </p>
               </div>
 
@@ -1006,7 +1006,7 @@ export default function ClassManagementPage() {
                   {schoolChangeStep === 'select-school' ? ' - 校舎選択' : ' - クラス選択'}
                 </p>
                 <p className="text-xs text-purple-700 mt-1">
-                  現在: {selectedContract.school.schoolName}
+                  現在: {selectedContract.school?.schoolName || '未設定'}
                   {selectedNewSchool && ` → ${selectedNewSchool.name}`}
                 </p>
               </div>
@@ -1235,7 +1235,7 @@ export default function ClassManagementPage() {
                   <span className="font-semibold">休会申請</span>
                 </p>
                 <p className="text-xs text-orange-700 mt-1">
-                  {selectedContract.brand.brandName} / {selectedContract.school.schoolName}
+                  {selectedContract.brand?.brandName || ''} / {selectedContract.school?.schoolName || '未設定'}
                 </p>
               </div>
 
@@ -1357,7 +1357,7 @@ export default function ClassManagementPage() {
                   <span className="font-semibold">退会申請</span>
                 </p>
                 <p className="text-xs text-red-700 mt-1">
-                  {selectedContract.brand.brandName} / {selectedContract.school.schoolName}
+                  {selectedContract.brand?.brandName || ''} / {selectedContract.school?.schoolName || '未設定'}
                 </p>
               </div>
 

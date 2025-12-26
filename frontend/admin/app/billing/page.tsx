@@ -387,10 +387,19 @@ export default function BillingPage() {
     const deadline = getCurrentBillingDeadline();
     if (!deadline) return;
 
+    // 次月を計算
+    let nextMonth = deadline.month + 1;
+    let nextYear = deadline.year;
+    if (nextMonth > 12) {
+      nextMonth = 1;
+      nextYear += 1;
+    }
+
     const confirmed = window.confirm(
       `${deadline.year}年${deadline.month}月分を確定しますか？\n\n` +
       `確定後は請求データを編集できなくなります。\n` +
-      `確定データが自動生成されます。`
+      `確定データが自動生成されます。\n\n` +
+      `また、${nextYear}年${nextMonth}月分の請求データも自動生成されます。`
     );
     if (!confirmed) return;
 
@@ -403,20 +412,35 @@ export default function BillingPage() {
         updatedCount?: number;
         skippedCount?: number;
         errorCount?: number;
+        nextMonth?: {
+          year: number;
+          month: number;
+          createdCount: number;
+          skippedCount: number;
+        };
       }>(`/billing/deadlines/${deadline.id}/close_manually/`, {
         notes: '経理確認完了'
       });
-      loadDeadlines();
-      loadInvoices();
 
-      const { createdCount = 0, updatedCount = 0, skippedCount = 0 } = response;
-      alert(
-        `${deadline.year}年${deadline.month}月分を確定しました。\n\n` +
-        `確定データ生成結果:\n` +
+      // 締日と請求書を再読み込み
+      await loadDeadlines();
+      await loadInvoices();
+
+      const { createdCount = 0, updatedCount = 0, skippedCount = 0, nextMonth: nextMonthResult } = response;
+
+      let message = `${deadline.year}年${deadline.month}月分を確定しました。\n\n` +
+        `【${deadline.year}年${deadline.month}月分】\n` +
         `・新規作成: ${createdCount}件\n` +
         `・更新: ${updatedCount}件\n` +
-        `・スキップ: ${skippedCount}件`
-      );
+        `・スキップ: ${skippedCount}件`;
+
+      if (nextMonthResult) {
+        message += `\n\n【${nextMonthResult.year}年${nextMonthResult.month}月分（次月請求）】\n` +
+          `・新規作成: ${nextMonthResult.createdCount}件\n` +
+          `・スキップ: ${nextMonthResult.skippedCount}件`;
+      }
+
+      alert(message);
     } catch (error) {
       console.error("Confirm error:", error);
       alert("確定に失敗しました");
@@ -766,8 +790,8 @@ export default function BillingPage() {
                         <TableCell className={`text-right ${balanceDue > 0 ? "text-red-600 font-medium" : ""}`}>
                           ¥{balanceDue.toLocaleString()}
                         </TableCell>
-                        <TableCell className={`text-right ${guardianBalance > 0 ? "text-indigo-600 font-medium" : "text-gray-400"}`}>
-                          ¥{guardianBalance.toLocaleString()}
+                        <TableCell className={`text-right ${guardianBalance > 0 ? "text-indigo-600 font-medium" : guardianBalance < 0 ? "text-red-600 font-medium" : "text-gray-400"}`}>
+                          {guardianBalance < 0 ? "-" : ""}¥{Math.abs(guardianBalance).toLocaleString()}
                         </TableCell>
                         <TableCell className="text-sm text-gray-600">
                           {invoice.paymentMethod || invoice.payment_method || "-"}
