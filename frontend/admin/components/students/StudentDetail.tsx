@@ -337,8 +337,26 @@ export function StudentDetail({ student, parents, contracts, invoices, contactLo
     };
   };
 
-  // 現在の請求月を計算（今日の日付から）
-  const currentBillingPeriod = getBillingMonthForDate(new Date());
+  // 現在の作業対象請求月を計算（締日ロジック使用）
+  // 締日（10日）を過ぎていれば翌月が作業対象
+  const getCurrentWorkingBillingPeriod = (closingDay: number = 10): { year: number; month: number } => {
+    const today = new Date();
+    const currentDay = today.getDate();
+    const currentMonth = today.getMonth() + 1; // 1-12
+    const currentYear = today.getFullYear();
+
+    // 締日を過ぎていれば翌月
+    if (currentDay > closingDay) {
+      if (currentMonth === 12) {
+        return { year: currentYear + 1, month: 1 };
+      }
+      return { year: currentYear, month: currentMonth + 1 };
+    }
+    // 締日以前なら当月
+    return { year: currentYear, month: currentMonth };
+  };
+
+  const currentBillingPeriod = getCurrentWorkingBillingPeriod();
 
   // 契約の請求月を取得（表示用）
   const getContractBillingMonth = (contract: Contract): string => {
