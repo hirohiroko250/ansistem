@@ -18,6 +18,7 @@ from .serializers import (
     LogoutSerializer,
     PasswordResetRequestSerializer,
     PasswordResetConfirmSerializer,
+    PasswordChangeSerializer,
 )
 
 User = get_user_model()
@@ -228,6 +229,35 @@ class PasswordResetConfirmView(GenericAPIView):
             return Response({
                 'error': 'ユーザーが見つかりません'
             }, status=status.HTTP_400_BAD_REQUEST)
+
+
+class PasswordChangeView(GenericAPIView):
+    """パスワード変更ビュー（初回ログイン時の強制変更用）"""
+    serializer_class = PasswordChangeSerializer
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        user = serializer.save()
+
+        # 新しいトークンを発行
+        refresh = RefreshToken.for_user(user)
+
+        return Response({
+            'message': 'パスワードが正常に変更されました',
+            'access': str(refresh.access_token),
+            'refresh': str(refresh),
+            'user': {
+                'id': str(user.id),
+                'email': user.email,
+                'phone': user.phone,
+                'full_name': user.full_name,
+                'user_type': user.user_type,
+                'role': user.role,
+                'must_change_password': user.must_change_password,
+            }
+        }, status=status.HTTP_200_OK)
 
 
 class CheckEmailView(GenericAPIView):

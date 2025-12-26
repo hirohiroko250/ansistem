@@ -11,6 +11,8 @@ import type {
   RegisterResponse,
   Profile,
   ApiSuccessMessage,
+  PasswordChangeRequest,
+  PasswordChangeResponse,
 } from './types';
 
 /**
@@ -109,22 +111,23 @@ export async function updateProfile(data: Partial<Profile>): Promise<Profile> {
 }
 
 /**
- * パスワード変更
+ * パスワード変更（初回ログイン時の強制変更含む）
  * @param data - 現在のパスワードと新しいパスワード
- * @returns 成功メッセージ
+ * @returns 成功メッセージと新しいトークン
  */
-export interface PasswordChangeRequest {
-  currentPassword: string;
-  newPassword: string;
-  newPasswordConfirm: string;
-}
-
-export async function changePassword(data: PasswordChangeRequest): Promise<ApiSuccessMessage> {
-  return api.post<ApiSuccessMessage>('/auth/password/change/', {
+export async function changePassword(data: PasswordChangeRequest): Promise<PasswordChangeResponse> {
+  const response = await api.post<PasswordChangeResponse>('/auth/password-change/', {
     current_password: data.currentPassword,
     new_password: data.newPassword,
     new_password_confirm: data.newPasswordConfirm,
   });
+
+  // 新しいトークンを保存
+  if (response.access && response.refresh) {
+    setTokens({ access: response.access, refresh: response.refresh });
+  }
+
+  return response;
 }
 
 /**

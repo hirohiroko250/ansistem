@@ -1909,6 +1909,20 @@ class ConfirmedBilling(TenantModel):
         help_text='前月からの繰越額（プラス=未払い繰越、マイナス=過払い繰越）'
     )
 
+    # 過不足金（調整額）
+    adjustment_amount = models.DecimalField(
+        '過不足金',
+        max_digits=12,
+        decimal_places=0,
+        default=0,
+        help_text='過不足金（プラス=追加請求、マイナス=返金/相殺）'
+    )
+    adjustment_note = models.TextField(
+        '過不足金備考',
+        blank=True,
+        help_text='過不足金の詳細説明'
+    )
+
     # 明細スナップショット（JSON形式で保存）
     items_snapshot = models.JSONField('明細スナップショット', default=list)
     discounts_snapshot = models.JSONField('割引スナップショット', default=list)

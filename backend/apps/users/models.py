@@ -257,6 +257,10 @@ class User(AbstractBaseUser, PermissionsMixin):
         blank=True,
         verbose_name='パスワード変更日時'
     )
+    must_change_password = models.BooleanField(
+        default=False,
+        verbose_name='パスワード変更必須'
+    )
 
     # タイムスタンプ
     created_at = models.DateTimeField(

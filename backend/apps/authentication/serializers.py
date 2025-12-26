@@ -45,11 +45,13 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
         data['user'] = {
             'id': str(self.user.id),
             'email': self.user.email,
+            'phone': self.user.phone,
             'full_name': self.user.full_name,
             'user_type': self.user.user_type,
             'role': self.user.role,
             'tenant_id': str(self.user.tenant_id) if self.user.tenant_id else None,
             'primary_school_id': str(self.user.primary_school_id) if self.user.primary_school_id else None,
+            'must_change_password': self.user.must_change_password,
         }
 
         return data
@@ -274,3 +276,33 @@ class PasswordResetConfirmSerializer(serializers.Serializer):
         if data['new_password'] != data['new_password_confirm']:
             raise serializers.ValidationError({'new_password_confirm': 'パスワードが一致しません'})
         return data
+
+
+class PasswordChangeSerializer(serializers.Serializer):
+    """パスワード変更シリアライザー（初回ログイン時の強制変更用）"""
+    current_password = serializers.CharField(write_only=True)
+    new_password = serializers.CharField(write_only=True, min_length=8)
+    new_password_confirm = serializers.CharField(write_only=True)
+
+    def validate_current_password(self, value):
+        user = self.context.get('request').user
+        if not user.check_password(value):
+            raise serializers.ValidationError('現在のパスワードが正しくありません')
+        return value
+
+    def validate(self, data):
+        if data['new_password'] != data['new_password_confirm']:
+            raise serializers.ValidationError({'new_password_confirm': 'パスワードが一致しません'})
+
+        # 新しいパスワードが現在のパスワードと同じでないことを確認
+        if data['current_password'] == data['new_password']:
+            raise serializers.ValidationError({'new_password': '新しいパスワードは現在のパスワードと異なる必要があります'})
+
+        return data
+
+    def save(self, **kwargs):
+        user = self.context.get('request').user
+        user.set_password(self.validated_data['new_password'])
+        user.must_change_password = False
+        user.save(update_fields=['password', 'must_change_password', 'updated_at'])
+        return user

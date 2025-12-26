@@ -180,11 +180,13 @@ services:
       dockerfile: Dockerfile
       args:
         - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://162.43.33.37:8000/api/v1}
+        - NEXT_PUBLIC_CUSTOMER_URL=${NEXT_PUBLIC_CUSTOMER_URL:-http://162.43.33.37:3000}
     container_name: oza_frontend_admin
     ports:
       - "3002:3000"
     environment:
       - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://162.43.33.37:8000/api/v1}
+      - NEXT_PUBLIC_CUSTOMER_URL=${NEXT_PUBLIC_CUSTOMER_URL:-http://162.43.33.37:3000}
     depends_on:
       - backend
     networks:

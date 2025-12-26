@@ -135,13 +135,54 @@ class PricingEngine:
         return Decimal(product.base_price)
 
     def _get_billing_month_price(self, product: 'Product', billing_month: int) -> Decimal:
-        """請求月に応じた月額料金を取得"""
-        # ProductPriceから取得を試みる
+        """請求月に応じた月額料金を取得
+
+        優先順位:
+        1. ProductPriceのget_billing_price()
+        2. Productのbilling_price_*フィールド
+        3. base_price（教材費以外）
+
+        教材費（textbook）の場合、billing_price_*が0ならば0を返す（base_priceにフォールバックしない）
+        """
+        # 1. ProductPriceから取得を試みる
         price_record = product.prices.filter(is_active=True).first()
         if price_record:
             price = price_record.get_billing_price(billing_month)
             if price is not None:
                 return Decimal(price)
+
+        # 2. Productのbilling_price_*フィールドを直接参照
+        month_field_map = {
+            1: 'billing_price_jan',
+            2: 'billing_price_feb',
+            3: 'billing_price_mar',
+            4: 'billing_price_apr',
+            5: 'billing_price_may',
+            6: 'billing_price_jun',
+            7: 'billing_price_jul',
+            8: 'billing_price_aug',
+            9: 'billing_price_sep',
+            10: 'billing_price_oct',
+            11: 'billing_price_nov',
+            12: 'billing_price_dec',
+        }
+
+        field_name = month_field_map.get(billing_month)
+        if field_name and hasattr(product, field_name):
+            billing_price = getattr(product, field_name, None)
+            if billing_price is not None:
+                # 教材費の場合、billing_price_*が明示的に設定されている月のみ請求
+                # （0円なら0円を返す。base_priceにフォールバックしない）
+                if product.item_type == 'textbook':
+                    return Decimal(billing_price)
+                # 教材費以外で0円の場合はbase_priceを使用
+                if billing_price > 0:
+                    return Decimal(billing_price)
+
+        # 3. base_priceにフォールバック（教材費以外）
+        if product.item_type == 'textbook':
+            # 教材費でbilling_price_*がない場合は0円（請求しない）
+            return Decimal(0)
         return Decimal(product.base_price)
 
     def _should_apply_ticket_calc(self, product: 'Product') -> bool:

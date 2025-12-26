@@ -225,6 +225,10 @@ export default function ClassManagementPage() {
 
   // 開講時間割取得（チケットでフィルタリング）
   const fetchClassSchedules = useCallback(async (contract: MyContract) => {
+    if (!contract.school) {
+      setError('校舎情報がありません');
+      return;
+    }
     try {
       setLoadingSchedules(true);
       // チケットコードがある場合はチケットでフィルタリング
@@ -266,7 +270,7 @@ export default function ClassManagementPage() {
         ? await getSchoolsByTicket(ticketCode, contract.brand.id)
         : await getSchoolsByTicket(contract.brand.id);
       // 現在の校舎を除外してソート
-      const filteredSchools = schools.filter(s => s.id !== contract.school.id);
+      const filteredSchools = schools.filter(s => s.id !== contract.school?.id);
       setAvailableSchools(sortSchools(filteredSchools));
     } catch (err) {
       console.error('Failed to fetch schools:', err);

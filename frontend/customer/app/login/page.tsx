@@ -38,8 +38,14 @@ export default function LoginPage() {
     setIsLoading(true);
 
     try {
-      await login({ phone, password });
-      router.push('/feed');
+      const response = await login({ phone, password });
+
+      // パスワード変更が必要な場合はパスワード変更ページへリダイレクト
+      if (response.user?.mustChangePassword) {
+        router.push('/password-change');
+      } else {
+        router.push('/feed');
+      }
     } catch (err) {
       const apiError = err as ApiError;
       if (apiError.status === 401) {

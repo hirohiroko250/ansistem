@@ -13,6 +13,7 @@ export type UserRole = 'user' | 'staff' | 'admin';
 export interface User {
   id: string;
   email: string;
+  phone?: string;
   userType: UserType;
   role: UserRole;
   lastName: string;
@@ -35,6 +36,7 @@ export interface User {
   createdAt: string;
   updatedAt: string;
   tenantId: string;
+  mustChangePassword?: boolean;
 }
 
 export interface UserSummary {
@@ -110,6 +112,27 @@ export interface RefreshResponse {
 
 export interface LogoutRequest {
   refresh: string;
+}
+
+export interface PasswordChangeRequest {
+  currentPassword: string;
+  newPassword: string;
+  newPasswordConfirm: string;
+}
+
+export interface PasswordChangeResponse {
+  message: string;
+  access: string;
+  refresh: string;
+  user: {
+    id: string;
+    email: string;
+    phone?: string;
+    fullName: string;
+    userType: string;
+    role: string;
+    mustChangePassword: boolean;
+  };
 }
 
 // ============================================

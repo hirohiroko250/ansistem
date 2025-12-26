@@ -228,11 +228,11 @@ export interface MyContract {
     fullName: string;
     grade?: string;
   };
-  school: {
+  school?: {
     id: string;
     schoolCode: string;
     schoolName: string;
-  };
+  } | null;
   brand: {
     id: string;
     brandCode: string;

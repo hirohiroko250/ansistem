@@ -115,6 +115,10 @@ export default function ClassRegistrationPage() {
 
   // 開講時間割取得（クラス変更用）
   const fetchClassSchedules = useCallback(async (contract: MyContract) => {
+    if (!contract.school) {
+      setError('校舎情報がありません');
+      return;
+    }
     try {
       setLoadingSchedules(true);
       // チケットコードがある場合はチケットでフィルタリング
@@ -140,7 +144,7 @@ export default function ClassRegistrationPage() {
     try {
       setLoadingSchools(true);
       const schools = await getBrandSchools(contract.brand.id);
-      const filteredSchools = schools.filter(s => s.id !== contract.school.id);
+      const filteredSchools = schools.filter(s => s.id !== contract.school?.id);
       setAvailableSchools(filteredSchools);
     } catch (err) {
       console.error('Failed to fetch schools:', err);
@@ -426,7 +430,7 @@ export default function ClassRegistrationPage() {
                       </div>
 
                       <div className="space-y-2">
-                        {contract.school && (
+                        {contract.school?.schoolName && (
                         <div className="flex items-center gap-2 text-sm text-gray-600">
                           <MapPin className="h-4 w-4" />
                           <span>{contract.school.schoolName}</span>
@@ -486,7 +490,7 @@ export default function ClassRegistrationPage() {
                     </div>
                   </div>
 
-                  {selectedContract.school && (
+                  {selectedContract.school?.schoolName && (
                   <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
                     <MapPin className="h-5 w-5 text-blue-600" />
                     <div>

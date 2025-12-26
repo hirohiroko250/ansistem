@@ -119,6 +119,12 @@ else:
 # Custom User Model
 AUTH_USER_MODEL = 'users.User'
 
+# Authentication Backends（電話番号またはメールでログイン可能）
+AUTHENTICATION_BACKENDS = [
+    'apps.users.backends.PhoneOrEmailBackend',
+    'django.contrib.auth.backends.ModelBackend',
+]
+
 
 # Password validation
 AUTH_PASSWORD_VALIDATORS = [
