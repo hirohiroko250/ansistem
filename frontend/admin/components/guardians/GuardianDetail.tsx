@@ -278,19 +278,73 @@ export function GuardianDetail({
   // チャット開始中フラグ
   const [isStartingChat, setIsStartingChat] = useState(false);
 
-  // 保護者画面を開く
+  // アカウント作成中フラグ
+  const [isCreatingAccount, setIsCreatingAccount] = useState(false);
+  const [accountCreated, setAccountCreated] = useState(false);
+
+  // アカウント作成してすぐに保護者画面を開く
+  const setupAccountAndOpen = async () => {
+    if (!guardian.email) {
+      alert('メールアドレスが設定されていません。先にメールアドレスを登録してください。');
+      return;
+    }
+
+    setIsCreatingAccount(true);
+    try {
+      // アカウント作成
+      await apiClient.post(`/students/guardians/${guardian.id}/setup_account/`);
+      setAccountCreated(true);
+
+      // 作成後すぐに保護者画面を開く
+      const response = await apiClient.post<{ access: string; refresh: string }>('/auth/impersonate-guardian/', {
+        guardian_id: guardian.id
+      });
+      const customerUrl = process.env.NEXT_PUBLIC_CUSTOMER_URL || 'http://localhost:3000';
+      const url = `${customerUrl}/auth/callback?access=${response.access}&refresh=${response.refresh}`;
+      window.open(url, '_blank');
+
+    } catch (error: any) {
+      const errorMessage = error.data?.error || error.message || '';
+      alert(errorMessage || 'アカウント作成に失敗しました。');
+    } finally {
+      setIsCreatingAccount(false);
+    }
+  };
+
+  // 保護者画面を開く（アカウントがなければ自動作成）
   const openGuardianView = async () => {
+    // アカウント未設定の場合は自動作成
+    if (!guardian.has_account && !guardian.hasAccount && !accountCreated) {
+      // 電話番号またはメールが必要
+      const hasContactInfo = guardian.email || guardian.phone || guardian.phone_mobile || guardian.phoneMobile;
+      if (!hasContactInfo) {
+        alert('電話番号またはメールアドレスが設定されていません。');
+        return;
+      }
+
+      try {
+        // アカウントを自動作成
+        await apiClient.post(`/students/guardians/${guardian.id}/setup_account/`);
+        setAccountCreated(true);
+      } catch (error: any) {
+        const errorMessage = error.data?.error || error.message || '';
+        alert(errorMessage || 'アカウント作成に失敗しました。');
+        return;
+      }
+    }
+
     try {
       const response = await apiClient.post<{ access: string; refresh: string }>('/auth/impersonate-guardian/', {
         guardian_id: guardian.id
       });
-      // 保護者画面を新しいタブで開く（トークン付き）
-      const customerUrl = process.env.NEXT_PUBLIC_CUSTOMER_URL || 'http://localhost:3001';
+      // 保護者画面を新しいタブで開く
+      const customerUrl = process.env.NEXT_PUBLIC_CUSTOMER_URL || 'http://localhost:3000';
       const url = `${customerUrl}/auth/callback?access=${response.access}&refresh=${response.refresh}`;
       window.open(url, '_blank');
     } catch (error: any) {
       console.error('Failed to impersonate guardian:', error);
-      alert(error.message || '保護者画面を開けませんでした。ログインアカウントが設定されていない可能性があります。');
+      const errorMessage = error.data?.error || error.message || '';
+      alert(errorMessage || '保護者画面を開けませんでした。');
     }
   };
 
@@ -336,31 +390,30 @@ export function GuardianDetail({
             {isStartingChat ? '開始中...' : 'チャット'}
           </Button>
 
-          {/* 保護者画面を開くボタン */}
-          {(guardian.has_account || guardian.hasAccount) ? (
+          {/* アカウント作成ボタン（アカウント未設定の場合のみ表示） */}
+          {!guardian.has_account && !guardian.hasAccount && !accountCreated && (
             <Button
               variant="outline"
               size="sm"
-              onClick={openGuardianView}
-              className="flex items-center gap-1"
+              onClick={setupAccountAndOpen}
+              disabled={isCreatingAccount}
+              className="flex items-center gap-1 border-green-500 text-green-600 hover:bg-green-50"
             >
-              <ExternalLink className="w-4 h-4" />
-              保護者画面を開く
+              <User className="w-4 h-4" />
+              {isCreatingAccount ? '作成中...' : 'アカウント作成'}
             </Button>
-          ) : (
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-gray-400">アカウント未設定</span>
-              <Button
-                variant="outline"
-                size="sm"
-                disabled
-                className="flex items-center gap-1 opacity-50 cursor-not-allowed"
-              >
-                <ExternalLink className="w-4 h-4" />
-                保護者画面を開く
-              </Button>
-            </div>
           )}
+
+          {/* 保護者画面を開くボタン */}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={openGuardianView}
+            className="flex items-center gap-1"
+          >
+            <ExternalLink className="w-4 h-4" />
+            保護者画面を開く
+          </Button>
         </div>
       </div>
 

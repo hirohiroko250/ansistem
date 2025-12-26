@@ -5,7 +5,7 @@ from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
-from rest_framework.parsers import MultiPartParser, FormParser
+from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from django.db import models
 from django.db.models import Sum
 from django.utils import timezone
@@ -582,7 +582,7 @@ class StudentDiscountViewSet(CSVMixin, viewsets.ModelViewSet):
 class ContractViewSet(CSVMixin, viewsets.ModelViewSet):
     """契約ビューセット"""
     permission_classes = [IsAuthenticated, IsTenantUser]
-    parser_classes = [MultiPartParser, FormParser]
+    parser_classes = [JSONParser, MultiPartParser, FormParser]
     pagination_class = AdminResultsSetPagination
 
     csv_filename_prefix = 'contracts'

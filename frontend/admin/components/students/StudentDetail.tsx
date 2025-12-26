@@ -107,10 +107,12 @@ function getInvoiceStatusLabel(status: string): string {
   const statusMap: Record<string, string> = {
     draft: "下書き",
     pending: "未払い",
+    unpaid: "未払い",
     partial: "一部入金",
     paid: "支払済",
     overdue: "延滞",
     cancelled: "キャンセル",
+    confirmed: "確定",
   };
   return statusMap[status] || status;
 }
@@ -267,7 +269,7 @@ export function StudentDetail({ student, parents, contracts, invoices, contactLo
   }, []);
 
   // 契約の請求月が締め済みかどうかをチェック
-  // 過去月は全て締め済みとして扱う
+  // 現在の請求月（2026年2月）は常に編集可能
   const isContractPeriodClosed = (contract: Contract): boolean => {
     const startDateStr = contract.start_date || (contract as any).startDate;
     if (!startDateStr) return false;
@@ -275,18 +277,19 @@ export function StudentDetail({ student, parents, contracts, invoices, contactLo
     const startDate = new Date(startDateStr);
     if (isNaN(startDate.getTime())) return false;
 
-    const now = new Date();
-    const currentYearMonth = now.getFullYear() * 12 + now.getMonth();
-    const contractYearMonth = startDate.getFullYear() * 12 + startDate.getMonth();
+    // 契約の年月を取得
+    const contractYear = startDate.getFullYear();
+    const contractMonth = startDate.getMonth() + 1;
 
-    // 過去月は締め済み
-    if (contractYearMonth < currentYearMonth) {
-      return true;
+    // 現在の請求月（ハードコード）と一致する場合は編集可能
+    const currentBillingYear = parseInt(currentBillingMonth.year);
+    const currentBillingMonthNum = parseInt(currentBillingMonth.month);
+    if (contractYear === currentBillingYear && contractMonth === currentBillingMonthNum) {
+      return false; // 現在の請求月は締め済みではない
     }
 
-    // または、closedMonthsに含まれている場合も締め済み
-    const yearMonth = `${startDate.getFullYear()}-${String(startDate.getMonth() + 1).padStart(2, '0')}`;
-    return closedMonths.has(yearMonth);
+    // それ以外は締め済み
+    return true;
   };
 
   // 休会・退会申請を取得
@@ -310,16 +313,13 @@ export function StudentDetail({ student, parents, contracts, invoices, contactLo
     }
   }, [student.id]);
 
-  // デフォルトの年月（翌月）を計算
-  const getNextMonth = () => {
-    const now = new Date();
-    const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
-    return {
-      year: String(nextMonth.getFullYear()),
-      month: String(nextMonth.getMonth() + 1),
-    };
+  // 現在の請求月（2026年2月）を固定
+  // TODO: APIから現在の請求月を取得する
+  const currentBillingMonth = {
+    year: "2026",
+    month: "2",
   };
-  const defaultYearMonth = getNextMonth();
+  const defaultYearMonth = currentBillingMonth;
 
   // 契約フィルター用の年月選択（デフォルト：翌月）
   const [contractYear, setContractYear] = useState<string>(defaultYearMonth.year);
@@ -909,14 +909,29 @@ export function StudentDetail({ student, parents, contracts, invoices, contactLo
                             <p className="text-xs text-gray-400">No. {gNo}</p>
                           </div>
                         </div>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => g && openGuardianEditDialog(g)}
-                        >
-                          <Pencil className="w-4 h-4 mr-1" />
-                          編集
-                        </Button>
+                        <div className="flex gap-2">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => {
+                              const guardianId = g?.id;
+                              if (guardianId) {
+                                window.location.href = `/parents?id=${guardianId}`;
+                              }
+                            }}
+                          >
+                            <ExternalLink className="w-4 h-4 mr-1" />
+                            詳細を見る
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => g && openGuardianEditDialog(g)}
+                          >
+                            <Pencil className="w-4 h-4 mr-1" />
+                            編集
+                          </Button>
+                        </div>
                       </div>
 
                       <table className="w-full text-sm border">
@@ -965,31 +980,12 @@ export function StudentDetail({ student, parents, contracts, invoices, contactLo
         {/* 契約タブ */}
         <TabsContent value="contracts" className="flex-1 overflow-auto p-0 m-0">
           <div className="p-4">
-            {/* 年月フィルター */}
+            {/* 当月表示 */}
             <div className="flex items-center gap-2 mb-4">
               <Calendar className="w-4 h-4 text-gray-500" />
-              <Select value={contractYear} onValueChange={setContractYear}>
-                <SelectTrigger className="w-24 h-8">
-                  <SelectValue placeholder="年" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">全て</SelectItem>
-                  {yearOptions.map((y) => (
-                    <SelectItem key={y} value={String(y)}>{y}年</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <Select value={contractMonth} onValueChange={setContractMonth}>
-                <SelectTrigger className="w-20 h-8">
-                  <SelectValue placeholder="月" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">全て</SelectItem>
-                  {monthOptions.map((m) => (
-                    <SelectItem key={m} value={String(m)}>{m}月</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <span className="text-sm font-medium">
+                {contractYear}年{contractMonth}月分
+              </span>
               <span className="text-xs text-gray-500 ml-2">
                 {filteredContracts.length}件
               </span>
@@ -1060,13 +1056,44 @@ export function StudentDetail({ student, parents, contracts, invoices, contactLo
                   ).filter(Boolean)));
                   const billingMonthLabel = billingMonths.length > 0 ? billingMonths.join(", ") : "";
 
-                  // フィルタ後のアイテムから月額合計を計算
-                  const monthlyTotal = studentItems.length > 0
-                    ? studentItems.reduce((sum: number, item: { final_price?: number | string; finalPrice?: number | string; unit_price?: number | string; unitPrice?: number | string }) => {
+                  // 一回限りの費用タイプ（月額合計から除外）
+                  const oneTimeItemTypes = [
+                    'enrollment', 'enrollment_tuition', 'enrollment_monthly_fee',
+                    'enrollment_facility', 'enrollment_textbook', 'enrollment_expense',
+                    'enrollment_management', 'textbook', 'material'
+                  ];
+
+                  // 月額アイテムと一回限りアイテムを分離
+                  const monthlyItems = studentItems.filter((item: { item_type?: string; itemType?: string; product_name?: string; productName?: string }) => {
+                    const itemType = (item.item_type || item.itemType || '').toLowerCase();
+                    const itemName = (item.product_name || item.productName || '').toLowerCase();
+                    // 入会金や教材費を除外
+                    if (oneTimeItemTypes.includes(itemType)) return false;
+                    if (itemName.includes('入会金')) return false;
+                    return true;
+                  });
+
+                  const oneTimeItems = studentItems.filter((item: { item_type?: string; itemType?: string; product_name?: string; productName?: string }) => {
+                    const itemType = (item.item_type || item.itemType || '').toLowerCase();
+                    const itemName = (item.product_name || item.productName || '').toLowerCase();
+                    if (oneTimeItemTypes.includes(itemType)) return true;
+                    if (itemName.includes('入会金')) return true;
+                    return false;
+                  });
+
+                  // フィルタ後のアイテムから月額合計を計算（一回限りの費用を除外）
+                  const monthlyTotal = monthlyItems.length > 0
+                    ? monthlyItems.reduce((sum: number, item: { final_price?: number | string; finalPrice?: number | string; unit_price?: number | string; unitPrice?: number | string }) => {
                         const price = Number(item.final_price || item.finalPrice || item.unit_price || item.unitPrice || 0);
                         return sum + price;
                       }, 0)
                     : originalMonthlyTotal;
+
+                  // 一回限りの費用合計
+                  const oneTimeTotal = oneTimeItems.reduce((sum: number, item: { final_price?: number | string; finalPrice?: number | string; unit_price?: number | string; unitPrice?: number | string }) => {
+                    const price = Number(item.final_price || item.finalPrice || item.unit_price || item.unitPrice || 0);
+                    return sum + price;
+                  }, 0);
 
                   // 曜日表示
                   const dayOfWeekLabel = dayOfWeek ? ["", "月", "火", "水", "木", "金", "土", "日"][dayOfWeek] || "" : "";
@@ -1201,7 +1228,7 @@ export function StudentDetail({ student, parents, contracts, invoices, contactLo
                                           }
                                         }}
                                         className="w-3 h-3"
-                                        disabled={isContractPeriodClosed(contract)}
+                                        disabled={false}
                                       />
                                       <span>{optionName}</span>
                                       <span className="text-gray-500">¥{option.price.toLocaleString()}</span>
@@ -1230,8 +1257,9 @@ export function StudentDetail({ student, parents, contracts, invoices, contactLo
                             </tr>
                           </thead>
                           <tbody>
-                            {studentItems.length > 0 ? (
-                              studentItems.map((item: {
+                            {/* 月額料金（授業料など） */}
+                            {monthlyItems.length > 0 ? (
+                              monthlyItems.map((item: {
                                 id: string;
                                 product_name?: string;
                                 productName?: string;
@@ -1304,6 +1332,43 @@ export function StudentDetail({ student, parents, contracts, invoices, contactLo
                             </tr>
                           </tfoot>
                         </table>
+
+                        {/* 一回限りの費用（入会金など）がある場合 */}
+                        {oneTimeItems.length > 0 && (
+                          <div className="mt-3 pt-3 border-t border-dashed">
+                            <p className="text-xs text-gray-500 mb-2">入会時費用（一回限り）:</p>
+                            <table className="w-full text-xs">
+                              <tbody>
+                                {oneTimeItems.map((item: {
+                                  id: string;
+                                  product_name?: string;
+                                  productName?: string;
+                                  notes?: string;
+                                  quantity?: number;
+                                  unit_price?: number | string;
+                                  unitPrice?: number | string;
+                                  final_price?: number | string;
+                                  finalPrice?: number | string;
+                                }, idx: number) => {
+                                  const itemName = item.product_name || item.productName || item.notes || "-";
+                                  const finalPrice = item.final_price || item.finalPrice || 0;
+                                  return (
+                                    <tr key={item.id || idx} className="text-gray-600">
+                                      <td className="py-1">{itemName}</td>
+                                      <td className="py-1 text-right w-24">¥{Number(finalPrice).toLocaleString()}</td>
+                                    </tr>
+                                  );
+                                })}
+                              </tbody>
+                              <tfoot>
+                                <tr className="font-medium text-gray-700">
+                                  <td className="pt-1">入会時費用合計</td>
+                                  <td className="pt-1 text-right">¥{Number(oneTimeTotal).toLocaleString()}</td>
+                                </tr>
+                              </tfoot>
+                            </table>
+                          </div>
+                        )}
                       </div>
                     </div>
                   );

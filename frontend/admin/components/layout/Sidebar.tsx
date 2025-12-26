@@ -19,6 +19,7 @@ import {
   Library,
   ClipboardList,
   Newspaper,
+  Shield,
 } from "lucide-react";
 
 const menuItems = [
@@ -91,6 +92,11 @@ const menuItems = [
     name: "Templates",
     href: "/knowledge/templates",
     icon: ClipboardList,
+  },
+  {
+    name: "Permissions",
+    href: "/permissions",
+    icon: Shield,
   },
   {
     name: "Settings",

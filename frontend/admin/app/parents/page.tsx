@@ -78,7 +78,7 @@ export default function ParentsPage() {
 
   // URLパラメータから保護者を選択/検索
   useEffect(() => {
-    const selectedId = searchParams.get('selected');
+    const selectedId = searchParams.get('selected') || searchParams.get('id');
     const search = searchParams.get('search');
 
     if (selectedId) {

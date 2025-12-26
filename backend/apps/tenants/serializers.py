@@ -104,7 +104,7 @@ class EmployeeListSerializer(serializers.ModelSerializer):
         model = Employee
         fields = [
             'id', 'employee_no', 'full_name', 'last_name', 'first_name',
-            'email', 'department', 'position', 'position_name',
+            'email', 'phone', 'department', 'position', 'position_name',
             'schools_list', 'brands_list', 'is_active',
         ]
 

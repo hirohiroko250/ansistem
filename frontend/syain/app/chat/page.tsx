@@ -2,8 +2,6 @@
 
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Card } from '@/components/ui/card';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -17,22 +15,22 @@ import {
   ChevronLeft,
   Check,
   CheckCheck,
-  Archive,
   User,
   UserPlus,
   Plus,
+  Image as ImageIcon,
+  MoreVertical,
+  Phone,
+  Video,
 } from 'lucide-react';
-import { format } from 'date-fns';
+import { format, isToday, isYesterday, isSameDay } from 'date-fns';
 import { ja } from 'date-fns/locale';
-import { ScrollArea } from '@/components/ui/scroll-area';
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import {
   getChannels,
-  getChannel,
   getMessages,
   sendMessage,
   markChannelAsRead,
-  archiveChannel,
   getStaffChannels,
   getStaffMessages,
   sendStaffMessage,
@@ -45,12 +43,43 @@ import {
   type Staff,
 } from '@/lib/api/chat';
 import { getAccessToken } from '@/lib/api/client';
+import api from '@/lib/api/client';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
+import { Building, MapPin, Briefcase, X, Filter } from 'lucide-react';
+
+interface StaffDetail {
+  id: string;
+  employeeNo: string;
+  fullName: string;
+  lastName: string;
+  firstName: string;
+  email: string;
+  phone: string;
+  department: string;
+  positionName: string | null;
+  schoolsList: { id: string; name: string }[];
+  brandsList: { id: string; name: string }[];
+}
+
+interface SchoolOption {
+  id: string;
+  schoolName: string;
+}
+
+interface BrandOption {
+  id: string;
+  brandName: string;
+}
+
+type TabType = 'guardian' | 'group' | 'staff';
 
 export default function ChatPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const initialTab = searchParams.get('tab') as 'guardian' | 'group' | 'staff' | null;
-  const [activeTab, setActiveTab] = useState<'guardian' | 'group' | 'staff'>(initialTab || 'guardian');
+  const initialTab = searchParams.get('tab') as TabType | null;
+
+  const [activeTab, setActiveTab] = useState<TabType>(initialTab || 'guardian');
   const [channels, setChannels] = useState<Channel[]>([]);
   const [selectedChannel, setSelectedChannel] = useState<Channel | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -59,20 +88,41 @@ export default function ChatPage() {
   const [isSending, setIsSending] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   // Staff chat state
   const [staffChannels, setStaffChannels] = useState<StaffChannel[]>([]);
   const [selectedStaffChannel, setSelectedStaffChannel] = useState<StaffChannel | null>(null);
   const [staffMessages, setStaffMessages] = useState<Message[]>([]);
-  const [staffList, setStaffList] = useState<Staff[]>([]);
-  const [showNewDM, setShowNewDM] = useState(false);
-  const [showNewGroup, setShowNewGroup] = useState(false);
-  const [groupName, setGroupName] = useState('');
-  const [selectedMembers, setSelectedMembers] = useState<string[]>([]);
+  const [staffList, setStaffList] = useState<StaffDetail[]>([]);
+  const [showNewChat, setShowNewChat] = useState(false);
+
+  // Staff detail & filter state
+  const [selectedStaffDetail, setSelectedStaffDetail] = useState<StaffDetail | null>(null);
+  const [showStaffDetail, setShowStaffDetail] = useState(false);
+  const [schools, setSchools] = useState<SchoolOption[]>([]);
+  const [brands, setBrands] = useState<BrandOption[]>([]);
+  const [filterSchool, setFilterSchool] = useState<string>('');
+  const [filterBrand, setFilterBrand] = useState<string>('');
+  const [showFilters, setShowFilters] = useState(false);
+
+  const currentUserId = getCurrentUserId();
+
+  function getCurrentUserId(): string {
+    if (typeof window === 'undefined') return '';
+    const token = getAccessToken();
+    if (!token) return '';
+    try {
+      const payload = JSON.parse(atob(token.split('.')[1]));
+      return payload.user_id || '';
+    } catch {
+      return '';
+    }
+  }
 
   // URLパラメータからタブを設定
   useEffect(() => {
-    const tab = searchParams.get('tab') as 'guardian' | 'group' | 'staff' | null;
+    const tab = searchParams.get('tab') as TabType | null;
     if (tab && ['guardian', 'group', 'staff'].includes(tab)) {
       setActiveTab(tab);
     }
@@ -90,16 +140,26 @@ export default function ChatPage() {
   useEffect(() => {
     if (activeTab === 'staff') {
       loadStaffChannels();
-      loadStaffList();
+      loadStaffListWithDetails();
+      loadSchoolsAndBrands();
     } else {
       loadChannels();
     }
   }, [activeTab]);
 
+  // フィルター変更時にスタッフ一覧を再取得
+  useEffect(() => {
+    if (activeTab === 'staff' && showNewChat) {
+      loadStaffListWithDetails();
+    }
+  }, [filterSchool, filterBrand]);
+
   // 選択したチャンネルのメッセージを取得
   useEffect(() => {
     if (selectedChannel) {
       loadMessages();
+      const interval = setInterval(loadMessages, 5000);
+      return () => clearInterval(interval);
     }
   }, [selectedChannel?.id]);
 
@@ -107,9 +167,7 @@ export default function ChatPage() {
   useEffect(() => {
     if (selectedStaffChannel) {
       loadStaffMessagesForChannel();
-      const interval = setInterval(() => {
-        loadStaffMessagesForChannel();
-      }, 5000);
+      const interval = setInterval(loadStaffMessagesForChannel, 5000);
       return () => clearInterval(interval);
     }
   }, [selectedStaffChannel?.id]);
@@ -152,9 +210,78 @@ export default function ChatPage() {
   const loadStaffList = async () => {
     try {
       const data = await getStaffList();
-      setStaffList(data);
+      // Convert to StaffDetail format
+      const staffDetails: StaffDetail[] = data.map((s: any) => ({
+        id: s.id,
+        employeeNo: s.employeeNo || '',
+        fullName: s.name || s.fullName || '',
+        lastName: s.lastName || '',
+        firstName: s.firstName || '',
+        email: s.email || '',
+        phone: s.phone || '',
+        department: s.department || '',
+        positionName: s.position || s.positionName || null,
+        schoolsList: [],
+        brandsList: [],
+      }));
+      setStaffList(staffDetails);
     } catch (error) {
       console.error('Failed to load staff list:', error);
+    }
+  };
+
+  const loadStaffListWithDetails = async () => {
+    try {
+      // Build query params for filtering
+      const params = new URLSearchParams();
+      if (filterSchool) params.append('school', filterSchool);
+      if (filterBrand) params.append('brand', filterBrand);
+
+      const url = `/tenants/employees/${params.toString() ? '?' + params.toString() : ''}`;
+      const response = await api.get<any>(url);
+      const results = response.results || response || [];
+
+      const staffDetails: StaffDetail[] = results.map((e: any) => ({
+        id: e.id,
+        employeeNo: e.employee_no || '',
+        fullName: e.full_name || `${e.last_name || ''}${e.first_name || ''}`.trim() || e.email,
+        lastName: e.last_name || '',
+        firstName: e.first_name || '',
+        email: e.email || '',
+        phone: e.phone || e.mobile_phone || '',
+        department: e.department || '',
+        positionName: e.position_name || e.position || null,
+        schoolsList: (e.schools_list || []).map((s: any) => ({ id: s.id, name: s.school_name || s.name })),
+        brandsList: (e.brands_list || []).map((b: any) => ({ id: b.id, name: b.brand_name || b.name })),
+      }));
+
+      setStaffList(staffDetails);
+    } catch (error) {
+      console.error('Failed to load staff list with details:', error);
+      // Fallback to basic staff list
+      loadStaffList();
+    }
+  };
+
+  const loadSchoolsAndBrands = async () => {
+    try {
+      // Load schools
+      const schoolsResponse = await api.get<any>('/schools/schools/');
+      const schoolsData = schoolsResponse.results || schoolsResponse || [];
+      setSchools(schoolsData.map((s: any) => ({
+        id: s.id,
+        schoolName: s.school_name || s.name,
+      })));
+
+      // Load brands
+      const brandsResponse = await api.get<any>('/schools/brands/');
+      const brandsData = brandsResponse.results || brandsResponse || [];
+      setBrands(brandsData.map((b: any) => ({
+        id: b.id,
+        brandName: b.brand_name || b.name,
+      })));
+    } catch (error) {
+      console.error('Failed to load schools and brands:', error);
     }
   };
 
@@ -170,16 +297,12 @@ export default function ChatPage() {
 
   const loadMessages = async () => {
     if (!selectedChannel) return;
-
     try {
       const response = await getMessages(selectedChannel.id, { pageSize: 100 });
       const messageList = response?.data || response?.results || [];
       setMessages(messageList);
-
-      // 既読処理
       if (selectedChannel.unreadCount > 0) {
         await markChannelAsRead(selectedChannel.id);
-        // ローカルの未読数を更新
         setChannels(prev =>
           prev.map(ch =>
             ch.id === selectedChannel.id ? { ...ch, unreadCount: 0 } : ch
@@ -192,132 +315,110 @@ export default function ChatPage() {
   };
 
   const handleSendMessage = async () => {
-    if (!selectedChannel || !newMessage.trim() || isSending) return;
+    if (!newMessage.trim() || isSending) return;
 
     const content = newMessage.trim();
     setNewMessage('');
     setIsSending(true);
 
-    // 楽観的更新
-    const tempMessage: Message = {
-      id: `temp-${Date.now()}`,
-      channel: selectedChannel.id,
-      channelId: selectedChannel.id,
-      senderName: 'あなた',
-      messageType: 'text',
-      content,
-      isRead: false,
-      isEdited: false,
-      isBotMessage: false,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-    setMessages(prev => [...prev, tempMessage]);
-
-    try {
-      const sentMessage = await sendMessage({
-        channelId: selectedChannel.id,
-        content,
-        messageType: 'text',
-      });
-      // 仮メッセージを実際のメッセージに置き換え
-      setMessages(prev =>
-        prev.map(msg => (msg.id === tempMessage.id ? sentMessage : msg))
-      );
-    } catch (error) {
-      console.error('Failed to send message:', error);
-      // 送信失敗時は仮メッセージを削除
-      setMessages(prev => prev.filter(msg => msg.id !== tempMessage.id));
-      setNewMessage(content);
-      alert('メッセージの送信に失敗しました');
-    } finally {
-      setIsSending(false);
-    }
-  };
-
-  const handleKeyPress = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      handleSendMessage();
-    }
-  };
-
-  const handleArchive = async (channelId: string) => {
-    if (!confirm('このチャットをアーカイブしますか？')) return;
-
-    try {
-      await archiveChannel(channelId);
-      setChannels(prev => prev.filter(ch => ch.id !== channelId));
-      if (selectedChannel?.id === channelId) {
-        setSelectedChannel(null);
-        setMessages([]);
+    if (activeTab === 'staff' && selectedStaffChannel) {
+      try {
+        await sendStaffMessage(selectedStaffChannel.id, content);
+        await loadStaffMessagesForChannel();
+      } catch (error) {
+        console.error('Failed to send staff message:', error);
+        setNewMessage(content);
+      } finally {
+        setIsSending(false);
       }
-    } catch (error) {
-      console.error('Failed to archive channel:', error);
-      alert('アーカイブに失敗しました');
+    } else if (selectedChannel) {
+      const tempMessage: Message = {
+        id: `temp-${Date.now()}`,
+        channel: selectedChannel.id,
+        channelId: selectedChannel.id,
+        senderName: 'あなた',
+        messageType: 'text',
+        content,
+        isRead: false,
+        isEdited: false,
+        isBotMessage: false,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      setMessages(prev => [...prev, tempMessage]);
+
+      try {
+        const sentMessage = await sendMessage({
+          channelId: selectedChannel.id,
+          content,
+          messageType: 'text',
+        });
+        setMessages(prev =>
+          prev.map(msg => (msg.id === tempMessage.id ? sentMessage : msg))
+        );
+      } catch (error) {
+        console.error('Failed to send message:', error);
+        setMessages(prev => prev.filter(msg => msg.id !== tempMessage.id));
+        setNewMessage(content);
+      } finally {
+        setIsSending(false);
+      }
     }
+
+    inputRef.current?.focus();
   };
 
-  // スタッフメッセージ送信
-  const handleSendStaffMessage = async () => {
-    if (!selectedStaffChannel || !newMessage.trim() || isSending) return;
-
-    const content = newMessage.trim();
-    setNewMessage('');
-    setIsSending(true);
-
-    try {
-      await sendStaffMessage(selectedStaffChannel.id, content);
-      await loadStaffMessagesForChannel();
-    } catch (error) {
-      console.error('Failed to send staff message:', error);
-      setNewMessage(content);
-      alert('メッセージの送信に失敗しました');
-    } finally {
-      setIsSending(false);
-    }
-  };
-
-  // スタッフDM作成
   const handleCreateStaffDM = async (staffId: string) => {
     try {
       const channel = await createStaffDM(staffId);
       await loadStaffChannels();
       setSelectedStaffChannel(channel);
-      setShowNewDM(false);
+      setShowNewChat(false);
     } catch (error) {
       console.error('Failed to create staff DM:', error);
-      alert('チャットの作成に失敗しました');
     }
   };
 
-  // スタッフグループ作成
-  const handleCreateStaffGroup = async () => {
-    if (!groupName.trim()) {
-      alert('グループ名を入力してください');
-      return;
-    }
-
-    try {
-      const channel = await createStaffGroup(groupName.trim(), selectedMembers);
-      await loadStaffChannels();
-      setSelectedStaffChannel(channel);
-      setShowNewGroup(false);
-      setGroupName('');
-      setSelectedMembers([]);
-    } catch (error) {
-      console.error('Failed to create staff group:', error);
-      alert('グループの作成に失敗しました');
-    }
+  // 日付フォーマット
+  const formatMessageDate = (dateStr: string) => {
+    const date = new Date(dateStr);
+    if (isToday(date)) return '今日';
+    if (isYesterday(date)) return '昨日';
+    return format(date, 'M月d日(E)', { locale: ja });
   };
 
-  // スタッフチャンネル名を取得
-  const getStaffChannelDisplayName = (channel: StaffChannel) => {
-    if (channel.members && channel.members.length === 2) {
-      const other = channel.members.find((m) => m.user?.id !== currentUserId);
+  // メッセージをグループ化（日付ごと）
+  const groupMessagesByDate = (msgs: Message[]) => {
+    const groups: { date: string; messages: Message[] }[] = [];
+    let currentGroup: { date: string; messages: Message[] } | null = null;
+
+    msgs.forEach(msg => {
+      const msgDate = new Date(msg.createdAt);
+      if (!currentGroup || !isSameDay(new Date(currentGroup.messages[0].createdAt), msgDate)) {
+        currentGroup = { date: msg.createdAt, messages: [msg] };
+        groups.push(currentGroup);
+      } else {
+        currentGroup.messages.push(msg);
+      }
+    });
+
+    return groups;
+  };
+
+  const getChannelDisplayName = (channel: Channel | StaffChannel) => {
+    if ('guardian' in channel && channel.guardian?.fullName) {
+      return channel.guardian.fullName;
+    }
+    if ('members' in channel && channel.members?.length === 2) {
+      const other = channel.members.find((m: any) => m.user?.id !== currentUserId);
       return other?.user?.fullName || other?.user?.email || channel.name;
     }
-    return channel.name;
+    return channel.name || '不明';
+  };
+
+  const getChannelAvatar = (channel: Channel | StaffChannel) => {
+    const name = getChannelDisplayName(channel);
+    return name.substring(0, 2);
   };
 
   // 検索フィルター
@@ -331,619 +432,610 @@ export default function ChatPage() {
     );
   });
 
-  // スタッフチャンネル検索フィルター
   const filteredStaffChannels = staffChannels.filter(channel => {
     if (!searchQuery) return true;
     const query = searchQuery.toLowerCase();
-    const displayName = getStaffChannelDisplayName(channel);
+    const displayName = getChannelDisplayName(channel);
     return displayName.toLowerCase().includes(query);
   });
 
-  // 現在のユーザーIDを取得（JWTから）
-  const getCurrentUserId = (): string => {
-    if (typeof window === 'undefined') return '';
-    const token = getAccessToken();
-    if (!token) return '';
-    try {
-      const payload = JSON.parse(atob(token.split('.')[1]));
-      return payload.user_id || '';
-    } catch {
-      return '';
-    }
-  };
+  const currentChannels = activeTab === 'staff' ? filteredStaffChannels : filteredChannels;
+  const currentMessages = activeTab === 'staff' ? staffMessages : messages;
+  const currentSelectedChannel = activeTab === 'staff' ? selectedStaffChannel : selectedChannel;
 
-  const currentUserId = getCurrentUserId();
+  // チャット詳細画面
+  if (currentSelectedChannel) {
+    const messageGroups = groupMessagesByDate(currentMessages);
 
-  return (
-    <div className="min-h-screen bg-gradient-to-b from-blue-50 to-blue-100 pb-20">
-      <div className="max-w-[390px] mx-auto">
+    return (
+      <div className="h-screen flex flex-col bg-[#7494C0]">
         {/* ヘッダー */}
-        <div className="bg-white/80 backdrop-blur-sm border-b border-gray-200 sticky top-0 z-10">
-          <div className="p-4">
-            <h1 className="text-2xl font-bold text-gray-900">チャット</h1>
-            <p className="text-sm text-gray-600">
-              {activeTab === 'staff' ? '社員との連絡' : activeTab === 'group' ? 'グループチャット' : '保護者との連絡'}
-            </p>
+        <div className="bg-[#7494C0] text-white px-2 py-3 flex items-center gap-2 safe-area-top">
+          <button
+            onClick={() => {
+              if (activeTab === 'staff') {
+                setSelectedStaffChannel(null);
+                setStaffMessages([]);
+              } else {
+                setSelectedChannel(null);
+                setMessages([]);
+              }
+            }}
+            className="p-2 hover:bg-white/10 rounded-full transition-colors"
+          >
+            <ChevronLeft className="w-6 h-6" />
+          </button>
+          <Avatar className="w-10 h-10 border-2 border-white/30">
+            <AvatarFallback className="bg-white/20 text-white font-bold">
+              {getChannelAvatar(currentSelectedChannel)}
+            </AvatarFallback>
+          </Avatar>
+          <div className="flex-1 min-w-0">
+            <h1 className="font-bold truncate">{getChannelDisplayName(currentSelectedChannel)}</h1>
+            {'student' in currentSelectedChannel && currentSelectedChannel.student && (
+              <p className="text-xs text-white/70">生徒: {currentSelectedChannel.student.fullName}</p>
+            )}
           </div>
+          <button className="p-2 hover:bg-white/10 rounded-full">
+            <Phone className="w-5 h-5" />
+          </button>
+          <button className="p-2 hover:bg-white/10 rounded-full">
+            <MoreVertical className="w-5 h-5" />
+          </button>
         </div>
 
-        <div className="p-4">
-          {/* 検索 */}
-          <div className="relative mb-4">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-            <Input
-              placeholder="チャットを検索..."
-              value={searchQuery}
-              onChange={e => setSearchQuery(e.target.value)}
-              className="pl-10 rounded-full"
-            />
-          </div>
-
-          {/* タブ */}
-          <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as 'guardian' | 'group' | 'staff')} className="w-full">
-            <TabsList className="grid w-full grid-cols-3 mb-4">
-              <TabsTrigger value="guardian" className="text-xs">
-                <MessageCircle className="w-4 h-4 mr-1" />
-                保護者
-              </TabsTrigger>
-              <TabsTrigger value="group" className="text-xs">
-                <Users className="w-4 h-4 mr-1" />
-                グループ
-              </TabsTrigger>
-              <TabsTrigger value="staff" className="text-xs">
-                <User className="w-4 h-4 mr-1" />
-                社員
-              </TabsTrigger>
-            </TabsList>
-
-            {/* 保護者・グループタブ */}
-            <TabsContent value="guardian" className="space-y-4">
-              {isLoading ? (
-                <div className="flex items-center justify-center py-8">
-                  <Loader2 className="h-6 w-6 animate-spin text-blue-600" />
+        {/* メッセージエリア */}
+        <div className="flex-1 overflow-y-auto px-3 py-4 bg-[#8CABD9]">
+          {currentMessages.length === 0 ? (
+            <div className="flex items-center justify-center h-full">
+              <p className="text-white/60 text-sm">メッセージがありません</p>
+            </div>
+          ) : (
+            messageGroups.map((group, groupIndex) => (
+              <div key={groupIndex}>
+                {/* 日付セパレーター */}
+                <div className="flex justify-center my-4">
+                  <span className="bg-black/20 text-white text-xs px-3 py-1 rounded-full">
+                    {formatMessageDate(group.date)}
+                  </span>
                 </div>
-              ) : filteredChannels.length === 0 ? (
-                <Card className="p-8 text-center text-gray-500">
-                  {searchQuery ? '検索結果がありません' : 'チャットがありません'}
-                </Card>
-              ) : (
-                <div className="space-y-2">
-                  {filteredChannels.map(channel => (
-                    <Card
-                      key={channel.id}
-                      className={`p-3 cursor-pointer transition-all ${
-                        selectedChannel?.id === channel.id
-                          ? 'ring-2 ring-blue-500 bg-blue-50'
-                          : 'hover:bg-gray-50'
-                      }`}
-                      onClick={() => setSelectedChannel(channel)}
+
+                {/* メッセージ */}
+                {group.messages.map((message, msgIndex) => {
+                  const senderId = message.sender || message.senderId;
+                  const isOwnMessage = senderId === currentUserId;
+                  const showAvatar = !isOwnMessage && (
+                    msgIndex === 0 ||
+                    (group.messages[msgIndex - 1].sender || group.messages[msgIndex - 1].senderId) !== senderId
+                  );
+
+                  return (
+                    <div
+                      key={message.id}
+                      className={`flex items-end gap-2 mb-2 ${isOwnMessage ? 'flex-row-reverse' : ''}`}
                     >
-                      <div className="flex items-center gap-3">
-                        <Avatar className="bg-blue-100">
-                          <AvatarFallback className="text-blue-600 text-sm font-semibold">
-                            {(channel.guardian?.fullName || channel.name || '??').substring(0, 2)}
-                          </AvatarFallback>
-                        </Avatar>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center justify-between mb-1">
-                            <h3 className="font-semibold text-gray-900 truncate">
-                              {channel.guardian?.fullName || channel.name}
-                            </h3>
-                            {channel.unreadCount > 0 && (
-                              <Badge className="bg-red-500 text-white">{channel.unreadCount}</Badge>
-                            )}
+                      {/* アバター（相手のメッセージのみ） */}
+                      {!isOwnMessage && (
+                        <div className="w-8 flex-shrink-0">
+                          {showAvatar && (
+                            <Avatar className="w-8 h-8">
+                              <AvatarFallback className="bg-white text-gray-600 text-xs">
+                                {(message.senderName || '?').substring(0, 2)}
+                              </AvatarFallback>
+                            </Avatar>
+                          )}
+                        </div>
+                      )}
+
+                      {/* メッセージバブル */}
+                      <div className={`flex flex-col ${isOwnMessage ? 'items-end' : 'items-start'} max-w-[70%]`}>
+                        {/* 送信者名（相手のメッセージで最初のみ） */}
+                        {!isOwnMessage && showAvatar && (
+                          <span className="text-xs text-white/70 mb-1 ml-1">
+                            {message.senderName || '不明'}
+                          </span>
+                        )}
+
+                        <div className={`flex items-end gap-1 ${isOwnMessage ? 'flex-row-reverse' : ''}`}>
+                          {/* バブル */}
+                          <div
+                            className={`relative px-3 py-2 rounded-2xl shadow-sm ${
+                              isOwnMessage
+                                ? 'bg-[#A8D86D] text-gray-800 rounded-br-sm'
+                                : 'bg-white text-gray-800 rounded-bl-sm'
+                            }`}
+                          >
+                            <p className="text-sm whitespace-pre-wrap break-words">{message.content}</p>
                           </div>
-                          {channel.lastMessage && (
-                            <p className="text-xs text-gray-500 truncate">
-                              {channel.lastMessage.content}
-                            </p>
-                          )}
-                          {channel.student && (
-                            <p className="text-xs text-gray-400">
-                              生徒: {channel.student.fullName}
-                            </p>
-                          )}
-                        </div>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleArchive(channel.id);
-                          }}
-                          className="p-1 text-gray-400 hover:text-gray-600"
-                          title="アーカイブ"
-                        >
-                          <Archive className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </Card>
-                  ))}
-                </div>
-              )}
 
-              {/* チャット詳細 - 保護者 */}
-
-              {/* チャット詳細 */}
-              {selectedChannel && (
-                <Card className="shadow-lg border-0 mt-4">
-                  {/* チャットヘッダー */}
-                  <div className="p-3 border-b flex items-center gap-3">
-                    <button
-                      onClick={() => {
-                        setSelectedChannel(null);
-                        setMessages([]);
-                      }}
-                      className="p-1"
-                    >
-                      <ChevronLeft className="w-5 h-5 text-gray-600" />
-                    </button>
-                    <Avatar className="bg-blue-100">
-                      <AvatarFallback className="text-blue-600 text-sm font-semibold">
-                        {(selectedChannel.guardian?.fullName || selectedChannel.name || '??').substring(0, 2)}
-                      </AvatarFallback>
-                    </Avatar>
-                    <div className="flex-1">
-                      <h3 className="font-semibold text-gray-900">
-                        {selectedChannel.guardian?.fullName || selectedChannel.name}
-                      </h3>
-                      {selectedChannel.student && (
-                        <p className="text-xs text-gray-500">
-                          生徒: {selectedChannel.student.fullName}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* メッセージ一覧 */}
-                  <ScrollArea className="h-80 p-3">
-                    <div className="space-y-3">
-                      {messages.length === 0 ? (
-                        <p className="text-center text-gray-500 py-8">
-                          メッセージがありません
-                        </p>
-                      ) : (
-                        messages.map(message => {
-                          const senderId = message.sender || message.senderId;
-                          const isOwnMessage = senderId === currentUserId;
-                          const isFromGuardian = !!message.senderGuardian;
-
-                          return (
-                            <div
-                              key={message.id}
-                              className={`flex ${isOwnMessage ? 'justify-end' : 'justify-start'}`}
-                            >
-                              <div
-                                className={`max-w-[75%] ${
-                                  isOwnMessage
-                                    ? 'bg-blue-500 text-white rounded-2xl rounded-br-md'
-                                    : 'bg-gray-100 text-gray-900 rounded-2xl rounded-bl-md'
-                                } p-3 shadow-sm`}
-                              >
-                                {!isOwnMessage && (
-                                  <p className={`text-xs font-semibold mb-1 ${isFromGuardian ? 'text-blue-600' : 'text-gray-600'}`}>
-                                    {message.senderName || (isFromGuardian ? '保護者' : 'スタッフ')}
-                                  </p>
-                                )}
-                                <p className="text-sm break-words whitespace-pre-wrap">{message.content}</p>
-                                <div className={`flex items-center gap-1 mt-1 ${isOwnMessage ? 'justify-end' : 'justify-start'}`}>
-                                  <p className={`text-xs ${isOwnMessage ? 'text-blue-200' : 'text-gray-500'}`}>
-                                    {format(new Date(message.createdAt), 'HH:mm', { locale: ja })}
-                                  </p>
-                                  {isOwnMessage && (
-                                    message.isRead ? (
-                                      <CheckCheck className="h-3 w-3 text-blue-200" />
-                                    ) : (
-                                      <Check className="h-3 w-3 text-blue-200" />
-                                    )
-                                  )}
-                                </div>
-                              </div>
-                            </div>
-                          );
-                        })
-                      )}
-                      <div ref={messagesEndRef} />
-                    </div>
-                  </ScrollArea>
-
-                  {/* 入力エリア */}
-                  <div className="p-3 border-t bg-white">
-                    <div className="flex gap-2">
-                      <Input
-                        placeholder="メッセージを入力..."
-                        value={newMessage}
-                        onChange={e => setNewMessage(e.target.value)}
-                        onKeyPress={handleKeyPress}
-                        disabled={isSending}
-                        className="flex-1"
-                      />
-                      <Button
-                        onClick={handleSendMessage}
-                        disabled={!newMessage.trim() || isSending}
-                        size="icon"
-                        className="bg-blue-600 hover:bg-blue-700"
-                      >
-                        {isSending ? (
-                          <Loader2 className="w-4 h-4 animate-spin" />
-                        ) : (
-                          <Send className="w-4 h-4" />
-                        )}
-                      </Button>
-                    </div>
-                  </div>
-                </Card>
-              )}
-            </TabsContent>
-
-            {/* グループタブ - 同じ構造 */}
-            <TabsContent value="group" className="space-y-4">
-              {isLoading ? (
-                <div className="flex items-center justify-center py-8">
-                  <Loader2 className="h-6 w-6 animate-spin text-blue-600" />
-                </div>
-              ) : filteredChannels.length === 0 ? (
-                <Card className="p-8 text-center text-gray-500">
-                  {searchQuery ? '検索結果がありません' : 'グループチャットがありません'}
-                </Card>
-              ) : (
-                <div className="space-y-2">
-                  {filteredChannels.map(channel => (
-                    <Card
-                      key={channel.id}
-                      className={`p-3 cursor-pointer transition-all ${
-                        selectedChannel?.id === channel.id
-                          ? 'ring-2 ring-blue-500 bg-blue-50'
-                          : 'hover:bg-gray-50'
-                      }`}
-                      onClick={() => setSelectedChannel(channel)}
-                    >
-                      <div className="flex items-center gap-3">
-                        <Avatar className="bg-green-100">
-                          <AvatarFallback className="text-green-600 text-sm font-semibold">
-                            <Users className="w-4 h-4" />
-                          </AvatarFallback>
-                        </Avatar>
-                        <div className="flex-1 min-w-0">
-                          <h3 className="font-semibold text-gray-900 truncate">
-                            {channel.name}
-                          </h3>
-                          {channel.lastMessage && (
-                            <p className="text-xs text-gray-500 truncate">
-                              {channel.lastMessage.content}
-                            </p>
-                          )}
-                        </div>
-                        {channel.unreadCount > 0 && (
-                          <Badge className="bg-red-500 text-white">{channel.unreadCount}</Badge>
-                        )}
-                      </div>
-                    </Card>
-                  ))}
-                </div>
-              )}
-
-              {selectedChannel && (
-                <Card className="shadow-lg border-0 mt-4">
-                  <div className="p-3 border-b flex items-center gap-3">
-                    <button
-                      onClick={() => {
-                        setSelectedChannel(null);
-                        setMessages([]);
-                      }}
-                      className="p-1"
-                    >
-                      <ChevronLeft className="w-5 h-5 text-gray-600" />
-                    </button>
-                    <Avatar className="bg-green-100">
-                      <AvatarFallback className="text-green-600 text-sm font-semibold">
-                        <Users className="w-4 h-4" />
-                      </AvatarFallback>
-                    </Avatar>
-                    <h3 className="font-semibold text-gray-900 flex-1">
-                      {selectedChannel.name}
-                    </h3>
-                  </div>
-
-                  <ScrollArea className="h-80 p-3">
-                    <div className="space-y-3">
-                      {messages.length === 0 ? (
-                        <p className="text-center text-gray-500 py-8">メッセージがありません</p>
-                      ) : (
-                        messages.map(message => {
-                          const senderId = message.sender || message.senderId;
-                          const isOwnMessage = senderId === currentUserId;
-                          return (
-                            <div
-                              key={message.id}
-                              className={`flex ${isOwnMessage ? 'justify-end' : 'justify-start'}`}
-                            >
-                              <div
-                                className={`max-w-[75%] ${
-                                  isOwnMessage
-                                    ? 'bg-blue-500 text-white rounded-2xl rounded-br-md'
-                                    : 'bg-gray-100 text-gray-900 rounded-2xl rounded-bl-md'
-                                } p-3 shadow-sm`}
-                              >
-                                {!isOwnMessage && (
-                                  <p className="text-xs font-semibold mb-1 text-gray-600">
-                                    {message.senderName || 'スタッフ'}
-                                  </p>
-                                )}
-                                <p className="text-sm break-words whitespace-pre-wrap">{message.content}</p>
-                                <p className={`text-xs mt-1 ${isOwnMessage ? 'text-blue-200' : 'text-gray-500'}`}>
-                                  {format(new Date(message.createdAt), 'HH:mm', { locale: ja })}
-                                </p>
-                              </div>
-                            </div>
-                          );
-                        })
-                      )}
-                      <div ref={messagesEndRef} />
-                    </div>
-                  </ScrollArea>
-
-                  <div className="p-3 border-t bg-white">
-                    <div className="flex gap-2">
-                      <Input
-                        placeholder="メッセージを入力..."
-                        value={newMessage}
-                        onChange={e => setNewMessage(e.target.value)}
-                        onKeyPress={handleKeyPress}
-                        disabled={isSending}
-                        className="flex-1"
-                      />
-                      <Button
-                        onClick={handleSendMessage}
-                        disabled={!newMessage.trim() || isSending}
-                        size="icon"
-                        className="bg-blue-600 hover:bg-blue-700"
-                      >
-                        {isSending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-                      </Button>
-                    </div>
-                  </div>
-                </Card>
-              )}
-            </TabsContent>
-
-            {/* 社員チャットタブ */}
-            <TabsContent value="staff" className="space-y-4">
-              {/* 新規チャット作成ボタン */}
-              <div className="flex gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setShowNewDM(!showNewDM)}
-                  className="flex-1"
-                >
-                  <UserPlus className="w-4 h-4 mr-1" />
-                  新規DM
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setShowNewGroup(!showNewGroup)}
-                  className="flex-1"
-                >
-                  <Plus className="w-4 h-4 mr-1" />
-                  グループ作成
-                </Button>
-              </div>
-
-              {/* 新規DM選択 */}
-              {showNewDM && (
-                <Card className="p-3">
-                  <h4 className="font-medium mb-2 text-sm">スタッフを選択</h4>
-                  <ScrollArea className="h-40">
-                    <div className="space-y-1">
-                      {staffList.map(staff => (
-                        <button
-                          key={staff.id}
-                          onClick={() => handleCreateStaffDM(staff.id)}
-                          className="w-full text-left p-2 rounded hover:bg-gray-100 flex items-center gap-2"
-                        >
-                          <User className="w-4 h-4 text-gray-400" />
-                          <span className="text-sm">{staff.name}</span>
-                          {staff.position && (
-                            <span className="text-xs text-gray-400">({staff.position})</span>
-                          )}
-                        </button>
-                      ))}
-                    </div>
-                  </ScrollArea>
-                </Card>
-              )}
-
-              {/* グループ作成 */}
-              {showNewGroup && (
-                <Card className="p-3">
-                  <h4 className="font-medium mb-2 text-sm">グループ作成</h4>
-                  <Input
-                    placeholder="グループ名"
-                    value={groupName}
-                    onChange={e => setGroupName(e.target.value)}
-                    className="mb-2"
-                  />
-                  <div className="text-xs text-gray-500 mb-1">メンバーを選択</div>
-                  <ScrollArea className="h-32 mb-2">
-                    <div className="space-y-1">
-                      {staffList.map(staff => (
-                        <label
-                          key={staff.id}
-                          className="flex items-center gap-2 p-1 rounded hover:bg-gray-100 cursor-pointer"
-                        >
-                          <input
-                            type="checkbox"
-                            checked={selectedMembers.includes(staff.id)}
-                            onChange={e => {
-                              if (e.target.checked) {
-                                setSelectedMembers([...selectedMembers, staff.id]);
-                              } else {
-                                setSelectedMembers(selectedMembers.filter(id => id !== staff.id));
-                              }
-                            }}
-                          />
-                          <span className="text-sm">{staff.name}</span>
-                        </label>
-                      ))}
-                    </div>
-                  </ScrollArea>
-                  <Button onClick={handleCreateStaffGroup} size="sm" className="w-full">
-                    作成
-                  </Button>
-                </Card>
-              )}
-
-              {/* スタッフチャンネル一覧 */}
-              {isLoading ? (
-                <div className="flex items-center justify-center py-8">
-                  <Loader2 className="h-6 w-6 animate-spin text-blue-600" />
-                </div>
-              ) : filteredStaffChannels.length === 0 ? (
-                <Card className="p-8 text-center text-gray-500">
-                  {searchQuery ? '検索結果がありません' : '社員チャットがありません'}
-                  <p className="text-sm mt-2">上のボタンから新しいチャットを始めましょう</p>
-                </Card>
-              ) : (
-                <div className="space-y-2">
-                  {filteredStaffChannels.map(channel => (
-                    <Card
-                      key={channel.id}
-                      className={`p-3 cursor-pointer transition-all ${
-                        selectedStaffChannel?.id === channel.id
-                          ? 'ring-2 ring-blue-500 bg-blue-50'
-                          : 'hover:bg-gray-50'
-                      }`}
-                      onClick={() => setSelectedStaffChannel(channel)}
-                    >
-                      <div className="flex items-center gap-3">
-                        <Avatar className="bg-purple-100">
-                          <AvatarFallback className="text-purple-600 text-sm font-semibold">
-                            {channel.members && channel.members.length === 2 ? (
-                              <User className="w-4 h-4" />
-                            ) : (
-                              <Users className="w-4 h-4" />
+                          {/* 時刻と既読 */}
+                          <div className={`flex items-center gap-0.5 ${isOwnMessage ? 'flex-row-reverse' : ''}`}>
+                            {isOwnMessage && (
+                              <span className="text-xs text-white/70">
+                                {message.isRead ? '既読' : ''}
+                              </span>
                             )}
-                          </AvatarFallback>
-                        </Avatar>
-                        <div className="flex-1 min-w-0">
-                          <h3 className="font-semibold text-gray-900 truncate">
-                            {getStaffChannelDisplayName(channel)}
-                          </h3>
-                          {channel.description && (
-                            <p className="text-xs text-gray-500 truncate">{channel.description}</p>
-                          )}
+                            <span className="text-xs text-white/70">
+                              {format(new Date(message.createdAt), 'HH:mm')}
+                            </span>
+                          </div>
                         </div>
-                        {channel.unreadCount && channel.unreadCount > 0 && (
-                          <Badge className="bg-red-500 text-white">{channel.unreadCount}</Badge>
-                        )}
                       </div>
-                    </Card>
-                  ))}
-                </div>
-              )}
+                    </div>
+                  );
+                })}
+              </div>
+            ))
+          )}
+          <div ref={messagesEndRef} />
+        </div>
 
-              {/* スタッフチャット詳細 */}
-              {selectedStaffChannel && (
-                <Card className="shadow-lg border-0 mt-4">
-                  <div className="p-3 border-b flex items-center gap-3">
-                    <button
-                      onClick={() => {
-                        setSelectedStaffChannel(null);
-                        setStaffMessages([]);
-                      }}
-                      className="p-1"
-                    >
-                      <ChevronLeft className="w-5 h-5 text-gray-600" />
-                    </button>
-                    <Avatar className="bg-purple-100">
-                      <AvatarFallback className="text-purple-600 text-sm font-semibold">
-                        {selectedStaffChannel.members && selectedStaffChannel.members.length === 2 ? (
-                          <User className="w-4 h-4" />
-                        ) : (
-                          <Users className="w-4 h-4" />
-                        )}
+        {/* 入力エリア */}
+        <div className="bg-[#F5F5F5] px-2 py-2 safe-area-bottom">
+          <div className="flex items-center gap-2">
+            <button className="p-2 text-gray-500 hover:text-gray-700">
+              <Plus className="w-6 h-6" />
+            </button>
+            <button className="p-2 text-gray-500 hover:text-gray-700">
+              <ImageIcon className="w-6 h-6" />
+            </button>
+            <div className="flex-1 relative">
+              <Input
+                ref={inputRef}
+                placeholder="メッセージを入力"
+                value={newMessage}
+                onChange={e => setNewMessage(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+                    e.preventDefault();
+                    handleSendMessage();
+                  }
+                }}
+                disabled={isSending}
+                className="rounded-full bg-white border-0 pr-10"
+              />
+            </div>
+            <Button
+              onClick={handleSendMessage}
+              disabled={!newMessage.trim() || isSending}
+              size="icon"
+              className="rounded-full bg-[#07B53B] hover:bg-[#06a035] w-10 h-10"
+            >
+              {isSending ? (
+                <Loader2 className="w-5 h-5 animate-spin" />
+              ) : (
+                <Send className="w-5 h-5" />
+              )}
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // チャット一覧画面
+  return (
+    <div className="min-h-screen bg-gray-50 pb-20">
+      {/* ヘッダー */}
+      <div className="bg-white sticky top-0 z-10 safe-area-top shadow-sm">
+        <div className="px-4 py-4 flex items-center justify-between">
+          <h1 className="text-xl font-bold text-gray-900">チャット</h1>
+          {activeTab === 'staff' && (
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setShowNewChat(!showNewChat)}
+              className="text-blue-600"
+            >
+              <UserPlus className="w-5 h-5" />
+            </Button>
+          )}
+        </div>
+
+        {/* タブ */}
+        <div className="flex px-2">
+          {[
+            { key: 'guardian', label: '保護者' },
+            { key: 'group', label: 'グループ' },
+            { key: 'staff', label: '社内' },
+          ].map(tab => (
+            <button
+              key={tab.key}
+              onClick={() => {
+                setActiveTab(tab.key as TabType);
+                setSelectedChannel(null);
+                setSelectedStaffChannel(null);
+                setShowNewChat(false);
+              }}
+              className={`flex-1 py-2.5 text-sm font-medium transition-all relative ${
+                activeTab === tab.key
+                  ? 'text-blue-600'
+                  : 'text-gray-500'
+              }`}
+            >
+              {tab.label}
+              {activeTab === tab.key && (
+                <div className="absolute bottom-0 left-2 right-2 h-0.5 bg-blue-600 rounded-full" />
+              )}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* 検索バー */}
+      <div className="px-4 py-3 bg-white border-b">
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+          <Input
+            placeholder="名前で検索..."
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+            className="pl-10 bg-gray-100 border-0 rounded-full h-9 text-sm"
+          />
+        </div>
+      </div>
+
+      {/* 新規チャット作成（社員タブ） */}
+      {activeTab === 'staff' && showNewChat && (
+        <div className="bg-white border-b">
+          <div className="px-4 py-2 bg-gray-50 flex items-center justify-between">
+            <p className="text-xs font-medium text-gray-500">メンバーを選択</p>
+            <button
+              onClick={() => setShowFilters(!showFilters)}
+              className={`flex items-center gap-1 text-xs px-2 py-1 rounded-full transition-colors ${
+                showFilters || filterSchool || filterBrand
+                  ? 'bg-blue-100 text-blue-600'
+                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+              }`}
+            >
+              <Filter className="w-3 h-3" />
+              絞り込み
+              {(filterSchool || filterBrand) && (
+                <span className="ml-1 bg-blue-500 text-white rounded-full w-4 h-4 flex items-center justify-center text-[10px]">
+                  {(filterSchool ? 1 : 0) + (filterBrand ? 1 : 0)}
+                </span>
+              )}
+            </button>
+          </div>
+
+          {/* フィルター */}
+          {showFilters && (
+            <div className="px-4 py-3 bg-gray-50 border-b space-y-2">
+              <div className="flex gap-2">
+                <Select value={filterSchool} onValueChange={setFilterSchool}>
+                  <SelectTrigger className="flex-1 h-9 text-sm bg-white">
+                    <SelectValue placeholder="教室で絞り込み" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="">すべての教室</SelectItem>
+                    {schools.map(school => (
+                      <SelectItem key={school.id} value={school.id}>
+                        {school.schoolName}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select value={filterBrand} onValueChange={setFilterBrand}>
+                  <SelectTrigger className="flex-1 h-9 text-sm bg-white">
+                    <SelectValue placeholder="ブランドで絞り込み" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="">すべてのブランド</SelectItem>
+                    {brands.map(brand => (
+                      <SelectItem key={brand.id} value={brand.id}>
+                        {brand.brandName}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              {(filterSchool || filterBrand) && (
+                <button
+                  onClick={() => {
+                    setFilterSchool('');
+                    setFilterBrand('');
+                  }}
+                  className="text-xs text-blue-600 hover:underline"
+                >
+                  フィルターをクリア
+                </button>
+              )}
+            </div>
+          )}
+
+          <div className="max-h-64 overflow-y-auto">
+            {staffList.map(staff => {
+              const avatarColors = [
+                'from-pink-400 to-rose-500',
+                'from-blue-400 to-indigo-500',
+                'from-green-400 to-emerald-500',
+                'from-purple-400 to-violet-500',
+                'from-orange-400 to-amber-500',
+                'from-cyan-400 to-teal-500',
+              ];
+              const colorIndex = staff.fullName.charCodeAt(0) % avatarColors.length;
+
+              return (
+                <div
+                  key={staff.id}
+                  className="w-full px-4 py-3 flex items-center gap-3 hover:bg-gray-50 transition-colors border-b border-gray-50"
+                >
+                  {/* アバター - クリックで詳細表示 */}
+                  <button
+                    onClick={() => {
+                      setSelectedStaffDetail(staff);
+                      setShowStaffDetail(true);
+                    }}
+                    className="relative"
+                  >
+                    <Avatar className="w-11 h-11">
+                      <AvatarFallback className={`bg-gradient-to-br ${avatarColors[colorIndex]} text-white text-sm font-medium`}>
+                        {staff.fullName.substring(0, 2)}
                       </AvatarFallback>
                     </Avatar>
-                    <div className="flex-1">
-                      <h3 className="font-semibold text-gray-900">
-                        {getStaffChannelDisplayName(selectedStaffChannel)}
-                      </h3>
-                      {selectedStaffChannel.members && (
-                        <p className="text-xs text-gray-500">
-                          {selectedStaffChannel.members.length}人のメンバー
-                        </p>
-                      )}
+                    <div className="absolute -bottom-0.5 -right-0.5 bg-white rounded-full p-0.5">
+                      <User className="w-3 h-3 text-gray-400" />
                     </div>
-                  </div>
+                  </button>
 
-                  <ScrollArea className="h-80 p-3">
-                    <div className="space-y-3">
-                      {staffMessages.length === 0 ? (
-                        <p className="text-center text-gray-500 py-8">メッセージがありません</p>
-                      ) : (
-                        staffMessages.map(message => {
-                          const senderId = message.sender || message.senderId;
-                          const isOwnMessage = senderId === currentUserId;
-                          return (
-                            <div
-                              key={message.id}
-                              className={`flex ${isOwnMessage ? 'justify-end' : 'justify-start'}`}
-                            >
-                              <div
-                                className={`max-w-[75%] ${
-                                  isOwnMessage
-                                    ? 'bg-blue-500 text-white rounded-2xl rounded-br-md'
-                                    : 'bg-gray-100 text-gray-900 rounded-2xl rounded-bl-md'
-                                } p-3 shadow-sm`}
-                              >
-                                {!isOwnMessage && (
-                                  <p className="text-xs font-semibold mb-1 text-purple-600">
-                                    {message.senderName || 'スタッフ'}
-                                  </p>
-                                )}
-                                <p className="text-sm break-words whitespace-pre-wrap">{message.content}</p>
-                                <p className={`text-xs mt-1 ${isOwnMessage ? 'text-blue-200' : 'text-gray-500'}`}>
-                                  {format(new Date(message.createdAt), 'HH:mm', { locale: ja })}
-                                </p>
-                              </div>
-                            </div>
-                          );
-                        })
-                      )}
-                      <div ref={messagesEndRef} />
-                    </div>
-                  </ScrollArea>
+                  {/* 情報 - クリックでDM作成 */}
+                  <button
+                    onClick={() => handleCreateStaffDM(staff.id)}
+                    className="flex-1 text-left"
+                  >
+                    <p className="font-medium text-gray-900 text-sm">{staff.fullName}</p>
+                    {staff.positionName && (
+                      <p className="text-xs text-gray-500">{staff.positionName}</p>
+                    )}
+                    {(staff.schoolsList.length > 0 || staff.brandsList.length > 0) && (
+                      <div className="flex flex-wrap gap-1 mt-1">
+                        {staff.brandsList.slice(0, 2).map(b => (
+                          <span key={b.id} className="text-[10px] px-1.5 py-0.5 bg-purple-100 text-purple-600 rounded">
+                            {b.name}
+                          </span>
+                        ))}
+                        {staff.schoolsList.slice(0, 2).map(s => (
+                          <span key={s.id} className="text-[10px] px-1.5 py-0.5 bg-blue-100 text-blue-600 rounded">
+                            {s.name}
+                          </span>
+                        ))}
+                        {(staff.schoolsList.length + staff.brandsList.length > 4) && (
+                          <span className="text-[10px] text-gray-400">
+                            +{staff.schoolsList.length + staff.brandsList.length - 4}
+                          </span>
+                        )}
+                      </div>
+                    )}
+                  </button>
 
-                  <div className="p-3 border-t bg-white">
-                    <div className="flex gap-2">
-                      <Input
-                        placeholder="メッセージを入力..."
-                        value={newMessage}
-                        onChange={e => setNewMessage(e.target.value)}
-                        onKeyPress={e => {
-                          if (e.key === 'Enter' && !e.shiftKey) {
-                            e.preventDefault();
-                            handleSendStaffMessage();
-                          }
-                        }}
-                        disabled={isSending}
-                        className="flex-1"
-                      />
-                      <Button
-                        onClick={handleSendStaffMessage}
-                        disabled={!newMessage.trim() || isSending}
-                        size="icon"
-                        className="bg-blue-600 hover:bg-blue-700"
-                      >
-                        {isSending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-                      </Button>
-                    </div>
-                  </div>
-                </Card>
-              )}
-            </TabsContent>
-          </Tabs>
+                  {/* メッセージアイコン */}
+                  <button
+                    onClick={() => handleCreateStaffDM(staff.id)}
+                    className="p-2 text-blue-500 hover:bg-blue-50 rounded-full transition-colors"
+                  >
+                    <MessageCircle className="w-5 h-5" />
+                  </button>
+                </div>
+              );
+            })}
+            {staffList.length === 0 && (
+              <p className="text-center text-gray-500 py-8 text-sm">
+                {filterSchool || filterBrand ? '該当するメンバーがいません' : 'メンバーがいません'}
+              </p>
+            )}
+          </div>
         </div>
+      )}
+
+      {/* スタッフ詳細シート */}
+      <Sheet open={showStaffDetail} onOpenChange={setShowStaffDetail}>
+        <SheetContent side="bottom" className="h-[70vh] rounded-t-2xl">
+          {selectedStaffDetail && (
+            <>
+              <SheetHeader className="text-left pb-4 border-b">
+                <div className="flex items-start gap-4">
+                  <Avatar className="w-16 h-16">
+                    <AvatarFallback className="bg-gradient-to-br from-blue-400 to-indigo-500 text-white text-xl font-medium">
+                      {selectedStaffDetail.fullName.substring(0, 2)}
+                    </AvatarFallback>
+                  </Avatar>
+                  <div className="flex-1">
+                    <SheetTitle className="text-lg">{selectedStaffDetail.fullName}</SheetTitle>
+                    {selectedStaffDetail.positionName && (
+                      <p className="text-sm text-gray-500 mt-0.5">{selectedStaffDetail.positionName}</p>
+                    )}
+                    {selectedStaffDetail.department && (
+                      <p className="text-xs text-gray-400 mt-0.5">{selectedStaffDetail.department}</p>
+                    )}
+                  </div>
+                </div>
+              </SheetHeader>
+
+              <div className="py-4 space-y-4">
+                {/* 連絡先 */}
+                <div className="space-y-2">
+                  <h3 className="text-xs font-medium text-gray-500 uppercase tracking-wider">連絡先</h3>
+                  {selectedStaffDetail.email && (
+                    <div className="flex items-center gap-3 px-3 py-2 bg-gray-50 rounded-lg">
+                      <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
+                        <MessageCircle className="w-4 h-4 text-blue-600" />
+                      </div>
+                      <div>
+                        <p className="text-xs text-gray-500">メール</p>
+                        <p className="text-sm text-gray-900">{selectedStaffDetail.email}</p>
+                      </div>
+                    </div>
+                  )}
+                  {selectedStaffDetail.phone && (
+                    <div className="flex items-center gap-3 px-3 py-2 bg-gray-50 rounded-lg">
+                      <div className="w-8 h-8 bg-green-100 rounded-full flex items-center justify-center">
+                        <Phone className="w-4 h-4 text-green-600" />
+                      </div>
+                      <div>
+                        <p className="text-xs text-gray-500">電話</p>
+                        <p className="text-sm text-gray-900">{selectedStaffDetail.phone}</p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* 担当ブランド */}
+                {selectedStaffDetail.brandsList.length > 0 && (
+                  <div className="space-y-2">
+                    <h3 className="text-xs font-medium text-gray-500 uppercase tracking-wider flex items-center gap-2">
+                      <Briefcase className="w-3 h-3" />
+                      担当ブランド
+                    </h3>
+                    <div className="flex flex-wrap gap-2">
+                      {selectedStaffDetail.brandsList.map(brand => (
+                        <span
+                          key={brand.id}
+                          className="px-3 py-1.5 bg-purple-100 text-purple-700 rounded-full text-sm"
+                        >
+                          {brand.name}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* 担当教室 */}
+                {selectedStaffDetail.schoolsList.length > 0 && (
+                  <div className="space-y-2">
+                    <h3 className="text-xs font-medium text-gray-500 uppercase tracking-wider flex items-center gap-2">
+                      <MapPin className="w-3 h-3" />
+                      担当教室
+                    </h3>
+                    <div className="flex flex-wrap gap-2">
+                      {selectedStaffDetail.schoolsList.map(school => (
+                        <span
+                          key={school.id}
+                          className="px-3 py-1.5 bg-blue-100 text-blue-700 rounded-full text-sm"
+                        >
+                          {school.name}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* アクション */}
+                <div className="pt-4 border-t">
+                  <Button
+                    onClick={() => {
+                      handleCreateStaffDM(selectedStaffDetail.id);
+                      setShowStaffDetail(false);
+                    }}
+                    className="w-full bg-blue-600 hover:bg-blue-700"
+                  >
+                    <MessageCircle className="w-4 h-4 mr-2" />
+                    メッセージを送る
+                  </Button>
+                </div>
+              </div>
+            </>
+          )}
+        </SheetContent>
+      </Sheet>
+
+      {/* チャンネル一覧 */}
+      <div className="bg-white">
+        {isLoading ? (
+          <div className="flex items-center justify-center py-16">
+            <Loader2 className="h-6 w-6 animate-spin text-blue-500" />
+          </div>
+        ) : currentChannels.length === 0 && !showNewChat ? (
+          <div className="text-center py-16 px-4">
+            <div className="w-20 h-20 mx-auto mb-4 bg-gray-100 rounded-full flex items-center justify-center">
+              <MessageCircle className="w-10 h-10 text-gray-400" />
+            </div>
+            <p className="text-gray-500 text-sm">
+              {searchQuery ? '検索結果がありません' : 'トークがありません'}
+            </p>
+            {activeTab === 'staff' && !searchQuery && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowNewChat(true)}
+                className="mt-4"
+              >
+                <UserPlus className="w-4 h-4 mr-2" />
+                トークを開始
+              </Button>
+            )}
+          </div>
+        ) : (
+          !showNewChat && currentChannels.map(channel => {
+            const lastMessage = 'lastMessage' in channel ? channel.lastMessage : null;
+            const unreadCount = channel.unreadCount || 0;
+            const displayName = getChannelDisplayName(channel);
+
+            const avatarColors = [
+              'from-pink-400 to-rose-500',
+              'from-blue-400 to-indigo-500',
+              'from-green-400 to-emerald-500',
+              'from-purple-400 to-violet-500',
+              'from-orange-400 to-amber-500',
+              'from-cyan-400 to-teal-500',
+            ];
+            const colorIndex = displayName.charCodeAt(0) % avatarColors.length;
+
+            return (
+              <button
+                key={channel.id}
+                onClick={() => {
+                  if (activeTab === 'staff') {
+                    setSelectedStaffChannel(channel as StaffChannel);
+                  } else {
+                    setSelectedChannel(channel as Channel);
+                  }
+                }}
+                className="w-full px-4 py-3 flex items-center gap-3 hover:bg-gray-50 transition-colors active:bg-gray-100 border-b border-gray-100"
+              >
+                <div className="relative flex-shrink-0">
+                  <Avatar className="w-12 h-12">
+                    <AvatarFallback className={`bg-gradient-to-br ${avatarColors[colorIndex]} text-white font-medium`}>
+                      {activeTab === 'group' ? (
+                        <Users className="w-5 h-5" />
+                      ) : (
+                        getChannelAvatar(channel)
+                      )}
+                    </AvatarFallback>
+                  </Avatar>
+                  {unreadCount > 0 && (
+                    <div className="absolute -top-0.5 -right-0.5 bg-red-500 text-white text-xs font-bold rounded-full min-w-[18px] h-[18px] flex items-center justify-center px-1">
+                      {unreadCount > 99 ? '99+' : unreadCount}
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex-1 min-w-0 text-left">
+                  <div className="flex items-center justify-between mb-0.5">
+                    <h3 className={`text-[15px] truncate ${unreadCount > 0 ? 'font-semibold text-gray-900' : 'font-medium text-gray-800'}`}>
+                      {displayName}
+                    </h3>
+                    {lastMessage && (
+                      <span className="text-xs text-gray-400 flex-shrink-0 ml-2">
+                        {isToday(new Date(lastMessage.createdAt))
+                          ? format(new Date(lastMessage.createdAt), 'HH:mm')
+                          : isYesterday(new Date(lastMessage.createdAt))
+                          ? '昨日'
+                          : format(new Date(lastMessage.createdAt), 'M/d')}
+                      </span>
+                    )}
+                  </div>
+                  {lastMessage ? (
+                    <p className={`text-sm truncate ${unreadCount > 0 ? 'text-gray-700' : 'text-gray-500'}`}>
+                      {lastMessage.content}
+                    </p>
+                  ) : (
+                    <p className="text-sm text-gray-400">メッセージがありません</p>
+                  )}
+                </div>
+              </button>
+            );
+          })
+        )}
       </div>
 
       <BottomNav />

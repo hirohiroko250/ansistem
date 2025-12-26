@@ -132,7 +132,7 @@ export function NewContractDialog({
 
   const loadCourses = async () => {
     try {
-      const data = await apiClient.get<{ results: Course[] }>("/courses/", {
+      const data = await apiClient.get<{ results: Course[] }>("/contracts/courses/", {
         is_active: true,
         page_size: 100,
       });
@@ -144,7 +144,7 @@ export function NewContractDialog({
 
   const loadBrands = async () => {
     try {
-      const data = await apiClient.get<{ results: Brand[] }>("/brands/", {
+      const data = await apiClient.get<{ results: Brand[] }>("/schools/brands/", {
         is_active: true,
       });
       setBrands(data.results || []);
@@ -155,7 +155,7 @@ export function NewContractDialog({
 
   const loadSchools = async () => {
     try {
-      const data = await apiClient.get<{ results: School[] }>("/schools/", {
+      const data = await apiClient.get<{ results: School[] }>("/schools/schools/", {
         is_active: true,
       });
       setSchools(data.results || []);
@@ -231,6 +231,11 @@ export function NewContractDialog({
     }
   };
 
+  // Filter courses by selected brand
+  const filteredCourses = selectedBrandId
+    ? courses.filter((c) => c.brand_id === selectedBrandId || c.brandId === selectedBrandId)
+    : courses;
+
   // Filter schools by selected brand
   const filteredSchools = selectedBrandId
     ? schools.filter((s) => s.brand_id === selectedBrandId || s.brandId === selectedBrandId)
@@ -266,39 +271,13 @@ export function NewContractDialog({
           </div>
         ) : (
           <div className="space-y-6">
-            {/* Course Selection */}
+            {/* Brand Selection First */}
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <Label>コース *</Label>
-                <Select value={selectedCourseId} onValueChange={setSelectedCourseId}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="コースを選択" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {courses.map((course) => (
-                      <SelectItem key={course.id} value={course.id}>
-                        {course.course_name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div>
-                <Label>開始日 *</Label>
-                <Input
-                  type="date"
-                  value={startDate}
-                  onChange={(e) => setStartDate(e.target.value)}
-                />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-3 gap-4">
-              <div>
-                <Label>ブランド</Label>
+                <Label>ブランド *</Label>
                 <Select value={selectedBrandId} onValueChange={(v) => {
                   setSelectedBrandId(v);
+                  setSelectedCourseId(""); // Reset course when brand changes
                   setSelectedSchoolId(""); // Reset school when brand changes
                 }}>
                   <SelectTrigger>
@@ -315,6 +294,31 @@ export function NewContractDialog({
               </div>
 
               <div>
+                <Label>コース *</Label>
+                <Select
+                  value={selectedCourseId}
+                  onValueChange={setSelectedCourseId}
+                  disabled={!selectedBrandId}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder={selectedBrandId ? "コースを選択" : "先にブランドを選択"} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {filteredCourses.map((course) => (
+                      <SelectItem key={course.id} value={course.id}>
+                        {course.course_name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {selectedBrandId && filteredCourses.length === 0 && (
+                  <p className="text-xs text-orange-500 mt-1">このブランドにコースがありません</p>
+                )}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-3 gap-4">
+              <div>
                 <Label>校舎</Label>
                 <Select value={selectedSchoolId} onValueChange={setSelectedSchoolId}>
                   <SelectTrigger>
@@ -328,6 +332,15 @@ export function NewContractDialog({
                     ))}
                   </SelectContent>
                 </Select>
+              </div>
+
+              <div>
+                <Label>開始日 *</Label>
+                <Input
+                  type="date"
+                  value={startDate}
+                  onChange={(e) => setStartDate(e.target.value)}
+                />
               </div>
 
               <div>
@@ -500,7 +513,7 @@ export function NewContractDialog({
           {!submitSuccess && (
             <Button
               onClick={handleSubmit}
-              disabled={!selectedCourseId || !startDate || !dayOfWeek || isSubmitting || isLoadingPreview}
+              disabled={!selectedBrandId || !selectedCourseId || !startDate || !dayOfWeek || isSubmitting || isLoadingPreview}
             >
               {isSubmitting ? (
                 <>

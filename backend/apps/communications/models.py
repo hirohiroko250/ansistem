@@ -935,6 +935,12 @@ class FeedPost(models.Model):
         verbose_name='公開範囲'
     )
     # 公開対象の詳細
+    target_brands = models.ManyToManyField(
+        'schools.Brand',
+        blank=True,
+        related_name='visible_feed_posts',
+        verbose_name='対象ブランド'
+    )
     target_schools = models.ManyToManyField(
         'schools.School',
         blank=True,
@@ -995,6 +1001,19 @@ class FeedPost(models.Model):
         null=True,
         blank=True,
         verbose_name='公開日時'
+    )
+    # 公開期間
+    publish_start_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name='公開開始日時',
+        help_text='指定しない場合は即時公開'
+    )
+    publish_end_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name='公開終了日時',
+        help_text='指定しない場合は無期限'
     )
     # 削除
     is_deleted = models.BooleanField(

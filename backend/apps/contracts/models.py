@@ -754,9 +754,16 @@ class Seminar(TenantModel):
         SPECIAL = 'special', '特別講習'
         OTHER = 'other', 'その他'
 
+    class TaxType(models.TextChoices):
+        TAXABLE = '1', '課税'
+        TAX_FREE = '2', '非課税'
+        TAX_EXEMPT = '3', '不課税'
+
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     seminar_code = models.CharField('講習コード', max_length=50)
     seminar_name = models.CharField('講習名', max_length=200)
+    seminar_name_short = models.CharField('講習名（短縮）', max_length=50, blank=True)
+    old_id = models.CharField('旧システムID', max_length=50, blank=True, db_index=True)
 
     seminar_type = models.CharField(
         '講習種別',
@@ -764,6 +771,9 @@ class Seminar(TenantModel):
         choices=SeminarType.choices,
         default=SeminarType.OTHER
     )
+
+    # 必須/選択
+    is_required = models.BooleanField('必須講習', default=False, help_text='コースに紐づく必須講習の場合はTrue')
 
     # 関連
     brand = models.ForeignKey(
@@ -788,6 +798,40 @@ class Seminar(TenantModel):
 
     # 価格
     base_price = models.DecimalField('価格', max_digits=10, decimal_places=0, default=0)
+    per_ticket_price = models.DecimalField('チケット単価', max_digits=10, decimal_places=0, default=0)
+    tax_type = models.CharField('税区分', max_length=1, choices=TaxType.choices, default=TaxType.TAXABLE)
+
+    # 月別請求価格（カレンダー価格）
+    billing_price_jan = models.DecimalField('1月請求価格', max_digits=10, decimal_places=0, default=0)
+    billing_price_feb = models.DecimalField('2月請求価格', max_digits=10, decimal_places=0, default=0)
+    billing_price_mar = models.DecimalField('3月請求価格', max_digits=10, decimal_places=0, default=0)
+    billing_price_apr = models.DecimalField('4月請求価格', max_digits=10, decimal_places=0, default=0)
+    billing_price_may = models.DecimalField('5月請求価格', max_digits=10, decimal_places=0, default=0)
+    billing_price_jun = models.DecimalField('6月請求価格', max_digits=10, decimal_places=0, default=0)
+    billing_price_jul = models.DecimalField('7月請求価格', max_digits=10, decimal_places=0, default=0)
+    billing_price_aug = models.DecimalField('8月請求価格', max_digits=10, decimal_places=0, default=0)
+    billing_price_sep = models.DecimalField('9月請求価格', max_digits=10, decimal_places=0, default=0)
+    billing_price_oct = models.DecimalField('10月請求価格', max_digits=10, decimal_places=0, default=0)
+    billing_price_nov = models.DecimalField('11月請求価格', max_digits=10, decimal_places=0, default=0)
+    billing_price_dec = models.DecimalField('12月請求価格', max_digits=10, decimal_places=0, default=0)
+
+    # 入会者用月別価格
+    enrollment_price_jan = models.DecimalField('1月入会者価格', max_digits=10, decimal_places=0, default=0)
+    enrollment_price_feb = models.DecimalField('2月入会者価格', max_digits=10, decimal_places=0, default=0)
+    enrollment_price_mar = models.DecimalField('3月入会者価格', max_digits=10, decimal_places=0, default=0)
+    enrollment_price_apr = models.DecimalField('4月入会者価格', max_digits=10, decimal_places=0, default=0)
+    enrollment_price_may = models.DecimalField('5月入会者価格', max_digits=10, decimal_places=0, default=0)
+    enrollment_price_jun = models.DecimalField('6月入会者価格', max_digits=10, decimal_places=0, default=0)
+    enrollment_price_jul = models.DecimalField('7月入会者価格', max_digits=10, decimal_places=0, default=0)
+    enrollment_price_aug = models.DecimalField('8月入会者価格', max_digits=10, decimal_places=0, default=0)
+    enrollment_price_sep = models.DecimalField('9月入会者価格', max_digits=10, decimal_places=0, default=0)
+    enrollment_price_oct = models.DecimalField('10月入会者価格', max_digits=10, decimal_places=0, default=0)
+    enrollment_price_nov = models.DecimalField('11月入会者価格', max_digits=10, decimal_places=0, default=0)
+    enrollment_price_dec = models.DecimalField('12月入会者価格', max_digits=10, decimal_places=0, default=0)
+
+    # マイル・割引
+    mile = models.IntegerField('マイル', default=0)
+    discount_max = models.IntegerField('割引MAX(%)', default=0)
 
     description = models.TextField('説明', blank=True)
     sort_order = models.IntegerField('表示順', default=0)
@@ -802,6 +846,63 @@ class Seminar(TenantModel):
 
     def __str__(self):
         return f"{self.seminar_name} ({self.year})"
+
+    def get_billing_price_for_month(self, month: int):
+        """指定月の請求価格を取得"""
+        month_map = {
+            1: self.billing_price_jan, 2: self.billing_price_feb, 3: self.billing_price_mar,
+            4: self.billing_price_apr, 5: self.billing_price_may, 6: self.billing_price_jun,
+            7: self.billing_price_jul, 8: self.billing_price_aug, 9: self.billing_price_sep,
+            10: self.billing_price_oct, 11: self.billing_price_nov, 12: self.billing_price_dec,
+        }
+        return month_map.get(month, self.base_price)
+
+    def get_enrollment_price_for_month(self, month: int):
+        """指定月の入会者価格を取得"""
+        month_map = {
+            1: self.enrollment_price_jan, 2: self.enrollment_price_feb, 3: self.enrollment_price_mar,
+            4: self.enrollment_price_apr, 5: self.enrollment_price_may, 6: self.enrollment_price_jun,
+            7: self.enrollment_price_jul, 8: self.enrollment_price_aug, 9: self.enrollment_price_sep,
+            10: self.enrollment_price_oct, 11: self.enrollment_price_nov, 12: self.enrollment_price_dec,
+        }
+        return month_map.get(month, self.base_price)
+
+
+# =============================================================================
+# T11b: コース講習紐づけ (CourseSeminar)
+# =============================================================================
+class CourseSeminar(TenantModel):
+    """T11b: コースと講習の紐づけ
+
+    コースに対して必須/選択の講習会を定義する。
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+
+    course = models.ForeignKey(
+        Course,
+        on_delete=models.CASCADE,
+        related_name='course_seminars',
+        verbose_name='コース'
+    )
+    seminar = models.ForeignKey(
+        Seminar,
+        on_delete=models.CASCADE,
+        related_name='course_seminars',
+        verbose_name='講習'
+    )
+
+    is_required = models.BooleanField('必須', default=False, help_text='このコースで必須の講習会かどうか')
+    notes = models.TextField('備考', blank=True)
+
+    class Meta:
+        db_table = 't11b_course_seminars'
+        verbose_name = 'T11b_コース講習紐づけ'
+        verbose_name_plural = 'T11b_コース講習紐づけ'
+        unique_together = ['tenant_id', 'course', 'seminar']
+
+    def __str__(self):
+        return f"{self.course.course_name} - {self.seminar.seminar_name}"
 
 
 # =============================================================================
@@ -1603,7 +1704,7 @@ class Contract(TenantModel):
         verbose_name = '契約'
         verbose_name_plural = '契約'
         ordering = ['-contract_date']
-        unique_together = ['tenant_id', 'contract_no']
+        unique_together = ['tenant_id', 'contract_no', 'student']
 
     def __str__(self):
         return f"{self.contract_no} - {self.student}"

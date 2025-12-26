@@ -399,17 +399,29 @@ class FeedPostListSerializer(serializers.ModelSerializer):
     media = FeedMediaSerializer(many=True, read_only=True)
     is_liked = serializers.SerializerMethodField()
     is_bookmarked = serializers.SerializerMethodField()
+    target_brands_detail = serializers.SerializerMethodField()
+    target_schools_detail = serializers.SerializerMethodField()
 
     class Meta:
         model = FeedPost
         fields = [
             'id', 'post_type', 'author', 'author_name', 'author_email',
             'school', 'school_name', 'content', 'visibility',
+            'target_brands', 'target_brands_detail',
+            'target_schools', 'target_schools_detail',
             'hashtags', 'is_pinned', 'allow_comments', 'allow_likes',
             'like_count', 'comment_count', 'view_count',
             'media', 'is_liked', 'is_bookmarked',
-            'is_published', 'published_at', 'created_at', 'updated_at'
+            'is_published', 'published_at',
+            'publish_start_at', 'publish_end_at',
+            'created_at', 'updated_at'
         ]
+
+    def get_target_brands_detail(self, obj):
+        return [{'id': str(b.id), 'name': b.brand_name} for b in obj.target_brands.all()]
+
+    def get_target_schools_detail(self, obj):
+        return [{'id': str(s.id), 'name': s.school_name} for s in obj.target_schools.all()]
 
     def get_is_liked(self, obj):
         request = self.context.get('request')
@@ -431,6 +443,7 @@ class FeedPostDetailSerializer(serializers.ModelSerializer):
     school_name = serializers.CharField(source='school.school_name', read_only=True)
     media = FeedMediaSerializer(many=True, read_only=True)
     comments = serializers.SerializerMethodField()
+    target_brands_detail = serializers.SerializerMethodField()
     target_schools_detail = serializers.SerializerMethodField()
     target_grades_detail = serializers.SerializerMethodField()
     is_liked = serializers.SerializerMethodField()
@@ -441,6 +454,7 @@ class FeedPostDetailSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'tenant_id', 'post_type', 'author', 'author_name', 'author_email',
             'school', 'school_name', 'content', 'visibility',
+            'target_brands', 'target_brands_detail',
             'target_schools', 'target_schools_detail',
             'target_grades', 'target_grades_detail',
             'hashtags', 'is_pinned', 'pinned_at',
@@ -448,6 +462,7 @@ class FeedPostDetailSerializer(serializers.ModelSerializer):
             'like_count', 'comment_count', 'view_count',
             'media', 'comments', 'is_liked', 'is_bookmarked',
             'is_published', 'published_at',
+            'publish_start_at', 'publish_end_at',
             'is_deleted', 'deleted_at', 'created_at', 'updated_at'
         ]
         read_only_fields = [
@@ -461,6 +476,9 @@ class FeedPostDetailSerializer(serializers.ModelSerializer):
         return FeedCommentSerializer(
             comments, many=True, context=self.context
         ).data
+
+    def get_target_brands_detail(self, obj):
+        return [{'id': str(b.id), 'name': b.brand_name} for b in obj.target_brands.all()]
 
     def get_target_schools_detail(self, obj):
         return [{'id': str(s.id), 'name': s.school_name} for s in obj.target_schools.all()]
@@ -493,19 +511,23 @@ class FeedPostCreateSerializer(serializers.ModelSerializer):
         model = FeedPost
         fields = [
             'post_type', 'school', 'content', 'visibility',
-            'target_schools', 'target_grades', 'hashtags',
-            'allow_comments', 'allow_likes', 'is_published',
+            'target_brands', 'target_schools', 'target_grades', 'hashtags',
+            'allow_comments', 'allow_likes', 'is_published', 'is_pinned',
+            'publish_start_at', 'publish_end_at',
             'media_items'
         ]
 
     def create(self, validated_data):
         media_items = validated_data.pop('media_items', [])
+        target_brands = validated_data.pop('target_brands', [])
         target_schools = validated_data.pop('target_schools', [])
         target_grades = validated_data.pop('target_grades', [])
 
         post = FeedPost.objects.create(**validated_data)
 
         # ManyToManyフィールドの設定
+        if target_brands:
+            post.target_brands.set(target_brands)
         if target_schools:
             post.target_schools.set(target_schools)
         if target_grades:

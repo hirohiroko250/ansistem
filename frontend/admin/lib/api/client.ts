@@ -195,4 +195,10 @@ export class ApiError extends Error {
 }
 
 export const apiClient = new ApiClient(API_URL);
+
+// Helper function to get access token (for file uploads etc.)
+export function getAccessToken(): string | null {
+  return apiClient.getToken();
+}
+
 export default apiClient;

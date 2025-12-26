@@ -21,6 +21,7 @@ class TaskSerializer(serializers.ModelSerializer):
     student_name = serializers.SerializerMethodField()
     guardian_name = serializers.SerializerMethodField()
     assigned_to_name = serializers.SerializerMethodField()
+    created_by_name = serializers.SerializerMethodField()
     task_type_display = serializers.CharField(source='get_task_type_display', read_only=True)
     status_display = serializers.CharField(source='get_status_display', read_only=True)
     priority_display = serializers.CharField(source='get_priority_display', read_only=True)
@@ -32,7 +33,7 @@ class TaskSerializer(serializers.ModelSerializer):
             'title', 'description', 'status', 'status_display', 'priority', 'priority_display',
             'school', 'school_name', 'brand', 'brand_name',
             'student', 'student_name', 'guardian', 'guardian_name',
-            'assigned_to_id', 'assigned_to_name', 'created_by_id', 'due_date', 'completed_at',
+            'assigned_to_id', 'assigned_to_name', 'created_by_id', 'created_by_name', 'due_date', 'completed_at',
             'source_type', 'source_id', 'source_url', 'metadata',
             'created_at', 'updated_at'
         ]
@@ -54,6 +55,17 @@ class TaskSerializer(serializers.ModelSerializer):
             from apps.tenants.models import Employee
             try:
                 employee = Employee.objects.get(id=obj.assigned_to_id)
+                return employee.full_name
+            except Employee.DoesNotExist:
+                pass
+        return None
+
+    def get_created_by_name(self, obj):
+        """作成者名を取得"""
+        if obj.created_by_id:
+            from apps.tenants.models import Employee
+            try:
+                employee = Employee.objects.get(id=obj.created_by_id)
                 return employee.full_name
             except Employee.DoesNotExist:
                 pass

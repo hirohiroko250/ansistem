@@ -1,0 +1,173 @@
+{
+  "214229": [
+    {
+      "category": "11月分_FS割 (税別)",
+      "amount": -500.0,
+      "type": "fs_discount"
+    },
+    {
+      "category": "12月分_FS割 (税別)",
+      "amount": -500.0,
+      "type": "fs_discount"
+    }
+  ],
+  "223421": [
+    {
+      "category": "アンそろばんクラブ【10月分_FS割引】 (税込)",
+      "amount": -500.0,
+      "type": "fs_discount"
+    }
+  ],
+  "224175": [
+    {
+      "category": "11月分_FS割 (税別)",
+      "amount": -500.0,
+      "type": "fs_discount"
+    }
+  ],
+  "222842": [
+    {
+      "category": "12月分_家族割 (税込)",
+      "amount": -1000.0,
+      "type": "kazoku_discount"
+    }
+  ],
+  "215552": [
+    {
+      "category": "星煌学院本科生による家族割 (税込)",
+      "amount": -2000.0,
+      "type": "kazoku_discount"
+    }
+  ],
+  "215412": [
+    {
+      "category": "【星煌学院】家族割 (税込) (税込)",
+      "amount": -2000.0,
+      "type": "kazoku_discount"
+    }
+  ],
+  "216206": [
+    {
+      "category": "【星煌学院】本科生家族割 (税込)",
+      "amount": -1000.0,
+      "type": "kazoku_discount"
+    }
+  ],
+  "216609": [
+    {
+      "category": "【星煌学院】家族割 (税込)",
+      "amount": -2000.0,
+      "type": "kazoku_discount"
+    }
+  ],
+  "216659": [
+    {
+      "category": "【星煌学院】家族割 (税込)",
+      "amount": -1000.0,
+      "type": "kazoku_discount"
+    }
+  ],
+  "217854": [
+    {
+      "category": "【星煌学院】家族割 (税込)",
+      "amount": -1000.0,
+      "type": "kazoku_discount"
+    }
+  ],
+  "218000": [
+    {
+      "category": "【星煌学院】家族割 (税込)",
+      "amount": -2000.0,
+      "type": "kazoku_discount"
+    }
+  ],
+  "218419": [
+    {
+      "category": "【星煌学院】家族割 (税込)",
+      "amount": -1000.0,
+      "type": "kazoku_discount"
+    }
+  ],
+  "218779": [
+    {
+      "category": "星煌学院本科受講による家族割 (税込)",
+      "amount": -1000.0,
+      "type": "kazoku_discount"
+    }
+  ],
+  "220908": [
+    {
+      "category": "【星煌学院】家族割 (税込)",
+      "amount": -1000.0,
+      "type": "kazoku_discount"
+    }
+  ],
+  "221031": [
+    {
+      "category": "【星煌学院】家族割 (税別)",
+      "amount": -2000.0,
+      "type": "kazoku_discount"
+    }
+  ],
+  "221230": [
+    {
+      "category": "兄(中1翔太)の星煌学院本科生による家族割 (税込)",
+      "amount": -2000.0,
+      "type": "kazoku_discount"
+    },
+    {
+      "category": "9月分授業料に適用されていなかった家族割分として (税込)",
+      "amount": -2000.0,
+      "type": "kazoku_discount"
+    }
+  ],
+  "221263": [
+    {
+      "category": "【星煌学院】家族割 (税込)",
+      "amount": -1000.0,
+      "type": "kazoku_discount"
+    }
+  ],
+  "221738": [
+    {
+      "category": "【星煌学院】家族割 (税込)",
+      "amount": -2000.0,
+      "type": "kazoku_discount"
+    }
+  ],
+  "222173": [
+    {
+      "category": "星煌学院本科受講による家族割 (税込)",
+      "amount": -1000.0,
+      "type": "kazoku_discount"
+    }
+  ],
+  "222940": [
+    {
+      "category": "【星煌学院】家族割 (税込)",
+      "amount": -1000.0,
+      "type": "kazoku_discount"
+    }
+  ],
+  "222936": [
+    {
+      "category": "【星煌学院】家族割 (税別)",
+      "amount": -2000.0,
+      "type": "kazoku_discount"
+    }
+  ],
+  "223690": [
+    {
+      "category": "【星煌学院】家族割 (税込)",
+      "amount": -1000.0,
+      "type": "kazoku_discount"
+    }
+  ],
+  "223673": [
+    {
+      "category": "【星煌学院】家族割 (税込)",
+      "amount": -2000.0,
+      "type": "kazoku_discount"
+    }
+  ]
+}

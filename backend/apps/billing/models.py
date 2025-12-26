@@ -1913,6 +1913,10 @@ class ConfirmedBilling(TenantModel):
         help_text='ブランドごとの退会日 {brand_id: "YYYY-MM-DD"}'
     )
 
+    # 休会・復会日情報
+    suspension_date = models.DateField('休会日', null=True, blank=True, help_text='生徒の休会日')
+    return_date = models.DateField('復会日', null=True, blank=True, help_text='生徒の復会日')
+
     class Meta:
         db_table = 't_confirmed_billing'
         verbose_name = '請求確定'
@@ -2152,7 +2156,7 @@ class ConfirmedBilling(TenantModel):
             discount_total += amount
 
         # 退会日情報を取得
-        from apps.students.models import StudentEnrollment
+        from apps.students.models import StudentEnrollment, SuspensionRequest
 
         # 全退会日（生徒の退会日）
         student_withdrawal_date = student.withdrawal_date if hasattr(student, 'withdrawal_date') else None
@@ -2169,6 +2173,19 @@ class ConfirmedBilling(TenantModel):
             if enrollment.brand_id and enrollment.end_date:
                 brand_withdrawal_dates[str(enrollment.brand_id)] = enrollment.end_date.isoformat()
 
+        # 休会日・復会日を取得
+        student_suspension_date = student.suspended_date if hasattr(student, 'suspended_date') else None
+        student_return_date = None
+        # 最新の復会日を取得
+        latest_suspension = SuspensionRequest.objects.filter(
+            tenant_id=tenant_id,
+            student=student,
+            resumed_at__isnull=False,
+            deleted_at__isnull=True
+        ).order_by('-resumed_at').first()
+        if latest_suspension:
+            student_return_date = latest_suspension.resumed_at
+
         # 確定データを更新
         confirmed.guardian = guardian
         confirmed.subtotal = subtotal
@@ -2179,6 +2196,8 @@ class ConfirmedBilling(TenantModel):
         confirmed.discounts_snapshot = discounts_snapshot
         confirmed.withdrawal_date = student_withdrawal_date
         confirmed.brand_withdrawal_dates = brand_withdrawal_dates
+        confirmed.suspension_date = student_suspension_date
+        confirmed.return_date = student_return_date
         if user:
             confirmed.confirmed_by = user
         confirmed.save()
@@ -2294,6 +2313,57 @@ class ConfirmedBilling(TenantModel):
                 }
                 items_snapshot.append(item_data)
                 subtotal += final_price
+
+        # 講習申込（SeminarEnrollment）を追加
+        from apps.contracts.models import SeminarEnrollment
+        billing_month_hyphen = f"{year}-{str(month).zfill(2)}"
+        billing_month_compact = f"{year}{str(month).zfill(2)}"
+        seminar_enrollments = SeminarEnrollment.objects.filter(
+            tenant_id=tenant_id,
+            student=student,
+            status__in=[SeminarEnrollment.Status.APPLIED, SeminarEnrollment.Status.CONFIRMED],
+            deleted_at__isnull=True
+        ).filter(
+            models.Q(billing_month=billing_month_hyphen) | models.Q(billing_month=billing_month_compact)
+        ).select_related('seminar', 'seminar__brand')
+
+        for enrollment in seminar_enrollments:
+            seminar = enrollment.seminar
+            unit_price = enrollment.unit_price or Decimal('0')
+            discount_amount = enrollment.discount_amount or Decimal('0')
+            final_price = enrollment.final_price or (unit_price - discount_amount)
+
+            # 講習会タイプに基づくitem_type
+            seminar_type_map = {
+                'spring': 'seminar_spring',
+                'summer': 'seminar_summer',
+                'winter': 'seminar_winter',
+                'autumn': 'seminar_autumn',
+                'special': 'seminar_special',
+                'other': 'seminar',
+            }
+            item_type = seminar_type_map.get(seminar.seminar_type, 'seminar') if seminar else 'seminar'
+
+            item_data = {
+                'seminar_enrollment_id': str(enrollment.id),
+                'old_id': seminar.old_id if seminar else '',
+                'seminar_id': str(seminar.id) if seminar else None,
+                'seminar_code': seminar.seminar_code if seminar else '',
+                'product_name': seminar.seminar_name if seminar else '',
+                'product_code': seminar.seminar_code if seminar else '',
+                'brand_id': str(seminar.brand.id) if seminar and seminar.brand else None,
+                'brand_name': seminar.brand.brand_name if seminar and seminar.brand else None,
+                'item_type': item_type,
+                'item_type_display': '講習会',
+                'is_required': enrollment.is_required,
+                'quantity': 1,
+                'unit_price': str(unit_price),
+                'discount_amount': str(discount_amount),
+                'final_price': str(final_price),
+                'notes': enrollment.notes or '',
+            }
+            items_snapshot.append(item_data)
+            subtotal += final_price
 
         # 設備費は1生徒につき1つのみ（最高額を採用）
         facility_types = ['facility', 'enrollment_facility']
@@ -2451,7 +2521,7 @@ class ConfirmedBilling(TenantModel):
         carry_over = cls.get_previous_month_balance(tenant_id, student, year, month)
 
         # 退会日情報を取得
-        from apps.students.models import StudentEnrollment
+        from apps.students.models import StudentEnrollment, SuspensionRequest
 
         # 全退会日（生徒の退会日）
         student_withdrawal_date = student.withdrawal_date if hasattr(student, 'withdrawal_date') else None
@@ -2468,6 +2538,19 @@ class ConfirmedBilling(TenantModel):
             if enrollment.brand_id and enrollment.end_date:
                 brand_withdrawal_dates[str(enrollment.brand_id)] = enrollment.end_date.isoformat()
 
+        # 休会日・復会日を取得
+        student_suspension_date = student.suspended_date if hasattr(student, 'suspended_date') else None
+        student_return_date = None
+        # 最新の復会日を取得
+        latest_suspension = SuspensionRequest.objects.filter(
+            tenant_id=tenant_id,
+            student=student,
+            resumed_at__isnull=False,
+            deleted_at__isnull=True
+        ).order_by('-resumed_at').first()
+        if latest_suspension:
+            student_return_date = latest_suspension.resumed_at
+
         # 確定データを更新
         confirmed.guardian = guardian
         confirmed.subtotal = subtotal
@@ -2480,6 +2563,8 @@ class ConfirmedBilling(TenantModel):
         confirmed.discounts_snapshot = discounts_snapshot
         confirmed.withdrawal_date = student_withdrawal_date
         confirmed.brand_withdrawal_dates = brand_withdrawal_dates
+        confirmed.suspension_date = student_suspension_date
+        confirmed.return_date = student_return_date
         if user:
             confirmed.confirmed_by = user
         confirmed.save()
@@ -2555,6 +2640,55 @@ class ConfirmedBilling(TenantModel):
                 'discount_amount': str(discount_amount),
                 'final_price': str(final_price),
                 'notes': item.notes or '',
+            }
+            items_snapshot.append(item_data)
+            subtotal += final_price
+
+        # 講習申込（SeminarEnrollment）を追加
+        from apps.contracts.models import SeminarEnrollment
+        seminar_enrollments = SeminarEnrollment.objects.filter(
+            tenant_id=tenant_id,
+            student=student,
+            status__in=[SeminarEnrollment.Status.APPLIED, SeminarEnrollment.Status.CONFIRMED],
+            deleted_at__isnull=True
+        ).filter(
+            models.Q(billing_month=billing_month_hyphen) | models.Q(billing_month=billing_month_compact)
+        ).select_related('seminar', 'seminar__brand')
+
+        for enrollment in seminar_enrollments:
+            seminar = enrollment.seminar
+            unit_price = enrollment.unit_price or Decimal('0')
+            discount_amount = enrollment.discount_amount or Decimal('0')
+            final_price = enrollment.final_price or (unit_price - discount_amount)
+
+            # 講習会タイプに基づくitem_type
+            seminar_type_map = {
+                'spring': 'seminar_spring',
+                'summer': 'seminar_summer',
+                'winter': 'seminar_winter',
+                'autumn': 'seminar_autumn',
+                'special': 'seminar_special',
+                'other': 'seminar',
+            }
+            item_type = seminar_type_map.get(seminar.seminar_type, 'seminar') if seminar else 'seminar'
+
+            item_data = {
+                'seminar_enrollment_id': str(enrollment.id),
+                'old_id': seminar.old_id if seminar else '',
+                'seminar_id': str(seminar.id) if seminar else None,
+                'seminar_code': seminar.seminar_code if seminar else '',
+                'product_name': seminar.seminar_name if seminar else '',
+                'product_code': seminar.seminar_code if seminar else '',
+                'brand_id': str(seminar.brand.id) if seminar and seminar.brand else None,
+                'brand_name': seminar.brand.brand_name if seminar and seminar.brand else None,
+                'item_type': item_type,
+                'item_type_display': '講習会',
+                'is_required': enrollment.is_required,
+                'quantity': 1,
+                'unit_price': str(unit_price),
+                'discount_amount': str(discount_amount),
+                'final_price': str(final_price),
+                'notes': enrollment.notes or '',
             }
             items_snapshot.append(item_data)
             subtotal += final_price
@@ -2700,7 +2834,7 @@ class ConfirmedBilling(TenantModel):
         carry_over = cls.get_previous_month_balance(tenant_id, student, year, month)
 
         # 退会日情報を取得
-        from apps.students.models import StudentEnrollment
+        from apps.students.models import StudentEnrollment, SuspensionRequest
 
         # 全退会日（生徒の退会日）
         student_withdrawal_date = student.withdrawal_date if hasattr(student, 'withdrawal_date') else None
@@ -2717,6 +2851,19 @@ class ConfirmedBilling(TenantModel):
             if enrollment.brand_id and enrollment.end_date:
                 brand_withdrawal_dates[str(enrollment.brand_id)] = enrollment.end_date.isoformat()
 
+        # 休会日・復会日を取得
+        student_suspension_date = student.suspended_date if hasattr(student, 'suspended_date') else None
+        student_return_date = None
+        # 最新の復会日を取得
+        latest_suspension = SuspensionRequest.objects.filter(
+            tenant_id=tenant_id,
+            student=student,
+            resumed_at__isnull=False,
+            deleted_at__isnull=True
+        ).order_by('-resumed_at').first()
+        if latest_suspension:
+            student_return_date = latest_suspension.resumed_at
+
         # 確定データを更新
         confirmed.guardian = guardian
         confirmed.subtotal = subtotal
@@ -2729,6 +2876,8 @@ class ConfirmedBilling(TenantModel):
         confirmed.discounts_snapshot = discounts_snapshot
         confirmed.withdrawal_date = student_withdrawal_date
         confirmed.brand_withdrawal_dates = brand_withdrawal_dates
+        confirmed.suspension_date = student_suspension_date
+        confirmed.return_date = student_return_date
         if user:
             confirmed.confirmed_by = user
         confirmed.save()

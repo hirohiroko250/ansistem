@@ -12,6 +12,7 @@ import { getLatestNews, type NewsItem } from '@/lib/api/announcements';
 import { posts as fallbackPosts } from '@/lib/feed-data';
 import { isAuthenticated } from '@/lib/api/auth';
 import { getMyPayment, type PaymentInfo } from '@/lib/api/payment';
+import { getMyContracts, type MyContract, type MyStudent } from '@/lib/api/contracts';
 
 const shortcuts = [
   { id: 1, name: 'チケット', icon: Ticket, href: '/tickets', color: 'bg-blue-500' },
@@ -42,6 +43,12 @@ export default function Home() {
   const [newsLoading, setNewsLoading] = useState(true);
   const [tasks, setTasks] = useState<TaskItem[]>([]);
   const [tasksLoading, setTasksLoading] = useState(true);
+  const [students, setStudents] = useState<MyStudent[]>([]);
+  const [contracts, setContracts] = useState<MyContract[]>([]);
+  const [contractsLoading, setContractsLoading] = useState(true);
+
+  // 曜日ラベル
+  const DAY_LABELS = ['日', '月', '火', '水', '木', '金', '土'];
 
   useEffect(() => {
     // 認証チェック
@@ -53,8 +60,23 @@ export default function Home() {
       fetchNews();
       // 作業一覧を取得
       fetchTasks();
+      // 契約（受講中のクラス）を取得
+      fetchContracts();
     }
   }, [router]);
+
+  const fetchContracts = async () => {
+    try {
+      setContractsLoading(true);
+      const response = await getMyContracts();
+      setStudents(response.students || []);
+      setContracts(response.contracts || []);
+    } catch (error) {
+      console.error('Failed to fetch contracts:', error);
+    } finally {
+      setContractsLoading(false);
+    }
+  };
 
   const fetchTasks = async () => {
     try {
@@ -176,6 +198,87 @@ export default function Home() {
             </div>
           </section>
         )}
+
+        {/* 受講中のクラス */}
+        <section className="mb-4">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-lg font-semibold text-gray-800 flex items-center gap-2">
+              <Calendar className="h-5 w-5 text-teal-500" />
+              受講中のクラス
+            </h2>
+            <Link href="/class-management" className="text-sm text-blue-600 hover:text-blue-700 flex items-center gap-1">
+              管理
+              <ChevronRight className="h-4 w-4" />
+            </Link>
+          </div>
+          {contractsLoading ? (
+            <div className="flex justify-center py-4">
+              <Loader2 className="h-5 w-5 animate-spin text-teal-500" />
+            </div>
+          ) : contracts.length > 0 ? (
+            <div className="space-y-3">
+              {/* 生徒ごとにグループ化 */}
+              {students.map((student) => {
+                const studentContracts = contracts.filter(c => c.student.id === student.id && c.status === 'active');
+                if (studentContracts.length === 0) return null;
+
+                return (
+                  <Card key={student.id} className="rounded-xl shadow-md overflow-hidden">
+                    <div className="bg-teal-500 px-4 py-2">
+                      <h3 className="text-white font-semibold text-sm">{student.fullName}</h3>
+                      {student.grade && (
+                        <p className="text-teal-100 text-xs">{student.grade}</p>
+                      )}
+                    </div>
+                    <CardContent className="p-0">
+                      {studentContracts.map((contract, idx) => (
+                        <div
+                          key={contract.id}
+                          className={`p-3 ${idx < studentContracts.length - 1 ? 'border-b border-gray-100' : ''}`}
+                        >
+                          <div className="flex items-start justify-between">
+                            <div className="flex-1">
+                              <div className="flex items-center gap-2">
+                                <span className="font-medium text-gray-800">{contract.brand.brandName}</span>
+                                {contract.ticket && (
+                                  <Badge className="bg-blue-100 text-blue-700 text-xs">
+                                    {contract.ticket.ticketName}
+                                  </Badge>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-3 mt-1 text-sm text-gray-600">
+                                <span className="flex items-center gap-1">
+                                  <Building2 className="h-3.5 w-3.5" />
+                                  {contract.school.schoolName}
+                                </span>
+                              </div>
+                              {contract.dayOfWeek !== undefined && contract.dayOfWeek !== null && contract.startTime && (
+                                <div className="mt-1 text-sm font-medium text-teal-600">
+                                  {DAY_LABELS[contract.dayOfWeek]}曜日 {contract.startTime.slice(0, 5)}〜
+                                  {contract.endTime && contract.endTime.slice(0, 5)}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </CardContent>
+                  </Card>
+                );
+              })}
+            </div>
+          ) : (
+            <Card className="rounded-xl shadow-md">
+              <CardContent className="p-6 text-center">
+                <Calendar className="h-10 w-10 text-gray-300 mx-auto mb-2" />
+                <p className="text-gray-500 text-sm">受講中のクラスはありません</p>
+                <Link href="/class-registration" className="text-blue-600 text-sm mt-2 inline-block">
+                  クラスを探す →
+                </Link>
+              </CardContent>
+            </Card>
+          )}
+        </section>
 
         <section className="mb-4">
           <div className="flex items-center justify-between mb-3">

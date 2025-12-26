@@ -2004,6 +2004,12 @@ class MonthlyBillingDeadlineViewSet(viewsets.ModelViewSet):
                         user=request.user
                     )
 
+                    # 明細も割引もない空の請求確定データは削除
+                    if confirmed.subtotal == 0 and not confirmed.items_snapshot and not confirmed.discounts_snapshot:
+                        confirmed.delete()
+                        skipped_count += 1
+                        continue
+
                     if was_created:
                         created_count += 1
                         # 新規作成時のみ請求額を集計（既存の場合は既に計上済み）
@@ -3365,6 +3371,12 @@ class ConfirmedBillingViewSet(viewsets.ModelViewSet):
                             user=request.user
                         )
 
+                    # 明細も割引もない空の請求確定データは削除
+                    if confirmed.subtotal == 0 and not confirmed.items_snapshot and not confirmed.discounts_snapshot:
+                        confirmed.delete()
+                        skipped_count += 1
+                        continue
+
                     if was_created:
                         created_count += 1
                     else:
@@ -3668,6 +3680,8 @@ class ConfirmedBillingViewSet(viewsets.ModelViewSet):
             '合計',
             'ブランド退会日',
             '全退会日',
+            '休会日',
+            '復会日',
         ])
 
         # データ行（明細単位）
@@ -3687,6 +3701,9 @@ class ConfirmedBillingViewSet(viewsets.ModelViewSet):
             # 退会日情報
             withdrawal_date_str = billing.withdrawal_date.isoformat() if billing.withdrawal_date else ''
             brand_withdrawal_dates = billing.brand_withdrawal_dates or {}
+            # 休会・復会日情報
+            suspension_date_str = billing.suspension_date.isoformat() if billing.suspension_date else ''
+            return_date_str = billing.return_date.isoformat() if billing.return_date else ''
 
             # 商品明細を出力
             if items_snapshot:
@@ -3733,6 +3750,8 @@ class ConfirmedBillingViewSet(viewsets.ModelViewSet):
                         int(float(item.get('final_price') or item.get('subtotal') or item.get('unit_price') or 0)),
                         brand_withdrawal_date,  # ブランド退会日
                         withdrawal_date_str,  # 全退会日
+                        suspension_date_str,  # 休会日
+                        return_date_str,  # 復会日
                     ])
 
             # 割引明細を出力
@@ -3766,6 +3785,8 @@ class ConfirmedBillingViewSet(viewsets.ModelViewSet):
                         -discount_amount,  # 割引はマイナス
                         '',  # ブランド退会日
                         '',  # 全退会日
+                        '',  # 休会日
+                        '',  # 復会日
                     ])
 
             # 過不足金を出力（保護者ごとに1回のみ）
@@ -3789,29 +3810,14 @@ class ConfirmedBillingViewSet(viewsets.ModelViewSet):
                         int(balance),  # 金額（マイナスは未収、プラスは過払い）
                         '',  # ブランド退会日
                         '',  # 全退会日
+                        '',  # 休会日
+                        '',  # 復会日
                     ])
                 balance_exported_guardians.add(guardian.id)
 
-            # 明細がない場合も1行出力
-            if not items_snapshot and not discounts_snapshot:
-                writer.writerow([
-                    guardian_no,
-                    student_no,
-                    guardian_last_name,
-                    grade_text,
-                    student_name,
-                    '',  # 契約ID
-                    '',  # テーブル名
-                    '',  # ブランド名
-                    '',  # 契約名
-                    '',  # 削除
-                    '',  # 請求ID
-                    '',  # 請求カテ
-                    '',  # 顧客表示用
-                    int(billing.total_amount),  # 合計
-                    '',  # ブランド退会日
-                    withdrawal_date_str,  # 全退会日
-                ])
+            # 明細がない場合は出力しない（空の請求確定データ対策）
+            # if not items_snapshot and not discounts_snapshot:
+            #     writer.writerow([...])
 
         return response
 

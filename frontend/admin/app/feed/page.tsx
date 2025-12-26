@@ -57,8 +57,14 @@ interface FeedPost {
   commentCount: number;
   viewCount: number;
   media?: Array<{ id: string; mediaType: string; fileUrl: string; thumbnailUrl?: string }>;
+  targetBrands?: string[];
+  targetBrandsDetail?: Array<{ id: string; name: string }>;
+  targetSchools?: string[];
+  targetSchoolsDetail?: Array<{ id: string; name: string }>;
   isPublished: boolean;
   publishedAt?: string;
+  publishStartAt?: string;
+  publishEndAt?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -68,9 +74,15 @@ interface School {
   schoolName: string;
 }
 
+interface Brand {
+  id: string;
+  brandName: string;
+}
+
 export default function FeedPage() {
   const [posts, setPosts] = useState<FeedPost[]>([]);
   const [schools, setSchools] = useState<School[]>([]);
+  const [brands, setBrands] = useState<Brand[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedPost, setSelectedPost] = useState<FeedPost | null>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -81,17 +93,22 @@ export default function FeedPage() {
     content: "",
     visibility: "PUBLIC",
     school: "",
+    targetBrands: [] as string[],
+    targetSchools: [] as string[],
     hashtags: "",
     allowComments: true,
     allowLikes: true,
     isPublished: true,
     isPinned: false,
+    publishStartAt: "",
+    publishEndAt: "",
     mediaFiles: [] as Array<{ url: string; type: "image" | "video"; filename: string }>,
   });
 
   useEffect(() => {
     loadPosts();
     loadSchools();
+    loadBrands();
   }, []);
 
   async function loadPosts() {
@@ -118,16 +135,30 @@ export default function FeedPage() {
     }
   }
 
+  async function loadBrands() {
+    try {
+      const response = await apiClient.get<any>("/schools/brands/");
+      const data = response.results || response.data || response || [];
+      setBrands(Array.isArray(data) ? data : []);
+    } catch (error) {
+      console.error("Failed to load brands:", error);
+    }
+  }
+
   function handleCreate() {
     setFormData({
       content: "",
       visibility: "PUBLIC",
       school: "",
+      targetBrands: [],
+      targetSchools: [],
       hashtags: "",
       allowComments: true,
       allowLikes: true,
       isPublished: true,
       isPinned: false,
+      publishStartAt: "",
+      publishEndAt: "",
       mediaFiles: [],
     });
     setSelectedPost(null);
@@ -140,11 +171,15 @@ export default function FeedPage() {
       content: post.content || "",
       visibility: post.visibility || "PUBLIC",
       school: "",
+      targetBrands: post.targetBrands || [],
+      targetSchools: post.targetSchools || [],
       hashtags: post.hashtags?.join(", ") || "",
       allowComments: post.allowComments ?? true,
       allowLikes: post.allowLikes ?? true,
       isPublished: post.isPublished ?? true,
       isPinned: post.isPinned ?? false,
+      publishStartAt: post.publishStartAt ? post.publishStartAt.slice(0, 16) : "",
+      publishEndAt: post.publishEndAt ? post.publishEndAt.slice(0, 16) : "",
       mediaFiles: (post.media || []).map(m => ({
         url: m.fileUrl,
         type: m.mediaType === "VIDEO" ? "video" as const : "image" as const,
@@ -180,6 +215,22 @@ export default function FeedPage() {
 
       if (formData.school && formData.school !== "_none") {
         payload.school = formData.school;
+      }
+
+      // ブランド・校舎フィルター
+      if (formData.targetBrands.length > 0) {
+        payload.target_brands = formData.targetBrands;
+      }
+      if (formData.targetSchools.length > 0) {
+        payload.target_schools = formData.targetSchools;
+      }
+
+      // 公開日時
+      if (formData.publishStartAt) {
+        payload.publish_start_at = new Date(formData.publishStartAt).toISOString();
+      }
+      if (formData.publishEndAt) {
+        payload.publish_end_at = new Date(formData.publishEndAt).toISOString();
       }
 
       if (formData.mediaFiles.length > 0) {
@@ -406,7 +457,7 @@ export default function FeedPage() {
               </div>
 
               <div>
-                <label className="text-sm font-medium">校舎</label>
+                <label className="text-sm font-medium">投稿校舎</label>
                 <Select
                   value={formData.school}
                   onValueChange={(v) => setFormData({ ...formData, school: v })}
@@ -424,6 +475,115 @@ export default function FeedPage() {
                   </SelectContent>
                 </Select>
               </div>
+            </div>
+
+            {/* 対象ブランド選択 */}
+            <div>
+              <label className="text-sm font-medium flex items-center gap-1 mb-2">
+                <Building className="w-4 h-4" />
+                対象ブランド（複数選択可）
+              </label>
+              <div className="flex flex-wrap gap-2 p-3 border rounded-md bg-gray-50">
+                {brands.length === 0 ? (
+                  <span className="text-sm text-gray-500">ブランドがありません</span>
+                ) : (
+                  brands.map((brand) => (
+                    <label
+                      key={brand.id}
+                      className={`flex items-center gap-1 px-3 py-1 rounded-full border cursor-pointer transition-colors ${
+                        formData.targetBrands.includes(brand.id)
+                          ? "bg-blue-500 text-white border-blue-500"
+                          : "bg-white hover:bg-gray-100 border-gray-300"
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        className="sr-only"
+                        checked={formData.targetBrands.includes(brand.id)}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setFormData({ ...formData, targetBrands: [...formData.targetBrands, brand.id] });
+                          } else {
+                            setFormData({ ...formData, targetBrands: formData.targetBrands.filter(id => id !== brand.id) });
+                          }
+                        }}
+                      />
+                      <span className="text-sm">{brand.brandName}</span>
+                    </label>
+                  ))
+                )}
+              </div>
+              {formData.targetBrands.length === 0 && (
+                <p className="text-xs text-gray-500 mt-1">未選択の場合は全ブランドに表示されます</p>
+              )}
+            </div>
+
+            {/* 対象校舎選択 */}
+            <div>
+              <label className="text-sm font-medium flex items-center gap-1 mb-2">
+                <Building className="w-4 h-4" />
+                対象校舎（複数選択可）
+              </label>
+              <div className="flex flex-wrap gap-2 p-3 border rounded-md bg-gray-50 max-h-40 overflow-y-auto">
+                {schools.length === 0 ? (
+                  <span className="text-sm text-gray-500">校舎がありません</span>
+                ) : (
+                  schools.map((school) => (
+                    <label
+                      key={school.id}
+                      className={`flex items-center gap-1 px-3 py-1 rounded-full border cursor-pointer transition-colors ${
+                        formData.targetSchools.includes(school.id)
+                          ? "bg-green-500 text-white border-green-500"
+                          : "bg-white hover:bg-gray-100 border-gray-300"
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        className="sr-only"
+                        checked={formData.targetSchools.includes(school.id)}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setFormData({ ...formData, targetSchools: [...formData.targetSchools, school.id] });
+                          } else {
+                            setFormData({ ...formData, targetSchools: formData.targetSchools.filter(id => id !== school.id) });
+                          }
+                        }}
+                      />
+                      <span className="text-sm">{school.schoolName}</span>
+                    </label>
+                  ))
+                )}
+              </div>
+              {formData.targetSchools.length === 0 && (
+                <p className="text-xs text-gray-500 mt-1">未選択の場合は全校舎に表示されます</p>
+              )}
+            </div>
+
+            {/* 公開期間設定 */}
+            <div>
+              <label className="text-sm font-medium flex items-center gap-1 mb-2">
+                <Calendar className="w-4 h-4" />
+                公開期間
+              </label>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-xs text-gray-500">開始日時</label>
+                  <Input
+                    type="datetime-local"
+                    value={formData.publishStartAt}
+                    onChange={(e) => setFormData({ ...formData, publishStartAt: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-gray-500">終了日時</label>
+                  <Input
+                    type="datetime-local"
+                    value={formData.publishEndAt}
+                    onChange={(e) => setFormData({ ...formData, publishEndAt: e.target.value })}
+                  />
+                </div>
+              </div>
+              <p className="text-xs text-gray-500 mt-1">未設定の場合は即時公開・無期限となります</p>
             </div>
 
             {/* メディアアップロード */}

@@ -174,6 +174,12 @@ class Command(BaseCommand):
                 skipped_rows.append({**first_row.to_dict(), 'skip_reason': '保護者未発見'})
                 continue
 
+            # 生徒と保護者の紐付けを更新
+            if student.guardian_id != guardian.id:
+                if not dry_run:
+                    student.guardian = guardian
+                    student.save(update_fields=['guardian'])
+
             # 終了日チェック（過去の契約はスキップ）
             end_date_str = str(first_row.get('終了日', ''))
             brand_end_str = str(first_row.get('ブランド退会日', ''))

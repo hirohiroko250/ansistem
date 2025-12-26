@@ -185,7 +185,7 @@ class FeatureMaster(TenantModel):
     """機能マスタ - 権限設定可能な機能・画面一覧"""
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    feature_code = models.CharField('機能コード', max_length=20, unique=True, help_text='例: 1000, 2000, 10010')
+    feature_code = models.CharField('機能コード', max_length=20, db_index=True, help_text='例: 1000, 2000, 10010')
     feature_name = models.CharField('機能名', max_length=100)
     parent_code = models.CharField('親機能コード', max_length=20, blank=True, help_text='サブ機能の場合、親の機能コード')
     category = models.CharField('カテゴリ', max_length=50, blank=True)
@@ -198,6 +198,7 @@ class FeatureMaster(TenantModel):
         verbose_name = '機能マスタ'
         verbose_name_plural = '機能マスタ'
         ordering = ['display_order', 'feature_code']
+        unique_together = ['tenant_ref', 'feature_code']
 
     def __str__(self):
         return f"{self.feature_code}: {self.feature_name}"
