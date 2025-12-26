@@ -18,6 +18,7 @@ import {
   Landmark,
   Library,
   ClipboardList,
+  Newspaper,
 } from "lucide-react";
 
 const menuItems = [
@@ -75,6 +76,11 @@ const menuItems = [
     name: "Staff Chat",
     href: "/chat",
     icon: MessagesSquare,
+  },
+  {
+    name: "Feed",
+    href: "/feed",
+    icon: Newspaper,
   },
   {
     name: "Manuals",

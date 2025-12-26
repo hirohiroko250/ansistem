@@ -11,7 +11,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { useAuth } from '@/lib/auth';
 import { supabase } from '@/lib/supabase';
 import { BottomNav } from '@/components/bottom-nav';
-import { Calendar, Send, CheckCircle2, Clock, Archive } from 'lucide-react';
+import { Calendar, Send, CheckCircle2, Clock, Archive, MessageCircle } from 'lucide-react';
 import { format } from 'date-fns';
 import { ja } from 'date-fns/locale';
 
@@ -293,6 +293,15 @@ export default function TasksPage() {
                           アーカイブ
                         </Button>
                       )}
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => router.push('/chat?tab=staff')}
+                        className="text-purple-600 border-purple-200 hover:bg-purple-50"
+                      >
+                        <MessageCircle className="w-4 h-4 mr-1" />
+                        チャットで相談
+                      </Button>
                     </div>
 
                     <div className="border-t pt-4">

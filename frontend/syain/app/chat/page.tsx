@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useRef, useCallback } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { Card } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Input } from '@/components/ui/input';
@@ -18,6 +18,9 @@ import {
   Check,
   CheckCheck,
   Archive,
+  User,
+  UserPlus,
+  Plus,
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { ja } from 'date-fns/locale';
@@ -45,7 +48,9 @@ import { getAccessToken } from '@/lib/api/client';
 
 export default function ChatPage() {
   const router = useRouter();
-  const [activeTab, setActiveTab] = useState<'guardian' | 'group' | 'staff'>('guardian');
+  const searchParams = useSearchParams();
+  const initialTab = searchParams.get('tab') as 'guardian' | 'group' | 'staff' | null;
+  const [activeTab, setActiveTab] = useState<'guardian' | 'group' | 'staff'>(initialTab || 'guardian');
   const [channels, setChannels] = useState<Channel[]>([]);
   const [selectedChannel, setSelectedChannel] = useState<Channel | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -64,6 +69,14 @@ export default function ChatPage() {
   const [showNewGroup, setShowNewGroup] = useState(false);
   const [groupName, setGroupName] = useState('');
   const [selectedMembers, setSelectedMembers] = useState<string[]>([]);
+
+  // URLパラメータからタブを設定
+  useEffect(() => {
+    const tab = searchParams.get('tab') as 'guardian' | 'group' | 'staff' | null;
+    if (tab && ['guardian', 'group', 'staff'].includes(tab)) {
+      setActiveTab(tab);
+    }
+  }, [searchParams]);
 
   // 認証チェック
   useEffect(() => {
@@ -104,7 +117,7 @@ export default function ChatPage() {
   // メッセージ更新時に自動スクロール
   useEffect(() => {
     scrollToBottom();
-  }, [messages]);
+  }, [messages, staffMessages]);
 
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -120,6 +133,38 @@ export default function ChatPage() {
       console.error('Failed to load channels:', error);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const loadStaffChannels = async () => {
+    try {
+      setIsLoading(true);
+      const data = await getStaffChannels();
+      setStaffChannels(Array.isArray(data) ? data : []);
+    } catch (error) {
+      console.error('Failed to load staff channels:', error);
+      setStaffChannels([]);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const loadStaffList = async () => {
+    try {
+      const data = await getStaffList();
+      setStaffList(data);
+    } catch (error) {
+      console.error('Failed to load staff list:', error);
+    }
+  };
+
+  const loadStaffMessagesForChannel = async () => {
+    if (!selectedStaffChannel) return;
+    try {
+      const data = await getStaffMessages(selectedStaffChannel.id);
+      setStaffMessages(Array.isArray(data) ? data : []);
+    } catch (error) {
+      console.error('Failed to load staff messages:', error);
     }
   };
 
@@ -213,6 +258,68 @@ export default function ChatPage() {
     }
   };
 
+  // スタッフメッセージ送信
+  const handleSendStaffMessage = async () => {
+    if (!selectedStaffChannel || !newMessage.trim() || isSending) return;
+
+    const content = newMessage.trim();
+    setNewMessage('');
+    setIsSending(true);
+
+    try {
+      await sendStaffMessage(selectedStaffChannel.id, content);
+      await loadStaffMessagesForChannel();
+    } catch (error) {
+      console.error('Failed to send staff message:', error);
+      setNewMessage(content);
+      alert('メッセージの送信に失敗しました');
+    } finally {
+      setIsSending(false);
+    }
+  };
+
+  // スタッフDM作成
+  const handleCreateStaffDM = async (staffId: string) => {
+    try {
+      const channel = await createStaffDM(staffId);
+      await loadStaffChannels();
+      setSelectedStaffChannel(channel);
+      setShowNewDM(false);
+    } catch (error) {
+      console.error('Failed to create staff DM:', error);
+      alert('チャットの作成に失敗しました');
+    }
+  };
+
+  // スタッフグループ作成
+  const handleCreateStaffGroup = async () => {
+    if (!groupName.trim()) {
+      alert('グループ名を入力してください');
+      return;
+    }
+
+    try {
+      const channel = await createStaffGroup(groupName.trim(), selectedMembers);
+      await loadStaffChannels();
+      setSelectedStaffChannel(channel);
+      setShowNewGroup(false);
+      setGroupName('');
+      setSelectedMembers([]);
+    } catch (error) {
+      console.error('Failed to create staff group:', error);
+      alert('グループの作成に失敗しました');
+    }
+  };
+
+  // スタッフチャンネル名を取得
+  const getStaffChannelDisplayName = (channel: StaffChannel) => {
+    if (channel.members && channel.members.length === 2) {
+      const other = channel.members.find((m) => m.user?.id !== currentUserId);
+      return other?.user?.fullName || other?.user?.email || channel.name;
+    }
+    return channel.name;
+  };
+
   // 検索フィルター
   const filteredChannels = channels.filter(channel => {
     if (!searchQuery) return true;
@@ -222,6 +329,14 @@ export default function ChatPage() {
       channel.guardian?.fullName?.toLowerCase().includes(query) ||
       channel.student?.fullName?.toLowerCase().includes(query)
     );
+  });
+
+  // スタッフチャンネル検索フィルター
+  const filteredStaffChannels = staffChannels.filter(channel => {
+    if (!searchQuery) return true;
+    const query = searchQuery.toLowerCase();
+    const displayName = getStaffChannelDisplayName(channel);
+    return displayName.toLowerCase().includes(query);
   });
 
   // 現在のユーザーIDを取得（JWTから）
@@ -246,7 +361,9 @@ export default function ChatPage() {
         <div className="bg-white/80 backdrop-blur-sm border-b border-gray-200 sticky top-0 z-10">
           <div className="p-4">
             <h1 className="text-2xl font-bold text-gray-900">チャット</h1>
-            <p className="text-sm text-gray-600">保護者との連絡</p>
+            <p className="text-sm text-gray-600">
+              {activeTab === 'staff' ? '社員との連絡' : activeTab === 'group' ? 'グループチャット' : '保護者との連絡'}
+            </p>
           </div>
         </div>
 
@@ -263,8 +380,8 @@ export default function ChatPage() {
           </div>
 
           {/* タブ */}
-          <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as 'guardian' | 'group')} className="w-full">
-            <TabsList className="grid w-full grid-cols-2 mb-4">
+          <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as 'guardian' | 'group' | 'staff')} className="w-full">
+            <TabsList className="grid w-full grid-cols-3 mb-4">
               <TabsTrigger value="guardian" className="text-xs">
                 <MessageCircle className="w-4 h-4 mr-1" />
                 保護者
@@ -273,9 +390,14 @@ export default function ChatPage() {
                 <Users className="w-4 h-4 mr-1" />
                 グループ
               </TabsTrigger>
+              <TabsTrigger value="staff" className="text-xs">
+                <User className="w-4 h-4 mr-1" />
+                社員
+              </TabsTrigger>
             </TabsList>
 
-            <TabsContent value={activeTab} className="space-y-4">
+            {/* 保護者・グループタブ */}
+            <TabsContent value="guardian" className="space-y-4">
               {isLoading ? (
                 <div className="flex items-center justify-center py-8">
                   <Loader2 className="h-6 w-6 animate-spin text-blue-600" />
@@ -337,6 +459,8 @@ export default function ChatPage() {
                   ))}
                 </div>
               )}
+
+              {/* チャット詳細 - 保護者 */}
 
               {/* チャット詳細 */}
               {selectedChannel && (
@@ -443,6 +567,375 @@ export default function ChatPage() {
                         ) : (
                           <Send className="w-4 h-4" />
                         )}
+                      </Button>
+                    </div>
+                  </div>
+                </Card>
+              )}
+            </TabsContent>
+
+            {/* グループタブ - 同じ構造 */}
+            <TabsContent value="group" className="space-y-4">
+              {isLoading ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="h-6 w-6 animate-spin text-blue-600" />
+                </div>
+              ) : filteredChannels.length === 0 ? (
+                <Card className="p-8 text-center text-gray-500">
+                  {searchQuery ? '検索結果がありません' : 'グループチャットがありません'}
+                </Card>
+              ) : (
+                <div className="space-y-2">
+                  {filteredChannels.map(channel => (
+                    <Card
+                      key={channel.id}
+                      className={`p-3 cursor-pointer transition-all ${
+                        selectedChannel?.id === channel.id
+                          ? 'ring-2 ring-blue-500 bg-blue-50'
+                          : 'hover:bg-gray-50'
+                      }`}
+                      onClick={() => setSelectedChannel(channel)}
+                    >
+                      <div className="flex items-center gap-3">
+                        <Avatar className="bg-green-100">
+                          <AvatarFallback className="text-green-600 text-sm font-semibold">
+                            <Users className="w-4 h-4" />
+                          </AvatarFallback>
+                        </Avatar>
+                        <div className="flex-1 min-w-0">
+                          <h3 className="font-semibold text-gray-900 truncate">
+                            {channel.name}
+                          </h3>
+                          {channel.lastMessage && (
+                            <p className="text-xs text-gray-500 truncate">
+                              {channel.lastMessage.content}
+                            </p>
+                          )}
+                        </div>
+                        {channel.unreadCount > 0 && (
+                          <Badge className="bg-red-500 text-white">{channel.unreadCount}</Badge>
+                        )}
+                      </div>
+                    </Card>
+                  ))}
+                </div>
+              )}
+
+              {selectedChannel && (
+                <Card className="shadow-lg border-0 mt-4">
+                  <div className="p-3 border-b flex items-center gap-3">
+                    <button
+                      onClick={() => {
+                        setSelectedChannel(null);
+                        setMessages([]);
+                      }}
+                      className="p-1"
+                    >
+                      <ChevronLeft className="w-5 h-5 text-gray-600" />
+                    </button>
+                    <Avatar className="bg-green-100">
+                      <AvatarFallback className="text-green-600 text-sm font-semibold">
+                        <Users className="w-4 h-4" />
+                      </AvatarFallback>
+                    </Avatar>
+                    <h3 className="font-semibold text-gray-900 flex-1">
+                      {selectedChannel.name}
+                    </h3>
+                  </div>
+
+                  <ScrollArea className="h-80 p-3">
+                    <div className="space-y-3">
+                      {messages.length === 0 ? (
+                        <p className="text-center text-gray-500 py-8">メッセージがありません</p>
+                      ) : (
+                        messages.map(message => {
+                          const senderId = message.sender || message.senderId;
+                          const isOwnMessage = senderId === currentUserId;
+                          return (
+                            <div
+                              key={message.id}
+                              className={`flex ${isOwnMessage ? 'justify-end' : 'justify-start'}`}
+                            >
+                              <div
+                                className={`max-w-[75%] ${
+                                  isOwnMessage
+                                    ? 'bg-blue-500 text-white rounded-2xl rounded-br-md'
+                                    : 'bg-gray-100 text-gray-900 rounded-2xl rounded-bl-md'
+                                } p-3 shadow-sm`}
+                              >
+                                {!isOwnMessage && (
+                                  <p className="text-xs font-semibold mb-1 text-gray-600">
+                                    {message.senderName || 'スタッフ'}
+                                  </p>
+                                )}
+                                <p className="text-sm break-words whitespace-pre-wrap">{message.content}</p>
+                                <p className={`text-xs mt-1 ${isOwnMessage ? 'text-blue-200' : 'text-gray-500'}`}>
+                                  {format(new Date(message.createdAt), 'HH:mm', { locale: ja })}
+                                </p>
+                              </div>
+                            </div>
+                          );
+                        })
+                      )}
+                      <div ref={messagesEndRef} />
+                    </div>
+                  </ScrollArea>
+
+                  <div className="p-3 border-t bg-white">
+                    <div className="flex gap-2">
+                      <Input
+                        placeholder="メッセージを入力..."
+                        value={newMessage}
+                        onChange={e => setNewMessage(e.target.value)}
+                        onKeyPress={handleKeyPress}
+                        disabled={isSending}
+                        className="flex-1"
+                      />
+                      <Button
+                        onClick={handleSendMessage}
+                        disabled={!newMessage.trim() || isSending}
+                        size="icon"
+                        className="bg-blue-600 hover:bg-blue-700"
+                      >
+                        {isSending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                      </Button>
+                    </div>
+                  </div>
+                </Card>
+              )}
+            </TabsContent>
+
+            {/* 社員チャットタブ */}
+            <TabsContent value="staff" className="space-y-4">
+              {/* 新規チャット作成ボタン */}
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowNewDM(!showNewDM)}
+                  className="flex-1"
+                >
+                  <UserPlus className="w-4 h-4 mr-1" />
+                  新規DM
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowNewGroup(!showNewGroup)}
+                  className="flex-1"
+                >
+                  <Plus className="w-4 h-4 mr-1" />
+                  グループ作成
+                </Button>
+              </div>
+
+              {/* 新規DM選択 */}
+              {showNewDM && (
+                <Card className="p-3">
+                  <h4 className="font-medium mb-2 text-sm">スタッフを選択</h4>
+                  <ScrollArea className="h-40">
+                    <div className="space-y-1">
+                      {staffList.map(staff => (
+                        <button
+                          key={staff.id}
+                          onClick={() => handleCreateStaffDM(staff.id)}
+                          className="w-full text-left p-2 rounded hover:bg-gray-100 flex items-center gap-2"
+                        >
+                          <User className="w-4 h-4 text-gray-400" />
+                          <span className="text-sm">{staff.name}</span>
+                          {staff.position && (
+                            <span className="text-xs text-gray-400">({staff.position})</span>
+                          )}
+                        </button>
+                      ))}
+                    </div>
+                  </ScrollArea>
+                </Card>
+              )}
+
+              {/* グループ作成 */}
+              {showNewGroup && (
+                <Card className="p-3">
+                  <h4 className="font-medium mb-2 text-sm">グループ作成</h4>
+                  <Input
+                    placeholder="グループ名"
+                    value={groupName}
+                    onChange={e => setGroupName(e.target.value)}
+                    className="mb-2"
+                  />
+                  <div className="text-xs text-gray-500 mb-1">メンバーを選択</div>
+                  <ScrollArea className="h-32 mb-2">
+                    <div className="space-y-1">
+                      {staffList.map(staff => (
+                        <label
+                          key={staff.id}
+                          className="flex items-center gap-2 p-1 rounded hover:bg-gray-100 cursor-pointer"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={selectedMembers.includes(staff.id)}
+                            onChange={e => {
+                              if (e.target.checked) {
+                                setSelectedMembers([...selectedMembers, staff.id]);
+                              } else {
+                                setSelectedMembers(selectedMembers.filter(id => id !== staff.id));
+                              }
+                            }}
+                          />
+                          <span className="text-sm">{staff.name}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </ScrollArea>
+                  <Button onClick={handleCreateStaffGroup} size="sm" className="w-full">
+                    作成
+                  </Button>
+                </Card>
+              )}
+
+              {/* スタッフチャンネル一覧 */}
+              {isLoading ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="h-6 w-6 animate-spin text-blue-600" />
+                </div>
+              ) : filteredStaffChannels.length === 0 ? (
+                <Card className="p-8 text-center text-gray-500">
+                  {searchQuery ? '検索結果がありません' : '社員チャットがありません'}
+                  <p className="text-sm mt-2">上のボタンから新しいチャットを始めましょう</p>
+                </Card>
+              ) : (
+                <div className="space-y-2">
+                  {filteredStaffChannels.map(channel => (
+                    <Card
+                      key={channel.id}
+                      className={`p-3 cursor-pointer transition-all ${
+                        selectedStaffChannel?.id === channel.id
+                          ? 'ring-2 ring-blue-500 bg-blue-50'
+                          : 'hover:bg-gray-50'
+                      }`}
+                      onClick={() => setSelectedStaffChannel(channel)}
+                    >
+                      <div className="flex items-center gap-3">
+                        <Avatar className="bg-purple-100">
+                          <AvatarFallback className="text-purple-600 text-sm font-semibold">
+                            {channel.members && channel.members.length === 2 ? (
+                              <User className="w-4 h-4" />
+                            ) : (
+                              <Users className="w-4 h-4" />
+                            )}
+                          </AvatarFallback>
+                        </Avatar>
+                        <div className="flex-1 min-w-0">
+                          <h3 className="font-semibold text-gray-900 truncate">
+                            {getStaffChannelDisplayName(channel)}
+                          </h3>
+                          {channel.description && (
+                            <p className="text-xs text-gray-500 truncate">{channel.description}</p>
+                          )}
+                        </div>
+                        {channel.unreadCount && channel.unreadCount > 0 && (
+                          <Badge className="bg-red-500 text-white">{channel.unreadCount}</Badge>
+                        )}
+                      </div>
+                    </Card>
+                  ))}
+                </div>
+              )}
+
+              {/* スタッフチャット詳細 */}
+              {selectedStaffChannel && (
+                <Card className="shadow-lg border-0 mt-4">
+                  <div className="p-3 border-b flex items-center gap-3">
+                    <button
+                      onClick={() => {
+                        setSelectedStaffChannel(null);
+                        setStaffMessages([]);
+                      }}
+                      className="p-1"
+                    >
+                      <ChevronLeft className="w-5 h-5 text-gray-600" />
+                    </button>
+                    <Avatar className="bg-purple-100">
+                      <AvatarFallback className="text-purple-600 text-sm font-semibold">
+                        {selectedStaffChannel.members && selectedStaffChannel.members.length === 2 ? (
+                          <User className="w-4 h-4" />
+                        ) : (
+                          <Users className="w-4 h-4" />
+                        )}
+                      </AvatarFallback>
+                    </Avatar>
+                    <div className="flex-1">
+                      <h3 className="font-semibold text-gray-900">
+                        {getStaffChannelDisplayName(selectedStaffChannel)}
+                      </h3>
+                      {selectedStaffChannel.members && (
+                        <p className="text-xs text-gray-500">
+                          {selectedStaffChannel.members.length}人のメンバー
+                        </p>
+                      )}
+                    </div>
+                  </div>
+
+                  <ScrollArea className="h-80 p-3">
+                    <div className="space-y-3">
+                      {staffMessages.length === 0 ? (
+                        <p className="text-center text-gray-500 py-8">メッセージがありません</p>
+                      ) : (
+                        staffMessages.map(message => {
+                          const senderId = message.sender || message.senderId;
+                          const isOwnMessage = senderId === currentUserId;
+                          return (
+                            <div
+                              key={message.id}
+                              className={`flex ${isOwnMessage ? 'justify-end' : 'justify-start'}`}
+                            >
+                              <div
+                                className={`max-w-[75%] ${
+                                  isOwnMessage
+                                    ? 'bg-blue-500 text-white rounded-2xl rounded-br-md'
+                                    : 'bg-gray-100 text-gray-900 rounded-2xl rounded-bl-md'
+                                } p-3 shadow-sm`}
+                              >
+                                {!isOwnMessage && (
+                                  <p className="text-xs font-semibold mb-1 text-purple-600">
+                                    {message.senderName || 'スタッフ'}
+                                  </p>
+                                )}
+                                <p className="text-sm break-words whitespace-pre-wrap">{message.content}</p>
+                                <p className={`text-xs mt-1 ${isOwnMessage ? 'text-blue-200' : 'text-gray-500'}`}>
+                                  {format(new Date(message.createdAt), 'HH:mm', { locale: ja })}
+                                </p>
+                              </div>
+                            </div>
+                          );
+                        })
+                      )}
+                      <div ref={messagesEndRef} />
+                    </div>
+                  </ScrollArea>
+
+                  <div className="p-3 border-t bg-white">
+                    <div className="flex gap-2">
+                      <Input
+                        placeholder="メッセージを入力..."
+                        value={newMessage}
+                        onChange={e => setNewMessage(e.target.value)}
+                        onKeyPress={e => {
+                          if (e.key === 'Enter' && !e.shiftKey) {
+                            e.preventDefault();
+                            handleSendStaffMessage();
+                          }
+                        }}
+                        disabled={isSending}
+                        className="flex-1"
+                      />
+                      <Button
+                        onClick={handleSendStaffMessage}
+                        disabled={!newMessage.trim() || isSending}
+                        size="icon"
+                        className="bg-blue-600 hover:bg-blue-700"
+                      >
+                        {isSending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
                       </Button>
                     </div>
                   </div>

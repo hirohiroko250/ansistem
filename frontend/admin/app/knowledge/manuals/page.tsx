@@ -19,8 +19,12 @@ import {
   BookOpen,
   Tag,
   Clock,
-  User
+  User,
+  Image as ImageIcon,
+  Link as LinkIcon,
+  Upload,
 } from "lucide-react";
+import { FileUpload, FilePreview } from "@/components/ui/file-upload";
 
 interface ManualCategory {
   id: number;
@@ -37,13 +41,91 @@ interface Manual {
   content: string;
   category: ManualCategory | null;
   categoryId: number | null;
+  categoryName?: string;
   author: { id: number; fullName: string } | null;
+  authorName?: string;
   tags: string[];
   isPinned: boolean;
   isPublished: boolean;
   viewCount: number;
+  coverImage?: string;
+  images?: Array<{ url: string; alt?: string }>;
   createdAt: string;
   updatedAt: string;
+}
+
+// 簡易Markdownレンダラー
+function renderMarkdown(content: string): React.ReactNode {
+  if (!content) return null;
+
+  // 行ごとに処理
+  const lines = content.split('\n');
+  const elements: React.ReactNode[] = [];
+
+  lines.forEach((line, index) => {
+    // 見出し
+    if (line.startsWith('### ')) {
+      elements.push(<h3 key={index} className="text-lg font-bold mt-4 mb-2">{line.slice(4)}</h3>);
+    } else if (line.startsWith('## ')) {
+      elements.push(<h2 key={index} className="text-xl font-bold mt-6 mb-3">{line.slice(3)}</h2>);
+    } else if (line.startsWith('# ')) {
+      elements.push(<h1 key={index} className="text-2xl font-bold mt-6 mb-3">{line.slice(2)}</h1>);
+    }
+    // リスト
+    else if (line.startsWith('- ') || line.startsWith('* ')) {
+      elements.push(
+        <li key={index} className="ml-4 list-disc">{formatInline(line.slice(2))}</li>
+      );
+    }
+    // 番号付きリスト
+    else if (/^\d+\. /.test(line)) {
+      const text = line.replace(/^\d+\. /, '');
+      elements.push(
+        <li key={index} className="ml-4 list-decimal">{formatInline(text)}</li>
+      );
+    }
+    // 空行
+    else if (line.trim() === '') {
+      elements.push(<br key={index} />);
+    }
+    // 通常のテキスト
+    else {
+      elements.push(<p key={index} className="mb-2">{formatInline(line)}</p>);
+    }
+  });
+
+  return <>{elements}</>;
+}
+
+// インライン要素のフォーマット
+function formatInline(text: string): React.ReactNode {
+  // 太字 **text**
+  let result: React.ReactNode[] = [];
+  const parts = text.split(/(\*\*[^*]+\*\*)/g);
+
+  parts.forEach((part, i) => {
+    if (part.startsWith('**') && part.endsWith('**')) {
+      result.push(<strong key={i}>{part.slice(2, -2)}</strong>);
+    } else if (part.includes('`')) {
+      // コード `code`
+      const codeParts = part.split(/(`[^`]+`)/g);
+      codeParts.forEach((codePart, j) => {
+        if (codePart.startsWith('`') && codePart.endsWith('`')) {
+          result.push(
+            <code key={`${i}-${j}`} className="bg-gray-100 px-1 rounded text-sm font-mono">
+              {codePart.slice(1, -1)}
+            </code>
+          );
+        } else {
+          result.push(codePart);
+        }
+      });
+    } else {
+      result.push(part);
+    }
+  });
+
+  return result;
 }
 
 export default function ManualsPage() {
@@ -61,9 +143,13 @@ export default function ManualsPage() {
     content: "",
     categoryId: "",
     tags: "",
+    coverImage: "",
+    images: [] as Array<{ url: string; alt: string }>,
     isPinned: false,
     isPublished: true,
   });
+  const [newImageUrl, setNewImageUrl] = useState("");
+  const [newImageAlt, setNewImageAlt] = useState("");
 
   useEffect(() => {
     loadData();
@@ -129,9 +215,13 @@ export default function ManualsPage() {
       content: "",
       categoryId: "",
       tags: "",
+      coverImage: "",
+      images: [],
       isPinned: false,
       isPublished: true,
     });
+    setNewImageUrl("");
+    setNewImageAlt("");
     setIsCreating(true);
     setIsEditing(false);
     setSelectedManual(null);
@@ -145,11 +235,40 @@ export default function ManualsPage() {
       content: selectedManual.content,
       categoryId: selectedManual.categoryId?.toString() || "",
       tags: selectedManual.tags?.join(", ") || "",
+      coverImage: selectedManual.coverImage || "",
+      images: (selectedManual.images || []).map(img => ({ url: img.url, alt: img.alt || "" })),
       isPinned: selectedManual.isPinned,
       isPublished: selectedManual.isPublished,
     });
+    setNewImageUrl("");
+    setNewImageAlt("");
     setIsEditing(true);
     setIsCreating(false);
+  }
+
+  function addImage() {
+    if (!newImageUrl.trim()) return;
+    setEditForm({
+      ...editForm,
+      images: [...editForm.images, { url: newImageUrl.trim(), alt: newImageAlt.trim() || "画像" }],
+    });
+    setNewImageUrl("");
+    setNewImageAlt("");
+  }
+
+  function removeImage(index: number) {
+    setEditForm({
+      ...editForm,
+      images: editForm.images.filter((_, i) => i !== index),
+    });
+  }
+
+  function insertImageToContent(url: string, alt: string) {
+    const imageMarkdown = `\n![${alt}](${url})\n`;
+    setEditForm({
+      ...editForm,
+      content: editForm.content + imageMarkdown,
+    });
   }
 
   async function handleSave() {
@@ -160,6 +279,8 @@ export default function ManualsPage() {
         content: editForm.content,
         category_id: editForm.categoryId ? parseInt(editForm.categoryId) : null,
         tags: editForm.tags.split(",").map(t => t.trim()).filter(t => t),
+        cover_image: editForm.coverImage || null,
+        images: editForm.images,
         is_pinned: editForm.isPinned,
         is_published: editForm.isPublished,
       };
@@ -263,6 +384,102 @@ export default function ManualsPage() {
                 />
               </div>
 
+              {/* カバー画像 */}
+              <div>
+                <Label className="flex items-center gap-1 mb-2">
+                  <ImageIcon className="w-4 h-4" />
+                  カバー画像
+                </Label>
+                {editForm.coverImage ? (
+                  <div className="relative inline-block">
+                    <img
+                      src={editForm.coverImage}
+                      alt="カバー画像"
+                      className="max-h-32 rounded border"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setEditForm({ ...editForm, coverImage: "" })}
+                      className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 hover:bg-red-600"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </div>
+                ) : (
+                  <FileUpload
+                    accept="image/*"
+                    label="カバー画像をアップロード"
+                    onUpload={(file) => setEditForm({ ...editForm, coverImage: file.url })}
+                  />
+                )}
+              </div>
+
+              {/* 添付画像・動画 */}
+              <div>
+                <Label className="flex items-center gap-1 mb-2">
+                  <Upload className="w-4 h-4" />
+                  添付ファイル（画像・動画）
+                </Label>
+                <FileUpload
+                  accept="image/*,video/*"
+                  multiple
+                  label="画像・動画をアップロード"
+                  onUpload={(file) => {
+                    setEditForm({
+                      ...editForm,
+                      images: [...editForm.images, { url: file.url, alt: file.filename }],
+                    });
+                  }}
+                />
+                {editForm.images.length > 0 && (
+                  <div className="mt-3 space-y-2 p-3 bg-gray-50 rounded">
+                    {editForm.images.map((img, idx) => (
+                      <div key={idx} className="flex items-center gap-2 text-sm">
+                        {img.url.match(/\.(mp4|webm|mov|avi)$/i) ? (
+                          <video
+                            src={img.url}
+                            className="w-12 h-12 object-cover rounded"
+                          />
+                        ) : (
+                          <img
+                            src={img.url}
+                            alt={img.alt}
+                            className="w-12 h-12 object-cover rounded"
+                          />
+                        )}
+                        <Input
+                          value={img.alt}
+                          onChange={(e) => {
+                            const newImages = [...editForm.images];
+                            newImages[idx] = { ...newImages[idx], alt: e.target.value };
+                            setEditForm({ ...editForm, images: newImages });
+                          }}
+                          placeholder="説明"
+                          className="flex-1 h-8 text-sm"
+                        />
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => insertImageToContent(img.url, img.alt)}
+                          title="本文に挿入"
+                        >
+                          <LinkIcon className="w-3 h-3" />
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => removeImage(idx)}
+                        >
+                          <X className="w-3 h-3" />
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
               <div className="flex gap-4">
                 <label className="flex items-center gap-2">
                   <input
@@ -293,7 +510,19 @@ export default function ManualsPage() {
             </div>
           </div>
         ) : selectedManual ? (
-          <div className="p-6">
+          <div className="p-6 overflow-y-auto max-h-[calc(100vh-100px)]">
+            {/* カバー画像 */}
+            {selectedManual.coverImage && (
+              <div className="mb-4 -mx-6 -mt-6">
+                <img
+                  src={selectedManual.coverImage}
+                  alt={selectedManual.title}
+                  className="w-full h-48 object-cover"
+                  onError={(e) => (e.currentTarget.style.display = 'none')}
+                />
+              </div>
+            )}
+
             <div className="flex justify-between items-start mb-4">
               <div className="flex-1">
                 <div className="flex items-center gap-2 mb-2">
@@ -302,9 +531,9 @@ export default function ManualsPage() {
                   )}
                   <h2 className="text-xl font-bold">{selectedManual.title}</h2>
                 </div>
-                {selectedManual.category && (
+                {(selectedManual.category || selectedManual.categoryName) && (
                   <span className="text-sm bg-gray-100 px-2 py-1 rounded">
-                    {selectedManual.category.name}
+                    {selectedManual.categoryName || selectedManual.category?.name}
                   </span>
                 )}
               </div>
@@ -322,7 +551,9 @@ export default function ManualsPage() {
             </div>
 
             {selectedManual.summary && (
-              <p className="text-gray-600 mb-4">{selectedManual.summary}</p>
+              <p className="text-gray-600 mb-4 bg-gray-50 p-3 rounded-lg italic">
+                {selectedManual.summary}
+              </p>
             )}
 
             <div className="flex gap-4 text-sm text-gray-500 mb-4">
@@ -334,16 +565,16 @@ export default function ManualsPage() {
                 <Clock className="w-4 h-4" />
                 {new Date(selectedManual.updatedAt).toLocaleDateString("ja-JP")}
               </span>
-              {selectedManual.author && (
+              {(selectedManual.author || selectedManual.authorName) && (
                 <span className="flex items-center gap-1">
                   <User className="w-4 h-4" />
-                  {selectedManual.author.fullName}
+                  {selectedManual.authorName || selectedManual.author?.fullName}
                 </span>
               )}
             </div>
 
             {selectedManual.tags && selectedManual.tags.length > 0 && (
-              <div className="flex gap-2 mb-4">
+              <div className="flex flex-wrap gap-2 mb-4">
                 {selectedManual.tags.map((tag, idx) => (
                   <span key={idx} className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded flex items-center gap-1">
                     <Tag className="w-3 h-3" />
@@ -353,9 +584,30 @@ export default function ManualsPage() {
               </div>
             )}
 
+            {/* 添付画像ギャラリー */}
+            {selectedManual.images && selectedManual.images.length > 0 && (
+              <div className="mb-4">
+                <h4 className="text-sm font-medium text-gray-500 mb-2 flex items-center gap-1">
+                  <ImageIcon className="w-4 h-4" />
+                  添付画像
+                </h4>
+                <div className="flex gap-2 overflow-x-auto pb-2">
+                  {selectedManual.images.map((img, idx) => (
+                    <img
+                      key={idx}
+                      src={img.url}
+                      alt={img.alt || `画像${idx + 1}`}
+                      className="h-24 w-auto rounded border cursor-pointer hover:opacity-80"
+                      onClick={() => window.open(img.url, '_blank')}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
+
             <div className="border-t pt-4">
-              <div className="prose prose-sm max-w-none whitespace-pre-wrap">
-                {selectedManual.content}
+              <div className="prose prose-sm max-w-none">
+                {renderMarkdown(selectedManual.content)}
               </div>
             </div>
           </div>

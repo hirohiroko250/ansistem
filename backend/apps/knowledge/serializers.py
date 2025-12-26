@@ -30,6 +30,7 @@ class ManualListSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'title', 'slug', 'category', 'category_name',
             'summary', 'tags', 'author_name', 'external_url',
+            'cover_image', 'images',
             'view_count', 'is_published', 'is_pinned',
             'created_at', 'updated_at'
         ]
@@ -50,7 +51,8 @@ class ManualDetailSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'title', 'slug', 'category', 'category_name',
             'content', 'summary', 'tags', 'author', 'author_name',
-            'external_url', 'view_count', 'is_published', 'is_pinned',
+            'external_url', 'cover_image', 'images',
+            'view_count', 'is_published', 'is_pinned',
             'published_at', 'created_at', 'updated_at'
         ]
 
@@ -67,7 +69,8 @@ class ManualCreateUpdateSerializer(serializers.ModelSerializer):
         model = Manual
         fields = [
             'title', 'slug', 'category', 'content', 'summary',
-            'tags', 'author', 'external_url', 'is_published', 'is_pinned'
+            'tags', 'author', 'external_url', 'cover_image', 'images',
+            'is_published', 'is_pinned'
         ]
 
 

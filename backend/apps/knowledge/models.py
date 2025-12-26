@@ -49,9 +49,18 @@ class Manual(TenantModel):
         related_name='manuals',
         verbose_name='カテゴリ'
     )
-    content = models.TextField('内容')
+    content = models.TextField('内容', help_text='Markdown形式で記述可能')
     summary = models.TextField('概要', blank=True, help_text='検索用の概要')
     tags = models.JSONField('タグ', default=list, blank=True)
+
+    # 画像
+    images = models.JSONField(
+        '画像',
+        default=list,
+        blank=True,
+        help_text='添付画像のURL一覧 [{"url": "...", "alt": "..."}]'
+    )
+    cover_image = models.URLField('カバー画像', blank=True, help_text='サムネイル用の画像URL')
 
     # メタデータ
     author = models.ForeignKey(
