@@ -326,28 +326,15 @@ export function StudentDetail({ student, parents, contracts, invoices, contactLo
     fetchBillingDeadlines();
   }, []);
 
-  // 日付から請求月を計算（締め日ロジック）
-  // 例: 締め日=10の場合
-  // - 12/11〜1/10 → 1月期間 → 2月請求
-  // - 1/11〜2/10 → 2月期間 → 3月請求
+  // 日付から請求月を計算
+  // 契約開始月 = 請求月（シンプルなロジック）
+  // 例: 2月1日開始 → 2月請求
   const getBillingMonthForDate = (date: Date, closingDay: number = 10): { year: number; month: number } => {
-    let periodYear: number;
-    let periodMonth: number;
-
-    if (date.getDate() > closingDay) {
-      // 締め日を過ぎている場合は翌月期間
-      const nextMonth = new Date(date.getFullYear(), date.getMonth() + 1, 1);
-      periodYear = nextMonth.getFullYear();
-      periodMonth = nextMonth.getMonth() + 1;
-    } else {
-      // 締め日以内の場合は当月期間
-      periodYear = date.getFullYear();
-      periodMonth = date.getMonth() + 1;
-    }
-
-    // 請求月は期間の翌月
-    const billingDate = new Date(periodYear, periodMonth, 1); // periodMonthは1-indexed、Dateの月は0-indexed
-    return { year: billingDate.getFullYear(), month: billingDate.getMonth() + 1 };
+    // 契約開始月をそのまま請求月とする
+    return {
+      year: date.getFullYear(),
+      month: date.getMonth() + 1
+    };
   };
 
   // 現在の請求月を計算（今日の日付から）
@@ -844,40 +831,102 @@ export function StudentDetail({ student, parents, contracts, invoices, contactLo
                       <td className="px-2 py-1">{primarySchoolName || "-"}</td>
                     </tr>
                     <tr className="border-b">
-                      <th className="px-2 py-1 text-left text-gray-600 font-medium border-r">ブランド</th>
-                      <td className="px-2 py-1 truncate max-w-[120px]">
-                        {primaryBrandName || (brandNames.length > 0 ? brandNames.join(", ") : "-")}
-                      </td>
-                    </tr>
-                    <tr className="border-b bg-gray-50">
                       <th className="px-2 py-1 text-left text-gray-600 font-medium border-r">体験日</th>
                       <td className="px-2 py-1">{formatDate(trialDate)}</td>
-                    </tr>
-                    <tr className="border-b">
-                      <th className="px-2 py-1 text-left text-gray-600 font-medium border-r">入会日</th>
-                      <td className="px-2 py-1">{formatDate(enrollmentDate)}</td>
                     </tr>
                     <tr className="border-b bg-gray-50">
                       <th className="px-2 py-1 text-left text-gray-600 font-medium border-r">登録日</th>
                       <td className="px-2 py-1">{formatDate(registeredDate)}</td>
                     </tr>
-                    <tr className="border-b">
-                      <th className="px-2 py-1 text-left text-gray-600 font-medium border-r">契約</th>
-                      <td className="px-2 py-1">
-                        {contracts.length > 0 ? (
-                          <div className="flex flex-wrap gap-0.5">
-                            {Array.from(new Set(contracts.map(c => (c as any).brand_name || (c as any).brandName).filter(Boolean))).slice(0, 2).map((brandName, i) => (
-                              <Badge key={i} variant="outline" className="text-[10px] px-1 py-0">{brandName as string}</Badge>
-                            ))}
-                            {Array.from(new Set(contracts.map(c => (c as any).brand_name || (c as any).brandName).filter(Boolean))).length > 2 && (
-                              <span className="text-[10px] text-gray-400">+{Array.from(new Set(contracts.map(c => (c as any).brand_name || (c as any).brandName).filter(Boolean))).length - 2}</span>
-                            )}
-                          </div>
-                        ) : "-"}
-                      </td>
-                    </tr>
                   </tbody>
                 </table>
+
+                {/* ブランド別入会・退会情報 */}
+                {(() => {
+                  // ブランドごとにグループ化して入会日・退会日を集計
+                  const brandDates = contracts.reduce((acc, contract) => {
+                    const brandId = contract.brand_id || (contract.brand as any)?.id;
+                    const brandName = contract.brand_name || contract.brandName || (contract.brand as any)?.brand_name || (contract.brand as any)?.brandName || "";
+                    if (!brandId || !brandName) return acc;
+
+                    if (!acc[brandId]) {
+                      acc[brandId] = {
+                        brandName,
+                        enrollmentDate: null as string | null,
+                        withdrawalDate: null as string | null,
+                        status: contract.status,
+                      };
+                    }
+
+                    // 入会日: 最も古いstart_date
+                    const startDate = contract.start_date || contract.startDate;
+                    if (startDate) {
+                      if (!acc[brandId].enrollmentDate || startDate < acc[brandId].enrollmentDate!) {
+                        acc[brandId].enrollmentDate = startDate;
+                      }
+                    }
+
+                    // 退会日: end_dateがあり、statusがcancelled/expiredの場合
+                    const endDate = contract.end_date || contract.endDate;
+                    if (endDate && (contract.status === 'cancelled' || contract.status === 'expired')) {
+                      if (!acc[brandId].withdrawalDate || endDate > acc[brandId].withdrawalDate!) {
+                        acc[brandId].withdrawalDate = endDate;
+                      }
+                      acc[brandId].status = contract.status;
+                    }
+
+                    // アクティブな契約があればステータスを更新
+                    if (contract.status === 'active') {
+                      acc[brandId].status = 'active';
+                      acc[brandId].withdrawalDate = null;
+                    }
+
+                    return acc;
+                  }, {} as Record<string, { brandName: string; enrollmentDate: string | null; withdrawalDate: string | null; status: string }>);
+
+                  const brandList = Object.entries(brandDates);
+
+                  if (brandList.length === 0) {
+                    return (
+                      <div className="mt-1 text-xs text-gray-400 px-2">
+                        契約情報なし
+                      </div>
+                    );
+                  }
+
+                  return (
+                    <div className="mt-1">
+                      <table className="w-full text-xs border">
+                        <thead>
+                          <tr className="bg-gray-100">
+                            <th className="px-2 py-1 text-left text-gray-600 font-medium border-r">ブランド</th>
+                            <th className="px-2 py-1 text-left text-gray-600 font-medium border-r">入会日</th>
+                            <th className="px-2 py-1 text-left text-gray-600 font-medium">退会日</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {brandList.map(([brandId, data], idx) => (
+                            <tr key={brandId} className={idx % 2 === 0 ? "bg-gray-50" : ""}>
+                              <td className="px-2 py-1 border-r">
+                                <div className="flex items-center gap-1">
+                                  <span className="font-medium">{data.brandName}</span>
+                                  {data.status === 'active' && (
+                                    <Badge className="text-[9px] px-1 py-0 bg-green-100 text-green-700">在籍</Badge>
+                                  )}
+                                  {(data.status === 'cancelled' || data.status === 'expired') && (
+                                    <Badge className="text-[9px] px-1 py-0 bg-gray-100 text-gray-600">退会</Badge>
+                                  )}
+                                </div>
+                              </td>
+                              <td className="px-2 py-1 border-r">{formatDate(data.enrollmentDate)}</td>
+                              <td className="px-2 py-1">{data.withdrawalDate ? formatDate(data.withdrawalDate) : "-"}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  );
+                })()}
               </div>
             </div>
 
