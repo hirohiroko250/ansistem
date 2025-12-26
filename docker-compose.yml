@@ -102,6 +102,11 @@ services:
     depends_on:
       - backend
       - redis
+    healthcheck:
+      test: ["CMD-SHELL", "cat /proc/1/cmdline | grep -q 'celery' || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
     networks:
       - oza_network
 
@@ -126,6 +131,11 @@ services:
     depends_on:
       - backend
       - redis
+    healthcheck:
+      test: ["CMD-SHELL", "cat /proc/1/cmdline | grep -q 'celery' || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
     networks:
       - oza_network
 

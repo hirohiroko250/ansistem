@@ -142,9 +142,19 @@ export default function ContractsPage() {
   const [brandFilter, setBrandFilter] = useState<string>("all");
   const [schoolFilter, setSchoolFilter] = useState<string>("all");
 
-  // Year/Month filter
+  // Year/Month filter - 10日締めを考慮して請求年を計算
   const currentDate = new Date();
-  const [filterYear, setFilterYear] = useState<string>(currentDate.getFullYear().toString());
+  const billingYear = useMemo(() => {
+    const year = currentDate.getFullYear();
+    const month = currentDate.getMonth() + 1;
+    const day = currentDate.getDate();
+    // 10日締め: 11日以降は翌月請求分 → 12月11日以降は翌年
+    if (month === 12 && day > 10) {
+      return year + 1;
+    }
+    return year;
+  }, []);
+  const [filterYear, setFilterYear] = useState<string>(billingYear.toString());
   const [filterMonth, setFilterMonth] = useState<string>("all");
 
   // Operation history
@@ -401,11 +411,12 @@ export default function ContractsPage() {
     }
   };
 
-  // 年の選択肢を生成
+  // 年の選択肢を生成（来年も含む）
   const yearOptions = useMemo(() => {
     const years: string[] = [];
     const currentYear = new Date().getFullYear();
-    for (let y = currentYear; y >= currentYear - 5; y--) {
+    // 来年から5年前まで
+    for (let y = currentYear + 1; y >= currentYear - 5; y--) {
       years.push(y.toString());
     }
     return years;
