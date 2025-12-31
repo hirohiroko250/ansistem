@@ -4,10 +4,9 @@ pytest設定とフィクスチャ
 import pytest
 from django.contrib.auth import get_user_model
 from rest_framework.test import APIClient
-from apps.tenants.models import Tenant
+from apps.tenants.models import Tenant, Employee
 from apps.schools.models import Brand, School, Grade, Subject
 from apps.students.models import Student
-from apps.hr.models import Staff
 
 User = get_user_model()
 
@@ -149,15 +148,14 @@ def student(db, tenant, school, brand, grade):
 
 @pytest.fixture
 def staff(db, tenant, school, instructor_user):
-    """テストスタッフを作成"""
-    return Staff.objects.create(
+    """テストスタッフ（社員）を作成"""
+    employee = Employee.objects.create(
         tenant_id=tenant.id,
-        staff_no='STAFF001',
+        employee_no='EMP001',
         last_name='テスト',
         first_name='講師',
-        primary_school=school,
-        user=instructor_user,
-        staff_type='part_time',
-        position='teacher',
-        status='active',
+        department='講師部門',
     )
+    # 校舎を紐付け
+    employee.schools.add(school)
+    return employee

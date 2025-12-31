@@ -88,6 +88,19 @@ export function SeminarSelection({ childId, brandId, schoolId, onBack }: Seminar
         });
       }
 
+      // 完了ページ用の結果を保存
+      const purchaseResult = {
+        orderId: `SEM-${Date.now()}`,
+        childName: '',  // 子ども名は親コンポーネントから取得できない
+        childId: childId,
+        courseName: selectedSeminars.map(s => s.seminar_name).join('、'),
+        courseId: selectedSeminars[0]?.id || '',
+        amount: totalPrice,
+        startDate: null,
+        type: 'seminar',
+      };
+      sessionStorage.setItem('purchaseResult', JSON.stringify(purchaseResult));
+
       router.push('/ticket-purchase/complete?type=seminar');
     } catch (err: any) {
       setError(err.message || '申込に失敗しました');

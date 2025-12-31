@@ -6,7 +6,7 @@ T3/T7/T8 データから契約関連の全データをインポートするコ�
 """
 import csv
 import uuid
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from django.core.management.base import BaseCommand
 from django.db import transaction
 from apps.contracts.models import (
@@ -308,17 +308,17 @@ class Command(BaseCommand):
                     # 価格取得
                     try:
                         base_price = Decimal(row.get('単価', '0') or '0')
-                    except:
+                    except (InvalidOperation, ValueError):
                         base_price = Decimal('0')
 
                     try:
                         display_price = Decimal(row.get('保護者表示用金額', '0') or '0')
-                    except:
+                    except (InvalidOperation, ValueError):
                         display_price = Decimal('0')
 
                     try:
                         discount_max = int(row.get('割引MAX(%)', '0') or '0')
-                    except:
+                    except (ValueError, TypeError):
                         discount_max = 0
 
                     # 月別価格
@@ -326,7 +326,7 @@ class Command(BaseCommand):
                     for m in range(1, 13):
                         try:
                             monthly_prices[m] = Decimal(row.get(f'{m}月', '0') or '0')
-                        except:
+                        except (InvalidOperation, ValueError):
                             monthly_prices[m] = Decimal('0')
 
                     # 入会者別価格
@@ -334,7 +334,7 @@ class Command(BaseCommand):
                     for m in range(1, 13):
                         try:
                             enrollment_prices[m] = Decimal(row.get(f'{m}月入会者', '0') or '0')
-                        except:
+                        except (InvalidOperation, ValueError):
                             enrollment_prices[m] = Decimal('0')
 
                     # チケット要不要

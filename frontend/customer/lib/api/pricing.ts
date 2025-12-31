@@ -21,15 +21,16 @@ import type {
  * @returns 料金計算結果（内訳、割引、マイル、合計など）
  */
 export async function previewPricing(data: PricingPreviewRequest): Promise<PricingPreviewResponse> {
+  // バックエンドはsnake_caseを期待するので、全てsnake_caseで送信
   const requestBody = {
-    studentId: data.studentId,
-    productIds: data.productIds,
-    courseId: data.courseId,
-    packId: data.packId,
-    additionalTickets: data.additionalTickets,
-    promoCode: data.promoCode,
-    startDate: data.startDate,  // 入会時授業料計算用
-    dayOfWeek: data.dayOfWeek,  // 当月分回数割計算用
+    student_id: data.studentId,
+    product_ids: data.productIds,
+    course_id: data.courseId,
+    pack_id: data.packId,
+    additional_tickets: data.additionalTickets,
+    promo_code: data.promoCode,
+    start_date: data.startDate,  // 入会時授業料計算用
+    day_of_week: data.dayOfWeek,  // 当月分回数割計算用
   };
   console.log('[previewPricing] Sending request with body:', requestBody);
   return api.post<PricingPreviewResponse>('/pricing/preview/', requestBody);
@@ -61,20 +62,23 @@ export async function calculatePricing(data: PricingCalculateRequest): Promise<P
  * @returns 注文情報
  */
 export async function confirmPricing(data: PricingConfirmRequest): Promise<PricingConfirmResponse> {
+  // バックエンドはsnake_caseを期待するので、全てsnake_caseで送信
   const requestBody = {
-    previewId: data.previewId,
-    paymentMethod: data.paymentMethod,
-    useMile: data.useMile,
-    milesToUse: data.milesToUse,  // マイル使用数
-    studentId: data.studentId,
-    courseId: data.courseId,
+    preview_id: data.previewId,
+    payment_method: data.paymentMethod,
+    use_mile: data.useMile,
+    miles_to_use: data.milesToUse,  // マイル使用数
+    student_id: data.studentId,
+    course_id: data.courseId,
     // 購入時に選択した情報
-    brandId: data.brandId,
-    schoolId: data.schoolId,
-    startDate: data.startDate,
+    brand_id: data.brandId,
+    school_id: data.schoolId,
+    start_date: data.startDate,
     // スケジュール情報（曜日・時間帯）
     schedules: data.schedules,
-    ticketId: data.ticketId,
+    ticket_id: data.ticketId,
+    // 教材費選択
+    selected_textbook_ids: data.selectedTextbookIds,
   };
   console.log('[confirmPricing] Sending request with body:', requestBody);
   return api.post<PricingConfirmResponse>('/pricing/confirm/', requestBody);

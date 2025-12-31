@@ -4,7 +4,7 @@ CSVファイルから割引データをインポートする
 """
 import csv
 from datetime import datetime
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from django.core.management.base import BaseCommand
 from django.db import transaction, models
 from apps.contracts.models import StudentDiscount
@@ -205,7 +205,7 @@ class Command(BaseCommand):
         amount_str = row.get('金額', '0') or '0'
         try:
             amount = Decimal(amount_str.replace(',', ''))
-        except:
+        except (InvalidOperation, ValueError, AttributeError):
             amount = Decimal('0')
 
         # 割引単位

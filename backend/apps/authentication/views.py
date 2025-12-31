@@ -9,8 +9,6 @@ from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.contrib.auth import get_user_model
 from django.utils import timezone
-from django.core.cache import cache
-import secrets
 
 from .serializers import (
     CustomTokenObtainPairSerializer,
@@ -20,6 +18,7 @@ from .serializers import (
     PasswordResetConfirmSerializer,
     PasswordChangeSerializer,
 )
+from .services import PasswordResetService, EmailService
 
 User = get_user_model()
 
@@ -176,13 +175,12 @@ class PasswordResetRequestView(GenericAPIView):
 
         try:
             user = User.objects.get(email=email, is_active=True)
-            # リセットトークン生成
-            token = secrets.token_urlsafe(32)
-            cache_key = f'password_reset:{token}'
-            cache.set(cache_key, str(user.id), timeout=3600)  # 1時間有効
+            # サービスを使用してトークン生成・メール送信
+            password_service = PasswordResetService(user)
+            token = password_service.generate_reset_token()
 
-            # TODO: メール送信処理
-            # send_password_reset_email(user.email, token)
+            email_service = EmailService()
+            email_service.send_password_reset_email(user.email, token)
 
         except User.DoesNotExist:
             pass  # セキュリティのため、存在しないユーザーでも同じレスポンス
@@ -204,30 +202,15 @@ class PasswordResetConfirmView(GenericAPIView):
         token = serializer.validated_data['token']
         new_password = serializer.validated_data['new_password']
 
-        cache_key = f'password_reset:{token}'
-        user_id = cache.get(cache_key)
-
-        if not user_id:
-            return Response({
-                'error': 'リセットトークンが無効または期限切れです'
-            }, status=status.HTTP_400_BAD_REQUEST)
-
+        password_service = PasswordResetService()
         try:
-            user = User.objects.get(id=user_id)
-            user.set_password(new_password)
-            user.password_changed_at = timezone.now()
-            user.save(update_fields=['password', 'password_changed_at'])
-
-            # トークン無効化
-            cache.delete(cache_key)
-
+            password_service.reset_password(token, new_password)
             return Response({
                 'message': 'パスワードが正常に変更されました'
             }, status=status.HTTP_200_OK)
-
-        except User.DoesNotExist:
+        except ValueError as e:
             return Response({
-                'error': 'ユーザーが見つかりません'
+                'error': str(e)
             }, status=status.HTTP_400_BAD_REQUEST)
 
 

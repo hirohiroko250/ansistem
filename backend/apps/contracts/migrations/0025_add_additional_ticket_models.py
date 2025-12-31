@@ -93,9 +93,9 @@ class Migration(migrations.Migration):
                 ),
             ],
             options={
-                "verbose_name": "T10_追加チケット",
-                "verbose_name_plural": "T10_追加チケット",
-                "db_table": "t10_additional_tickets",
+                "verbose_name": "T10a_追加チケット",
+                "verbose_name_plural": "T10a_追加チケット",
+                "db_table": "t10a_additional_tickets",
                 "ordering": ["-purchase_date", "student"],
             },
         ),

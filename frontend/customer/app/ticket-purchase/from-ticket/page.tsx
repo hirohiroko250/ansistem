@@ -207,6 +207,41 @@ export default function FromTicketPurchasePage() {
   const [isLoadingCourses, setIsLoadingCourses] = useState(false);
   const [coursesError, setCoursesError] = useState<string | null>(null);
 
+  // 講習会
+  const [seminars, setSeminars] = useState<Array<{
+    id: string;
+    seminar_code: string;
+    seminar_name: string;
+    seminar_type: string;
+    brand_name?: string;
+    year: number;
+    start_date?: string;
+    end_date?: string;
+    base_price: number;
+    description?: string;
+    is_active: boolean;
+  }>>([]);
+  const [selectedSeminars, setSelectedSeminars] = useState<string[]>([]);
+  const [isLoadingSeminars, setIsLoadingSeminars] = useState(false);
+  const [seminarsError, setSeminarsError] = useState<string | null>(null);
+
+  // 検定
+  const [certifications, setCertifications] = useState<Array<{
+    id: string;
+    certification_code: string;
+    certification_name: string;
+    certification_type: string;
+    brand_name?: string;
+    exam_date?: string;
+    application_deadline?: string;
+    base_price: number;
+    description?: string;
+    is_active: boolean;
+  }>>([]);
+  const [selectedCertifications, setSelectedCertifications] = useState<string[]>([]);
+  const [isLoadingCertifications, setIsLoadingCertifications] = useState(false);
+  const [certificationsError, setCertificationsError] = useState<string | null>(null);
+
   const [pricingPreview, setPricingPreview] = useState<PricingPreviewResponse | null>(null);
   const [isLoadingPricing, setIsLoadingPricing] = useState(false);
   const [pricingError, setPricingError] = useState<string | null>(null);
@@ -217,6 +252,9 @@ export default function FromTicketPurchasePage() {
   // マイル使用
   const [milesToUse, setMilesToUse] = useState<number>(0);
   const [useMiles, setUseMiles] = useState<boolean>(false);
+
+  // 教材費選択（半年払い/月払い）
+  const [selectedTextbookIds, setSelectedTextbookIds] = useState<string[]>([]);
 
   // 締日情報（請求月判定）
   const [billingInfo, setBillingInfo] = useState<EnrollmentBillingInfo | null>(null);
@@ -448,6 +486,50 @@ export default function FromTicketPurchasePage() {
     fetchCoursesAndPacks();
   }, [selectedBrand]);
 
+  // 講習会を取得（itemType === 'seminar' の場合）
+  useEffect(() => {
+    if (!selectedBrand || itemType !== 'seminar') return;
+
+    const fetchSeminars = async () => {
+      setIsLoadingSeminars(true);
+      setSeminarsError(null);
+      try {
+        const params = new URLSearchParams({ is_active: 'true' });
+        params.append('brand_id', selectedBrand.id);
+        const response = await api.get<{ results?: typeof seminars } | typeof seminars>(`/contracts/seminars/?${params.toString()}`);
+        const data = Array.isArray(response) ? response : (response.results || []);
+        setSeminars(data);
+      } catch (err) {
+        setSeminarsError('講習会情報の取得に失敗しました');
+      } finally {
+        setIsLoadingSeminars(false);
+      }
+    };
+    fetchSeminars();
+  }, [selectedBrand, itemType]);
+
+  // 検定を取得（itemType === 'certification' の場合）
+  useEffect(() => {
+    if (!selectedBrand || itemType !== 'certification') return;
+
+    const fetchCertifications = async () => {
+      setIsLoadingCertifications(true);
+      setCertificationsError(null);
+      try {
+        const params = new URLSearchParams({ is_active: 'true' });
+        params.append('brand_id', selectedBrand.id);
+        const response = await api.get<{ results?: typeof certifications } | typeof certifications>(`/contracts/certifications/?${params.toString()}`);
+        const data = Array.isArray(response) ? response : (response.results || []);
+        setCertifications(data);
+      } catch (err) {
+        setCertificationsError('検定情報の取得に失敗しました');
+      } finally {
+        setIsLoadingCertifications(false);
+      }
+    };
+    fetchCertifications();
+  }, [selectedBrand, itemType]);
+
   // コース選択時に料金プレビューを取得してStep 6へ（校舎は既に選択済み）
   const handleCourseSelect = async (course: PublicCourse | PublicPack) => {
     setSelectedCourse(course);
@@ -475,12 +557,94 @@ export default function FromTicketPurchasePage() {
 
   // 購入確定（クラス予約も含めて処理）
   const handleConfirmPurchase = async () => {
-    if (!selectedChild || !selectedCourse) return;
+    // 通常コースの場合はコース必須、講習会・検定の場合は選択必須
+    if (!selectedChild) return;
+    if (itemType === 'regular' && !selectedCourse) return;
+    if (itemType === 'seminar' && selectedSeminars.length === 0) return;
+    if (itemType === 'certification' && selectedCertifications.length === 0) return;
 
     setIsConfirming(true);
     setConfirmError(null);
 
     try {
+      // 講習会の購入処理
+      if (itemType === 'seminar') {
+        for (const seminarId of selectedSeminars) {
+          const seminar = seminars.find(s => s.id === seminarId);
+          if (!seminar) continue;
+          await api.post('/contracts/seminar-enrollments/', {
+            student: selectedChild.id,
+            seminar: seminarId,
+            status: 'applied',
+            unit_price: seminar.base_price,
+            discount_amount: 0,
+            final_price: seminar.base_price,
+            billing_month: new Date().toISOString().slice(0, 7),
+          });
+        }
+
+        const totalPrice = seminars
+          .filter(s => selectedSeminars.includes(s.id))
+          .reduce((sum, s) => sum + s.base_price, 0);
+
+        sessionStorage.setItem('purchaseResult', JSON.stringify({
+          orderId: `SEM-${Date.now()}`,
+          childName: selectedChild.fullName,
+          childId: selectedChild.id,
+          courseName: seminars.filter(s => selectedSeminars.includes(s.id)).map(s => s.seminar_name).join('、'),
+          courseId: selectedSeminars[0],
+          amount: totalPrice,
+          startDate: null,
+          type: 'seminar',
+        }));
+        router.push('/ticket-purchase/complete');
+        return;
+      }
+
+      // 検定の購入処理
+      if (itemType === 'certification') {
+        for (const certId of selectedCertifications) {
+          const cert = certifications.find(c => c.id === certId);
+          if (!cert) continue;
+          await api.post('/contracts/certification-enrollments/', {
+            student: selectedChild.id,
+            certification: certId,
+            status: 'applied',
+            unit_price: cert.base_price,
+            discount_amount: 0,
+            final_price: cert.base_price,
+            billing_month: new Date().toISOString().slice(0, 7),
+          });
+        }
+
+        const totalPrice = certifications
+          .filter(c => selectedCertifications.includes(c.id))
+          .reduce((sum, c) => sum + c.base_price, 0);
+
+        sessionStorage.setItem('purchaseResult', JSON.stringify({
+          orderId: `CERT-${Date.now()}`,
+          childName: selectedChild.fullName,
+          childId: selectedChild.id,
+          courseName: certifications.filter(c => selectedCertifications.includes(c.id)).map(c => c.certification_name).join('、'),
+          courseId: selectedCertifications[0],
+          amount: totalPrice,
+          startDate: null,
+          type: 'certification',
+        }));
+        router.push('/ticket-purchase/complete');
+        return;
+      }
+
+      // 通常コースの購入処理（既存の実装）
+      if (!selectedCourse) return;
+      // デバッグ: 送信前のデータを確認
+      console.log('[handleConfirmPurchase] DEBUG:');
+      console.log('  selectedTextbookIds:', selectedTextbookIds);
+      console.log('  pricingPreview?.textbookOptions:', pricingPreview?.textbookOptions);
+      console.log('  startDate:', startDate);
+      console.log('  selectedBrand:', selectedBrand);
+      console.log('  selectedSchoolId:', selectedSchoolId);
+
       // スケジュール情報を構築（曜日・時間帯をStudentItemに保存するため）
       const schedules: { id: string; dayOfWeek: string; startTime: string; endTime: string; className?: string }[] = [];
 
@@ -520,6 +684,8 @@ export default function FromTicketPurchasePage() {
         schedules: schedules.length > 0 ? schedules : undefined,
         // マイル使用
         milesToUse: useMiles && milesToUse > 0 ? milesToUse : undefined,
+        // 教材費選択
+        selectedTextbookIds: selectedTextbookIds.length > 0 ? selectedTextbookIds : undefined,
       });
 
       if (result.status === 'completed' || result.status === 'pending') {
@@ -686,7 +852,11 @@ export default function FromTicketPurchasePage() {
 
   // 校舎確認後に次のステップへ進む
   const handleConfirmSchool = () => {
-    setStep(6); // コースタイプ選択へ
+    if (itemType === 'seminar' || itemType === 'certification') {
+      setStep(7); // 講習会・検定選択へ（コースタイプ選択をスキップ）
+    } else {
+      setStep(6); // コースタイプ選択へ
+    }
   };
 
   const handleCourseTypeSelect = (type: 'single' | 'pack') => {
@@ -921,7 +1091,7 @@ export default function FromTicketPurchasePage() {
     <div className="h-screen flex flex-col bg-gradient-to-br from-blue-50 via-white to-blue-50">
       <header className="flex-shrink-0 bg-white shadow-sm z-40">
         <div className="max-w-[390px] mx-auto px-4 h-16 flex items-center">
-          <Link href="/ticket-purchase" className="mr-3">
+          <Link href="/" className="mr-3">
             <ChevronLeft className="h-6 w-6 text-gray-700" />
           </Link>
           <h1 className="text-xl font-bold text-gray-800">チケット購入</h1>
@@ -945,7 +1115,9 @@ export default function FromTicketPurchasePage() {
 
         <div className="mb-6">
           <div className="flex items-center justify-center space-x-2">
-            {(itemType === 'regular' ? [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11] : [1, 2, 3]).map((s) => (
+            {(itemType === 'regular' ? [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11] :
+              (itemType === 'seminar' || itemType === 'certification') ? [1, 2, 3, 4, 5, 7, 10, 11] :
+              [1, 2, 3]).map((s) => (
               <div
                 key={s}
                 className={`h-2 flex-1 rounded-full transition-colors ${
@@ -958,7 +1130,9 @@ export default function FromTicketPurchasePage() {
             {step === 9 && preSelectClassMode ? 'クラス選択' :
              step === 10 ? '利用規約' :
              step === 11 ? '購入確認' :
-             `Step ${step} / ${itemType === 'regular' ? 11 : 3}`}
+             itemType === 'regular' ? `Step ${step} / 11` :
+             (itemType === 'seminar' || itemType === 'certification') ? `Step ${[1,2,3,4,5,7,10,11].indexOf(step) + 1} / 8` :
+             `Step ${step} / 3`}
           </p>
         </div>
 
@@ -1110,28 +1284,8 @@ export default function FromTicketPurchasePage() {
           </div>
         )}
 
-        {/* Step 3: 講習会選択フロー */}
-        {step === 3 && itemType === 'seminar' && (
-          <SeminarSelection
-            childId={selectedChild?.id || ''}
-            brandId={selectedBrand?.id || ''}
-            schoolId={selectedSchoolId || ''}
-            onBack={() => setStep(2)}
-          />
-        )}
-
-        {/* Step 3: 検定選択フロー */}
-        {step === 3 && itemType === 'certification' && (
-          <CertificationSelection
-            childId={selectedChild?.id || ''}
-            brandId={selectedBrand?.id || ''}
-            schoolId={selectedSchoolId || ''}
-            onBack={() => setStep(2)}
-          />
-        )}
-
-        {/* Step 3: カテゴリ選択（通常授業の場合） */}
-        {step === 3 && itemType === 'regular' && (
+        {/* Step 3: カテゴリ選択（通常授業・講習会・検定共通） */}
+        {step === 3 && (itemType === 'regular' || itemType === 'seminar' || itemType === 'certification') && (
           <div>
             <div className="mb-4">
               <Card className="rounded-xl shadow-sm bg-blue-50 border-blue-200">
@@ -1347,7 +1501,7 @@ export default function FromTicketPurchasePage() {
           </div>
         )}
 
-        {/* Step 7: コース選択（校舎で開講しているチケットのみ） */}
+        {/* Step 7: コース/講習会/検定選択 */}
         {step === 7 && (
           <div>
             <div className="mb-4">
@@ -1356,14 +1510,166 @@ export default function FromTicketPurchasePage() {
                   <p className="text-xs text-gray-600 mb-1">選択中</p>
                   <p className="font-semibold text-gray-800">{selectedChild?.fullName}</p>
                   <p className="text-sm text-gray-700 mt-1">{selectedCategory?.categoryName} → {selectedSchool?.name}</p>
-                  <Badge className="mt-1 text-xs">
-                    {courseType === 'single' ? '単品コース' : 'お得パックコース'}
-                  </Badge>
+                  {itemType === 'regular' && (
+                    <Badge className="mt-1 text-xs">
+                      {courseType === 'single' ? '単品コース' : 'お得パックコース'}
+                    </Badge>
+                  )}
+                  {itemType === 'seminar' && (
+                    <Badge className="mt-1 text-xs bg-purple-500">講習会</Badge>
+                  )}
+                  {itemType === 'certification' && (
+                    <Badge className="mt-1 text-xs bg-amber-500">検定</Badge>
+                  )}
                 </CardContent>
               </Card>
             </div>
 
-            <h2 className="text-lg font-semibold text-gray-800 mb-4">コースを選択</h2>
+            <h2 className="text-lg font-semibold text-gray-800 mb-4">
+              {itemType === 'seminar' ? '講習会を選択' :
+               itemType === 'certification' ? '検定を選択' : 'コースを選択'}
+            </h2>
+
+            {/* 講習会選択 */}
+            {itemType === 'seminar' && (
+              <>
+                {seminarsError && (
+                  <div className="flex items-center gap-2 p-3 rounded-lg bg-red-50 border border-red-200 mb-4">
+                    <AlertCircle className="h-5 w-5 text-red-600 shrink-0" />
+                    <p className="text-sm text-red-800">{seminarsError}</p>
+                  </div>
+                )}
+                {isLoadingSeminars ? (
+                  <div className="flex flex-col items-center justify-center py-12">
+                    <Loader2 className="h-8 w-8 animate-spin text-purple-500 mb-3" />
+                    <p className="text-sm text-gray-600">講習会を読み込み中...</p>
+                  </div>
+                ) : seminars.length === 0 ? (
+                  <p className="text-center text-gray-600 py-8">講習会がありません</p>
+                ) : (
+                  <div className="space-y-3">
+                    {seminars.map((seminar) => (
+                      <Card
+                        key={seminar.id}
+                        className={`rounded-xl shadow-md hover:shadow-lg transition-shadow cursor-pointer border-2 ${
+                          selectedSeminars.includes(seminar.id) ? 'border-purple-500 bg-purple-50' : 'border-transparent'
+                        }`}
+                        onClick={() => {
+                          setSelectedSeminars(prev =>
+                            prev.includes(seminar.id)
+                              ? prev.filter(id => id !== seminar.id)
+                              : [...prev, seminar.id]
+                          );
+                        }}
+                      >
+                        <CardContent className="p-4">
+                          <div className="flex justify-between items-start">
+                            <div className="flex-1">
+                              <div className="flex items-center gap-2">
+                                <Checkbox checked={selectedSeminars.includes(seminar.id)} />
+                                <h3 className="font-semibold text-gray-800">{seminar.seminar_name}</h3>
+                              </div>
+                              <p className="text-sm text-gray-600 mt-1">{seminar.seminar_type}</p>
+                              {seminar.start_date && seminar.end_date && (
+                                <p className="text-xs text-gray-500 mt-1">
+                                  {seminar.start_date} 〜 {seminar.end_date}
+                                </p>
+                              )}
+                            </div>
+                            <div className="text-right">
+                              <span className="text-xl font-bold text-purple-600">
+                                ¥{seminar.base_price.toLocaleString()}
+                              </span>
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    ))}
+                    {selectedSeminars.length > 0 && (
+                      <Button
+                        onClick={() => setStep(10)}
+                        className="w-full h-12 rounded-full bg-purple-600 hover:bg-purple-700 text-white font-semibold mt-4"
+                      >
+                        次へ（{selectedSeminars.length}件選択中）
+                      </Button>
+                    )}
+                  </div>
+                )}
+              </>
+            )}
+
+            {/* 検定選択 */}
+            {itemType === 'certification' && (
+              <>
+                {certificationsError && (
+                  <div className="flex items-center gap-2 p-3 rounded-lg bg-red-50 border border-red-200 mb-4">
+                    <AlertCircle className="h-5 w-5 text-red-600 shrink-0" />
+                    <p className="text-sm text-red-800">{certificationsError}</p>
+                  </div>
+                )}
+                {isLoadingCertifications ? (
+                  <div className="flex flex-col items-center justify-center py-12">
+                    <Loader2 className="h-8 w-8 animate-spin text-amber-500 mb-3" />
+                    <p className="text-sm text-gray-600">検定を読み込み中...</p>
+                  </div>
+                ) : certifications.length === 0 ? (
+                  <p className="text-center text-gray-600 py-8">検定がありません</p>
+                ) : (
+                  <div className="space-y-3">
+                    {certifications.map((cert) => (
+                      <Card
+                        key={cert.id}
+                        className={`rounded-xl shadow-md hover:shadow-lg transition-shadow cursor-pointer border-2 ${
+                          selectedCertifications.includes(cert.id) ? 'border-amber-500 bg-amber-50' : 'border-transparent'
+                        }`}
+                        onClick={() => {
+                          setSelectedCertifications(prev =>
+                            prev.includes(cert.id)
+                              ? prev.filter(id => id !== cert.id)
+                              : [...prev, cert.id]
+                          );
+                        }}
+                      >
+                        <CardContent className="p-4">
+                          <div className="flex justify-between items-start">
+                            <div className="flex-1">
+                              <div className="flex items-center gap-2">
+                                <Checkbox checked={selectedCertifications.includes(cert.id)} />
+                                <h3 className="font-semibold text-gray-800">{cert.certification_name}</h3>
+                              </div>
+                              <p className="text-sm text-gray-600 mt-1">{cert.certification_type}</p>
+                              {cert.exam_date && (
+                                <p className="text-xs text-gray-500 mt-1">試験日: {cert.exam_date}</p>
+                              )}
+                              {cert.application_deadline && (
+                                <p className="text-xs text-red-500 mt-1">申込締切: {cert.application_deadline}</p>
+                              )}
+                            </div>
+                            <div className="text-right">
+                              <span className="text-xl font-bold text-amber-600">
+                                ¥{cert.base_price.toLocaleString()}
+                              </span>
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    ))}
+                    {selectedCertifications.length > 0 && (
+                      <Button
+                        onClick={() => setStep(10)}
+                        className="w-full h-12 rounded-full bg-amber-600 hover:bg-amber-700 text-white font-semibold mt-4"
+                      >
+                        次へ（{selectedCertifications.length}件選択中）
+                      </Button>
+                    )}
+                  </div>
+                )}
+              </>
+            )}
+
+            {/* 通常コース選択（既存の実装） */}
+            {itemType === 'regular' && (
+              <>
 
             {pricingError && (
               <div className="flex items-center gap-2 p-3 rounded-lg bg-yellow-50 border border-yellow-200 mb-4">
@@ -1471,6 +1777,8 @@ export default function FromTicketPurchasePage() {
                   );
                 })}
               </div>
+            )}
+            </>
             )}
           </div>
         )}
@@ -1642,7 +1950,7 @@ export default function FromTicketPurchasePage() {
             }
           };
 
-          const handleTimeSlotSelect = (time: string, dayOfWeek: string) => {
+          const handleTimeSlotSelect = async (time: string, dayOfWeek: string) => {
             setSelectedTime(time);
             setSelectedDayOfWeek(dayOfWeek);
             // 選択したセルのスケジュールを取得
@@ -1673,6 +1981,26 @@ export default function FromTicketPurchasePage() {
               } else {
                 // フィルタ結果が空の場合は最初のスケジュールを使用（フォールバック）
                 setSelectedScheduleItem(dayData.schedules[0]);
+              }
+            }
+
+            // 曜日選択後に料金プレビューを再取得（回数割計算のため）
+            if (startDate && selectedCourse && selectedChild) {
+              setIsLoadingPricing(true);
+              try {
+                const preview = await previewPricing({
+                  studentId: selectedChild.id,
+                  productIds: [selectedCourse.id],
+                  courseId: selectedCourse.id,
+                  startDate: format(startDate, 'yyyy-MM-dd'),
+                  dayOfWeek: dayOfWeekToBackendNumber(dayOfWeek),
+                });
+                console.log('[Debug] pricingPreview after dayOfWeek select:', preview);
+                setPricingPreview(preview);
+              } catch (err) {
+                console.error('料金プレビュー再取得エラー:', err);
+              } finally {
+                setIsLoadingPricing(false);
               }
             }
           };
@@ -2016,17 +2344,54 @@ export default function FromTicketPurchasePage() {
                   <p className="font-semibold text-gray-800">{selectedSchool?.name}</p>
                   <p className="text-sm text-gray-600">{selectedSchool?.address}</p>
                 </div>
-                <div className="border-t pt-4">
-                  <p className="text-sm text-gray-600 mb-1">契約開始日</p>
-                  <p className="font-semibold text-gray-800">
-                    {startDate && format(startDate, 'yyyy年MM月dd日（E）', { locale: ja })}
-                  </p>
-                </div>
-                <div className="border-t pt-4">
-                  <p className="text-sm text-gray-600 mb-1">コース</p>
-                  <p className="font-semibold text-gray-800">{selectedCourse && getCourseName(selectedCourse)}</p>
-                  <p className="text-sm text-gray-600">{selectedCourse && getCourseDescription(selectedCourse)}</p>
-                </div>
+                {itemType === 'regular' && (
+                  <>
+                    <div className="border-t pt-4">
+                      <p className="text-sm text-gray-600 mb-1">契約開始日</p>
+                      <p className="font-semibold text-gray-800">
+                        {startDate && format(startDate, 'yyyy年MM月dd日（E）', { locale: ja })}
+                      </p>
+                    </div>
+                    <div className="border-t pt-4">
+                      <p className="text-sm text-gray-600 mb-1">コース</p>
+                      <p className="font-semibold text-gray-800">{selectedCourse && getCourseName(selectedCourse)}</p>
+                      <p className="text-sm text-gray-600">{selectedCourse && getCourseDescription(selectedCourse)}</p>
+                    </div>
+                  </>
+                )}
+
+                {/* 講習会の場合 */}
+                {itemType === 'seminar' && (
+                  <div className="border-t pt-4">
+                    <p className="text-sm text-gray-600 mb-1">選択した講習会</p>
+                    <div className="space-y-2">
+                      {seminars.filter(s => selectedSeminars.includes(s.id)).map(seminar => (
+                        <div key={seminar.id} className="bg-purple-50 rounded-lg p-3">
+                          <p className="font-semibold text-gray-800">{seminar.seminar_name}</p>
+                          <p className="text-sm text-gray-600">{seminar.seminar_type}</p>
+                          <p className="text-purple-600 font-semibold">¥{seminar.base_price.toLocaleString()}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* 検定の場合 */}
+                {itemType === 'certification' && (
+                  <div className="border-t pt-4">
+                    <p className="text-sm text-gray-600 mb-1">選択した検定</p>
+                    <div className="space-y-2">
+                      {certifications.filter(c => selectedCertifications.includes(c.id)).map(cert => (
+                        <div key={cert.id} className="bg-amber-50 rounded-lg p-3">
+                          <p className="font-semibold text-gray-800">{cert.certification_name}</p>
+                          <p className="text-sm text-gray-600">{cert.certification_type}</p>
+                          {cert.exam_date && <p className="text-xs text-gray-500">試験日: {cert.exam_date}</p>}
+                          <p className="text-amber-600 font-semibold">¥{cert.base_price.toLocaleString()}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 {/* 選択したクラス（曜日・時間帯） */}
                 {selectedDayOfWeek && selectedTime && (
@@ -2061,6 +2426,75 @@ export default function FromTicketPurchasePage() {
                   </div>
                 )}
 
+                {/* 教材費選択セクション */}
+                {pricingPreview?.textbookOptions && pricingPreview.textbookOptions.length > 0 && (
+                  <div className="border-t pt-4">
+                    <div className="flex items-center gap-2 mb-3">
+                      <BookOpen className="h-4 w-4 text-amber-600" />
+                      <span className="text-sm font-medium text-gray-800">教材費の支払い方法</span>
+                    </div>
+                    <div className="space-y-2">
+                      {pricingPreview.textbookOptions.map((option) => {
+                        const isSelected = selectedTextbookIds.includes(option.productId);
+                        const paymentLabel = option.paymentType === 'monthly' ? '月払い' :
+                          option.paymentType === 'semi_annual' ? '半年払い' : '年払い';
+                        const billingDesc = option.billingMonths.length > 0
+                          ? `${option.billingMonths.map(m => `${m}月`).join('・')}請求`
+                          : '毎月請求';
+
+                        return (
+                          <div
+                            key={option.productId}
+                            onClick={() => {
+                              if (isSelected) {
+                                setSelectedTextbookIds(prev => prev.filter(id => id !== option.productId));
+                              } else {
+                                // 他の教材費オプションを解除して新しいものを選択（排他選択）
+                                setSelectedTextbookIds([option.productId]);
+                              }
+                            }}
+                            className={`p-3 rounded-lg border-2 cursor-pointer transition-all ${
+                              isSelected
+                                ? 'border-amber-500 bg-amber-50'
+                                : 'border-gray-200 bg-white hover:border-amber-300'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-3">
+                                <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
+                                  isSelected ? 'border-amber-500 bg-amber-500' : 'border-gray-300'
+                                }`}>
+                                  {isSelected && <CheckCircle2 className="h-4 w-4 text-white" />}
+                                </div>
+                                <div>
+                                  <p className="font-medium text-gray-800">{paymentLabel}</p>
+                                  <p className="text-xs text-gray-500">2ヶ月目以降: {billingDesc}</p>
+                                </div>
+                              </div>
+                              <div className="text-right">
+                                <p className="font-semibold text-amber-600">¥{option.priceWithTax.toLocaleString()}</p>
+                                <p className="text-xs text-gray-500">（税込/回）</p>
+                              </div>
+                            </div>
+                            {/* 入会時教材費（傾斜料金）を表示 */}
+                            {option.enrollmentPriceWithTax !== undefined && option.enrollmentPriceWithTax > 0 && (
+                              <div className="mt-2 pt-2 border-t border-dashed text-xs text-gray-600">
+                                <div className="flex justify-between">
+                                  <span>入会時教材費（{option.enrollmentMonth}月入会）:</span>
+                                  <span className="font-medium">¥{option.enrollmentPriceWithTax.toLocaleString()}</span>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+
+                    </div>
+                    <p className="text-xs text-gray-500 mt-2">
+                      ※ 入会時教材費は入会月に応じた料金が適用されます
+                    </p>
+                  </div>
+                )}
 
                 {/* マイル割引セクション */}
                 {pricingPreview?.mileInfo && pricingPreview.mileInfo.balance > 0 && (
@@ -2136,21 +2570,52 @@ export default function FromTicketPurchasePage() {
                   {/* 月別料金グループ表示 */}
                   {pricingPreview?.billingByMonth ? (
                     <>
-                      {/* 入会時費用 */}
-                      {pricingPreview.billingByMonth.enrollment.items.length > 0 && (
-                        <div className="bg-blue-50 rounded-lg p-3 space-y-2">
-                          <div className="flex justify-between items-center border-b border-blue-200 pb-2 mb-2">
-                            <span className="font-semibold text-blue-800">{pricingPreview.billingByMonth.enrollment.label}</span>
-                            <span className="font-semibold text-blue-800">¥{pricingPreview.billingByMonth.enrollment.total.toLocaleString()}</span>
-                          </div>
-                          {pricingPreview.billingByMonth.enrollment.items.map((item, index) => (
-                            <div key={index} className="flex justify-between text-sm">
-                              <span className="text-gray-700">{item.billingCategoryName || item.productName}</span>
-                              <span className="text-gray-800">¥{item.priceWithTax.toLocaleString()}</span>
+                      {/* 入会時費用（選択した教材費の入会時教材費を含む） */}
+                      {(() => {
+                        // 選択した教材費の入会時教材費を取得
+                        const selectedTextbookOption = pricingPreview.textbookOptions?.find(
+                          opt => selectedTextbookIds.includes(opt.productId)
+                        );
+                        const enrollmentTextbookPrice = selectedTextbookOption?.enrollmentPriceWithTax || 0;
+
+                        // APIから返される入会時教材費を除外（選択した教材費で置き換えるため）
+                        const filteredEnrollmentItems = pricingPreview.billingByMonth.enrollment.items.filter(
+                          (item: any) => item.itemType !== 'enrollment_textbook'
+                        );
+                        const filteredEnrollmentTotal = filteredEnrollmentItems.reduce(
+                          (sum: number, item: any) => sum + (item.priceWithTax || 0), 0
+                        );
+
+                        // 入会時費用合計（フィルタ後の合計 + 選択した教材の入会時教材費）
+                        const enrollmentTotal = filteredEnrollmentTotal + enrollmentTextbookPrice;
+
+                        // 入会時費用を表示するかどうか（フィルタ後のアイテムがあるか、または入会時教材費がある場合）
+                        const hasEnrollmentFees = filteredEnrollmentItems.length > 0 || enrollmentTextbookPrice > 0;
+
+                        if (!hasEnrollmentFees) return null;
+
+                        return (
+                          <div className="bg-blue-50 rounded-lg p-3 space-y-2">
+                            <div className="flex justify-between items-center border-b border-blue-200 pb-2 mb-2">
+                              <span className="font-semibold text-blue-800">{pricingPreview.billingByMonth.enrollment.label || '入会時費用'}</span>
+                              <span className="font-semibold text-blue-800">¥{enrollmentTotal.toLocaleString()}</span>
                             </div>
-                          ))}
-                        </div>
-                      )}
+                            {filteredEnrollmentItems.map((item: any, index: number) => (
+                              <div key={index} className="flex justify-between text-sm">
+                                <span className="text-gray-700">{item.billingCategoryName || item.productName}</span>
+                                <span className="text-gray-800">¥{item.priceWithTax.toLocaleString()}</span>
+                              </div>
+                            ))}
+                            {/* 選択した教材費の入会時教材費を表示 */}
+                            {enrollmentTextbookPrice > 0 && selectedTextbookOption && (
+                              <div className="flex justify-between text-sm">
+                                <span className="text-gray-700">入会時教材費（{selectedTextbookOption.enrollmentMonth}月入会）</span>
+                                <span className="text-gray-800">¥{enrollmentTextbookPrice.toLocaleString()}</span>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()}
 
                       {/* 当月分（回数割） */}
                       {pricingPreview.billingByMonth.currentMonth.items.length > 0 && (
@@ -2248,9 +2713,17 @@ export default function FromTicketPurchasePage() {
               </CardContent>
             </Card>
 
+            {/* 教材選択が必要な場合の警告 */}
+            {pricingPreview?.textbookOptions && pricingPreview.textbookOptions.length > 0 && selectedTextbookIds.length === 0 && (
+              <div className="flex items-center gap-2 p-3 rounded-lg bg-amber-50 border border-amber-200 mb-4">
+                <AlertCircle className="h-5 w-5 text-amber-600 shrink-0" />
+                <p className="text-sm text-amber-800">教材費の支払い方法を選択してください</p>
+              </div>
+            )}
+
             <Button
               onClick={handleConfirmPurchase}
-              disabled={isConfirming}
+              disabled={isConfirming || (pricingPreview?.textbookOptions && pricingPreview.textbookOptions.length > 0 && selectedTextbookIds.length === 0)}
               className="w-full h-14 rounded-full bg-blue-600 hover:bg-blue-700 text-white font-semibold text-lg disabled:opacity-70"
             >
               {isConfirming ? (

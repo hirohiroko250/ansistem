@@ -2,10 +2,11 @@
 from rest_framework import viewsets, status, filters
 from rest_framework.decorators import action
 from rest_framework.response import Response
-from rest_framework.permissions import AllowAny
+from rest_framework.permissions import IsAuthenticated
 from django_filters.rest_framework import DjangoFilterBackend
 from django.utils import timezone
 
+from apps.core.permissions import IsTenantUser
 from .models import Task, TaskCategory, TaskComment
 from .serializers import (
     TaskSerializer, TaskCreateUpdateSerializer,
@@ -17,7 +18,7 @@ class TaskCategoryViewSet(viewsets.ModelViewSet):
     """作業カテゴリ ViewSet"""
     queryset = TaskCategory.objects.filter(deleted_at__isnull=True, is_active=True)
     serializer_class = TaskCategorySerializer
-    permission_classes = [AllowAny]
+    permission_classes = [IsAuthenticated, IsTenantUser]
     filter_backends = [DjangoFilterBackend, filters.OrderingFilter]
     ordering_fields = ['sort_order', 'category_code']
     ordering = ['sort_order']
@@ -28,7 +29,7 @@ class TaskViewSet(viewsets.ModelViewSet):
     queryset = Task.objects.filter(deleted_at__isnull=True).select_related(
         'category', 'school', 'brand', 'student', 'guardian'
     ).order_by('-created_at')
-    permission_classes = [AllowAny]
+    permission_classes = [IsAuthenticated, IsTenantUser]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_fields = ['status', 'priority', 'task_type', 'school', 'brand', 'student', 'assigned_to_id']
     search_fields = ['title', 'description', 'student__last_name', 'student__first_name']
@@ -138,6 +139,6 @@ class TaskCommentViewSet(viewsets.ModelViewSet):
     """作業コメント ViewSet"""
     queryset = TaskComment.objects.filter(deleted_at__isnull=True).order_by('created_at')
     serializer_class = TaskCommentSerializer
-    permission_classes = [AllowAny]
+    permission_classes = [IsAuthenticated, IsTenantUser]
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ['task', 'is_internal']

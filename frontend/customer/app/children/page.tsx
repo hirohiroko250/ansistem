@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { ChevronLeft, User, Plus, ChevronRight, Loader2 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -14,6 +14,18 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { getChildren, createStudent, CreateStudentRequest, CreateStudentResponse } from '@/lib/api/students';
 import { useToast } from '@/hooks/use-toast';
+
+// ひらがなをカタカナに変換
+const hiraganaToKatakana = (str: string): string => {
+  return str.replace(/[\u3041-\u3096]/g, (match) => {
+    return String.fromCharCode(match.charCodeAt(0) + 0x60);
+  });
+};
+
+// 文字列がひらがな/カタカナかどうかをチェック
+const isKana = (str: string): boolean => {
+  return /^[\u3040-\u309F\u30A0-\u30FF\u30FC]+$/.test(str);
+};
 
 type Child = {
   id: string;
@@ -49,6 +61,40 @@ export default function ChildrenPage() {
   const [newChildGender, setNewChildGender] = useState('');
   const [newChildSchoolName, setNewChildSchoolName] = useState('');
   const [newChildGrade, setNewChildGrade] = useState('');
+
+  // IME composition tracking for auto-kana
+  const lastNameCompositionRef = useRef<string>('');
+  const firstNameCompositionRef = useRef<string>('');
+
+  // 姓の入力ハンドラー（カナ自動入力）
+  const handleLastNameCompositionUpdate = (e: React.CompositionEvent<HTMLInputElement>) => {
+    // IME入力中のひらがなを保存
+    lastNameCompositionRef.current = e.data || '';
+  };
+
+  const handleLastNameCompositionEnd = (e: React.CompositionEvent<HTMLInputElement>) => {
+    const compositionData = lastNameCompositionRef.current;
+    // 変換前のひらがなをカタカナに変換してセット（カナが空の場合のみ）
+    if (compositionData && isKana(compositionData) && !newChildLastNameKana) {
+      setNewChildLastNameKana(hiraganaToKatakana(compositionData));
+    }
+    lastNameCompositionRef.current = '';
+  };
+
+  // 名の入力ハンドラー（カナ自動入力）
+  const handleFirstNameCompositionUpdate = (e: React.CompositionEvent<HTMLInputElement>) => {
+    // IME入力中のひらがなを保存
+    firstNameCompositionRef.current = e.data || '';
+  };
+
+  const handleFirstNameCompositionEnd = (e: React.CompositionEvent<HTMLInputElement>) => {
+    const compositionData = firstNameCompositionRef.current;
+    // 変換前のひらがなをカタカナに変換してセット（カナが空の場合のみ）
+    if (compositionData && isKana(compositionData) && !newChildFirstNameKana) {
+      setNewChildFirstNameKana(hiraganaToKatakana(compositionData));
+    }
+    firstNameCompositionRef.current = '';
+  };
 
   // Fetch children on mount
   useEffect(() => {
@@ -372,6 +418,8 @@ export default function ChildrenPage() {
                   placeholder="山田"
                   value={newChildLastName}
                   onChange={(e) => setNewChildLastName(e.target.value)}
+                  onCompositionUpdate={handleLastNameCompositionUpdate}
+                  onCompositionEnd={handleLastNameCompositionEnd}
                   className="rounded-xl mt-1"
                 />
               </div>
@@ -382,6 +430,8 @@ export default function ChildrenPage() {
                   placeholder="太郎"
                   value={newChildFirstName}
                   onChange={(e) => setNewChildFirstName(e.target.value)}
+                  onCompositionUpdate={handleFirstNameCompositionUpdate}
+                  onCompositionEnd={handleFirstNameCompositionEnd}
                   className="rounded-xl mt-1"
                 />
               </div>

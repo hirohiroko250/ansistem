@@ -137,7 +137,7 @@ class Command(BaseCommand):
                             start_time = datetime.strptime(row['開始時間'], '%H:%M:%S').time()
                         else:
                             start_time = row['開始時間']
-                    except:
+                    except (ValueError, TypeError):
                         pass
 
                 # 開始日・終了日
@@ -145,7 +145,7 @@ class Command(BaseCommand):
                 if pd.notna(row.get('ユーザークラス開始日')):
                     try:
                         start_date = pd.to_datetime(row['ユーザークラス開始日']).date()
-                    except:
+                    except (ValueError, TypeError):
                         pass
                 if not start_date:
                     start_date = datetime.now().date()
@@ -154,7 +154,7 @@ class Command(BaseCommand):
                 if pd.notna(row.get('ユーザークラス終了日')):
                     try:
                         end_date = pd.to_datetime(row['ユーザークラス終了日']).date()
-                    except:
+                    except (ValueError, TypeError):
                         pass
 
                 # 重複チェック

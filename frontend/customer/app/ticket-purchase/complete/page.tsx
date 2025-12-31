@@ -3,10 +3,10 @@
 import { useEffect, useState } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { CheckCircle2, Ticket, Calendar, Home } from 'lucide-react';
+import { CheckCircle2, Ticket, Calendar, Home, GraduationCap, Trophy } from 'lucide-react';
 import { BottomTabBar } from '@/components/bottom-tab-bar';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { format, parseISO } from 'date-fns';
 import { ja } from 'date-fns/locale';
 
@@ -28,11 +28,14 @@ interface PurchaseResult {
   amount: number;
   startDate: string | null;
   bookedClass?: BookedClass | null;
+  type?: 'regular' | 'seminar' | 'certification';
 }
 
 export default function PurchaseCompletePage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [purchaseResult, setPurchaseResult] = useState<PurchaseResult | null>(null);
+  const purchaseType = searchParams.get('type') as 'regular' | 'seminar' | 'certification' | null;
 
   useEffect(() => {
     const stored = sessionStorage.getItem('purchaseResult');
@@ -51,6 +54,41 @@ export default function PurchaseCompletePage() {
     }
   }, [router]);
 
+  const getTypeConfig = () => {
+    const type = purchaseResult?.type || purchaseType || 'regular';
+    switch (type) {
+      case 'seminar':
+        return {
+          title: '講習会申込が完了しました',
+          subtitle: 'お申込みありがとうございます',
+          itemLabel: '講習会',
+          icon: GraduationCap,
+          iconColor: 'text-purple-600',
+          iconBg: 'bg-purple-100',
+        };
+      case 'certification':
+        return {
+          title: '検定申込が完了しました',
+          subtitle: 'お申込みありがとうございます',
+          itemLabel: '検定',
+          icon: Trophy,
+          iconColor: 'text-amber-600',
+          iconBg: 'bg-amber-100',
+        };
+      default:
+        return {
+          title: '購入が完了しました',
+          subtitle: 'ご購入ありがとうございます',
+          itemLabel: 'コース',
+          icon: CheckCircle2,
+          iconColor: 'text-green-600',
+          iconBg: 'bg-green-100',
+        };
+    }
+  };
+
+  const typeConfig = getTypeConfig();
+
   if (!purchaseResult) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-blue-50 flex items-center justify-center">
@@ -59,15 +97,17 @@ export default function PurchaseCompletePage() {
     );
   }
 
+  const TypeIcon = typeConfig.icon;
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-blue-50">
       <main className="max-w-[390px] mx-auto px-4 py-8 pb-24">
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-24 h-24 rounded-full bg-green-100 mb-6">
-            <CheckCircle2 className="h-14 w-14 text-green-600" />
+          <div className={`inline-flex items-center justify-center w-24 h-24 rounded-full ${typeConfig.iconBg} mb-6`}>
+            <TypeIcon className={`h-14 w-14 ${typeConfig.iconColor}`} />
           </div>
-          <h1 className="text-2xl font-bold text-gray-800 mb-2">購入が完了しました</h1>
-          <p className="text-gray-600">ご購入ありがとうございます</p>
+          <h1 className="text-2xl font-bold text-gray-800 mb-2">{typeConfig.title}</h1>
+          <p className="text-gray-600">{typeConfig.subtitle}</p>
         </div>
 
         <Card className="rounded-2xl shadow-lg mb-6">
@@ -85,7 +125,7 @@ export default function PurchaseCompletePage() {
             </div>
 
             <div>
-              <p className="text-sm text-gray-500 mb-1">コース</p>
+              <p className="text-sm text-gray-500 mb-1">{typeConfig.itemLabel}</p>
               <p className="font-semibold text-gray-800">{purchaseResult.courseName}</p>
             </div>
 
@@ -126,40 +166,68 @@ export default function PurchaseCompletePage() {
           <CardContent className="p-4">
             <h3 className="font-semibold text-gray-800 mb-2">次のステップ</h3>
             <ul className="space-y-2 text-sm text-gray-700">
-              <li className="flex items-start gap-2">
-                <Ticket className="h-4 w-4 text-blue-600 mt-0.5 shrink-0" />
-                <span>チケットは「チケット」画面から確認できます</span>
-              </li>
-              {purchaseResult.bookedClass ? (
-                <li className="flex items-start gap-2">
-                  <Calendar className="h-4 w-4 text-green-600 mt-0.5 shrink-0" />
-                  <span>初回レッスンの予約が完了しています</span>
-                </li>
+              {(purchaseResult.type === 'seminar' || purchaseType === 'seminar') ? (
+                <>
+                  <li className="flex items-start gap-2">
+                    <GraduationCap className="h-4 w-4 text-purple-600 mt-0.5 shrink-0" />
+                    <span>講習会の詳細は後日ご連絡いたします</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <Calendar className="h-4 w-4 text-blue-600 mt-0.5 shrink-0" />
+                    <span>講習日程は「カレンダー」画面から確認できます</span>
+                  </li>
+                </>
+              ) : (purchaseResult.type === 'certification' || purchaseType === 'certification') ? (
+                <>
+                  <li className="flex items-start gap-2">
+                    <Trophy className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
+                    <span>検定の詳細は後日ご連絡いたします</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <Calendar className="h-4 w-4 text-blue-600 mt-0.5 shrink-0" />
+                    <span>検定日程は「カレンダー」画面から確認できます</span>
+                  </li>
+                </>
               ) : (
-                <li className="flex items-start gap-2">
-                  <Calendar className="h-4 w-4 text-blue-600 mt-0.5 shrink-0" />
-                  <span>レッスンの予約は「カレンダー」画面から行えます</span>
-                </li>
+                <>
+                  <li className="flex items-start gap-2">
+                    <Ticket className="h-4 w-4 text-blue-600 mt-0.5 shrink-0" />
+                    <span>チケットは「チケット」画面から確認できます</span>
+                  </li>
+                  {purchaseResult.bookedClass ? (
+                    <li className="flex items-start gap-2">
+                      <Calendar className="h-4 w-4 text-green-600 mt-0.5 shrink-0" />
+                      <span>初回レッスンの予約が完了しています</span>
+                    </li>
+                  ) : (
+                    <li className="flex items-start gap-2">
+                      <Calendar className="h-4 w-4 text-blue-600 mt-0.5 shrink-0" />
+                      <span>レッスンの予約は「カレンダー」画面から行えます</span>
+                    </li>
+                  )}
+                </>
               )}
             </ul>
           </CardContent>
         </Card>
 
         <div className="space-y-3">
-          <Link href="/tickets" className="block">
-            <Button className="w-full h-14 rounded-full bg-blue-600 hover:bg-blue-700 text-white font-semibold text-lg">
-              <Ticket className="h-5 w-5 mr-2" />
-              チケットを確認する
-            </Button>
-          </Link>
+          {!(purchaseResult.type === 'seminar' || purchaseType === 'seminar' || purchaseResult.type === 'certification' || purchaseType === 'certification') && (
+            <Link href="/tickets" className="block">
+              <Button className="w-full h-14 rounded-full bg-blue-600 hover:bg-blue-700 text-white font-semibold text-lg">
+                <Ticket className="h-5 w-5 mr-2" />
+                チケットを確認する
+              </Button>
+            </Link>
+          )}
 
           <Link href="/calendar" className="block">
             <Button
-              variant="outline"
-              className="w-full h-14 rounded-full font-semibold text-lg border-2"
+              variant={(purchaseResult.type === 'seminar' || purchaseType === 'seminar' || purchaseResult.type === 'certification' || purchaseType === 'certification') ? 'default' : 'outline'}
+              className={`w-full h-14 rounded-full font-semibold text-lg ${(purchaseResult.type === 'seminar' || purchaseType === 'seminar' || purchaseResult.type === 'certification' || purchaseType === 'certification') ? 'bg-blue-600 hover:bg-blue-700 text-white' : 'border-2'}`}
             >
               <Calendar className="h-5 w-5 mr-2" />
-              レッスンを予約する
+              カレンダーを確認する
             </Button>
           </Link>
 

@@ -3,7 +3,7 @@ StudentDiscountにT6割引情報をインポート
 """
 import csv
 from datetime import datetime
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from django.core.management.base import BaseCommand
 from django.db import transaction
 from apps.contracts.models import StudentDiscount, Course, Pack, Product
@@ -146,7 +146,7 @@ class Command(BaseCommand):
                 amount_str = row.get('金額', '0').strip()
                 try:
                     amount = Decimal(amount_str)
-                except:
+                except (InvalidOperation, ValueError):
                     amount = Decimal('0')
 
                 # 割引単位

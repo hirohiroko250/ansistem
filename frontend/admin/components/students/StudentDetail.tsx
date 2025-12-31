@@ -338,22 +338,31 @@ export function StudentDetail({ student, parents, contracts, invoices, contactLo
   };
 
   // 現在の作業対象請求月を計算（締日ロジック使用）
-  // 締日（10日）を過ぎていれば翌月が作業対象
+  // 締日（10日）を過ぎていれば翌々月が請求対象
+  // 例: 12月26日 → 2月請求、12月5日 → 1月請求
   const getCurrentWorkingBillingPeriod = (closingDay: number = 10): { year: number; month: number } => {
     const today = new Date();
     const currentDay = today.getDate();
     const currentMonth = today.getMonth() + 1; // 1-12
     const currentYear = today.getFullYear();
 
-    // 締日を過ぎていれば翌月
+    // 締日を過ぎていれば翌々月
     if (currentDay > closingDay) {
-      if (currentMonth === 12) {
+      if (currentMonth === 11) {
+        // 11月 → 1月
         return { year: currentYear + 1, month: 1 };
       }
-      return { year: currentYear, month: currentMonth + 1 };
+      if (currentMonth === 12) {
+        // 12月 → 2月
+        return { year: currentYear + 1, month: 2 };
+      }
+      return { year: currentYear, month: currentMonth + 2 };
     }
-    // 締日以前なら当月
-    return { year: currentYear, month: currentMonth };
+    // 締日以前なら翌月
+    if (currentMonth === 12) {
+      return { year: currentYear + 1, month: 1 };
+    }
+    return { year: currentYear, month: currentMonth + 1 };
   };
 
   const currentBillingPeriod = getCurrentWorkingBillingPeriod();
@@ -842,6 +851,39 @@ export function StudentDetail({ student, parents, contracts, invoices, contactLo
               {/* 在籍情報 */}
               <div>
                 <h3 className="text-xs font-semibold text-gray-700 mb-1">在籍情報</h3>
+
+                {/* 契約中のブランド・コース（目立つ表示） */}
+                {(() => {
+                  // アクティブな契約を抽出
+                  const activeContracts = contracts.filter(c => c.status === 'active');
+                  if (activeContracts.length > 0) {
+                    return (
+                      <div className="mb-2 space-y-1">
+                        {activeContracts.map((contract, idx) => {
+                          const brandName = contract.brand_name || contract.brandName || (contract.brand as any)?.brand_name || '';
+                          const courseName = contract.course_name || contract.courseName || (contract.course as any)?.course_name || '';
+                          const schoolName = contract.school_name || contract.schoolName || (contract.school as any)?.school_name || '';
+                          return (
+                            <div key={contract.id || idx} className="bg-blue-50 border border-blue-200 rounded-lg p-2">
+                              <div className="flex items-center gap-2">
+                                <Badge className="text-[10px] px-1.5 py-0.5 bg-blue-600 text-white">契約中</Badge>
+                                <span className="text-xs font-bold text-blue-900">{brandName || '不明'}</span>
+                              </div>
+                              {courseName && (
+                                <p className="text-[11px] text-blue-700 mt-0.5 ml-1">{courseName}</p>
+                              )}
+                              {schoolName && (
+                                <p className="text-[10px] text-blue-600 mt-0.5 ml-1">📍 {schoolName}</p>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  }
+                  return null;
+                })()}
+
                 <table className="w-full text-xs border">
                   <tbody>
                     <tr className="border-b bg-gray-50">
@@ -863,7 +905,8 @@ export function StudentDetail({ student, parents, contracts, invoices, contactLo
                 {(() => {
                   // ブランドごとにグループ化して入会日・退会日を集計
                   const brandDates = contracts.reduce((acc, contract) => {
-                    const brandId = contract.brand_id || (contract.brand as any)?.id;
+                    // brandはUUID文字列またはオブジェクトの場合がある
+                    const brandId = contract.brand_id || (typeof contract.brand === 'string' ? contract.brand : (contract.brand as any)?.id);
                     const brandName = contract.brand_name || contract.brandName || (contract.brand as any)?.brand_name || (contract.brand as any)?.brandName || "";
                     if (!brandId || !brandName) return acc;
 
@@ -906,14 +949,15 @@ export function StudentDetail({ student, parents, contracts, invoices, contactLo
 
                   if (brandList.length === 0) {
                     return (
-                      <div className="mt-1 text-xs text-gray-400 px-2">
+                      <div className="mt-2 text-xs text-gray-400 px-2 py-1 bg-gray-50 rounded">
                         契約情報なし
                       </div>
                     );
                   }
 
                   return (
-                    <div className="mt-1">
+                    <div className="mt-2">
+                      <p className="text-[10px] text-gray-500 mb-1">入会履歴</p>
                       <table className="w-full text-xs border">
                         <thead>
                           <tr className="bg-gray-100">
@@ -1181,17 +1225,6 @@ export function StudentDetail({ student, parents, contracts, invoices, contactLo
         {/* 契約タブ */}
         <TabsContent value="contracts" className="flex-1 overflow-auto p-0 m-0">
           <div className="p-4">
-            {/* 当月表示 */}
-            <div className="flex items-center gap-2 mb-4">
-              <Calendar className="w-4 h-4 text-gray-500" />
-              <span className="text-sm font-medium">
-                {contractYear}年{contractMonth}月分
-              </span>
-              <span className="text-xs text-gray-500 ml-2">
-                {filteredContracts.length}件
-              </span>
-            </div>
-
             {/* 設備費の重複排除: 全契約から設備費を集め、最高額のみを有効にする */}
             {(() => {
               // 全契約の設備費を収集
@@ -1225,7 +1258,120 @@ export function StudentDetail({ student, parents, contracts, invoices, contactLo
                   .map(item => `${item.contractId}-${item.itemId}`)
               );
 
-              return filteredContracts.length > 0 ? (
+              // ===== 合計金額を計算 =====
+              const oneTimeItemTypes = [
+                'enrollment', 'enrollment_tuition', 'enrollment_monthly_fee',
+                'enrollment_facility', 'enrollment_textbook', 'enrollment_expense',
+                'enrollment_management', 'bag', 'abacus'
+              ];
+              const textbookItemTypes = ['textbook', 'material'];
+
+              let totalMonthly = 0;
+              let totalEnrollment = 0;
+              let totalTextbook = 0;
+              let totalDiscount = 0;
+              let totalMileDiscount = 0;
+
+              // 税込価格計算用関数（消費税10%）
+              const withTaxSummary = (price: number) => Math.floor(price * 1.1);
+
+              // ブランドごとの集計
+              const brandTotals = new Map<string, { monthly: number; enrollment: number; textbook: number; discount: number }>();
+
+              filteredContracts.forEach((contract: any) => {
+                const brandName = contract.brand_name || contract.brandName || "その他";
+                const items = contract.student_items || contract.studentItems || [];
+                const discounts = contract.discounts || [];
+                const discountTotal = contract.discount_total || contract.discountTotal || 0;
+                const discountApplied = contract.discount_applied || contract.discountApplied || 0;
+                const contractDiscount = Number(discounts.length > 0 ? discountTotal : discountApplied);
+
+                if (!brandTotals.has(brandName)) {
+                  brandTotals.set(brandName, { monthly: 0, enrollment: 0, textbook: 0, discount: 0 });
+                }
+                const bt = brandTotals.get(brandName)!;
+
+                items.forEach((item: any) => {
+                  const itemType = (item.item_type || item.itemType || '').toLowerCase();
+                  const itemName = (item.product_name || item.productName || '').toLowerCase();
+                  const price = withTaxSummary(Number(item.final_price || item.finalPrice || item.unit_price || item.unitPrice || 0));
+
+                  // 設備費の重複排除チェック
+                  const itemId = item.id || item.product_id || item.productId || '';
+                  const isExcluded = facilityTypes.includes(itemType) && excludedFacilitySet.has(`${contract.id}-${itemId}`);
+                  if (isExcluded) return;
+
+                  if (oneTimeItemTypes.includes(itemType) || itemName.includes('入会金')) {
+                    totalEnrollment += price;
+                    bt.enrollment += price;
+                  } else if (textbookItemTypes.includes(itemType)) {
+                    totalTextbook += price;
+                    bt.textbook += price;
+                  } else {
+                    totalMonthly += price;
+                    bt.monthly += price;
+                  }
+                });
+
+                totalDiscount += contractDiscount;
+                bt.discount += contractDiscount;
+
+                // マイル割引を確認（notesに含まれる場合）
+                items.forEach((item: any) => {
+                  const notes = item.notes || '';
+                  if (notes.includes('マイル')) {
+                    const mileMatch = notes.match(/マイル.*?(\d+)/);
+                    if (mileMatch) {
+                      totalMileDiscount += parseInt(mileMatch[1]);
+                    }
+                  }
+                });
+              });
+
+              const grandTotal = totalMonthly + totalEnrollment + totalTextbook - totalDiscount - totalMileDiscount;
+
+              return (
+                <>
+                  {/* ===== 合計金額サマリー ===== */}
+                  <div className="bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-xl p-4 mb-4 shadow-lg">
+                    <div className="flex items-center gap-2 mb-2">
+                      <Calendar className="w-4 h-4" />
+                      <span className="text-sm opacity-90">
+                        {contractYear}年{contractMonth}月分
+                      </span>
+                      <span className="text-xs opacity-75 ml-1">
+                        ({filteredContracts.length}件の契約)
+                      </span>
+                    </div>
+                    <div className="text-3xl font-bold mb-2">
+                      ¥{grandTotal.toLocaleString()}
+                      <span className="text-sm font-normal opacity-75 ml-2">（税込）</span>
+                    </div>
+                    <div className="text-xs opacity-80 space-y-0.5">
+                      {totalMonthly > 0 && <div>月額: ¥{totalMonthly.toLocaleString()}</div>}
+                      {totalEnrollment > 0 && <div>入会時費用: ¥{totalEnrollment.toLocaleString()}</div>}
+                      {totalTextbook > 0 && <div>教材費: ¥{totalTextbook.toLocaleString()}</div>}
+                      {totalDiscount > 0 && <div className="text-yellow-200">割引: -¥{totalDiscount.toLocaleString()}</div>}
+                      {totalMileDiscount > 0 && <div className="text-green-200">マイル: -¥{totalMileDiscount.toLocaleString()}</div>}
+                    </div>
+                  </div>
+
+                  {/* ===== ブランド別サマリー ===== */}
+                  {brandTotals.size > 1 && (
+                    <div className="grid grid-cols-2 gap-2 mb-4">
+                      {Array.from(brandTotals.entries()).map(([brand, totals]) => {
+                        const brandTotal = totals.monthly + totals.enrollment + totals.textbook - totals.discount;
+                        return (
+                          <div key={brand} className="bg-gray-50 rounded-lg p-2 text-xs">
+                            <div className="font-medium text-gray-700 truncate">{brand}</div>
+                            <div className="text-blue-600 font-bold">¥{brandTotal.toLocaleString()}</div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {filteredContracts.length > 0 ? (
               <div className="space-y-3">
                 {filteredContracts.map((contract) => {
                   // 除外される設備費をチェックするヘルパー
@@ -1266,27 +1412,10 @@ export function StudentDetail({ student, parents, contracts, invoices, contactLo
                     return bm;
                   };
 
-                  // 契約の請求月でフィルタリング（各契約はその月のアイテムのみ表示）
-                  const studentItems = allStudentItems.filter((item: { billing_month?: string; billingMonth?: string }) => {
-                    const itemBillingMonth = item.billing_month || item.billingMonth || "";
-                    if (!itemBillingMonth) return true;
-
-                    // billing_monthを正規化して比較
-                    const normalizedItemMonth = normalizeBillingMonth(itemBillingMonth);
-
-                    // 契約の請求月と一致するアイテムのみ表示
-                    if (contractBillingMonth) {
-                      return normalizedItemMonth === contractBillingMonth;
-                    }
-
-                    // 契約の請求月がない場合は、フィルターで絞り込み
-                    if (contractYear !== "all" || contractMonth !== "all") {
-                      const [itemYear, itemMonth] = normalizedItemMonth.split("-");
-                      if (contractYear !== "all" && itemYear !== contractYear) return false;
-                      if (contractMonth !== "all" && parseInt(itemMonth) !== parseInt(contractMonth)) return false;
-                    }
-                    return true;
-                  });
+                  // 契約内のすべてのStudentItemsを表示（フィルタなし）
+                  // ※ 契約の絞り込みは filteredContracts で行われているため、
+                  //    各契約内のアイテムはすべて表示する（入会時費用、月額費用、教材費など）
+                  const studentItems = allStudentItems;
 
                   // 割引情報を取得
                   const discounts = contract.discounts || [];
@@ -1299,28 +1428,39 @@ export function StudentDetail({ student, parents, contracts, invoices, contactLo
                   const billingMonthLabel = billingMonths.length > 0 ? billingMonths.join(", ") : "";
 
                   // 一回限りの費用タイプ（月額合計から除外）
+                  // ※ textbook/material は2ヶ月目以降の教材費なので入会時費用から除外
                   const oneTimeItemTypes = [
                     'enrollment', 'enrollment_tuition', 'enrollment_monthly_fee',
                     'enrollment_facility', 'enrollment_textbook', 'enrollment_expense',
-                    'enrollment_management', 'textbook', 'material'
+                    'enrollment_management', 'bag', 'abacus'
                   ];
 
+                  // 2ヶ月目以降の教材費タイプ
+                  const textbookItemTypes = ['textbook', 'material'];
+
                   // 月額アイテムと一回限りアイテムを分離
-                  const monthlyItems = studentItems.filter((item: { item_type?: string; itemType?: string; product_name?: string; productName?: string }) => {
+                  const monthlyItems = studentItems.filter((item: any) => {
                     const itemType = (item.item_type || item.itemType || '').toLowerCase();
                     const itemName = (item.product_name || item.productName || '').toLowerCase();
-                    // 入会金や教材費を除外
+                    // 入会時費用、教材費を除外
                     if (oneTimeItemTypes.includes(itemType)) return false;
+                    if (textbookItemTypes.includes(itemType)) return false;
                     if (itemName.includes('入会金')) return false;
                     return true;
                   });
 
-                  const oneTimeItems = studentItems.filter((item: { item_type?: string; itemType?: string; product_name?: string; productName?: string }) => {
+                  const oneTimeItems = studentItems.filter((item: any) => {
                     const itemType = (item.item_type || item.itemType || '').toLowerCase();
                     const itemName = (item.product_name || item.productName || '').toLowerCase();
                     if (oneTimeItemTypes.includes(itemType)) return true;
                     if (itemName.includes('入会金')) return true;
                     return false;
+                  });
+
+                  // 2ヶ月目以降の教材費アイテム
+                  const textbookItems = studentItems.filter((item: any) => {
+                    const itemType = (item.item_type || item.itemType || '').toLowerCase();
+                    return textbookItemTypes.includes(itemType);
                   });
 
                   // フィルタ後のアイテムから月額合計を計算（一回限りの費用と除外設備費を除外）
@@ -1492,138 +1632,197 @@ export function StudentDetail({ student, parents, contracts, invoices, contactLo
                         return null;
                       })()}
 
-                      {/* 料金内訳 */}
+                      {/* 料金内訳（カテゴリ別シンプル表示） */}
                       <div className="p-3">
-                        <table className="w-full text-xs">
-                          <thead>
-                            <tr className="border-b">
-                              <th className="text-left py-1 text-gray-500 font-normal">項目</th>
-                              <th className="text-right py-1 text-gray-500 font-normal w-20">数量</th>
-                              <th className="text-right py-1 text-gray-500 font-normal w-24">単価</th>
-                              <th className="text-right py-1 text-gray-500 font-normal w-24">金額</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {/* 月額料金（授業料など） */}
-                            {monthlyItems.length > 0 ? (
-                              monthlyItems.map((item: {
-                                id: string;
-                                product_name?: string;
-                                productName?: string;
-                                notes?: string;
-                                quantity?: number;
-                                unit_price?: number | string;
-                                unitPrice?: number | string;
-                                final_price?: number | string;
-                                finalPrice?: number | string;
-                                item_type?: string;
-                                itemType?: string;
-                                product_id?: string;
-                                productId?: string;
-                              }, idx: number) => {
-                                const itemName = item.product_name || item.productName || item.notes || "-";
-                                const qty = item.quantity || 1;
-                                const unitPrice = item.unit_price || item.unitPrice || 0;
-                                const finalPrice = item.final_price || item.finalPrice || 0;
-                                const isExcluded = isFacilityExcluded(item);
-                                return (
-                                  <tr key={item.id || idx} className={`border-b border-gray-100 ${isExcluded ? 'opacity-50' : ''}`}>
-                                    <td className={`py-1 ${isExcluded ? 'line-through' : ''}`}>
-                                      {itemName}
-                                      {isExcluded && <span className="ml-1 text-xs text-orange-600">(重複除外)</span>}
-                                    </td>
-                                    <td className={`py-1 text-right ${isExcluded ? 'line-through' : ''}`}>{qty}</td>
-                                    <td className={`py-1 text-right ${isExcluded ? 'line-through' : ''}`}>¥{Number(unitPrice).toLocaleString()}</td>
-                                    <td className={`py-1 text-right ${isExcluded ? 'line-through' : ''}`}>¥{Number(finalPrice).toLocaleString()}</td>
-                                  </tr>
-                                );
-                              })
-                            ) : (
-                              <tr className="border-b border-gray-100">
-                                <td className="py-1">{courseName || "月額料金"}</td>
-                                <td className="py-1 text-right">1</td>
-                                <td className="py-1 text-right">¥{Number(monthlyTotal).toLocaleString()}</td>
-                                <td className="py-1 text-right">¥{Number(monthlyTotal).toLocaleString()}</td>
-                              </tr>
-                            )}
-                            {/* 割引情報（詳細） */}
-                            {discounts.length > 0 ? (
-                              discounts.map((discount: StudentDiscount, idx: number) => {
-                                const discountName = discount.discount_name || discount.discountName || "割引";
-                                const discountAmt = Math.abs(Number(discount.amount) || 0);
-                                const discountUnit = discount.discount_unit || discount.discountUnit || "yen";
-                                const brandName = discount.brand_name || discount.brandName || "";
+                        {(() => {
+                          // 契約開始日から請求月を計算
+                          const contractStartDate = contract.start_date || contract.startDate;
+                          let startMonth = '';
+                          let startYear = 0;
+                          let startMonthNum = 0;
+                          if (contractStartDate) {
+                            const d = new Date(contractStartDate);
+                            if (!isNaN(d.getTime())) {
+                              startYear = d.getFullYear();
+                              startMonthNum = d.getMonth() + 1;
+                              startMonth = `${startYear}-${String(startMonthNum).padStart(2, '0')}`;
+                            }
+                          }
 
-                                return (
-                                  <tr key={discount.id || idx} className="border-b border-gray-100 text-orange-600">
-                                    <td className="py-1" colSpan={3}>
-                                      {discountName}
-                                      {brandName && <span className="text-orange-400 ml-1">({brandName})</span>}
-                                    </td>
-                                    <td className="py-1 text-right">
-                                      {discountUnit === "percent"
-                                        ? `-${discountAmt}%`
-                                        : `-¥${discountAmt.toLocaleString()}`
-                                      }
-                                    </td>
-                                  </tr>
-                                );
-                              })
-                            ) : Number(discountApplied) > 0 && (
-                              <tr className="border-b border-gray-100 text-orange-600">
-                                <td className="py-1" colSpan={3}>
-                                  割引{discountType && `（${discountType}）`}
-                                </td>
-                                <td className="py-1 text-right">-¥{Number(discountApplied).toLocaleString()}</td>
-                              </tr>
-                            )}
-                          </tbody>
-                          <tfoot>
-                            <tr className="font-bold">
-                              <td className="pt-2" colSpan={3}>月額合計</td>
-                              <td className="pt-2 text-right text-blue-600">
-                                ¥{(Number(monthlyTotal) - Number(discounts.length > 0 ? discountTotal : discountApplied)).toLocaleString()}
-                              </td>
-                            </tr>
-                          </tfoot>
-                        </table>
+                          // 翌月、翌々月を計算
+                          const getNextMonth = (year: number, month: number) => {
+                            if (month === 12) return { year: year + 1, month: 1 };
+                            return { year, month: month + 1 };
+                          };
+                          const next1 = getNextMonth(startYear, startMonthNum);
+                          const next2 = getNextMonth(next1.year, next1.month);
 
-                        {/* 一回限りの費用（入会金など）がある場合 */}
-                        {oneTimeItems.length > 0 && (
-                          <div className="mt-3 pt-3 border-t border-dashed">
-                            <p className="text-xs text-gray-500 mb-2">入会時費用（一回限り）:</p>
-                            <table className="w-full text-xs">
-                              <tbody>
-                                {oneTimeItems.map((item: {
-                                  id: string;
-                                  product_name?: string;
-                                  productName?: string;
-                                  notes?: string;
-                                  quantity?: number;
-                                  unit_price?: number | string;
-                                  unitPrice?: number | string;
-                                  final_price?: number | string;
-                                  finalPrice?: number | string;
-                                }, idx: number) => {
-                                  const itemName = item.product_name || item.productName || item.notes || "-";
-                                  const finalPrice = item.final_price || item.finalPrice || 0;
-                                  return (
-                                    <tr key={item.id || idx} className="text-gray-600">
-                                      <td className="py-1">{itemName}</td>
-                                      <td className="py-1 text-right w-24">¥{Number(finalPrice).toLocaleString()}</td>
-                                    </tr>
-                                  );
-                                })}
-                              </tbody>
-                              <tfoot>
-                                <tr className="font-medium text-gray-700">
-                                  <td className="pt-1">入会時費用合計</td>
-                                  <td className="pt-1 text-right">¥{Number(oneTimeTotal).toLocaleString()}</td>
-                                </tr>
-                              </tfoot>
-                            </table>
-                          </div>
-                        )}
+                          // 請求月ラベルの生成
+                          const formatMonthLabel = (year: number, month: number) => {
+                            return `${year}年${month}月請求分`;
+                          };
+
+                          // アイテムを種別で分類
+                          const enrollmentItems = studentItems.filter((item: any) => {
+                            const itemType = (item.item_type || item.itemType || '').toLowerCase();
+                            const itemName = (item.product_name || item.productName || '').toLowerCase();
+                            if (oneTimeItemTypes.includes(itemType)) return true;
+                            if (itemName.includes('入会金')) return true;
+                            return false;
+                          });
+
+                          const monthlyItems2 = studentItems.filter((item: any) => {
+                            const itemType = (item.item_type || item.itemType || '').toLowerCase();
+                            const itemName = (item.product_name || item.productName || '').toLowerCase();
+                            if (oneTimeItemTypes.includes(itemType)) return false;
+                            if (textbookItemTypes.includes(itemType)) return false;
+                            if (itemName.includes('入会金')) return false;
+                            return true;
+                          });
+
+                          const textbookItems2 = studentItems.filter((item: any) => {
+                            const itemType = (item.item_type || item.itemType || '').toLowerCase();
+                            return textbookItemTypes.includes(itemType);
+                          });
+
+                          // 税込価格計算用関数（消費税10%）
+                          const withTax = (price: number) => Math.floor(price * 1.1);
+
+                          // 合計計算（税込み）
+                          const enrollmentTotal = enrollmentItems.reduce((sum: number, item: any) =>
+                            sum + withTax(Number(item.final_price || item.finalPrice || 0)), 0);
+
+                          const monthlyTotal2 = monthlyItems2.reduce((sum: number, item: any) => {
+                            if (isFacilityExcluded(item)) return sum;
+                            return sum + withTax(Number(item.final_price || item.finalPrice || 0));
+                          }, 0);
+
+                          const textbookTotal2 = textbookItems2.reduce((sum: number, item: any) =>
+                            sum + withTax(Number(item.final_price || item.finalPrice || item.unit_price || item.unitPrice || 0)), 0);
+
+                          const discountAmount = Number(discounts.length > 0 ? discountTotal : discountApplied);
+                          const monthlyAfterDiscount = monthlyTotal2 - discountAmount;
+
+                          // 初月合計 = 入会時費用 + 月額(割引後) + 教材費
+                          const firstMonthTotal = enrollmentTotal + monthlyAfterDiscount + textbookTotal2;
+
+                          return (
+                            <>
+                              {/* 入会時費用 */}
+                              {enrollmentItems.length > 0 && (
+                                <div className="mb-3">
+                                  <p className="text-xs font-medium text-gray-600 mb-1 flex items-center gap-1">
+                                    <span className="bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded text-[10px]">入会時</span>
+                                    {startMonthNum > 0 && `${startMonthNum}月請求`}
+                                  </p>
+                                  <table className="w-full text-xs">
+                                    <tbody>
+                                      {enrollmentItems.map((item: any, idx: number) => {
+                                        const categoryName = item.category_name || item.categoryName;
+                                        const itemName = categoryName || item.product_name || item.productName || "-";
+                                        const finalPrice = withTax(Number(item.final_price || item.finalPrice || 0));
+                                        return (
+                                          <tr key={item.id || idx} className="border-b border-gray-100">
+                                            <td className="py-1 text-gray-700">{itemName}</td>
+                                            <td className="py-1 text-right w-20">¥{finalPrice.toLocaleString()}</td>
+                                          </tr>
+                                        );
+                                      })}
+                                    </tbody>
+                                  </table>
+                                </div>
+                              )}
+
+                              {/* 月額費用 */}
+                              {monthlyItems2.length > 0 && (
+                                <div className="mb-3">
+                                  <p className="text-xs font-medium text-gray-600 mb-1 flex items-center gap-1">
+                                    <span className="bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded text-[10px]">月額</span>
+                                    {next1.month > 0 && `${next1.month}月～請求`}
+                                  </p>
+                                  <table className="w-full text-xs">
+                                    <tbody>
+                                      {monthlyItems2.map((item: any, idx: number) => {
+                                        const categoryName = item.category_name || item.categoryName;
+                                        const itemName = categoryName || item.product_name || item.productName || "-";
+                                        const finalPrice = withTax(Number(item.final_price || item.finalPrice || 0));
+                                        const isExcluded = isFacilityExcluded(item);
+                                        return (
+                                          <tr key={item.id || idx} className={`border-b border-gray-100 ${isExcluded ? 'opacity-50' : ''}`}>
+                                            <td className={`py-1 text-gray-700 ${isExcluded ? 'line-through' : ''}`}>
+                                              {itemName}
+                                              {isExcluded && <span className="ml-1 text-[10px] text-orange-600">(除外)</span>}
+                                            </td>
+                                            <td className={`py-1 text-right w-20 ${isExcluded ? 'line-through' : ''}`}>
+                                              ¥{finalPrice.toLocaleString()}
+                                            </td>
+                                          </tr>
+                                        );
+                                      })}
+                                      {discountAmount > 0 && (
+                                        <tr className="border-b border-gray-100 text-orange-600">
+                                          <td className="py-1">割引</td>
+                                          <td className="py-1 text-right">-¥{discountAmount.toLocaleString()}</td>
+                                        </tr>
+                                      )}
+                                    </tbody>
+                                    <tfoot>
+                                      <tr className="font-medium">
+                                        <td className="pt-1 text-gray-700">月額小計</td>
+                                        <td className="pt-1 text-right text-blue-600">¥{monthlyAfterDiscount.toLocaleString()}</td>
+                                      </tr>
+                                    </tfoot>
+                                  </table>
+                                </div>
+                              )}
+
+                              {/* 教材費 */}
+                              {textbookItems2.length > 0 && (
+                                <div className="mb-3">
+                                  <p className="text-xs font-medium text-gray-600 mb-1 flex items-center gap-1">
+                                    <span className="bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded text-[10px]">教材</span>
+                                    半年払い等
+                                  </p>
+                                  <table className="w-full text-xs">
+                                    <tbody>
+                                      {textbookItems2.map((item: any, idx: number) => {
+                                        const categoryName = item.category_name || item.categoryName;
+                                        const itemName = categoryName || item.product_name || item.productName || "-";
+                                        const finalPrice = withTax(Number(item.final_price || item.finalPrice || item.unit_price || item.unitPrice || 0));
+                                        return (
+                                          <tr key={item.id || idx} className="border-b border-gray-100">
+                                            <td className="py-1 text-gray-700">{itemName}</td>
+                                            <td className="py-1 text-right w-20">¥{finalPrice.toLocaleString()}</td>
+                                          </tr>
+                                        );
+                                      })}
+                                    </tbody>
+                                  </table>
+                                </div>
+                              )}
+
+                              {/* 合計 */}
+                              <div className="mt-3 pt-3 border-t-2 border-blue-200 bg-blue-50 -mx-3 px-3 pb-3 rounded-b-lg">
+                                <div className="flex justify-between items-center">
+                                  <span className="text-sm font-bold text-blue-800">初月合計（税込）</span>
+                                  <span className="text-lg font-bold text-blue-600">¥{firstMonthTotal.toLocaleString()}</span>
+                                </div>
+                                <p className="text-xs text-gray-500 mt-1">
+                                  {enrollmentTotal > 0 && `入会時 ¥${enrollmentTotal.toLocaleString()}`}
+                                  {enrollmentTotal > 0 && monthlyAfterDiscount > 0 && ' + '}
+                                  {monthlyAfterDiscount > 0 && `月額 ¥${monthlyAfterDiscount.toLocaleString()}`}
+                                  {(enrollmentTotal > 0 || monthlyAfterDiscount > 0) && textbookTotal2 > 0 && ' + '}
+                                  {textbookTotal2 > 0 && `教材 ¥${textbookTotal2.toLocaleString()}`}
+                                </p>
+                                {monthlyAfterDiscount > 0 && (
+                                  <p className="text-xs text-gray-400 mt-0.5">
+                                    ※ 翌月以降の月額: ¥{monthlyAfterDiscount.toLocaleString()}/月
+                                  </p>
+                                )}
+                              </div>
+                            </>
+                          );
+                        })()}
                       </div>
                     </div>
                   );
@@ -1633,7 +1832,9 @@ export function StudentDetail({ student, parents, contracts, invoices, contactLo
               <div className="text-center text-gray-500 py-8">
                 {contracts.length > 0 ? "該当期間の契約がありません" : "契約情報がありません"}
               </div>
-            );
+            )}
+                </>
+              );
             })()}
             <div className="mt-4">
               <Button

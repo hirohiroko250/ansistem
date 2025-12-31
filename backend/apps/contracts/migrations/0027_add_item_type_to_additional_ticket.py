@@ -10,16 +10,7 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        # Djangoの状態だけ更新（DBは既にt10a_additional_ticketsで存在）
-        migrations.SeparateDatabaseAndState(
-            state_operations=[
-                migrations.AlterModelTable(
-                    name="additionalticket",
-                    table="t10a_additional_tickets",
-                ),
-            ],
-            database_operations=[],  # DBは既に正しいテーブル名なので何もしない
-        ),
+        # item_typeカラムを追加
         migrations.AddField(
             model_name="additionalticket",
             name="item_type",

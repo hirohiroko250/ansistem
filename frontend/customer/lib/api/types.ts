@@ -348,6 +348,24 @@ export interface PricingPreviewResponse {
   currentMonthProrated?: CurrentMonthProrated;  // 当月分回数割料金
   courseItems?: CourseItem[];  // コース商品一覧（そのまま表示用）
   billingByMonth?: BillingByMonth;  // 月別料金グループ
+  textbookOptions?: TextbookOption[];  // 教材費選択肢（半年払い/月払いなど）
+}
+
+// 教材費選択肢
+export interface TextbookOption {
+  productId: string;
+  productCode?: string;
+  productName: string;
+  itemType: string;
+  unitPrice: number;        // 税抜価格（2ヶ月目以降の標準価格）
+  priceWithTax: number;     // 税込価格（2ヶ月目以降）
+  basePrice?: number;       // 元の価格
+  enrollmentMonth?: number; // 入会月
+  enrollmentPrice?: number; // 入会時教材費（傾斜料金）税抜
+  enrollmentPriceWithTax?: number; // 入会時教材費（傾斜料金）税込
+  taxRate: number;
+  paymentType: 'monthly' | 'semi_annual' | 'annual';  // 月払い/半年払い/年払い
+  billingMonths: number[];  // 請求月リスト（半年払いの場合 [4, 10] など）
 }
 
 export interface PricingCalculateRequest {
@@ -387,6 +405,8 @@ export interface PricingConfirmRequest {
   // 選択したスケジュール情報（曜日・時間帯）
   schedules?: SelectedSchedule[];
   ticketId?: string;  // 選択したチケットID
+  // 教材費選択（半年払い/月払い等のID）
+  selectedTextbookIds?: string[];
 }
 
 export interface PricingConfirmResponse {

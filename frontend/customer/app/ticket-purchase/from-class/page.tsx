@@ -664,7 +664,7 @@ export default function FromClassPurchasePage() {
     <div className="h-screen flex flex-col bg-gradient-to-br from-blue-50 via-white to-blue-50">
       <header className="flex-shrink-0 bg-white shadow-sm z-40">
         <div className="max-w-[390px] mx-auto px-4 h-16 flex items-center">
-          <Link href="/ticket-purchase" className="mr-3">
+          <Link href="/" className="mr-3">
             <ChevronLeft className="h-6 w-6 text-gray-700" />
           </Link>
           <h1 className="text-xl font-bold text-gray-800">クラスから選択</h1>

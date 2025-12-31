@@ -108,10 +108,10 @@ class Command(BaseCommand):
                 if birth_date_str:
                     try:
                         student.birth_date = datetime.strptime(birth_date_str, '%Y/%m/%d').date()
-                    except:
+                    except ValueError:
                         try:
                             student.birth_date = datetime.strptime(birth_date_str, '%Y-%m-%d').date()
-                        except:
+                        except ValueError:
                             pass
 
                 # 性別
@@ -139,14 +139,14 @@ class Command(BaseCommand):
                 if enroll_date_str:
                     try:
                         student.enrollment_date = datetime.strptime(enroll_date_str, '%Y/%m/%d').date()
-                    except:
+                    except ValueError:
                         pass
 
                 withdraw_date_str = row.get('退塾日', '')
                 if withdraw_date_str:
                     try:
                         student.withdrawal_date = datetime.strptime(withdraw_date_str, '%Y/%m/%d').date()
-                    except:
+                    except ValueError:
                         pass
 
                 student.withdrawal_reason = row.get('退塾理由', '') or ''

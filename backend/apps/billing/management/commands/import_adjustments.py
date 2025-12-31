@@ -4,7 +4,7 @@
 CSVファイルから過不足金データを読み込み、請求確定データに反映する。
 """
 import csv
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from django.core.management.base import BaseCommand
 from django.db import transaction
 from apps.billing.models import ConfirmedBilling
@@ -93,7 +93,7 @@ class Command(BaseCommand):
                 # 金額をパース
                 try:
                     adjustment_amount = Decimal(adjustment_str)
-                except:
+                except (InvalidOperation, ValueError):
                     self.stdout.write(self.style.ERROR(
                         f'金額パースエラー: {guardian_old_id} {last_name}{first_name} - {adjustment_str}'
                     ))

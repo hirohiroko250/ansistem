@@ -177,20 +177,93 @@ def upload_multiple_files(request):
 
 
 def health_check(request):
-    """ヘルスチェックエンドポイント"""
+    """
+    ヘルスチェックエンドポイント
+
+    GET /health/
+    - 簡易チェック（データベースのみ）
+
+    GET /health/?detailed=true
+    - 詳細チェック（DB + Redis + Celery）
+    """
+    detailed = request.GET.get('detailed', '').lower() == 'true'
+
     health_status = {
         'status': 'healthy',
-        'database': 'unknown',
+        'checks': {},
     }
 
     # データベース接続チェック
     try:
         with connection.cursor() as cursor:
             cursor.execute('SELECT 1')
-        health_status['database'] = 'connected'
+        health_status['checks']['database'] = {'status': 'ok'}
     except Exception as e:
-        health_status['database'] = f'error: {str(e)}'
+        health_status['checks']['database'] = {'status': 'error', 'message': str(e)}
         health_status['status'] = 'unhealthy'
 
-    status_code = 200 if health_status['status'] == 'healthy' else 503
+    # 詳細モードの場合、追加チェック
+    if detailed:
+        # Redis チェック
+        try:
+            from django.core.cache import cache
+            cache.set('health_check', 'ok', timeout=5)
+            if cache.get('health_check') == 'ok':
+                health_status['checks']['redis'] = {'status': 'ok'}
+            else:
+                health_status['checks']['redis'] = {'status': 'error', 'message': 'Cache read failed'}
+                health_status['status'] = 'degraded'
+        except Exception as e:
+            health_status['checks']['redis'] = {'status': 'error', 'message': str(e)}
+            health_status['status'] = 'degraded'
+
+        # Celery チェック（ワーカーが応答するか）
+        try:
+            from config.celery import app as celery_app
+            inspect = celery_app.control.inspect(timeout=2.0)
+            active_workers = inspect.active()
+            if active_workers:
+                worker_count = len(active_workers)
+                health_status['checks']['celery'] = {
+                    'status': 'ok',
+                    'workers': worker_count
+                }
+            else:
+                health_status['checks']['celery'] = {
+                    'status': 'warning',
+                    'message': 'No active workers'
+                }
+        except Exception as e:
+            health_status['checks']['celery'] = {
+                'status': 'unknown',
+                'message': str(e)
+            }
+
+    # ステータスコードを決定
+    if health_status['status'] == 'healthy':
+        status_code = 200
+    elif health_status['status'] == 'degraded':
+        status_code = 200  # 部分的に動作中
+    else:
+        status_code = 503
+
     return JsonResponse(health_status, status=status_code)
+
+
+def system_info(request):
+    """
+    システム情報エンドポイント（認証不要、基本情報のみ）
+
+    GET /health/info/
+    """
+    import platform
+    import django
+
+    info = {
+        'version': '1.0.0',
+        'python_version': platform.python_version(),
+        'django_version': django.get_version(),
+        'environment': os.environ.get('DJANGO_SETTINGS_MODULE', 'unknown').split('.')[-1],
+    }
+
+    return JsonResponse(info)

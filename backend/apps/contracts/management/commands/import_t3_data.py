@@ -3,7 +3,7 @@ T3 CSVまたはXLSXからCourse, Product, Packにデータを投入するコマ�
 """
 import csv
 import uuid
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from django.core.management.base import BaseCommand
 from django.db import transaction
 from apps.contracts.models import Course, Product, Pack
@@ -118,7 +118,7 @@ class Command(BaseCommand):
 
                         try:
                             price_decimal = Decimal(str(price).replace(',', ''))
-                        except:
+                        except (InvalidOperation, ValueError):
                             price_decimal = Decimal('0')
 
                         course, created = Course.objects.update_or_create(
@@ -164,7 +164,7 @@ class Command(BaseCommand):
                     def parse_price(val):
                         try:
                             return Decimal(str(val).replace(',', ''))
-                        except:
+                        except (InvalidOperation, ValueError):
                             return Decimal('0')
 
                     product, created = Product.objects.update_or_create(

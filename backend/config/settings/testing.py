@@ -7,12 +7,13 @@ from .base import *
 DEBUG = False
 
 # Database configuration for testing
-# Use PostgreSQL if DB_HOST is set (Docker environment), otherwise use SQLite in-memory
-if os.environ.get('DB_HOST'):
+# USE_POSTGRES_FOR_TESTS=1 を設定した場合のみPostgreSQLを使用
+# デフォルトはSQLite in-memory（高速・互換性あり）
+if os.environ.get('USE_POSTGRES_FOR_TESTS'):
     DATABASES = {
         'default': {
             'ENGINE': 'django.db.backends.postgresql',
-            'NAME': os.environ.get('DB_NAME', 'oza_db'),
+            'NAME': os.environ.get('TEST_DB_NAME', 'test_oza_db'),
             'USER': os.environ.get('DB_USER', 'postgres'),
             'PASSWORD': os.environ.get('DB_PASSWORD', 'postgres'),
             'HOST': os.environ.get('DB_HOST', 'localhost'),

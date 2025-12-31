@@ -193,7 +193,7 @@ class Command(BaseCommand):
                         skipped_ended += 1
                         skipped_rows.append({**first_row.to_dict(), 'skip_reason': '終了済み'})
                         continue
-                except:
+                except (ValueError, TypeError):
                     pass
 
             # ブランド抽出（契約ID: 24SOR_1000006 -> SOR）
@@ -218,7 +218,7 @@ class Command(BaseCommand):
             if start_date_str and start_date_str != 'nan':
                 try:
                     start_date = pd.to_datetime(start_date_str).date()
-                except:
+                except (ValueError, TypeError):
                     pass
 
             # 終了日
@@ -226,7 +226,7 @@ class Command(BaseCommand):
             if end_date_str and end_date_str != 'nan' and end_date_str != '3000/3/31':
                 try:
                     end_date = pd.to_datetime(end_date_str).date()
-                except:
+                except (ValueError, TypeError):
                     pass
 
             # 契約名

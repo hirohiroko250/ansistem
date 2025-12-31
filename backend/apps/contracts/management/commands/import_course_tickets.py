@@ -101,7 +101,7 @@ class Command(BaseCommand):
 
                             try:
                                 quantity = int(float(quantity_str)) if quantity_str else 1
-                            except:
+                            except (ValueError, TypeError):
                                 quantity = 1
 
                             # コースの場合

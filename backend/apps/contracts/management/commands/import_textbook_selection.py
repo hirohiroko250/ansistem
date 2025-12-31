@@ -87,7 +87,7 @@ class Command(BaseCommand):
             stats['total'] += 1
 
             student_old_id = str(int(row['生徒ID']))
-            course_code = row['契約ID']
+            contract_no = row['契約ID']  # contract_no（例: 24SOR_1000038）
             payment_type = row['請求月']
 
             # 支払い方法の分類
@@ -104,7 +104,7 @@ class Command(BaseCommand):
                 stats['errors'] += 1
                 results['errors'].append({
                     'student_old_id': student_old_id,
-                    'course_code': course_code,
+                    'contract_no': contract_no,
                     'reason': f'不明な請求月: {payment_type}'
                 })
                 continue
@@ -121,45 +121,26 @@ class Command(BaseCommand):
                 results['not_found'].append({
                     'type': 'student',
                     'student_old_id': student_old_id,
-                    'course_code': course_code,
+                    'contract_no': contract_no,
                 })
                 continue
 
             stats['student_found'] += 1
 
-            # コースを検索
-            course = Course.objects.filter(
-                tenant_id=tenant_id,
-                course_code=course_code,
-                is_active=True,
-                deleted_at__isnull=True
-            ).first()
-
-            if not course:
-                # コースが見つからない場合、コードの前方一致で検索
-                course = Course.objects.filter(
-                    tenant_id=tenant_id,
-                    course_code__startswith=course_code.rsplit('_', 1)[0] if '_' in course_code else course_code,
-                    is_active=True,
-                    deleted_at__isnull=True
-                ).first()
-
-            # 契約を検索
+            # 契約を検索（contract_no + student で一意に特定）
             contract = Contract.objects.filter(
                 tenant_id=tenant_id,
                 student=student,
-                course__course_code=course_code,
-                status='active',
+                contract_no=contract_no,
                 deleted_at__isnull=True
             ).first()
 
-            if not contract and course:
-                # コースで再検索
+            # contract_noで見つからない場合、old_idでも検索
+            if not contract:
                 contract = Contract.objects.filter(
                     tenant_id=tenant_id,
                     student=student,
-                    course=course,
-                    status='active',
+                    old_id=contract_no,
                     deleted_at__isnull=True
                 ).first()
 
@@ -169,34 +150,61 @@ class Command(BaseCommand):
                     'type': 'contract',
                     'student_old_id': student_old_id,
                     'student_name': student.full_name,
-                    'course_code': course_code,
+                    'contract_no': contract_no,
                 })
                 continue
 
             stats['contract_found'] += 1
 
-            # 教材費商品を検索（コースコードプレフィックスで）
-            course_prefix = course_code.rsplit('_', 1)[0] if '_' in course_code else course_code
-            textbook = Product.objects.filter(
-                tenant_id=tenant_id,
-                product_code__startswith=course_prefix,
-                item_type='textbook',
-                product_name__icontains=textbook_keyword,
-                is_active=True,
-                deleted_at__isnull=True
-            ).first()
+            # 教材費商品を検索（契約番号 + サフィックスで）
+            # 半年払い: _4 (通常) または _2 (マンツー)
+            # 月払い: _5 (通常) または _3 (マンツー)
+            # 注: 商品が別テナントに存在する場合があるため、tenant_idフィルタは使用しない
+            textbook = None
 
-            if not textbook:
-                # ブランドから教材費を検索
-                if contract.course and contract.course.brand:
+            # まず契約番号に基づくproduct_codeで検索
+            if textbook_keyword == '半年払い':
+                # _4 または _2 サフィックスを試す
+                for suffix in ['_4', '_2']:
                     textbook = Product.objects.filter(
-                        tenant_id=tenant_id,
-                        brand=contract.course.brand,
+                        product_code=f'{contract_no}{suffix}',
                         item_type='textbook',
-                        product_name__icontains=textbook_keyword,
                         is_active=True,
                         deleted_at__isnull=True
                     ).first()
+                    if textbook:
+                        break
+            else:  # 月払い
+                # _5 または _3 サフィックスを試す
+                for suffix in ['_5', '_3']:
+                    textbook = Product.objects.filter(
+                        product_code=f'{contract_no}{suffix}',
+                        item_type='textbook',
+                        is_active=True,
+                        deleted_at__isnull=True
+                    ).first()
+                    if textbook:
+                        break
+
+            # 見つからない場合、product_nameで検索
+            if not textbook:
+                textbook = Product.objects.filter(
+                    product_code__startswith=contract_no,
+                    item_type='textbook',
+                    product_name__icontains=textbook_keyword,
+                    is_active=True,
+                    deleted_at__isnull=True
+                ).first()
+
+            # それでも見つからない場合、ブランドから検索
+            if not textbook and contract.brand:
+                textbook = Product.objects.filter(
+                    brand=contract.brand,
+                    item_type='textbook',
+                    product_name__icontains=textbook_keyword,
+                    is_active=True,
+                    deleted_at__isnull=True
+                ).first()
 
             if not textbook:
                 stats['textbook_not_found'] += 1
@@ -204,7 +212,7 @@ class Command(BaseCommand):
                     'type': 'textbook',
                     'student_old_id': student_old_id,
                     'student_name': student.full_name,
-                    'course_code': course_code,
+                    'contract_no': contract_no,
                     'keyword': textbook_keyword,
                 })
                 continue
@@ -225,7 +233,7 @@ class Command(BaseCommand):
             results['updated'].append({
                 'student_old_id': student_old_id,
                 'student_name': student.full_name,
-                'course_code': course_code,
+                'contract_no': contract_no,
                 'textbook': textbook.product_name,
                 'payment_type': payment_type,
             })
@@ -261,7 +269,7 @@ class Command(BaseCommand):
             for r in results['updated'][:10]:
                 self.stdout.write(
                     f"  {r['student_old_id']} {r['student_name']}: "
-                    f"{r['course_code']} → {r['payment_type']}"
+                    f"{r['contract_no']} → {r['payment_type']}"
                 )
 
         # 未発見リスト
@@ -272,7 +280,7 @@ class Command(BaseCommand):
             for r in results['not_found'][:20]:
                 self.stdout.write(
                     f"  [{r['type']}] {r.get('student_old_id', '-')} "
-                    f"{r.get('student_name', '')} - {r.get('course_code', '')}"
+                    f"{r.get('student_name', '')} - {r.get('contract_no', '')}"
                 )
 
         if dry_run:

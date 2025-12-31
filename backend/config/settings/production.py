@@ -6,6 +6,18 @@ from .base import *
 
 DEBUG = False
 
+# Security: Ensure SECRET_KEY is set in production
+if SECRET_KEY.startswith('django-insecure') or 'change-this' in SECRET_KEY.lower():
+    raise ValueError(
+        "SECRET_KEY is not set or using insecure default. "
+        "Set DJANGO_SECRET_KEY environment variable with a secure random key."
+    )
+
+# Security: Ensure JWT_SECRET_KEY is set separately in production (optional but recommended)
+JWT_SECRET = os.environ.get('JWT_SECRET_KEY')
+if JWT_SECRET:
+    SIMPLE_JWT['SIGNING_KEY'] = JWT_SECRET
+
 # Security settings
 SECURE_BROWSER_XSS_FILTER = True
 SECURE_CONTENT_TYPE_NOSNIFF = True
@@ -44,12 +56,33 @@ MIDDLEWARE.insert(1, 'whitenoise.middleware.WhiteNoiseMiddleware')
 LOGS_DIR = BASE_DIR / 'logs'
 LOGS_DIR.mkdir(exist_ok=True)
 
-# Logging
+# Logging - 本番環境ではJSON形式
+USE_JSON_LOGS = os.environ.get('USE_JSON_LOGS', 'True').lower() == 'true'
+
 LOGGING['handlers']['file'] = {
     'class': 'logging.handlers.RotatingFileHandler',
     'filename': LOGS_DIR / 'django.log',
-    'maxBytes': 1024 * 1024 * 5,  # 5 MB
-    'backupCount': 5,
-    'formatter': 'verbose',
+    'maxBytes': 1024 * 1024 * 10,  # 10 MB
+    'backupCount': 10,
+    'formatter': 'json' if USE_JSON_LOGS else 'verbose',
 }
-LOGGING['root']['handlers'].append('file')
+
+LOGGING['handlers']['error_file'] = {
+    'class': 'logging.handlers.RotatingFileHandler',
+    'filename': LOGS_DIR / 'error.log',
+    'maxBytes': 1024 * 1024 * 10,  # 10 MB
+    'backupCount': 10,
+    'formatter': 'json' if USE_JSON_LOGS else 'verbose',
+    'level': 'ERROR',
+}
+
+# コンソールもJSON形式に
+if USE_JSON_LOGS:
+    LOGGING['handlers']['console']['formatter'] = 'json'
+
+# ルートハンドラーにファイル追加
+LOGGING['root']['handlers'].extend(['file', 'error_file'])
+
+# 本番用ログレベル調整
+LOGGING['loggers']['apps']['level'] = 'INFO'
+LOGGING['loggers']['django']['level'] = 'WARNING'

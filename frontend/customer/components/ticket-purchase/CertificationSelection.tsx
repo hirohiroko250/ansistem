@@ -81,12 +81,25 @@ export function CertificationSelection({ childId, brandId, schoolId, onBack }: C
           student: childId,
           certification: certification.id,
           status: 'applied',
-          unit_price: certification.exam_fee,
+          exam_fee: certification.exam_fee,
           discount_amount: 0,
           final_price: certification.exam_fee,
           billing_month: new Date().toISOString().slice(0, 7),
         });
       }
+
+      // 完了ページ用の結果を保存
+      const purchaseResult = {
+        orderId: `CERT-${Date.now()}`,
+        childName: '',  // 子ども名は親コンポーネントから取得できない
+        childId: childId,
+        courseName: selectedCertifications.map(c => c.certification_name).join('、'),
+        courseId: selectedCertifications[0]?.id || '',
+        amount: totalPrice,
+        startDate: null,
+        type: 'certification',
+      };
+      sessionStorage.setItem('purchaseResult', JSON.stringify(purchaseResult));
 
       router.push('/ticket-purchase/complete?type=certification');
     } catch (err: any) {
