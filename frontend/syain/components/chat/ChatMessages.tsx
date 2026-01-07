@@ -260,67 +260,67 @@ export function ChatMessages({
   const messageGroups = groupMessagesByDate(messages);
 
   const mainContent = (
-    <div className="h-full flex flex-col bg-[#7AACB8]">
-      {/* LINE風ヘッダー */}
-      <div className="flex-shrink-0 bg-[#00B900] text-white px-3 py-3 flex items-center gap-3 shadow-md">
+    <div className="h-full w-full flex flex-col bg-gray-100 absolute inset-0">
+      {/* ヘッダー */}
+      <div className="flex-shrink-0 bg-white text-gray-800 px-3 py-3 flex items-center gap-3 shadow-sm border-b z-10">
         {/* 戻るボタン */}
         {onOpenSidebar && (
           <button
             onClick={onOpenSidebar}
-            className="p-1 hover:bg-white/20 rounded-full transition-colors"
+            className="p-1 hover:bg-gray-100 rounded-full transition-colors"
             title="トーク一覧"
           >
-            <ChevronLeft className="w-6 h-6" />
+            <ChevronLeft className="w-6 h-6 text-gray-600" />
           </button>
         )}
-        <Avatar className="w-10 h-10 border-2 border-white/30">
-          <AvatarFallback className="bg-white text-[#00B900] text-sm font-bold">
+        <Avatar className="w-10 h-10 border border-gray-200">
+          <AvatarFallback className="bg-blue-500 text-white text-sm font-bold">
             {getChannelAvatar(channel)}
           </AvatarFallback>
         </Avatar>
         <div className="flex-1 min-w-0">
           <h1 className="font-bold text-base truncate">{getChannelDisplayName(channel)}</h1>
           {'student' in channel && channel.student && (
-            <p className="text-xs text-white/80">生徒: {channel.student.fullName}</p>
+            <p className="text-xs text-gray-500">生徒: {channel.student.fullName}</p>
           )}
           {typingUsers.length > 0 && (
-            <p className="text-xs text-white/90 animate-pulse">
+            <p className="text-xs text-blue-500 animate-pulse">
               {typingUsers.join(', ')} が入力中...
             </p>
           )}
         </div>
-        <button className="p-2 hover:bg-white/20 rounded-full transition-colors" title="通話">
-          <Phone className="w-5 h-5" />
+        <button className="p-2 hover:bg-gray-100 rounded-full transition-colors" title="通話">
+          <Phone className="w-5 h-5 text-gray-600" />
         </button>
         {onOpenSettings && (
           <button
             onClick={onOpenSettings}
-            className="p-2 hover:bg-white/20 rounded-full transition-colors"
+            className="p-2 hover:bg-gray-100 rounded-full transition-colors"
             title="設定"
           >
-            <MoreVertical className="w-5 h-5" />
+            <MoreVertical className="w-5 h-5 text-gray-600" />
           </button>
         )}
       </div>
 
-      {/* LINE風メッセージエリア */}
+      {/* メッセージエリア */}
       <div className="flex-1 overflow-y-auto px-3 py-4 flex flex-col min-h-0">
         {messages.length === 0 ? (
           <div className="flex items-center justify-center flex-1">
-            <p className="text-white/70 text-sm">メッセージがありません</p>
+            <p className="text-gray-400 text-sm">メッセージがありません</p>
           </div>
         ) : (
           <div className="mt-auto">
           {messageGroups.map((group, groupIndex) => (
             <div key={groupIndex}>
-              {/* LINE風日付セパレーター */}
+              {/* 日付セパレーター */}
               <div className="flex items-center justify-center my-4">
-                <span className="bg-black/20 text-white text-xs px-4 py-1 rounded-full">
+                <span className="bg-gray-300 text-gray-600 text-xs px-4 py-1 rounded-full">
                   {formatMessageDate(group.date)}
                 </span>
               </div>
 
-              {/* LINE風メッセージ */}
+              {/* メッセージ */}
               {group.messages.map((message, msgIndex) => {
                 const senderId = message.sender || message.senderId;
                 const isOwnMessage = senderId === currentUserId;
@@ -340,12 +340,12 @@ export function ChatMessages({
                     onMouseEnter={() => setHoveredMessageId(message.id)}
                     onMouseLeave={() => setHoveredMessageId(null)}
                   >
-                    {/* LINE風アバター */}
+                    {/* アバター */}
                     {!isOwnMessage && (
-                      <div className="w-10 flex-shrink-0 mb-1">
+                      <div className="w-9 flex-shrink-0 mb-1">
                         {showAvatar && (
-                          <Avatar className="w-10 h-10 shadow-md">
-                            <AvatarFallback className="bg-white text-[#00B900] text-sm font-bold">
+                          <Avatar className="w-9 h-9 shadow-sm">
+                            <AvatarFallback className="bg-blue-500 text-white text-xs font-bold">
                               {(message.senderName || '?').substring(0, 2)}
                             </AvatarFallback>
                           </Avatar>
@@ -353,11 +353,11 @@ export function ChatMessages({
                       </div>
                     )}
 
-                    {/* LINE風メッセージバブル */}
+                    {/* メッセージバブル */}
                     <div className={`flex flex-col ${isOwnMessage ? 'items-end' : 'items-start'} max-w-[70%]`}>
                       {/* 送信者名（相手のメッセージで最初のみ） */}
                       {!isOwnMessage && showAvatar && (
-                        <span className="text-xs text-white/80 mb-1 ml-2 font-medium">
+                        <span className="text-xs text-gray-500 mb-1 ml-2 font-medium">
                           {message.senderName || '不明'}
                         </span>
                       )}
@@ -471,15 +471,15 @@ export function ChatMessages({
                             </div>
                           ) : (
                             <div
-                              className={`relative px-4 py-2.5 shadow-md ${
+                              className={`relative px-4 py-2.5 shadow-sm ${
                                 isOwnMessage
-                                  ? 'bg-[#00B900] text-white rounded-[20px] rounded-br-md'
-                                  : 'bg-white text-gray-800 rounded-[20px] rounded-bl-md'
+                                  ? 'bg-blue-500 text-white rounded-2xl rounded-br-sm'
+                                  : 'bg-white text-gray-800 rounded-2xl rounded-bl-sm'
                               }`}
                             >
-                              {/* LINE風引用元表示 */}
+                              {/* 引用元表示 */}
                               {message.replyTo && message.replyToContent && (
-                                <div className={`mb-2 pl-2.5 border-l-2 ${isOwnMessage ? 'border-white/50 bg-white/10' : 'border-[#00B900] bg-gray-100'} -mx-1 px-2 py-1.5 rounded`}>
+                                <div className={`mb-2 pl-2.5 border-l-2 ${isOwnMessage ? 'border-white/50 bg-white/10' : 'border-blue-500 bg-gray-50'} -mx-1 px-2 py-1.5 rounded`}>
                                   <p className={`text-[11px] font-medium ${isOwnMessage ? 'text-white/80' : 'text-gray-600'}`}>
                                     {message.replyToSenderName || '返信'}
                                   </p>
@@ -515,7 +515,7 @@ export function ChatMessages({
                               {replyCount > 0 && (
                                 <button
                                   onClick={() => onOpenThread && onOpenThread(message)}
-                                  className={`flex items-center gap-1 mt-2 text-xs font-medium ${isOwnMessage ? 'text-white/80 hover:text-white' : 'text-[#00B900] hover:text-[#009900]'}`}
+                                  className={`flex items-center gap-1 mt-2 text-xs font-medium ${isOwnMessage ? 'text-white/80 hover:text-white' : 'text-blue-500 hover:text-blue-600'}`}
                                 >
                                   <MessageCircle className="w-3 h-3" />
                                   {replyCount}件の返信
@@ -549,14 +549,14 @@ export function ChatMessages({
                           )}
                         </div>
 
-                        {/* LINE風時刻と既読 */}
+                        {/* 時刻と既読 */}
                         <div className={`flex flex-col gap-0.5 ${isOwnMessage ? 'items-end' : 'items-start'}`}>
                           {isOwnMessage && readCount > 0 && (
-                            <span className="text-[10px] text-white/70 font-medium">
+                            <span className="text-[10px] text-gray-500 font-medium">
                               既読
                             </span>
                           )}
-                          <span className="text-[10px] text-white/60">
+                          <span className="text-[10px] text-gray-400">
                             {format(new Date(message.createdAt), 'HH:mm')}
                           </span>
                         </div>
@@ -572,13 +572,13 @@ export function ChatMessages({
         <div ref={messagesEndRef} />
       </div>
 
-      {/* LINE風入力エリア */}
-      <div className="flex-shrink-0 bg-[#F7F7F7] border-t border-gray-200 px-3 py-2 relative">
+      {/* 入力エリア */}
+      <div className="flex-shrink-0 bg-gray-50 border-t border-gray-200 px-3 py-2 relative">
         {/* 引用プレビューパネル */}
         {quotedMessage && (
-          <div className="mb-2 bg-white rounded-lg p-2.5 border-l-4 border-[#00B900] flex items-start justify-between shadow-sm">
+          <div className="mb-2 bg-white rounded-lg p-2.5 border-l-4 border-blue-500 flex items-start justify-between shadow-sm">
             <div className="flex-1 min-w-0">
-              <p className="text-[11px] text-[#00B900] font-semibold">{quotedMessage.senderName}への返信</p>
+              <p className="text-[11px] text-blue-600 font-semibold">{quotedMessage.senderName}への返信</p>
               <p className="text-xs text-gray-600 truncate mt-0.5">{quotedMessage.content}</p>
             </div>
             <button
@@ -621,13 +621,13 @@ export function ChatMessages({
             mentionableUsers={mentionableUsers}
             placeholder="メッセージを入力　（@でメンション）"
             disabled={isSending || isUploading}
-            className="rounded-full bg-white border border-gray-300 focus:border-[#00B900] focus:ring-1 focus:ring-[#00B900] px-4"
+            className="rounded-full bg-white border border-gray-300 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 px-4"
           />
           <Button
             onClick={handleSend}
             disabled={!newMessage.trim() || isSending || isUploading}
             size="icon"
-            className="rounded-full bg-[#00B900] hover:bg-[#009900] w-10 h-10 shadow-md"
+            className="rounded-full bg-blue-500 hover:bg-blue-600 w-10 h-10 shadow-md"
           >
             {isSending ? (
               <Loader2 className="w-5 h-5 animate-spin" />

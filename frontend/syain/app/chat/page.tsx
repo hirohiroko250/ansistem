@@ -801,7 +801,7 @@ export default function ChatPage() {
         </div>
       ) : !showMessages ? (
         // チャット一覧画面
-        <div className="flex-1 flex flex-col overflow-hidden">
+        <div className="flex-1 flex flex-col overflow-hidden pb-16">
           <ChatSidebar
             activeTab={activeTab}
             onTabChange={handleTabChange}
@@ -834,7 +834,7 @@ export default function ChatPage() {
         </div>
       ) : (
         // メッセージ画面
-        <div className="flex-1 flex flex-col overflow-hidden">
+        <div className="flex-1 relative pb-16">
           <ChatMessages
             channel={currentSelectedChannel}
             messages={currentMessages}
@@ -860,11 +860,7 @@ export default function ChatPage() {
       )}
 
       {/* ボトムナビ（グループ作成時は非表示） */}
-      {!showCreateGroup && (
-        <div className="flex-shrink-0">
-          <BottomNav />
-        </div>
-      )}
+      {!showCreateGroup && <BottomNav />}
 
       {/* スレッドパネル */}
       {showThread && threadMessage && currentSelectedChannel && (

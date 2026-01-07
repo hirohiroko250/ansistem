@@ -3,6 +3,7 @@
 import { useState, useMemo, useEffect } from "react";
 import { Student, Guardian, Contract, Invoice, StudentDiscount } from "@/lib/api/types";
 import { ContactLog, ChatLog, ChatMessage, createContactLog, ContactLogCreateData, getStudentContactLogs } from "@/lib/api/staff";
+import { getChannels, getMessages, sendMessage, getOrCreateChannelForGuardian, type Channel, type Message } from "@/lib/api/chat";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -31,6 +32,9 @@ import {
   ExternalLink,
   Plus,
   Loader2,
+  Send,
+  ChevronLeft,
+  ArrowLeft,
 } from "lucide-react";
 import { ContractEditDialog } from "./ContractEditDialog";
 import { NewContractDialog } from "./NewContractDialog";
@@ -442,6 +446,18 @@ export function StudentDetail({ student, parents, contracts, invoices, contactLo
   const [commDateFrom, setCommDateFrom] = useState<string>("");
   const [commDateTo, setCommDateTo] = useState<string>("");
 
+  // チャットスレッド用state
+  const [chatChannels, setChatChannels] = useState<Channel[]>([]);
+  const [selectedChannel, setSelectedChannel] = useState<Channel | null>(null);
+  const [channelMessages, setChannelMessages] = useState<Message[]>([]);
+  const [newMessage, setNewMessage] = useState("");
+  const [channelsLoading, setChannelsLoading] = useState(false);
+  const [messagesLoading, setMessagesLoading] = useState(false);
+  const [sendingMessage, setSendingMessage] = useState(false);
+  const [showNewChatForm, setShowNewChatForm] = useState(false);
+  const [newChatTitle, setNewChatTitle] = useState("");
+  const [creatingChat, setCreatingChat] = useState(false);
+
   // 日付フィルタリングされた対応ログ
   const filteredContactLogs = useMemo(() => {
     return localContactLogs.filter((log) => {
@@ -467,6 +483,116 @@ export function StudentDetail({ student, parents, contracts, invoices, contactLo
   const clearCommDateFilter = () => {
     setCommDateFrom("");
     setCommDateTo("");
+  };
+
+  // チャンネル一覧を読み込む
+  const loadChatChannels = async () => {
+    const guardianId = parents[0]?.id;
+    if (!guardianId) return;
+
+    setChannelsLoading(true);
+    try {
+      // studentIdでフィルタしてチャンネルを取得
+      const channels = await getChannels({ studentId: student.id });
+      // 該当生徒のチャンネルのみフィルタリング（念のためフロントエンドでも）
+      const filteredChannels = (channels || []).filter((ch) => {
+        // 生徒IDが一致するチャンネルのみ表示
+        return ch.student?.id === student.id;
+      });
+      setChatChannels(filteredChannels);
+    } catch (err) {
+      console.error("Failed to load channels:", err);
+    } finally {
+      setChannelsLoading(false);
+    }
+  };
+
+  // 選択したチャンネルのメッセージを読み込む
+  const loadChannelMessages = async (channel: Channel) => {
+    setMessagesLoading(true);
+    try {
+      const res = await getMessages(channel.id, { pageSize: 50 });
+      const msgs = res?.results || res?.data || [];
+      setChannelMessages(msgs.reverse());
+    } catch (err) {
+      console.error("Failed to load messages:", err);
+    } finally {
+      setMessagesLoading(false);
+    }
+  };
+
+  // チャットタブを開いたときにチャンネル一覧を読み込む
+  useEffect(() => {
+    if (commTab === "chat" && parents.length > 0) {
+      loadChatChannels();
+    }
+  }, [commTab, parents]);
+
+  // チャンネル選択時にメッセージを読み込む
+  useEffect(() => {
+    if (selectedChannel) {
+      loadChannelMessages(selectedChannel);
+    }
+  }, [selectedChannel]);
+
+  // メッセージ送信
+  const handleSendMessage = async () => {
+    if (!newMessage.trim() || !selectedChannel) return;
+
+    setSendingMessage(true);
+    try {
+      const sentMsg = await sendMessage({
+        channelId: selectedChannel.id,
+        content: newMessage.trim(),
+      });
+      setChannelMessages((prev) => [...prev, sentMsg]);
+      setNewMessage("");
+    } catch (err) {
+      console.error("Failed to send message:", err);
+      alert("メッセージの送信に失敗しました");
+    } finally {
+      setSendingMessage(false);
+    }
+  };
+
+  // 新規チャット作成
+  const handleCreateNewChat = async () => {
+    const guardianId = parents[0]?.id;
+    if (!guardianId) {
+      alert("保護者情報が見つかりません");
+      return;
+    }
+
+    setCreatingChat(true);
+    try {
+      const newChannel = await getOrCreateChannelForGuardian(guardianId);
+      setChatChannels((prev) => [newChannel, ...prev.filter((c) => c.id !== newChannel.id)]);
+      setSelectedChannel(newChannel);
+      setShowNewChatForm(false);
+      setNewChatTitle("");
+    } catch (err) {
+      console.error("Failed to create chat:", err);
+      alert("チャットの作成に失敗しました");
+    } finally {
+      setCreatingChat(false);
+    }
+  };
+
+  // スレッド一覧に戻る
+  const handleBackToChannelList = () => {
+    setSelectedChannel(null);
+    setChannelMessages([]);
+  };
+
+  // メッセージ日時フォーマット
+  const formatMsgTime = (dateStr: string) => {
+    const date = new Date(dateStr);
+    const now = new Date();
+    const isToday = date.toDateString() === now.toDateString();
+    if (isToday) {
+      return date.toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" });
+    }
+    return date.toLocaleDateString("ja-JP", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
   };
 
   // 年の選択肢を生成（過去3年〜今年まで）
@@ -2391,60 +2517,186 @@ export function StudentDetail({ student, parents, contracts, invoices, contactLo
               </div>
             )}
 
-            {/* チャット履歴 */}
+            {/* チャット履歴 - スレッド表示 */}
             {commTab === "chat" && (
-              <div className="space-y-2 max-h-[60vh] overflow-y-auto border rounded-lg p-2 bg-gray-50">
-                {filteredMessages.length > 0 ? (
-                  filteredMessages.map((msg: any) => {
-                    const isGuardian = !!msg.sender_guardian_id || !!msg.sender_guardian_name || msg.sender_type === "GUARDIAN";
-                    const isBot = msg.is_bot_message || msg.sender_type === "BOT";
-                    const senderLabel = isBot
-                      ? "ボット"
-                      : isGuardian
-                      ? (msg.sender_guardian_name || msg.guardian_name || "保護者")
-                      : (msg.sender_name || "スタッフ");
-
-                    return (
-                      <div
-                        key={msg.id}
-                        className={`p-3 rounded-lg text-sm ${
-                          isGuardian
-                            ? "bg-blue-100 ml-0 mr-12"
-                            : isBot
-                            ? "bg-gray-200 ml-12 mr-0"
-                            : "bg-green-100 ml-12 mr-0"
-                        }`}
+              <div className="border rounded-lg bg-gray-50 overflow-hidden">
+                {selectedChannel ? (
+                  /* メッセージ表示画面 */
+                  <div className="flex flex-col h-[60vh]">
+                    {/* ヘッダー */}
+                    <div className="flex items-center gap-2 px-3 py-2 bg-white border-b">
+                      <button
+                        onClick={handleBackToChannelList}
+                        className="p-1 hover:bg-gray-100 rounded"
                       >
-                        <div className="flex justify-between items-center mb-1">
-                          <span className="text-xs font-medium text-gray-600">
-                            {senderLabel}
-                          </span>
-                          <span className="text-xs text-gray-400">
-                            {(() => {
-                              const dateStr = msg.created_at || msg.timestamp;
-                              return dateStr ? new Date(dateStr).toLocaleString("ja-JP", {
-                                month: "numeric",
-                                day: "numeric",
-                                hour: "2-digit",
-                                minute: "2-digit",
-                              }) : "-";
-                            })()}
-                          </span>
-                        </div>
-                        <p className="text-gray-800 whitespace-pre-wrap">{msg.content}</p>
-                        {msg.attachment_name && (
-                          <div className="mt-1 text-xs text-blue-600">
-                            添付: {msg.attachment_name}
-                          </div>
-                        )}
+                        <ArrowLeft className="w-4 h-4 text-gray-500" />
+                      </button>
+                      <div className="flex-1 min-w-0">
+                        <p className="font-medium text-sm truncate">{selectedChannel.name}</p>
+                        <p className="text-xs text-gray-500">
+                          {selectedChannel.guardian?.fullName || "保護者"}
+                        </p>
                       </div>
-                    );
-                  })
+                    </div>
+
+                    {/* メッセージ一覧 */}
+                    <div className="flex-1 overflow-y-auto p-3 space-y-2">
+                      {messagesLoading ? (
+                        <div className="flex items-center justify-center h-full">
+                          <Loader2 className="w-6 h-6 animate-spin text-blue-600" />
+                        </div>
+                      ) : channelMessages.length === 0 ? (
+                        <div className="flex items-center justify-center h-full">
+                          <div className="text-center text-gray-500 text-sm">
+                            <MessageCircle className="w-8 h-8 mx-auto mb-2 text-gray-300" />
+                            メッセージがありません
+                          </div>
+                        </div>
+                      ) : (
+                        channelMessages.map((msg) => {
+                          const isStaff = !msg.senderGuardian;
+                          return (
+                            <div
+                              key={msg.id}
+                              className={`flex ${isStaff ? "justify-end" : "justify-start"}`}
+                            >
+                              <div
+                                className={`max-w-[75%] rounded-lg px-3 py-2 text-sm ${
+                                  isStaff
+                                    ? "bg-blue-600 text-white"
+                                    : "bg-white border text-gray-800"
+                                }`}
+                              >
+                                {!isStaff && (
+                                  <p className="text-xs text-gray-500 mb-1">
+                                    {msg.senderGuardianName || msg.senderName || "保護者"}
+                                  </p>
+                                )}
+                                <p className="whitespace-pre-wrap">{msg.content}</p>
+                                <p className={`text-xs mt-1 ${isStaff ? "text-blue-200" : "text-gray-400"}`}>
+                                  {formatMsgTime(msg.createdAt)}
+                                </p>
+                              </div>
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
+
+                    {/* 入力エリア */}
+                    <div className="border-t bg-white p-2">
+                      <div className="flex gap-2">
+                        <Input
+                          value={newMessage}
+                          onChange={(e) => setNewMessage(e.target.value)}
+                          placeholder="メッセージを入力..."
+                          className="flex-1 text-sm"
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" && !e.shiftKey) {
+                              e.preventDefault();
+                              handleSendMessage();
+                            }
+                          }}
+                          disabled={sendingMessage}
+                        />
+                        <Button
+                          size="sm"
+                          onClick={handleSendMessage}
+                          disabled={!newMessage.trim() || sendingMessage}
+                          className="bg-blue-600 hover:bg-blue-700"
+                        >
+                          {sendingMessage ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <Send className="w-4 h-4" />
+                          )}
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
                 ) : (
-                  <div className="text-center text-gray-500 py-8 text-sm">
-                    {messages.length === 0 && chatLogs.length === 0
-                      ? "チャット履歴がありません"
-                      : "該当する期間のチャットがありません"}
+                  /* スレッド一覧画面 */
+                  <div className="max-h-[60vh] overflow-y-auto">
+                    {/* 新規チャットボタン */}
+                    <div className="p-3 border-b bg-white">
+                      <Button
+                        size="sm"
+                        onClick={handleCreateNewChat}
+                        disabled={creatingChat || parents.length === 0}
+                        className="w-full bg-blue-600 hover:bg-blue-700"
+                      >
+                        {creatingChat ? (
+                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        ) : (
+                          <Plus className="w-4 h-4 mr-2" />
+                        )}
+                        新規チャット
+                      </Button>
+                    </div>
+
+                    {/* スレッド一覧 */}
+                    {channelsLoading ? (
+                      <div className="flex items-center justify-center py-8">
+                        <Loader2 className="w-6 h-6 animate-spin text-blue-600" />
+                      </div>
+                    ) : chatChannels.length === 0 ? (
+                      <div className="text-center text-gray-500 py-8 text-sm">
+                        <MessageCircle className="w-8 h-8 mx-auto mb-2 text-gray-300" />
+                        チャット履歴がありません
+                        <p className="text-xs text-gray-400 mt-1">上のボタンから新規チャットを開始できます</p>
+                      </div>
+                    ) : (
+                      <div className="divide-y">
+                        {chatChannels.map((channel) => {
+                          // 未返信判定：最後のメッセージが保護者からの場合
+                          const isUnreplied = channel.lastMessage &&
+                            (channel.lastMessage.senderName?.includes("保護者") ||
+                             !channel.lastMessage.senderName?.includes("スタッフ"));
+                          const hasUnread = channel.unreadCount > 0;
+
+                          return (
+                            <button
+                              key={channel.id}
+                              onClick={() => setSelectedChannel(channel)}
+                              className={`w-full px-3 py-3 flex items-center gap-3 hover:bg-white transition-colors text-left ${
+                                hasUnread || isUnreplied ? "bg-red-50 border-l-4 border-l-red-500" : ""
+                              }`}
+                            >
+                              <div className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 ${
+                                hasUnread || isUnreplied ? "bg-red-100" : "bg-blue-100"
+                              }`}>
+                                <MessageCircle className={`w-5 h-5 ${
+                                  hasUnread || isUnreplied ? "text-red-600" : "text-blue-600"
+                                }`} />
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center justify-between gap-2">
+                                  <p className="font-medium text-sm truncate">{channel.name}</p>
+                                  {(hasUnread || isUnreplied) && (
+                                    <span className="bg-red-500 text-white text-xs px-1.5 py-0.5 rounded-full">
+                                      {hasUnread ? channel.unreadCount : "未返信"}
+                                    </span>
+                                  )}
+                                </div>
+                                {channel.lastMessage && (
+                                  <p className={`text-xs truncate mt-0.5 ${
+                                    hasUnread || isUnreplied ? "text-red-600 font-medium" : "text-gray-500"
+                                  }`}>
+                                    <span className="font-medium">{channel.lastMessage.senderName || "不明"}: </span>
+                                    {channel.lastMessage.content}
+                                  </p>
+                                )}
+                                <p className="text-xs text-gray-400 mt-0.5">
+                                  {channel.lastMessage?.createdAt
+                                    ? formatMsgTime(channel.lastMessage.createdAt)
+                                    : formatMsgTime(channel.createdAt)}
+                                </p>
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
