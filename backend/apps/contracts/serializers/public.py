@@ -71,6 +71,7 @@ class PublicCourseSerializer(serializers.Serializer):
     ticketId = serializers.SerializerMethodField()
     ticketCode = serializers.SerializerMethodField()
     ticketName = serializers.SerializerMethodField()
+    perWeek = serializers.SerializerMethodField()
 
     def get_price(self, obj):
         return obj.get_price()
@@ -119,6 +120,13 @@ class PublicCourseSerializer(serializers.Serializer):
         if course_ticket and course_ticket.ticket:
             return course_ticket.ticket.ticket_name
         return None
+
+    def get_perWeek(self, obj):
+        """コースチケットの週あたり回数を取得"""
+        course_ticket = obj.course_tickets.first() if hasattr(obj, 'course_tickets') else None
+        if course_ticket:
+            return course_ticket.per_week
+        return 1  # デフォルト値
 
 
 class PublicPackCourseSerializer(serializers.Serializer):

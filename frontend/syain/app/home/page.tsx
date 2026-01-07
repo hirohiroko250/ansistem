@@ -236,38 +236,6 @@ export default function HomePage() {
             </CardContent>
           </Card>
 
-          {/* チャット・タスク */}
-          <div className="grid grid-cols-2 gap-4">
-            <Card
-              className="shadow-md border-0 cursor-pointer hover:shadow-lg transition-shadow"
-              onClick={() => router.push('/chat')}
-            >
-              <CardContent className="pt-6">
-                <div className="flex flex-col items-center gap-2">
-                  <MessageCircle className="w-8 h-8 text-blue-600" />
-                  <div className="text-center">
-                    <p className="text-sm font-medium text-gray-700">未読チャット</p>
-                    <p className="text-2xl font-bold text-gray-900">{unreadCount}</p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card
-              className="shadow-md border-0 cursor-pointer hover:shadow-lg transition-shadow"
-              onClick={() => router.push('/tasks')}
-            >
-              <CardContent className="pt-6">
-                <div className="flex flex-col items-center gap-2">
-                  <CheckSquare className="w-8 h-8 text-orange-600" />
-                  <div className="text-center">
-                    <p className="text-sm font-medium text-gray-700">未完了タスク</p>
-                    <p className="text-2xl font-bold text-gray-900">{taskCount}</p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
 
           {/* タスクリマインダー */}
           {taskCount > 0 && (

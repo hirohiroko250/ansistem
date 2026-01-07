@@ -43,7 +43,7 @@ import {
 // 曜日ラベル
 const DAY_LABELS = ['日', '月', '火', '水', '木', '金', '土'];
 
-// 月末日のリストを生成（6ヶ月分）
+// 月末日のリストを生成（6ヶ月分）- 退会用
 const getEndOfMonthOptions = (): { value: string; label: string }[] => {
   const options: { value: string; label: string }[] = [];
   const today = new Date();
@@ -52,6 +52,21 @@ const getEndOfMonthOptions = (): { value: string; label: string }[] => {
     const date = new Date(today.getFullYear(), today.getMonth() + i + 1, 0); // 月末日
     const value = date.toISOString().split('T')[0];
     const label = `${date.getFullYear()}年${date.getMonth() + 1}月${date.getDate()}日`;
+    options.push({ value, label });
+  }
+
+  return options;
+};
+
+// 年月選択肢を生成（1日付で保存）- 休会・復会用
+const getYearMonthOptions = (startOffset: number = 0): { value: string; label: string }[] => {
+  const options: { value: string; label: string }[] = [];
+  const today = new Date();
+
+  for (let i = startOffset; i < startOffset + 12; i++) {
+    const date = new Date(today.getFullYear(), today.getMonth() + i, 1); // 月初1日
+    const value = date.toISOString().split('T')[0];
+    const label = `${date.getFullYear()}年${date.getMonth() + 1}月`;
     options.push({ value, label });
   }
 
@@ -168,7 +183,7 @@ export default function ClassManagementPage() {
   const [suspendFrom, setSuspendFrom] = useState<string>('');
   const [suspendUntil, setSuspendUntil] = useState<string>('');
   const [keepSeat, setKeepSeat] = useState<boolean>(false);
-  const [suspendReason, setSuspendReason] = useState<string>('');
+  const [billingConfirmed, setBillingConfirmed] = useState<boolean>(false);
 
   // 退会申請用
   const [cancelDate, setCancelDate] = useState<string>('');
@@ -381,15 +396,15 @@ export default function ClassManagementPage() {
 
   // 休会申請の確定
   const handleConfirmSuspension = async () => {
-    if (!selectedContract || !suspendFrom) return;
+    if (!selectedContract || !suspendFrom || !suspendUntil || !billingConfirmed) return;
 
     try {
       setSubmitting(true);
       const response = await requestSuspension(selectedContract.id, {
         suspendFrom,
-        suspendUntil: suspendUntil || undefined,
+        suspendUntil,
         keepSeat,
-        reason: suspendReason,
+        reason: '', // 休会理由は不要
       });
       setSubmitSuccess(true);
       setSubmitMessage(response.message);
@@ -1247,36 +1262,40 @@ export default function ClassManagementPage() {
                 <CardContent className="p-4 space-y-4">
                   <div>
                     <label className="block text-sm font-semibold text-gray-700 mb-2">
-                      休会開始月（月末） <span className="text-red-500">*</span>
+                      休会開始月 <span className="text-red-500">*</span>
                     </label>
                     <select
                       value={suspendFrom}
-                      onChange={(e) => setSuspendFrom(e.target.value)}
+                      onChange={(e) => {
+                        setSuspendFrom(e.target.value);
+                        // 休会開始月が変更されたら復会月をリセット
+                        setSuspendUntil('');
+                      }}
                       className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
                     >
                       <option value="">選択してください</option>
-                      {getEndOfMonthOptions().map((option) => (
+                      {getYearMonthOptions(1).map((option) => (
                         <option key={option.value} value={option.value}>
                           {option.label}
                         </option>
                       ))}
                     </select>
                     <p className="text-xs text-gray-500 mt-1">
-                      休会は月末からの開始となります
+                      選択した月から休会となります
                     </p>
                   </div>
 
                   <div>
                     <label className="block text-sm font-semibold text-gray-700 mb-2">
-                      休会終了月（月末・任意）
+                      復会月 <span className="text-red-500">*</span>
                     </label>
                     <select
                       value={suspendUntil}
                       onChange={(e) => setSuspendUntil(e.target.value)}
                       className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
                     >
-                      <option value="">未定</option>
-                      {getEndOfMonthOptions()
+                      <option value="">選択してください</option>
+                      {getYearMonthOptions(2)
                         .filter((option) => !suspendFrom || option.value > suspendFrom)
                         .map((option) => (
                           <option key={option.value} value={option.value}>
@@ -1285,7 +1304,7 @@ export default function ClassManagementPage() {
                         ))}
                     </select>
                     <p className="text-xs text-gray-500 mt-1">
-                      未選択の場合、再開時期未定となります
+                      選択した月から復会となります
                     </p>
                   </div>
 
@@ -1309,17 +1328,25 @@ export default function ClassManagementPage() {
                     </label>
                   </div>
 
-                  <div>
-                    <label className="block text-sm font-semibold text-gray-700 mb-2">
-                      休会理由（任意）
+                  {/* 請求開始確認チェックボックス */}
+                  <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
+                    <label className="flex items-start gap-3 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={billingConfirmed}
+                        onChange={(e) => setBillingConfirmed(e.target.checked)}
+                        className="mt-1 h-5 w-5 rounded border-gray-300 text-blue-500 focus:ring-blue-500"
+                      />
+                      <div>
+                        <span className="font-semibold text-gray-800">復会月から請求が開始されることを確認しました</span>
+                        <p className="text-sm text-gray-600 mt-1">
+                          {suspendUntil && (() => {
+                            const date = new Date(suspendUntil);
+                            return `${date.getFullYear()}年${date.getMonth() + 1}月分から請求が再開されます`;
+                          })()}
+                        </p>
+                      </div>
                     </label>
-                    <textarea
-                      value={suspendReason}
-                      onChange={(e) => setSuspendReason(e.target.value)}
-                      className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
-                      rows={3}
-                      placeholder="例：習い事の都合、学校行事など"
-                    />
                   </div>
                 </CardContent>
               </Card>
@@ -1334,7 +1361,7 @@ export default function ClassManagementPage() {
                 </div>
               </div>
 
-              {suspendFrom && (
+              {suspendFrom && suspendUntil && billingConfirmed && (
                 <Button
                   className="w-full bg-orange-500 hover:bg-orange-600"
                   onClick={handleConfirmSuspension}

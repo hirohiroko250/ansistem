@@ -852,6 +852,7 @@ export interface PublicCourse {
   ticketId?: string;
   ticketCode?: string;
   ticketName?: string;
+  perWeek?: number;  // 週あたりの授業回数
 }
 
 export interface PublicPackCourse {

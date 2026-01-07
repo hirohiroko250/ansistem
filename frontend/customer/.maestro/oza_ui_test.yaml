@@ -1,0 +1,27 @@
+# OZA Customer App - UI確認テスト（アプリ起動済み前提）
+appId: com.mylesson.app
+
+---
+# ===== ログイン画面確認 =====
+- assertVisible:
+    text: "ログイン"
+
+- assertVisible:
+    text: "電話番号"
+
+- takeScreenshot: 01_login_screen
+
+# ===== 新規登録画面へ遷移 =====
+- tapOn:
+    text: "新規登録はこちら"
+
+- waitForAnimationToEnd
+
+- takeScreenshot: 02_signup_screen
+
+# ===== 戻るボタンテスト =====
+- pressKey: back
+
+- waitForAnimationToEnd
+
+- takeScreenshot: 03_back_to_login

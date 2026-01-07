@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">MyLesson Staff</string>
+    <string name="title_activity_main">MyLesson Staff</string>
+    <string name="package_name">com.mylesson.syain</string>
+    <string name="custom_url_scheme">com.mylesson.syain</string>
+</resources>

@@ -125,6 +125,47 @@ class ChannelViewSet(viewsets.ModelViewSet):
             member.save(update_fields=['last_read_at'])
         return Response({'status': 'ok'})
 
+    def _is_channel_admin(self, channel, user):
+        """ユーザーがチャンネルの管理者かどうかを判定"""
+        from apps.core.permissions import is_admin_user
+        # システム管理者は常に管理者として扱う
+        if is_admin_user(user):
+            return True
+        # チャンネルメンバーとしてADMINロールを持っているか
+        member = channel.members.filter(user=user).first()
+        return member and member.role == ChannelMember.Role.ADMIN
+
+    @action(detail=True, methods=['put', 'patch'], url_path='settings')
+    def update_settings(self, request, pk=None):
+        """チャンネル設定を更新（名前・説明）"""
+        channel = self.get_object()
+
+        # 権限チェック
+        if not self._is_channel_admin(channel, request.user):
+            return Response(
+                {'error': 'チャンネル設定の変更は管理者のみ可能です'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        # 更新可能なフィールド
+        name = request.data.get('name')
+        description = request.data.get('description')
+
+        if name is not None:
+            if not name.strip():
+                return Response(
+                    {'error': 'チャンネル名は必須です'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            channel.name = name.strip()
+
+        if description is not None:
+            channel.description = description
+
+        channel.save()
+
+        return Response(ChannelDetailSerializer(channel).data)
+
     @action(detail=True, methods=['get', 'post'])
     def members(self, request, pk=None):
         """メンバー管理"""
@@ -136,13 +177,123 @@ class ChannelViewSet(viewsets.ModelViewSet):
             return Response(serializer.data)
 
         elif request.method == 'POST':
-            serializer = ChannelMemberSerializer(data={
-                **request.data,
-                'channel': channel.id
-            })
-            serializer.is_valid(raise_exception=True)
-            serializer.save()
-            return Response(serializer.data, status=status.HTTP_201_CREATED)
+            # 権限チェック
+            if not self._is_channel_admin(channel, request.user):
+                return Response(
+                    {'error': 'メンバーの追加は管理者のみ可能です'},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+
+            # user_idまたはuserを取得
+            user_id = request.data.get('user_id') or request.data.get('user')
+            if not user_id:
+                return Response(
+                    {'error': 'user_id is required'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            from django.contrib.auth import get_user_model
+            User = get_user_model()
+
+            try:
+                user = User.objects.get(id=user_id)
+            except User.DoesNotExist:
+                return Response(
+                    {'error': 'User not found'},
+                    status=status.HTTP_404_NOT_FOUND
+                )
+
+            # 既存メンバーチェック
+            if channel.members.filter(user=user).exists():
+                return Response(
+                    {'error': '既にメンバーです'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            # メンバー追加
+            role = request.data.get('role', ChannelMember.Role.MEMBER)
+            member = ChannelMember.objects.create(
+                channel=channel,
+                user=user,
+                role=role
+            )
+
+            return Response(ChannelMemberSerializer(member).data, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=['delete'], url_path='members/(?P<user_id>[^/.]+)')
+    def remove_member(self, request, pk=None, user_id=None):
+        """メンバーを削除"""
+        channel = self.get_object()
+
+        # 権限チェック（管理者または自分自身の退出）
+        is_self = str(request.user.id) == str(user_id)
+        if not is_self and not self._is_channel_admin(channel, request.user):
+            return Response(
+                {'error': 'メンバーの削除は管理者のみ可能です'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        # メンバーを取得
+        member = channel.members.filter(user_id=user_id).first()
+        if not member:
+            return Response(
+                {'error': 'メンバーが見つかりません'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        # 最後の管理者は削除不可
+        if member.role == ChannelMember.Role.ADMIN:
+            admin_count = channel.members.filter(role=ChannelMember.Role.ADMIN).count()
+            if admin_count <= 1:
+                return Response(
+                    {'error': '最後の管理者は削除できません。別の管理者を指定してください'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+        member.delete()
+
+        return Response({'status': 'removed'})
+
+    @action(detail=True, methods=['put'], url_path='members/(?P<user_id>[^/.]+)/role')
+    def update_member_role(self, request, pk=None, user_id=None):
+        """メンバーのロールを更新"""
+        channel = self.get_object()
+
+        # 権限チェック
+        if not self._is_channel_admin(channel, request.user):
+            return Response(
+                {'error': 'ロールの変更は管理者のみ可能です'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        # メンバーを取得
+        member = channel.members.filter(user_id=user_id).first()
+        if not member:
+            return Response(
+                {'error': 'メンバーが見つかりません'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        new_role = request.data.get('role')
+        if new_role not in [r[0] for r in ChannelMember.Role.choices]:
+            return Response(
+                {'error': f'Invalid role. Valid roles: {[r[0] for r in ChannelMember.Role.choices]}'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # ADMINからの降格時、最後の管理者チェック
+        if member.role == ChannelMember.Role.ADMIN and new_role != ChannelMember.Role.ADMIN:
+            admin_count = channel.members.filter(role=ChannelMember.Role.ADMIN).count()
+            if admin_count <= 1:
+                return Response(
+                    {'error': '最後の管理者のロールは変更できません。別の管理者を指定してください'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+        member.role = new_role
+        member.save(update_fields=['role'])
+
+        return Response(ChannelMemberSerializer(member).data)
 
     @action(detail=True, methods=['post'])
     def archive(self, request, pk=None):
@@ -163,11 +314,23 @@ class ChannelViewSet(viewsets.ModelViewSet):
             )
 
         from django.contrib.auth import get_user_model
+        from apps.tenants.models import Employee
         User = get_user_model()
 
+        target_user = None
+        # まずUser IDで検索
         try:
             target_user = User.objects.get(id=target_user_id)
         except User.DoesNotExist:
+            # User IDで見つからない場合、Employee IDとして検索し、メールでUserを探す
+            try:
+                employee = Employee.objects.get(id=target_user_id)
+                if employee.email:
+                    target_user = User.objects.filter(email=employee.email).first()
+            except Employee.DoesNotExist:
+                pass
+
+        if not target_user:
             return Response(
                 {'error': 'User not found'},
                 status=status.HTTP_404_NOT_FOUND
@@ -363,4 +526,82 @@ class ChannelViewSet(viewsets.ModelViewSet):
                 defaults={'role': ChannelMember.Role.ADMIN}
             )
 
+        return Response(ChannelDetailSerializer(channel).data)
+
+    @action(detail=True, methods=['get'], url_path='mentionable-users')
+    def mentionable_users(self, request, pk=None):
+        """メンション可能なユーザー一覧を取得"""
+        channel = self.get_object()
+
+        # チャンネルメンバーからアクティブなユーザーを取得
+        members = channel.members.select_related('user').filter(
+            user__isnull=False,
+            user__is_active=True
+        ).exclude(user=request.user)  # 自分自身は除外
+
+        users = [
+            {
+                'id': str(member.user.id),
+                'name': member.user.full_name or member.user.email,
+                'email': member.user.email,
+            }
+            for member in members
+        ]
+
+        return Response(users)
+
+    @action(detail=True, methods=['post'], url_path='toggle-pin')
+    def toggle_pin(self, request, pk=None):
+        """チャンネルのピン留めを切り替え"""
+        channel = self.get_object()
+        member = channel.members.filter(user=request.user).first()
+
+        if not member:
+            return Response(
+                {'error': 'メンバーではありません'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        member.is_pinned = not member.is_pinned
+        member.save(update_fields=['is_pinned'])
+
+        return Response({
+            'status': 'ok',
+            'is_pinned': member.is_pinned
+        })
+
+    @action(detail=True, methods=['post'], url_path='toggle-mute')
+    def toggle_mute(self, request, pk=None):
+        """チャンネルのミュートを切り替え"""
+        channel = self.get_object()
+        member = channel.members.filter(user=request.user).first()
+
+        if not member:
+            return Response(
+                {'error': 'メンバーではありません'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        member.is_muted = not member.is_muted
+        member.save(update_fields=['is_muted'])
+
+        return Response({
+            'status': 'ok',
+            'is_muted': member.is_muted
+        })
+
+    @action(detail=True, methods=['post'], url_path='unarchive')
+    def unarchive(self, request, pk=None):
+        """アーカイブ解除"""
+        channel = self.get_object()
+
+        # 権限チェック
+        if not self._is_channel_admin(channel, request.user):
+            return Response(
+                {'error': 'アーカイブ解除は管理者のみ可能です'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        channel.is_archived = False
+        channel.save(update_fields=['is_archived'])
         return Response(ChannelDetailSerializer(channel).data)

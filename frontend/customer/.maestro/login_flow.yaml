@@ -1,0 +1,33 @@
+# OZA Customer App - ログインフローテスト
+appId: com.mylesson.app
+
+---
+# 1. アプリ起動
+- launchApp
+
+# 2. ログイン画面まで待機
+- extendedWaitUntil:
+    visible: "ログイン|Login"
+    timeout: 15000
+
+# 3. メールアドレス入力
+- tapOn:
+    text: "メールアドレス|email"
+- inputText: "test@example.com"
+
+# 4. パスワード入力
+- tapOn:
+    text: "パスワード|password"
+- inputText: "password123"
+
+# 5. ログインボタンをタップ
+- tapOn:
+    text: "ログイン"
+
+# 6. ホーム画面への遷移確認
+- extendedWaitUntil:
+    visible: "ホーム|Home|マイページ"
+    timeout: 10000
+
+# 7. スクリーンショット取得
+- takeScreenshot: login_success

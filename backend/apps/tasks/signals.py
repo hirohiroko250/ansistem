@@ -129,17 +129,32 @@ def create_task_on_suspension_request(sender, instance, created, **kwargs):
     student = getattr(instance, 'student', None)
     student_name = f'{student.last_name}{student.first_name}' if student else '不明'
 
+    # 休会期間の説明を作成
+    suspend_from = instance.suspend_from.strftime('%Y/%m/%d') if instance.suspend_from else '未定'
+    suspend_until = instance.suspend_until.strftime('%Y/%m/%d') if instance.suspend_until else '未定'
+    return_day = instance.return_day.strftime('%Y/%m/%d') if getattr(instance, 'return_day', None) else None
+
+    description = f'休会期間: {suspend_from} 〜 {suspend_until}'
+    if return_day:
+        description += f'（復会予定日: {return_day}）'
+
     create_task_for_event(
         tenant_id=instance.tenant_id,
         task_type='suspension',
         title=f'休会申請: {student_name}',
-        description=f'休会申請が提出されました',
+        description=description,
         priority='high',
         student=student,
         guardian=getattr(instance, 'guardian', None),
         school=getattr(student, 'school', None) if student else None,
         source_type='suspension_request',
         source_id=instance.id,
+        metadata={
+            'suspend_from': str(instance.suspend_from) if instance.suspend_from else None,
+            'suspend_until': str(instance.suspend_until) if instance.suspend_until else None,
+            'return_day': str(instance.return_day) if getattr(instance, 'return_day', None) else None,
+            'keep_seat': instance.keep_seat,
+        }
     )
 
 

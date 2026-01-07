@@ -6,12 +6,13 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { BottomNav } from '@/components/bottom-nav';
+import { StudentDetailModal, StudentEditModal } from '@/components/students';
 import { useRequireAuth } from '@/lib/auth';
 import { getStudents, StudentSearchParams } from '@/lib/api/students';
 import { getBrandCategories, getBrands, getSchools, type BrandCategory, type Brand, type School } from '@/lib/api/schools';
 import { getContracts, type Contract } from '@/lib/api/contracts';
 import type { Student, PaginatedResponse } from '@/lib/api/types';
-import { Search, ChevronDown, ChevronRight, ChevronLeft, MessageCircle, User, FileText, Wallet, Settings, Loader2 } from 'lucide-react';
+import { Search, ChevronDown, ChevronRight, ChevronLeft, MessageCircle, User, FileText, Wallet, Settings, Loader2, Edit } from 'lucide-react';
 
 const STATUS_LABELS: Record<string, { label: string; color: string }> = {
   inquiry: { label: '問い合わせ', color: 'bg-yellow-100 text-yellow-800' },
@@ -59,6 +60,11 @@ export default function StudentsPage() {
   const [brandCategories, setBrandCategories] = useState<BrandCategory[]>([]);
   const [brands, setBrands] = useState<Brand[]>([]);
   const [schools, setSchools] = useState<School[]>([]);
+
+  // モーダル用state
+  const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
+  const [showDetailModal, setShowDetailModal] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
 
   // フィルタ用データの取得（認証後に実行）
   useEffect(() => {
@@ -335,10 +341,24 @@ export default function StudentsPage() {
                               <Button
                                 size="sm"
                                 variant="outline"
-                                className="h-6 px-2 text-xs"
-                                onClick={() => router.push(`/students/${student.id}`)}
+                                className="h-6 px-2 text-xs bg-blue-100 hover:bg-blue-200 border-blue-300"
+                                onClick={() => {
+                                  setSelectedStudent(student);
+                                  setShowDetailModal(true);
+                                }}
                               >
                                 詳細
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-6 px-2 text-xs bg-green-100 hover:bg-green-200 border-green-300"
+                                onClick={() => {
+                                  setSelectedStudent(student);
+                                  setShowEditModal(true);
+                                }}
+                              >
+                                <Edit className="w-3 h-3" />
                               </Button>
                               <Button
                                 size="sm"
@@ -405,10 +425,25 @@ export default function StudentsPage() {
                                         <Button
                                           size="sm"
                                           variant="outline"
-                                          className="h-6 px-2 text-xs"
-                                          onClick={() => router.push(`/students/${student.id}`)}
+                                          className="h-6 px-2 text-xs bg-blue-100 hover:bg-blue-200 border-blue-300"
+                                          onClick={() => {
+                                            setSelectedStudent(student);
+                                            setShowDetailModal(true);
+                                          }}
                                         >
                                           詳細
+                                        </Button>
+                                        <Button
+                                          size="sm"
+                                          variant="outline"
+                                          className="h-6 px-2 text-xs bg-green-100 hover:bg-green-200 border-green-300"
+                                          onClick={() => {
+                                            setSelectedStudent(student);
+                                            setShowEditModal(true);
+                                          }}
+                                        >
+                                          <Edit className="w-3 h-3 mr-1" />
+                                          編集
                                         </Button>
                                         <Button
                                           size="sm"
@@ -421,14 +456,6 @@ export default function StudentsPage() {
                                       </div>
                                     </div>
 
-                                    <Button
-                                      size="sm"
-                                      className="mt-2 h-7 bg-blue-600 hover:bg-blue-700 text-xs"
-                                      onClick={() => router.push(`/chat?student_id=${student.id}`)}
-                                    >
-                                      <MessageCircle className="w-3 h-3 mr-1" />
-                                      チャット開始
-                                    </Button>
                                   </div>
 
                                   {/* Right Side - Guardian Info */}
@@ -601,6 +628,38 @@ export default function StudentsPage() {
       </div>
 
       <BottomNav />
+
+      {/* 生徒詳細モーダル */}
+      {showDetailModal && selectedStudent && (
+        <StudentDetailModal
+          student={selectedStudent}
+          onClose={() => {
+            setShowDetailModal(false);
+            setSelectedStudent(null);
+          }}
+          onEdit={(student) => {
+            setShowDetailModal(false);
+            setShowEditModal(true);
+          }}
+        />
+      )}
+
+      {/* 生徒編集モーダル */}
+      {showEditModal && selectedStudent && (
+        <StudentEditModal
+          student={selectedStudent}
+          onClose={() => {
+            setShowEditModal(false);
+            setSelectedStudent(null);
+          }}
+          onSuccess={(updatedStudent) => {
+            // リストを更新
+            setStudents(prev =>
+              prev.map(s => s.id === updatedStudent.id ? { ...s, ...updatedStudent } : s)
+            );
+          }}
+        />
+      )}
     </div>
   );
 }

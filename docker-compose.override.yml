@@ -7,3 +7,16 @@ services:
       - static_volume:/app/staticfiles
       - media_volume:/app/media
       - ./data:/app/data
+
+  # frontend-customer: 本番ビルドを使用（開発時はコメント解除）
+  # frontend-customer:
+  #   image: node:18-alpine
+  #   working_dir: /app
+  #   command: sh -c "npm install --legacy-peer-deps && npm run dev"
+  #   volumes:
+  #     - ./frontend/customer:/app
+  #   ports:
+  #     - "3000:3000"
+  #   environment:
+  #     - NODE_ENV=development
+  #     - NEXT_PUBLIC_API_URL=http://162.43.33.37:8000/api/v1

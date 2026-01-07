@@ -30,6 +30,8 @@ export interface Channel {
     schoolName: string;
   };
   isArchived: boolean;
+  isPinned: boolean;
+  isMuted: boolean;
   unreadCount: number;
   lastMessage?: {
     content: string;
@@ -38,6 +40,28 @@ export interface Channel {
   };
   createdAt: string;
   updatedAt: string;
+}
+
+export interface MessageReaction {
+  emoji: string;
+  count: number;
+  users: Array<{
+    user_id: string;
+    user_name: string;
+  }>;
+}
+
+export interface MessageMention {
+  user_id: string;
+  user_name: string;
+  start_index: number;
+  end_index: number;
+}
+
+export interface MentionableUser {
+  id: string;
+  name: string;
+  email: string;
 }
 
 export interface Message {
@@ -50,12 +74,33 @@ export interface Message {
   senderGuardian?: string;
   messageType: string;
   content: string;
+  attachmentUrl?: string;
+  attachmentName?: string;
   isRead: boolean;
+  readCount?: number;  // 既読人数
   isEdited: boolean;
+  editedAt?: string;   // 編集日時
   isBotMessage: boolean;
   replyTo?: string;
+  replyToContent?: string;
+  replyToSenderName?: string;  // 返信先の送信者名
+  replyCount?: number;
+  reactions?: MessageReaction[];
+  mentions?: MessageMention[];
   createdAt: string;
   updatedAt: string;
+}
+
+export interface FileUploadProgress {
+  loaded: number;
+  total: number;
+  percentage: number;
+}
+
+export interface ThreadResponse {
+  parent: Message;
+  replies: Message[];
+  totalCount: number;
 }
 
 export interface PaginatedResponse<T> {
@@ -143,6 +188,13 @@ export async function archiveChannel(id: string): Promise<Channel> {
   return api.post<Channel>(`/communications/channels/${id}/archive/`);
 }
 
+/**
+ * メンション可能なユーザー一覧を取得
+ */
+export async function getMentionableUsers(channelId: string): Promise<MentionableUser[]> {
+  return api.get<MentionableUser[]>(`/communications/channels/${channelId}/mentionable-users/`);
+}
+
 // ============================================
 // メッセージ関連
 // ============================================
@@ -184,6 +236,158 @@ export async function sendMessage(data: {
  */
 export async function deleteMessage(messageId: string): Promise<void> {
   return api.post<void>(`/communications/messages/${messageId}/delete_message/`);
+}
+
+/**
+ * メッセージを編集
+ */
+export async function editMessage(messageId: string, content: string): Promise<Message> {
+  return api.post<Message>(`/communications/messages/${messageId}/edit/`, { content });
+}
+
+/**
+ * ファイルをアップロードしてメッセージを作成
+ */
+export async function uploadFile(
+  data: {
+    channelId: string;
+    file: File;
+    content?: string;
+    replyTo?: string;
+  },
+  onProgress?: (progress: FileUploadProgress) => void
+): Promise<Message> {
+  const formData = new FormData();
+  formData.append('file', data.file);
+  formData.append('channel_id', data.channelId);
+  if (data.content) formData.append('content', data.content);
+  if (data.replyTo) formData.append('reply_to', data.replyTo);
+
+  // XMLHttpRequestでプログレスを監視
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+
+    xhr.upload.addEventListener('progress', (event) => {
+      if (event.lengthComputable && onProgress) {
+        onProgress({
+          loaded: event.loaded,
+          total: event.total,
+          percentage: Math.round((event.loaded / event.total) * 100),
+        });
+      }
+    });
+
+    xhr.addEventListener('load', () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try {
+          const response = JSON.parse(xhr.responseText);
+          resolve(response);
+        } catch {
+          reject(new Error('Invalid JSON response'));
+        }
+      } else {
+        try {
+          const error = JSON.parse(xhr.responseText);
+          reject(new Error(error.error || 'Upload failed'));
+        } catch {
+          reject(new Error(`Upload failed with status ${xhr.status}`));
+        }
+      }
+    });
+
+    xhr.addEventListener('error', () => {
+      reject(new Error('Network error'));
+    });
+
+    xhr.addEventListener('abort', () => {
+      reject(new Error('Upload aborted'));
+    });
+
+    // Get token from localStorage
+    const token = typeof window !== 'undefined' ? localStorage.getItem('access_token') : null;
+
+    xhr.open('POST', `${process.env.NEXT_PUBLIC_API_URL || ''}/api/v1/communications/messages/upload/`);
+    if (token) {
+      xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+    }
+    xhr.send(formData);
+  });
+}
+
+/**
+ * 許可されているファイル拡張子
+ */
+export const ALLOWED_FILE_EXTENSIONS = {
+  images: ['.jpg', '.jpeg', '.png', '.gif', '.webp'],
+  documents: ['.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx', '.txt', '.csv'],
+};
+
+/**
+ * 最大ファイルサイズ（10MB）
+ */
+export const MAX_FILE_SIZE = 10 * 1024 * 1024;
+
+/**
+ * ファイルが画像かどうかを判定
+ */
+export function isImageFile(filename: string): boolean {
+  const ext = filename.toLowerCase().slice(filename.lastIndexOf('.'));
+  return ALLOWED_FILE_EXTENSIONS.images.includes(ext);
+}
+
+/**
+ * ファイルが許可されている形式かどうかを判定
+ */
+export function isAllowedFile(filename: string): boolean {
+  const ext = filename.toLowerCase().slice(filename.lastIndexOf('.'));
+  return [...ALLOWED_FILE_EXTENSIONS.images, ...ALLOWED_FILE_EXTENSIONS.documents].includes(ext);
+}
+
+/**
+ * ファイルサイズをフォーマット
+ */
+export function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+/**
+ * スレッド（返信）メッセージを取得
+ */
+export async function getThread(messageId: string): Promise<ThreadResponse> {
+  return api.get<ThreadResponse>(`/communications/messages/${messageId}/thread/`);
+}
+
+/**
+ * スレッドに返信
+ */
+export async function sendThreadReply(data: {
+  channelId: string;
+  parentMessageId: string;
+  content: string;
+}): Promise<Message> {
+  return api.post<Message>('/communications/messages/', {
+    channel: data.channelId,
+    content: data.content,
+    message_type: 'TEXT',
+    reply_to: data.parentMessageId,
+  });
+}
+
+/**
+ * リアクション（絵文字）を追加
+ */
+export async function addReaction(messageId: string, emoji: string): Promise<{ id: string; emoji: string; message_id: string }> {
+  return api.post(`/communications/messages/${messageId}/reactions/`, { emoji });
+}
+
+/**
+ * リアクション（絵文字）を削除
+ */
+export async function removeReaction(messageId: string, emoji: string): Promise<void> {
+  const encodedEmoji = encodeURIComponent(emoji);
+  return api.delete(`/communications/messages/${messageId}/reactions/${encodedEmoji}/`);
 }
 
 /**
@@ -322,6 +526,8 @@ export interface StaffChannel {
     user?: { id: string; fullName?: string; email: string };
   }>;
   unreadCount?: number;
+  isPinned?: boolean;
+  isMuted?: boolean;
 }
 
 export interface Staff {
@@ -392,4 +598,197 @@ export async function getStaffMessages(channelId: string): Promise<Message[]> {
     `/communications/channels/${channelId}/messages/`
   );
   return response?.data || response?.results || (response as unknown as Message[]) || [];
+}
+
+// ============================================
+// チャンネル管理関連（Phase 7）
+// ============================================
+
+export type MemberRole = 'ADMIN' | 'MEMBER' | 'READONLY';
+
+export interface ChannelMember {
+  id: string;
+  user: {
+    id: string;
+    fullName?: string;
+    full_name?: string;
+    email: string;
+  };
+  role: MemberRole;
+  joinedAt: string;
+}
+
+export interface ChannelSettings {
+  name?: string;
+  description?: string;
+}
+
+/**
+ * チャンネル設定を更新（名前・説明）
+ */
+export async function updateChannelSettings(
+  channelId: string,
+  settings: ChannelSettings
+): Promise<Channel> {
+  return api.put<Channel>(`/communications/channels/${channelId}/settings/`, settings);
+}
+
+/**
+ * チャンネルメンバー一覧を取得
+ */
+export async function getChannelMembers(channelId: string): Promise<ChannelMember[]> {
+  const response = await api.get<{ members: ChannelMember[] } | ChannelMember[]>(
+    `/communications/channels/${channelId}/members/`
+  );
+  // レスポンス形式に対応
+  if (Array.isArray(response)) {
+    return response;
+  }
+  return response?.members || [];
+}
+
+/**
+ * チャンネルにメンバーを追加
+ */
+export async function addChannelMember(
+  channelId: string,
+  userId: string,
+  role: MemberRole = 'MEMBER'
+): Promise<ChannelMember> {
+  return api.post<ChannelMember>(`/communications/channels/${channelId}/members/`, {
+    user_id: userId,
+    role,
+  });
+}
+
+/**
+ * チャンネルからメンバーを削除
+ */
+export async function removeChannelMember(
+  channelId: string,
+  userId: string
+): Promise<void> {
+  return api.delete(`/communications/channels/${channelId}/members/${userId}/`);
+}
+
+/**
+ * メンバーのロールを更新
+ */
+export async function updateMemberRole(
+  channelId: string,
+  userId: string,
+  role: MemberRole
+): Promise<ChannelMember> {
+  return api.put<ChannelMember>(
+    `/communications/channels/${channelId}/members/${userId}/role/`,
+    { role }
+  );
+}
+
+// ============================================
+// メッセージ検索関連（Phase 8）
+// ============================================
+
+export interface SearchParams {
+  query: string;
+  channelId?: string;
+  senderId?: string;
+  dateFrom?: string;  // YYYY-MM-DD
+  dateTo?: string;    // YYYY-MM-DD
+  page?: number;
+  pageSize?: number;
+}
+
+export interface SearchResult extends Message {
+  highlight?: string;
+}
+
+export interface SearchResponse {
+  count: number;
+  next: string | null;
+  previous: string | null;
+  results: SearchResult[];
+}
+
+/**
+ * メッセージを検索
+ */
+export async function searchMessages(params: SearchParams): Promise<SearchResponse> {
+  const query = new URLSearchParams();
+  query.set('q', params.query);
+  if (params.channelId) query.set('channel_id', params.channelId);
+  if (params.senderId) query.set('sender_id', params.senderId);
+  if (params.dateFrom) query.set('date_from', params.dateFrom);
+  if (params.dateTo) query.set('date_to', params.dateTo);
+  if (params.page) query.set('page', String(params.page));
+  if (params.pageSize) query.set('page_size', String(params.pageSize));
+
+  return api.get<SearchResponse>(`/communications/messages/search/?${query.toString()}`);
+}
+
+/**
+ * ハイライトマーカーをHTMLタグに変換
+ */
+export function parseHighlight(text: string): string {
+  if (!text) return '';
+  return text
+    .replace(/\[\[HIGHLIGHT\]\]/g, '<mark class="bg-yellow-200">')
+    .replace(/\[\[\/HIGHLIGHT\]\]/g, '</mark>');
+}
+
+// ============================================
+// タスク連携（メッセージからタスク作成）
+// ============================================
+
+export interface CreateTaskFromMessageParams {
+  messageId: string;
+  channelId: string;
+  title: string;
+  description?: string;
+  priority?: 'low' | 'normal' | 'high' | 'urgent';
+  dueDate?: string;
+}
+
+/**
+ * メッセージからタスクを作成
+ */
+export async function createTaskFromMessage(params: CreateTaskFromMessageParams): Promise<{
+  id: string;
+  title: string;
+  status: string;
+}> {
+  return api.post('/tasks/tasks/', {
+    task_type: 'chat',
+    title: params.title,
+    description: params.description || '',
+    priority: params.priority || 'normal',
+    due_date: params.dueDate || null,
+    source_type: 'message',
+    source_id: params.messageId,
+  });
+}
+
+// ============================================
+// チャンネル設定（ピン留め・ミュート）
+// ============================================
+
+/**
+ * チャンネルのピン留めを切り替え
+ */
+export async function toggleChannelPin(channelId: string): Promise<{ status: string; is_pinned: boolean }> {
+  return api.post(`/communications/channels/${channelId}/toggle-pin/`);
+}
+
+/**
+ * チャンネルのミュートを切り替え
+ */
+export async function toggleChannelMute(channelId: string): Promise<{ status: string; is_muted: boolean }> {
+  return api.post(`/communications/channels/${channelId}/toggle-mute/`);
+}
+
+/**
+ * チャンネルのアーカイブを解除
+ */
+export async function unarchiveChannel(channelId: string): Promise<Channel> {
+  return api.post(`/communications/channels/${channelId}/unarchive/`);
 }

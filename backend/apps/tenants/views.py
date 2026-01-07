@@ -228,7 +228,24 @@ class EmployeeViewSet(viewsets.ModelViewSet):
         return EmployeeListSerializer
 
     def perform_create(self, serializer):
-        serializer.save(tenant_ref=self.request.user.tenant_id)
+        employee = serializer.save(tenant_ref=self.request.user.tenant_id)
+
+        # 社員用のUserアカウントを自動作成（チャット機能用）
+        from apps.users.models import User
+        import secrets
+
+        if employee.email and not User.objects.filter(email=employee.email).exists():
+            User.objects.create_user(
+                email=employee.email,
+                password=secrets.token_urlsafe(16),  # ランダムパスワード
+                last_name=employee.last_name,
+                first_name=employee.first_name,
+                user_type='STAFF',
+                tenant_id=self.request.user.tenant_id,
+                staff_id=employee.id,
+                is_active=True,
+                must_change_password=True,  # 初回ログイン時にパスワード変更を促す
+            )
 
     @action(detail=False, methods=['get'])
     def grouped(self, request):

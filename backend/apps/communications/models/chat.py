@@ -130,6 +130,10 @@ class ChannelMember(models.Model):
         default=False,
         verbose_name='ミュート'
     )
+    is_pinned = models.BooleanField(
+        default=False,
+        verbose_name='ピン留め'
+    )
     joined_at = models.DateTimeField(auto_now_add=True, verbose_name='参加日時')
 
     class Meta:
@@ -289,3 +293,81 @@ class MessageRead(models.Model):
         verbose_name = 'メッセージ既読'
         verbose_name_plural = 'メッセージ既読'
         unique_together = [['message', 'user'], ['message', 'guardian']]
+
+
+class MessageReaction(models.Model):
+    """メッセージリアクション（絵文字）"""
+    id = models.UUIDField(
+        primary_key=True,
+        default=uuid.uuid4,
+        editable=False
+    )
+    message = models.ForeignKey(
+        Message,
+        on_delete=models.CASCADE,
+        related_name='reactions',
+        verbose_name='メッセージ'
+    )
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='message_reactions',
+        verbose_name='ユーザー'
+    )
+    emoji = models.CharField(
+        max_length=10,
+        verbose_name='絵文字'
+    )
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name='作成日時')
+
+    class Meta:
+        db_table = 'communication_message_reactions'
+        verbose_name = 'メッセージリアクション'
+        verbose_name_plural = 'メッセージリアクション'
+        unique_together = [['message', 'user', 'emoji']]
+        ordering = ['created_at']
+
+    def __str__(self):
+        return f"{self.user.email} - {self.emoji} on {self.message_id}"
+
+
+class MessageMention(models.Model):
+    """メッセージ内のメンション"""
+    id = models.UUIDField(
+        primary_key=True,
+        default=uuid.uuid4,
+        editable=False
+    )
+    message = models.ForeignKey(
+        Message,
+        on_delete=models.CASCADE,
+        related_name='mentions',
+        verbose_name='メッセージ'
+    )
+    mentioned_user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='message_mentions',
+        verbose_name='メンションされたユーザー'
+    )
+    # メンションの開始位置（表示用）
+    start_index = models.IntegerField(
+        default=0,
+        verbose_name='開始位置'
+    )
+    # メンションの終了位置（表示用）
+    end_index = models.IntegerField(
+        default=0,
+        verbose_name='終了位置'
+    )
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name='作成日時')
+
+    class Meta:
+        db_table = 'communication_message_mentions'
+        verbose_name = 'メッセージメンション'
+        verbose_name_plural = 'メッセージメンション'
+        unique_together = [['message', 'mentioned_user']]
+        ordering = ['start_index']
+
+    def __str__(self):
+        return f"@{self.mentioned_user.email} in {self.message_id}"

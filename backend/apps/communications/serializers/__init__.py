@@ -15,6 +15,7 @@ from .channel import (
     ChannelListSerializer,
     ChannelDetailSerializer,
     ChannelCreateSerializer,
+    MessageReactionSerializer,
     MessageSerializer,
     MessageCreateSerializer,
 )
@@ -67,6 +68,7 @@ __all__ = [
     'ChannelListSerializer',
     'ChannelDetailSerializer',
     'ChannelCreateSerializer',
+    'MessageReactionSerializer',
     'MessageSerializer',
     'MessageCreateSerializer',
     # Contact Log & Notification

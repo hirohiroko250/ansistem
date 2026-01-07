@@ -22,6 +22,11 @@ redis>=5.0.0
 django-redis>=5.4.0
 django-celery-beat>=2.5.0
 
+# WebSocket (Django Channels)
+channels>=4.0.0
+channels-redis>=4.1.0
+daphne>=4.0.0
+
 # Utils
 Pillow>=10.0.0
 python-dateutil>=2.8.2

@@ -52,6 +52,8 @@ class SuspensionRequest(TenantModel):
     suspend_from = models.DateField('休会開始日')
     suspend_until = models.DateField('休会終了予定日', null=True, blank=True,
                                      help_text='未定の場合は空欄')
+    return_day = models.DateField('復会予定日', null=True, blank=True,
+                                  help_text='復会月内の具体的な日付（任意）')
 
     # オプション
     keep_seat = models.BooleanField('座席保持', default=False,

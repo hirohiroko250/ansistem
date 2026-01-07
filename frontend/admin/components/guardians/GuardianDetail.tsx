@@ -336,20 +336,28 @@ export function GuardianDetail({
 
   // 保護者画面を開く（アカウントがなければ自動作成）
   const openGuardianView = async () => {
-    // アカウント未設定の場合は自動作成
-    if (!guardian.has_account && !guardian.hasAccount && !accountCreated) {
+    // アカウント状態をログ出力
+    const hasAccountFlag = guardian.has_account || guardian.hasAccount;
+    console.log('[openGuardianView] guardian.has_account:', guardian.has_account, 'guardian.hasAccount:', guardian.hasAccount, 'accountCreated:', accountCreated, 'hasAccountFlag:', hasAccountFlag);
+
+    // アカウント未設定の場合は自動作成を試みる
+    // has_accountがfalseまたはundefined、かつまだ作成していない場合
+    if (hasAccountFlag !== true && !accountCreated) {
       // 電話番号またはメールが必要
       const hasContactInfo = guardian.email || guardian.phone || guardian.phone_mobile || guardian.phoneMobile;
       if (!hasContactInfo) {
-        alert('電話番号またはメールアドレスが設定されていません。');
+        alert('電話番号またはメールアドレスが設定されていません。先に連絡先を登録してください。');
         return;
       }
 
       try {
         // アカウントを自動作成
-        await apiClient.post(`/students/guardians/${guardian.id}/setup_account/`);
+        console.log('[openGuardianView] Creating account for guardian:', guardian.id);
+        const result = await apiClient.post(`/students/guardians/${guardian.id}/setup_account/`);
+        console.log('[openGuardianView] Account created:', result);
         setAccountCreated(true);
       } catch (error: any) {
+        console.error('[openGuardianView] Failed to create account:', error);
         const errorMessage = error.data?.error || error.message || '';
         alert(errorMessage || 'アカウント作成に失敗しました。');
         return;
@@ -357,6 +365,7 @@ export function GuardianDetail({
     }
 
     try {
+      console.log('[openGuardianView] Opening guardian view for:', guardian.id);
       const response = await apiClient.post<{ access: string; refresh: string }>('/auth/impersonate-guardian/', {
         guardian_id: guardian.id
       });
@@ -365,9 +374,27 @@ export function GuardianDetail({
       const url = `${customerUrl}/auth/callback?access=${response.access}&refresh=${response.refresh}`;
       window.open(url, '_blank');
     } catch (error: any) {
-      console.error('Failed to impersonate guardian:', error);
+      console.error('[openGuardianView] Failed to impersonate guardian:', error);
       const errorMessage = error.data?.error || error.message || '';
-      alert(errorMessage || '保護者画面を開けませんでした。');
+
+      // アカウントがない場合のエラーメッセージを改善
+      if (errorMessage.includes('ログインアカウントがありません')) {
+        const confirmCreate = window.confirm(
+          'この保護者にはログインアカウントがありません。\n\n今すぐアカウントを作成しますか？'
+        );
+        if (confirmCreate) {
+          try {
+            await apiClient.post(`/students/guardians/${guardian.id}/setup_account/`);
+            setAccountCreated(true);
+            alert('アカウントを作成しました。もう一度「保護者画面を見る」をクリックしてください。');
+          } catch (createError: any) {
+            const createErrorMsg = createError.data?.error || createError.message || '';
+            alert(createErrorMsg || 'アカウント作成に失敗しました。');
+          }
+        }
+      } else {
+        alert(errorMessage || '保護者画面を開けませんでした。');
+      }
     }
   };
 
@@ -395,7 +422,19 @@ export function GuardianDetail({
             <User className="w-8 h-8 text-purple-600" />
           </div>
           <div>
-            <h2 className="text-2xl font-bold text-gray-900">{name}</h2>
+            <div className="flex items-center gap-2">
+              <h2 className="text-2xl font-bold text-gray-900">{name}</h2>
+              {/* アカウント状態バッジ */}
+              {(guardian.has_account || guardian.hasAccount || accountCreated) ? (
+                <span className="px-2 py-0.5 text-xs font-medium bg-green-100 text-green-700 rounded-full">
+                  アカウントあり
+                </span>
+              ) : (
+                <span className="px-2 py-0.5 text-xs font-medium bg-gray-100 text-gray-500 rounded-full">
+                  アカウントなし
+                </span>
+              )}
+            </div>
             {nameKana && <p className="text-sm text-gray-500">{nameKana}</p>}
             {guardianNo && <p className="text-xs text-gray-400">保護者番号: {guardianNo}</p>}
           </div>
@@ -414,7 +453,7 @@ export function GuardianDetail({
           </Button>
 
           {/* アカウント作成ボタン（アカウント未設定の場合のみ表示） */}
-          {!guardian.has_account && !guardian.hasAccount && !accountCreated && (
+          {!(guardian.has_account || guardian.hasAccount || accountCreated) && (
             <Button
               variant="outline"
               size="sm"

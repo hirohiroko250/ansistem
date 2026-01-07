@@ -1,0 +1,45 @@
+# OZA Customer App - 全体動作確認テスト
+appId: com.mylesson.app
+
+---
+# ===== 1. アプリ起動テスト =====
+- launchApp
+
+- waitForAnimationToEnd
+
+- takeScreenshot: 01_app_launched
+
+# ===== 2. ログイン画面確認 =====
+- assertVisible:
+    text: "ログイン"
+
+- assertVisible:
+    text: "電話番号"
+
+- assertVisible:
+    text: "パスワード"
+
+- takeScreenshot: 02_login_screen
+
+# ===== 3. 新規登録画面へ遷移 =====
+- tapOn:
+    text: "新規登録はこちら"
+
+- waitForAnimationToEnd
+
+- takeScreenshot: 03_signup_screen
+
+# ===== 4. 戻るボタンテスト =====
+- pressKey: back
+
+- waitForAnimationToEnd
+
+- takeScreenshot: 04_back_to_login
+
+# ===== 5. ログイン入力テスト =====
+- tapOn:
+    text: "09012345678"
+
+- inputText: "09000000000"
+
+- takeScreenshot: 05_phone_input

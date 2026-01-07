@@ -360,6 +360,7 @@ export async function changeSchool(
 export interface RequestSuspensionRequest {
   suspendFrom: string;
   suspendUntil?: string;
+  returnDay?: string;  // 復会予定日（任意）
   keepSeat: boolean;
   reason?: string;
 }
@@ -386,6 +387,7 @@ export async function requestSuspension(
   return api.post<RequestSuspensionResponse>(`/contracts/${contractId}/request-suspension/`, {
     suspend_from: data.suspendFrom,
     suspend_until: data.suspendUntil,
+    return_day: data.returnDay,
     keep_seat: data.keepSeat,
     reason: data.reason,
   });

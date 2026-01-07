@@ -68,8 +68,9 @@ import api from '@/lib/api/client';
 import type { Child, PublicCourse, PublicPack, PublicBrand, PublicBrandCategory } from '@/lib/api/types';
 import type { ApiError, PricingPreviewResponse } from '@/lib/api/types';
 import { getMe } from '@/lib/api/auth';
-import { SeminarSelection } from '@/components/ticket-purchase/SeminarSelection';
-import { CertificationSelection } from '@/components/ticket-purchase/CertificationSelection';
+// SeminarSelection と CertificationSelection は同じページ内で処理するため不要
+// import { SeminarSelection } from '@/components/ticket-purchase/SeminarSelection';
+// import { CertificationSelection } from '@/components/ticket-purchase/CertificationSelection';
 
 // ブランドコードごとのアイコンとカラー設定
 const brandStyleMap: Record<string, { icon: LucideIcon; color: string }> = {
@@ -176,6 +177,8 @@ export default function FromTicketPurchasePage() {
   const [selectedChild, setSelectedChild] = useState<Child | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<PublicBrandCategory | null>(null);
   const [selectedBrand, setSelectedBrand] = useState<PublicBrand | null>(null);
+  const [selectedBrandIds, setSelectedBrandIds] = useState<string[]>([]); // 校舎に紐付く全ブランドID
+  const [categoryBrandIds, setCategoryBrandIds] = useState<string[]>([]); // カテゴリ内の全ブランドID
   const [selectedSchoolId, setSelectedSchoolId] = useState<string | null>(null);
   const [itemType, setItemType] = useState<'regular' | 'seminar' | 'certification' | 'event' | null>(null);
   const [courseType, setCourseType] = useState<'single' | 'pack' | null>(null);
@@ -220,6 +223,19 @@ export default function FromTicketPurchasePage() {
     base_price: number;
     description?: string;
     is_active: boolean;
+    is_required?: boolean;
+    enrollment_price_jan?: number;
+    enrollment_price_feb?: number;
+    enrollment_price_mar?: number;
+    enrollment_price_apr?: number;
+    enrollment_price_may?: number;
+    enrollment_price_jun?: number;
+    enrollment_price_jul?: number;
+    enrollment_price_aug?: number;
+    enrollment_price_sep?: number;
+    enrollment_price_oct?: number;
+    enrollment_price_nov?: number;
+    enrollment_price_dec?: number;
   }>>([]);
   const [selectedSeminars, setSelectedSeminars] = useState<string[]>([]);
   const [isLoadingSeminars, setIsLoadingSeminars] = useState(false);
@@ -234,7 +250,7 @@ export default function FromTicketPurchasePage() {
     brand_name?: string;
     exam_date?: string;
     application_deadline?: string;
-    base_price: number;
+    exam_fee: number;
     description?: string;
     is_active: boolean;
   }>>([]);
@@ -284,7 +300,8 @@ export default function FromTicketPurchasePage() {
   const [schoolTicketIds, setSchoolTicketIds] = useState<string[]>([]);
 
   // 校舎ID→ブランドIDのマップ（カテゴリ内の複数ブランドの校舎を追跡）
-  const [schoolBrandMap, setSchoolBrandMap] = useState<Map<string, string>>(new Map());
+  // 校舎ID → ブランドID配列のマップ（カテゴリ内の複数ブランドが同じ校舎を持つ場合に対応）
+  const [schoolBrandMap, setSchoolBrandMap] = useState<Map<string, string[]>>(new Map());
 
   // パックのチケットごとのクラス選択用（曜日情報も含む）
   type TicketSelection = {
@@ -294,6 +311,10 @@ export default function FromTicketPurchasePage() {
   };
   const [currentTicketIndex, setCurrentTicketIndex] = useState(0);
   const [selectedClassesPerTicket, setSelectedClassesPerTicket] = useState<Map<string, TicketSelection>>(new Map());
+
+  // 単体コースの複数クラス選択用（週あたり回数 > 1 の場合）
+  const [currentWeeklyIndex, setCurrentWeeklyIndex] = useState(0);
+  const [selectedWeeklySchedules, setSelectedWeeklySchedules] = useState<TicketSelection[]>([]);
 
   // パック内アイテム（tickets と courses を統一）
   type PackItem = {
@@ -399,6 +420,9 @@ export default function FromTicketPurchasePage() {
       try {
         // カテゴリ内のブランドを取得
         const categoryBrands = brands.filter(b => b.category?.id === selectedCategory.id);
+        const brandIds = categoryBrands.map(b => b.id);
+        setCategoryBrandIds(brandIds);
+        console.log('[fetchSchools] Category brands:', brandIds.length);
 
         if (categoryBrands.length === 0) {
           setSchools([]);
@@ -409,16 +433,20 @@ export default function FromTicketPurchasePage() {
         const allSchoolsPromises = categoryBrands.map(brand => getBrandSchools(brand.id));
         const allSchoolsArrays = await Promise.all(allSchoolsPromises);
 
-        // 校舎を結合し、IDで重複を除去 + 校舎ID→ブランドIDマップを作成
+        // 校舎を結合し、IDで重複を除去 + 校舎ID→ブランドID配列マップを作成
         const schoolMap = new Map<string, BrandSchool>();
-        const newSchoolBrandMap = new Map<string, string>();
+        const newSchoolBrandMap = new Map<string, string[]>();
 
         categoryBrands.forEach((brand, index) => {
           const schoolsForBrand = allSchoolsArrays[index] || [];
           schoolsForBrand.forEach(school => {
             if (!schoolMap.has(school.id)) {
               schoolMap.set(school.id, school);
-              newSchoolBrandMap.set(school.id, brand.id);
+            }
+            // 校舎に対応するブランドID配列に追加
+            const existingBrands = newSchoolBrandMap.get(school.id) || [];
+            if (!existingBrands.includes(brand.id)) {
+              newSchoolBrandMap.set(school.id, [...existingBrands, brand.id]);
             }
           });
         });
@@ -433,6 +461,11 @@ export default function FromTicketPurchasePage() {
           return a.name.localeCompare(b.name, 'ja');
         });
 
+        console.log('[fetchSchools] Built schoolBrandMap:', {
+          mapSize: newSchoolBrandMap.size,
+          sampleEntries: Array.from(newSchoolBrandMap.entries()).slice(0, 3),
+          uniqueSchoolsCount: uniqueSchools.length,
+        });
         setSchools(uniqueSchools);
         setSchoolBrandMap(newSchoolBrandMap);
       } catch (err) {
@@ -445,23 +478,38 @@ export default function FromTicketPurchasePage() {
     fetchSchools();
   }, [selectedCategory, brands]);
 
-  // ブランド選択時にコース・パックを取得（校舎選択前にコース一覧を表示）
+  // 校舎選択時にコース・パックを取得（校舎フィルタ + カテゴリでクライアント側フィルタ）
   useEffect(() => {
-    if (!selectedBrand) return;
+    // カテゴリ内のブランドIDを直接計算
+    const brandIdsInCategory = selectedCategory
+      ? new Set(brands.filter(b => b.category?.id === selectedCategory.id).map(b => b.id))
+      : new Set<string>();
+
+    console.log('[useEffect courses] brandIdsInCategory:', brandIdsInCategory.size, 'selectedSchoolId:', selectedSchoolId);
+    if (brandIdsInCategory.size === 0 || !selectedSchoolId) return;
 
     const fetchCoursesAndPacks = async () => {
+      console.log('[fetchCoursesAndPacks] Fetching for school:', selectedSchoolId);
       setIsLoadingCourses(true);
       setCoursesError(null);
       try {
-        // 校舎IDなしでブランドのコース・パックを取得
-        const [coursesData, packsData] = await Promise.all([
-          getPublicCourses({ brandId: selectedBrand.id }),
-          getPublicPacks({ brandId: selectedBrand.id }),
+        // 校舎フィルタのみで全コース・パックを取得（APIコール2回のみ）
+        const [allCourses, allPacks] = await Promise.all([
+          getPublicCourses({ schoolId: selectedSchoolId }),
+          getPublicPacks({ schoolId: selectedSchoolId }),
         ]);
+
+        console.log('[fetchCoursesAndPacks] Fetched:', allCourses.length, 'courses,', allPacks.length, 'packs');
+
+        // カテゴリ内のブランドでフィルタ
+        const categoryCourses = allCourses.filter(c => c.brandId && brandIdsInCategory.has(c.brandId));
+        const categoryPacks = allPacks.filter(p => p.brandId && brandIdsInCategory.has(p.brandId));
+
+        console.log('[fetchCoursesAndPacks] After category filter:', categoryCourses.length, 'courses,', categoryPacks.length, 'packs');
 
         // パックに含まれるコースIDを収集
         const courseIdsInPacks = new Set<string>();
-        packsData.forEach((pack) => {
+        categoryPacks.forEach((pack) => {
           if (pack.courses) {
             pack.courses.forEach((pc) => {
               courseIdsInPacks.add(pc.courseId);
@@ -470,12 +518,12 @@ export default function FromTicketPurchasePage() {
         });
 
         // パックに含まれるコースを除外
-        const filteredCourses = coursesData.filter(
+        const filteredCourses = categoryCourses.filter(
           (course) => !courseIdsInPacks.has(course.id)
         );
 
         setCourses(filteredCourses);
-        setPacks(packsData);
+        setPacks(categoryPacks);
       } catch (err) {
         const apiError = err as ApiError;
         setCoursesError(apiError.message || 'コース情報の取得に失敗しました');
@@ -484,7 +532,7 @@ export default function FromTicketPurchasePage() {
       }
     };
     fetchCoursesAndPacks();
-  }, [selectedBrand]);
+  }, [selectedCategory, brands, selectedSchoolId]);
 
   // 講習会を取得（itemType === 'seminar' の場合）
   useEffect(() => {
@@ -498,7 +546,44 @@ export default function FromTicketPurchasePage() {
         params.append('brand_id', selectedBrand.id);
         const response = await api.get<{ results?: typeof seminars } | typeof seminars>(`/contracts/seminars/?${params.toString()}`);
         const data = Array.isArray(response) ? response : (response.results || []);
-        setSeminars(data);
+
+        // 現在の月を取得（1-12）
+        const currentMonth = new Date().getMonth() + 1;
+
+        // 月ごとのenrollment_price取得関数
+        const getEnrollmentPriceForMonth = (seminar: typeof data[0], month: number): number => {
+          const priceFields: Record<number, keyof typeof seminar> = {
+            1: 'enrollment_price_jan',
+            2: 'enrollment_price_feb',
+            3: 'enrollment_price_mar',
+            4: 'enrollment_price_apr',
+            5: 'enrollment_price_may',
+            6: 'enrollment_price_jun',
+            7: 'enrollment_price_jul',
+            8: 'enrollment_price_aug',
+            9: 'enrollment_price_sep',
+            10: 'enrollment_price_oct',
+            11: 'enrollment_price_nov',
+            12: 'enrollment_price_dec',
+          };
+          const fieldName = priceFields[month];
+          const value = seminar[fieldName];
+          return typeof value === 'number' ? value : 0;
+        };
+
+        // フィルタリング：
+        // 1. is_required が true の場合は除外（必須講習は表示しない）
+        // 2. 現在月の enrollment_price が 0 より大きい場合のみ表示
+        const filteredData = data.filter(seminar => {
+          // 必須講習は除外
+          if (seminar.is_required === true) return false;
+
+          // 現在月の enrollment_price が 0 より大きいかチェック
+          const enrollmentPrice = getEnrollmentPriceForMonth(seminar, currentMonth);
+          return enrollmentPrice > 0;
+        });
+
+        setSeminars(filteredData);
       } catch (err) {
         setSeminarsError('講習会情報の取得に失敗しました');
       } finally {
@@ -610,16 +695,16 @@ export default function FromTicketPurchasePage() {
             student: selectedChild.id,
             certification: certId,
             status: 'applied',
-            unit_price: cert.base_price,
+            unit_price: cert.exam_fee,
             discount_amount: 0,
-            final_price: cert.base_price,
+            final_price: cert.exam_fee,
             billing_month: new Date().toISOString().slice(0, 7),
           });
         }
 
         const totalPrice = certifications
           .filter(c => selectedCertifications.includes(c.id))
-          .reduce((sum, c) => sum + c.base_price, 0);
+          .reduce((sum, c) => sum + c.exam_fee, 0);
 
         sessionStorage.setItem('purchaseResult', JSON.stringify({
           orderId: `CERT-${Date.now()}`,
@@ -650,7 +735,7 @@ export default function FromTicketPurchasePage() {
 
       // パックの場合: 各チケットの選択クラス情報を追加
       if (courseType === 'pack' && selectedClassesPerTicket.size > 0) {
-        selectedClassesPerTicket.forEach((selection, ticketId) => {
+        selectedClassesPerTicket.forEach((selection) => {
           schedules.push({
             id: selection.schedule.id,
             dayOfWeek: selection.dayOfWeek + '曜日',  // "火" -> "火曜日" に変換
@@ -660,7 +745,19 @@ export default function FromTicketPurchasePage() {
           });
         });
       }
-      // 単体コースの場合: 選択したスケジュール情報を追加
+      // 単体コースで複数週次選択がある場合: selectedWeeklySchedulesから追加
+      else if (selectedWeeklySchedules.length > 0) {
+        for (const selection of selectedWeeklySchedules) {
+          schedules.push({
+            id: selection.schedule.id,
+            dayOfWeek: selection.dayOfWeek + '曜日',  // "火" -> "火曜日" に変換
+            startTime: selection.time,
+            endTime: selection.schedule.endTime || '',
+            className: selection.schedule.className,
+          });
+        }
+      }
+      // 単体コースで週1回の場合: 選択したスケジュール情報を追加
       else if (selectedScheduleItem && selectedDayOfWeek && selectedTime) {
         schedules.push({
           id: selectedScheduleItem.id,
@@ -828,12 +925,12 @@ export default function FromTicketPurchasePage() {
   };
 
   const handleSchoolSelect = async (schoolId: string) => {
+    console.log('[handleSchoolSelect] schoolId:', schoolId, 'categoryBrandIds:', categoryBrandIds.length);
     setSelectedSchoolId(schoolId);
 
-    // 選択した校舎に対応するブランドをセット
-    const brandIdForSchool = schoolBrandMap.get(schoolId);
-    if (brandIdForSchool) {
-      const brand = brands.find(b => b.id === brandIdForSchool);
+    // カテゴリ内の最初のブランドをselectedBrandにセット（互換性のため）
+    if (categoryBrandIds.length > 0) {
+      const brand = brands.find(b => b.id === categoryBrandIds[0]);
       if (brand) {
         setSelectedBrand(brand);
       }
@@ -865,6 +962,16 @@ export default function FromTicketPurchasePage() {
   };
 
   const handleBackToStep = (targetStep: number) => {
+    // 講習会・検定の場合は、スキップしたステップを考慮
+    if (itemType === 'seminar' || itemType === 'certification') {
+      // 講習会・検定のステップ: 1, 2, 3, 4-5, 7, 10, 11
+      // step 10 から戻る → step 7 へ
+      // step 7 から戻る → step 5 へ
+      if (targetStep === 9 || targetStep === 8 || targetStep === 6) {
+        setStep(5);
+        return;
+      }
+    }
     setStep(targetStep);
   };
 
@@ -1053,9 +1160,24 @@ export default function FromTicketPurchasePage() {
   const mileDiscountAmount = useMiles && milesToUse >= 4 && pricingPreview?.mileInfo?.canUse
     ? Math.floor((milesToUse - 2) / 2) * 500  // 4pt以上で500円引、以後2ptごとに500円引
     : 0;
+
+  // 講習会の合計金額
+  const seminarTotalAmount = seminars
+    .filter(s => selectedSeminars.includes(s.id))
+    .reduce((sum, s) => sum + s.base_price, 0);
+
+  // 検定の合計金額
+  const certificationTotalAmount = certifications
+    .filter(c => selectedCertifications.includes(c.id))
+    .reduce((sum, c) => sum + c.exam_fee, 0);
+
   // 合計金額: APIのgrandTotalを使用（入会金、設備費、教材費、割引を全て含む）
   // マイル割引はフロントエンドで計算して引く
-  const totalAmount = pricingPreview?.grandTotal
+  const totalAmount = itemType === 'seminar'
+    ? seminarTotalAmount
+    : itemType === 'certification'
+    ? certificationTotalAmount
+    : pricingPreview?.grandTotal
     ? pricingPreview.grandTotal - mileDiscountAmount  // APIで全て計算済み（マイル割引を引く）
     : (selectedCourse?.price || 0) - mileDiscountAmount;  // フォールバック: コース価格のみ
 
@@ -1647,7 +1769,7 @@ export default function FromTicketPurchasePage() {
                             </div>
                             <div className="text-right">
                               <span className="text-xl font-bold text-amber-600">
-                                ¥{cert.base_price.toLocaleString()}
+                                ¥{cert.exam_fee.toLocaleString()}
                               </span>
                             </div>
                           </div>
@@ -1902,6 +2024,9 @@ export default function FromTicketPurchasePage() {
                     setPreSelectClassMode(true);
                     setCurrentTicketIndex(0);
                     setSelectedClassesPerTicket(new Map());
+                    // 単体コースの複数週次選択用stateもリセット
+                    setCurrentWeeklyIndex(0);
+                    setSelectedWeeklySchedules([]);
 
                     // パックの場合は最初のアイテムで開講時間割を取得
                     if (hasPackItems) {
@@ -1934,6 +2059,13 @@ export default function FromTicketPurchasePage() {
           const currentItem = hasPackItems ? packItems[currentTicketIndex] : null;
           const totalItems = packItems.length;
           const isLastItem = currentTicketIndex >= totalItems - 1;
+
+          // 単体コースの週あたり回数を取得
+          const singleCoursePerWeek = !isPack && selectedCourse && 'perWeek' in selectedCourse
+            ? (selectedCourse as PublicCourse).perWeek || 1
+            : 1;
+          const hasSingleCourseMultipleWeekly = !isPack && singleCoursePerWeek > 1;
+          const isLastWeeklyItem = currentWeeklyIndex >= singleCoursePerWeek - 1;
 
           const getStatusIcon = (status: string) => {
             switch (status) {
@@ -2005,29 +2137,60 @@ export default function FromTicketPurchasePage() {
             }
           };
 
-          // パックの次のアイテムに進む
+          // パックの次のアイテムに進む / 単体コースの次の週次選択に進む
           const handleNextItem = () => {
-            // 現在のアイテムの選択を保存（曜日と時間も含む）
-            if (currentItem && selectedScheduleItem && selectedDayOfWeek && selectedTime) {
-              const newMap = new Map(selectedClassesPerTicket);
-              newMap.set(currentItem.id, {
-                schedule: selectedScheduleItem,
-                dayOfWeek: selectedDayOfWeek,
-                time: selectedTime,
-              });
-              setSelectedClassesPerTicket(newMap);
-            }
+            // パックの場合
+            if (hasPackItems) {
+              // 現在のアイテムの選択を保存（曜日と時間も含む）
+              if (currentItem && selectedScheduleItem && selectedDayOfWeek && selectedTime) {
+                const newMap = new Map(selectedClassesPerTicket);
+                newMap.set(currentItem.id, {
+                  schedule: selectedScheduleItem,
+                  dayOfWeek: selectedDayOfWeek,
+                  time: selectedTime,
+                });
+                setSelectedClassesPerTicket(newMap);
+              }
 
-            if (!isLastItem) {
-              // 次のアイテムへ
-              const nextIndex = currentTicketIndex + 1;
-              setCurrentTicketIndex(nextIndex);
-              setSelectedTime(null);
-              setSelectedDayOfWeek(null);
-              setSelectedScheduleItem(null);
-              fetchClassSchedules(packItems[nextIndex].ticketCode);
-            } else {
-              // すべてのアイテムの選択が完了したら規約確認へ
+              if (!isLastItem) {
+                // 次のアイテムへ
+                const nextIndex = currentTicketIndex + 1;
+                setCurrentTicketIndex(nextIndex);
+                setSelectedTime(null);
+                setSelectedDayOfWeek(null);
+                setSelectedScheduleItem(null);
+                fetchClassSchedules(packItems[nextIndex].ticketCode);
+              } else {
+                // すべてのアイテムの選択が完了したら規約確認へ
+                setStep(10);
+              }
+            }
+            // 単体コースで週あたり複数回の場合
+            else if (hasSingleCourseMultipleWeekly) {
+              // 現在の週次選択を保存
+              if (selectedScheduleItem && selectedDayOfWeek && selectedTime) {
+                const newSchedules = [...selectedWeeklySchedules];
+                newSchedules[currentWeeklyIndex] = {
+                  schedule: selectedScheduleItem,
+                  dayOfWeek: selectedDayOfWeek,
+                  time: selectedTime,
+                };
+                setSelectedWeeklySchedules(newSchedules);
+
+                if (!isLastWeeklyItem) {
+                  // 次の週次選択へ
+                  setCurrentWeeklyIndex(currentWeeklyIndex + 1);
+                  setSelectedTime(null);
+                  setSelectedDayOfWeek(null);
+                  setSelectedScheduleItem(null);
+                } else {
+                  // すべての週次選択が完了したら規約確認へ
+                  setStep(10);
+                }
+              }
+            }
+            // 単体コースで週1回の場合（従来通り）
+            else {
               setStep(10);
             }
           };
@@ -2074,8 +2237,50 @@ export default function FromTicketPurchasePage() {
                 </div>
               )}
 
+              {/* 単体コースで週あたり複数回の場合は進捗を表示 */}
+              {hasSingleCourseMultipleWeekly && (
+                <div className="mb-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="text-sm font-medium text-gray-700">
+                      授業 {currentWeeklyIndex + 1} / {singleCoursePerWeek} (週{singleCoursePerWeek}回)
+                    </p>
+                    <Badge variant="outline" className="text-xs bg-blue-50 text-blue-700">
+                      {currentWeeklyIndex + 1}回目の曜日・時間帯
+                    </Badge>
+                  </div>
+                  <div className="flex gap-1">
+                    {Array.from({ length: singleCoursePerWeek }).map((_, idx) => (
+                      <div
+                        key={idx}
+                        className={`h-2 flex-1 rounded-full ${
+                          idx < currentWeeklyIndex
+                            ? 'bg-green-500'
+                            : idx === currentWeeklyIndex
+                            ? 'bg-blue-500'
+                            : 'bg-gray-200'
+                        }`}
+                      />
+                    ))}
+                  </div>
+                  {/* 選択済みの曜日・時間帯を表示 */}
+                  {selectedWeeklySchedules.length > 0 && (
+                    <div className="mt-2 text-xs text-gray-600">
+                      選択済み: {selectedWeeklySchedules.map((s, idx) => (
+                        <span key={idx} className="inline-block bg-green-100 text-green-700 px-2 py-1 rounded mr-1">
+                          {s.dayOfWeek} {s.time}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
               <h2 className="text-lg font-semibold text-gray-800 mb-2">
-                {hasPackItems ? `${currentItem?.name} の曜日・時間帯を選択` : '曜日・時間帯を選択'}
+                {hasPackItems
+                  ? `${currentItem?.name} の曜日・時間帯を選択`
+                  : hasSingleCourseMultipleWeekly
+                  ? `${currentWeeklyIndex + 1}回目の曜日・時間帯を選択`
+                  : '曜日・時間帯を選択'}
               </h2>
               <p className="text-sm text-gray-600 mb-4">
                 希望する曜日と時間帯を選択してください。
@@ -2194,19 +2399,24 @@ export default function FromTicketPurchasePage() {
               <div className="space-y-3">
                 <Button
                   onClick={() => {
-                    if (hasPackItems) {
-                      handleNextItem();
-                    } else {
-                      setStep(10);
-                    }
+                    // パック、単体コース複数週次、単体コース週1回の全てに対応
+                    handleNextItem();
                   }}
                   disabled={!selectedTime && classScheduleData?.timeSlots.length !== undefined && classScheduleData.timeSlots.length > 0}
                   className="w-full h-14 rounded-full bg-blue-600 hover:bg-blue-700 text-white font-semibold text-lg disabled:opacity-50"
                 >
                   {selectedTime
-                    ? (hasPackItems && !isLastItem ? '次のコースへ' : '次へ')
+                    ? (hasPackItems && !isLastItem
+                        ? '次のコースへ'
+                        : hasSingleCourseMultipleWeekly && !isLastWeeklyItem
+                        ? `${currentWeeklyIndex + 2}回目を選択`
+                        : '次へ')
                     : (!classScheduleData || classScheduleData.timeSlots.length === 0)
-                      ? (hasPackItems && !isLastItem ? '次のコースへ（後で予約）' : '次へ（後で予約）')
+                      ? (hasPackItems && !isLastItem
+                          ? '次のコースへ（後で予約）'
+                          : hasSingleCourseMultipleWeekly && !isLastWeeklyItem
+                          ? `${currentWeeklyIndex + 2}回目を選択（後で予約）`
+                          : '次へ（後で予約）')
                       : '曜日・時間帯を選択してください'}
                 </Button>
 
@@ -2386,7 +2596,7 @@ export default function FromTicketPurchasePage() {
                           <p className="font-semibold text-gray-800">{cert.certification_name}</p>
                           <p className="text-sm text-gray-600">{cert.certification_type}</p>
                           {cert.exam_date && <p className="text-xs text-gray-500">試験日: {cert.exam_date}</p>}
-                          <p className="text-amber-600 font-semibold">¥{cert.base_price.toLocaleString()}</p>
+                          <p className="text-amber-600 font-semibold">¥{cert.exam_fee.toLocaleString()}</p>
                         </div>
                       ))}
                     </div>
@@ -2723,8 +2933,17 @@ export default function FromTicketPurchasePage() {
 
             <Button
               onClick={handleConfirmPurchase}
-              disabled={isConfirming || (pricingPreview?.textbookOptions && pricingPreview.textbookOptions.length > 0 && selectedTextbookIds.length === 0)}
-              className="w-full h-14 rounded-full bg-blue-600 hover:bg-blue-700 text-white font-semibold text-lg disabled:opacity-70"
+              disabled={
+                isConfirming ||
+                (itemType === 'regular' && pricingPreview?.textbookOptions && pricingPreview.textbookOptions.length > 0 && selectedTextbookIds.length === 0) ||
+                (itemType === 'seminar' && selectedSeminars.length === 0) ||
+                (itemType === 'certification' && selectedCertifications.length === 0)
+              }
+              className={`w-full h-14 rounded-full text-white font-semibold text-lg disabled:opacity-70 ${
+                itemType === 'seminar' ? 'bg-purple-600 hover:bg-purple-700' :
+                itemType === 'certification' ? 'bg-amber-600 hover:bg-amber-700' :
+                'bg-blue-600 hover:bg-blue-700'
+              }`}
             >
               {isConfirming ? (
                 <span className="flex items-center gap-2">
@@ -2732,6 +2951,8 @@ export default function FromTicketPurchasePage() {
                   処理中...
                 </span>
               ) : (
+                itemType === 'seminar' ? '講習会を申し込む' :
+                itemType === 'certification' ? '検定を申し込む' :
                 '購入を確定する'
               )}
             </Button>

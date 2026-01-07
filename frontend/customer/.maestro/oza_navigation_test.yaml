@@ -1,0 +1,55 @@
+# OZA Customer App - ナビゲーションテスト
+appId: com.mylesson.app
+
+---
+# ===== アプリ起動 =====
+- launchApp
+
+- extendedWaitUntil:
+    visible: ".*"
+    timeout: 15000
+
+# ===== 各ボタンのタップテスト =====
+- runFlow:
+    when:
+      visible: "パスワードをお忘れの方|パスワードリセット"
+    commands:
+      - tapOn: "パスワードをお忘れの方|パスワードリセット"
+      - extendedWaitUntil:
+          visible: ".*"
+          timeout: 5000
+      - takeScreenshot: password_reset_screen
+      - pressKey: back
+
+# ===== ホームナビゲーション確認 =====
+- runFlow:
+    when:
+      visible: "ホーム|Home"
+    commands:
+      - tapOn: "ホーム|Home"
+      - extendedWaitUntil:
+          visible: ".*"
+          timeout: 5000
+      - takeScreenshot: home_screen
+
+# ===== スケジュール確認 =====
+- runFlow:
+    when:
+      visible: "スケジュール|Schedule|カレンダー"
+    commands:
+      - tapOn: "スケジュール|Schedule|カレンダー"
+      - extendedWaitUntil:
+          visible: ".*"
+          timeout: 5000
+      - takeScreenshot: schedule_screen
+
+# ===== マイページ確認 =====
+- runFlow:
+    when:
+      visible: "マイページ|設定|Settings"
+    commands:
+      - tapOn: "マイページ|設定|Settings"
+      - extendedWaitUntil:
+          visible: ".*"
+          timeout: 5000
+      - takeScreenshot: mypage_screen

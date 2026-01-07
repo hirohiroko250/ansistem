@@ -22,7 +22,7 @@ class SuspensionRequestSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'student', 'student_name', 'student_no',
             'brand', 'brand_name', 'school', 'school_name',
-            'suspend_from', 'suspend_until', 'keep_seat',
+            'suspend_from', 'suspend_until', 'return_day', 'keep_seat',
             'monthly_fee_during_suspension',
             'reason', 'reason_display', 'reason_detail',
             'status', 'status_display',
@@ -57,7 +57,7 @@ class SuspensionRequestCreateSerializer(serializers.ModelSerializer):
         model = SuspensionRequest
         fields = [
             'student', 'brand', 'school',
-            'suspend_from', 'suspend_until', 'keep_seat',
+            'suspend_from', 'suspend_until', 'return_day', 'keep_seat',
             'reason', 'reason_detail'
         ]
 

@@ -1,4 +1,3 @@
-
 import { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
@@ -6,8 +5,10 @@ const config: CapacitorConfig = {
     appName: 'MyLesson',
     webDir: 'out',
     server: {
-        androidScheme: 'https'
+        url: 'http://162.43.33.37:3000',
+        cleartext: true
     }
 };
 
 export default config;
+

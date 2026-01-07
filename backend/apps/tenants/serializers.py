@@ -103,7 +103,7 @@ class EmployeeListSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'employee_no', 'full_name', 'last_name', 'first_name',
             'email', 'phone', 'department', 'position', 'position_name',
-            'schools_list', 'brands_list', 'is_active',
+            'profile_image_url', 'schools_list', 'brands_list', 'is_active',
         ]
 
     def get_full_name(self, obj):
@@ -128,7 +128,7 @@ class EmployeeDetailSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'employee_no', 'full_name', 'last_name', 'first_name',
             'email', 'phone', 'department', 'position', 'position_name', 'position_text',
-            'schools_list', 'brands_list',
+            'profile_image_url', 'schools_list', 'brands_list',
             'hire_date', 'termination_date',
             'postal_code', 'prefecture', 'city', 'address', 'nationality',
             'discount_flag', 'discount_amount', 'discount_unit',

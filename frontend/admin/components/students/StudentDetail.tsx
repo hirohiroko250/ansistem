@@ -429,9 +429,9 @@ export function StudentDetail({ student, parents, contracts, invoices, contactLo
   };
   const defaultYearMonth = currentBillingMonth;
 
-  // 契約フィルター用の年月選択（デフォルト：翌月）
-  const [contractYear, setContractYear] = useState<string>(defaultYearMonth.year);
-  const [contractMonth, setContractMonth] = useState<string>(defaultYearMonth.month);
+  // 契約フィルター用の年月選択（デフォルト：すべて表示）
+  const [contractYear, setContractYear] = useState<string>("all");
+  const [contractMonth, setContractMonth] = useState<string>("all");
 
   // 請求フィルター用の年月選択（デフォルト：翌月）
   const [invoiceYear, setInvoiceYear] = useState<string>(defaultYearMonth.year);
@@ -854,19 +854,26 @@ export function StudentDetail({ student, parents, contracts, invoices, contactLo
 
                 {/* 契約中のブランド・コース（目立つ表示） */}
                 {(() => {
-                  // アクティブな契約を抽出
-                  const activeContracts = contracts.filter(c => c.status === 'active');
+                  // 有効な契約を抽出（解約済み以外は全て表示）
+                  const activeContracts = contracts.filter(c =>
+                    c.status !== 'cancelled' && c.status !== 'expired'
+                  );
+
+                  // デバッグ用（本番では削除可）
+                  console.log('[StudentDetail] contracts:', contracts.length, 'active:', activeContracts.length);
+
                   if (activeContracts.length > 0) {
                     return (
                       <div className="mb-2 space-y-1">
                         {activeContracts.map((contract, idx) => {
-                          const brandName = contract.brand_name || contract.brandName || (contract.brand as any)?.brand_name || '';
-                          const courseName = contract.course_name || contract.courseName || (contract.course as any)?.course_name || '';
-                          const schoolName = contract.school_name || contract.schoolName || (contract.school as any)?.school_name || '';
+                          const brandName = contract.brand_name || contract.brandName || (contract.brand as any)?.brand_name || (contract.brand as any)?.name || '';
+                          const courseName = contract.course_name || contract.courseName || (contract.course as any)?.course_name || (contract.course as any)?.name || '';
+                          const schoolName = contract.school_name || contract.schoolName || (contract.school as any)?.school_name || (contract.school as any)?.name || '';
+                          const statusLabel = contract.status === 'active' ? '契約中' : contract.status === 'pending' ? '保留' : '契約';
                           return (
                             <div key={contract.id || idx} className="bg-blue-50 border border-blue-200 rounded-lg p-2">
                               <div className="flex items-center gap-2">
-                                <Badge className="text-[10px] px-1.5 py-0.5 bg-blue-600 text-white">契約中</Badge>
+                                <Badge className="text-[10px] px-1.5 py-0.5 bg-blue-600 text-white">{statusLabel}</Badge>
                                 <span className="text-xs font-bold text-blue-900">{brandName || '不明'}</span>
                               </div>
                               {courseName && (
@@ -881,7 +888,12 @@ export function StudentDetail({ student, parents, contracts, invoices, contactLo
                       </div>
                     );
                   }
-                  return null;
+                  // 契約がない場合のメッセージ
+                  return (
+                    <div className="mb-2 p-2 bg-gray-50 border border-gray-200 rounded-lg">
+                      <p className="text-xs text-gray-500">契約情報なし</p>
+                    </div>
+                  );
                 })()}
 
                 <table className="w-full text-xs border">
@@ -1337,7 +1349,13 @@ export function StudentDetail({ student, parents, contracts, invoices, contactLo
                     <div className="flex items-center gap-2 mb-2">
                       <Calendar className="w-4 h-4" />
                       <span className="text-sm opacity-90">
-                        {contractYear}年{contractMonth}月分
+                        {contractYear === "all" && contractMonth === "all"
+                          ? "全期間"
+                          : contractYear === "all"
+                          ? `${contractMonth}月分（全年）`
+                          : contractMonth === "all"
+                          ? `${contractYear}年（全月）`
+                          : `${contractYear}年${contractMonth}月分`}
                       </span>
                       <span className="text-xs opacity-75 ml-1">
                         ({filteredContracts.length}件の契約)
@@ -1649,6 +1667,13 @@ export function StudentDetail({ student, parents, contracts, invoices, contactLo
                             }
                           }
 
+                          // 入会月かどうかを判定（契約開始日が今月以降なら入会月とみなす）
+                          const today = new Date();
+                          const currentYear = today.getFullYear();
+                          const currentMonth = today.getMonth() + 1;
+                          const isEnrollmentMonth = startYear > currentYear ||
+                            (startYear === currentYear && startMonthNum >= currentMonth);
+
                           // 翌月、翌々月を計算
                           const getNextMonth = (year: number, month: number) => {
                             if (month === 12) return { year: year + 1, month: 1 };
@@ -1671,13 +1696,33 @@ export function StudentDetail({ student, parents, contracts, invoices, contactLo
                             return false;
                           });
 
+                          // 季節講習会・特別費用の判定用ヘルパー（先に定義）
+                          const checkSeasonalOrSpecial = (itemName: string): boolean => {
+                            const name = itemName.toLowerCase();
+                            return name.includes('春期') || name.includes('夏期') ||
+                                   name.includes('冬期') || name.includes('講習') ||
+                                   name.includes('合宿') || name.includes('テスト対策') ||
+                                   name.includes('模試');
+                          };
+
+                          // 月額費用（季節講習会・特別費用は除外）
                           const monthlyItems2 = studentItems.filter((item: any) => {
                             const itemType = (item.item_type || item.itemType || '').toLowerCase();
-                            const itemName = (item.product_name || item.productName || '').toLowerCase();
+                            const itemName = (item.product_name || item.productName || '');
                             if (oneTimeItemTypes.includes(itemType)) return false;
                             if (textbookItemTypes.includes(itemType)) return false;
                             if (itemName.includes('入会金')) return false;
+                            if (checkSeasonalOrSpecial(itemName)) return false; // 季節講習会を除外
                             return true;
+                          });
+
+                          // 季節講習会・特別費用
+                          const seasonalItems = studentItems.filter((item: any) => {
+                            const itemType = (item.item_type || item.itemType || '').toLowerCase();
+                            const itemName = (item.product_name || item.productName || '');
+                            if (oneTimeItemTypes.includes(itemType)) return false;
+                            if (textbookItemTypes.includes(itemType)) return false;
+                            return checkSeasonalOrSpecial(itemName);
                           });
 
                           const textbookItems2 = studentItems.filter((item: any) => {
@@ -1688,6 +1733,71 @@ export function StudentDetail({ student, parents, contracts, invoices, contactLo
                           // 税込価格計算用関数（消費税10%）
                           const withTax = (price: number) => Math.floor(price * 1.1);
 
+                          // 季節講習会・特別費用の判定（春期・夏期・冬期講習、テスト対策、模試代など）
+                          const isSeasonalOrSpecialItem = (item: any): boolean => {
+                            const itemName = (item.product_name || item.productName || '').toLowerCase();
+                            return itemName.includes('春期') || itemName.includes('夏期') ||
+                                   itemName.includes('冬期') || itemName.includes('講習') ||
+                                   itemName.includes('合宿') || itemName.includes('テスト対策') ||
+                                   itemName.includes('模試');
+                          };
+
+                          // 季節講習会の請求月を判定
+                          const getSeasonalItemBillingMonths = (item: any): number[] => {
+                            const itemName = (item.product_name || item.productName || '').toLowerCase();
+                            if (itemName.includes('春期')) return [3, 4]; // 3月・4月請求
+                            if (itemName.includes('夏期')) return [7, 8]; // 7月・8月請求
+                            if (itemName.includes('冬期')) return [12, 1]; // 12月・1月請求
+                            if (itemName.includes('合宿')) return [7, 8]; // 合宿は夏期扱い
+                            // テスト対策・模試は年3回（5月、10月、1月）
+                            if (itemName.includes('テスト対策') || itemName.includes('模試')) return [5, 10, 1];
+                            return []; // 判定できない場合
+                          };
+
+                          // 季節講習会の請求月ラベル
+                          const getSeasonalItemLabel = (item: any): string => {
+                            const itemName = (item.product_name || item.productName || '').toLowerCase();
+                            if (itemName.includes('春期')) return '3～4月請求';
+                            if (itemName.includes('夏期')) return '7～8月請求';
+                            if (itemName.includes('冬期')) return '12～1月請求';
+                            if (itemName.includes('合宿')) return '7～8月請求';
+                            if (itemName.includes('テスト対策') || itemName.includes('模試')) return '5・10・1月請求';
+                            return '';
+                          };
+
+                          // 季節講習会・特別費用が当月請求かどうか
+                          const isSeasonalItemDueThisMonth = (item: any): boolean => {
+                            const billingMonths = getSeasonalItemBillingMonths(item);
+                            if (billingMonths.length === 0) return true; // 判定できない場合は表示
+                            // 現在の契約月（フィルター月 or 契約開始月）で判定
+                            const checkMonth = contractMonth !== 'all' ? parseInt(contractMonth) : startMonthNum;
+                            return billingMonths.includes(checkMonth);
+                          };
+
+                          // 教材費の請求タイミング判定（半年払いなど）
+                          const isTextbookDueThisMonth = (item: any): boolean => {
+                            const itemName = (item.product_name || item.productName || '').toLowerCase();
+                            // 半年払い（4月・10月）の場合
+                            if (itemName.includes('半年払い') || itemName.includes('4月') || itemName.includes('10月')) {
+                              // 入会月が4月または10月の場合のみ請求
+                              return startMonthNum === 4 || startMonthNum === 10;
+                            }
+                            // 月払いまたはその他の場合は毎月請求
+                            return true;
+                          };
+
+                          // 教材費の次回請求月を取得
+                          const getNextTextbookBillingMonth = (item: any): string => {
+                            const itemName = (item.product_name || item.productName || '').toLowerCase();
+                            if (itemName.includes('半年払い') || itemName.includes('4月') || itemName.includes('10月')) {
+                              // 次の4月か10月を計算
+                              if (startMonthNum >= 1 && startMonthNum <= 3) return '4月';
+                              if (startMonthNum >= 4 && startMonthNum <= 9) return '10月';
+                              return '翌年4月';
+                            }
+                            return '';
+                          };
+
                           // 合計計算（税込み）
                           const enrollmentTotal = enrollmentItems.reduce((sum: number, item: any) =>
                             sum + withTax(Number(item.final_price || item.finalPrice || 0)), 0);
@@ -1697,19 +1807,32 @@ export function StudentDetail({ student, parents, contracts, invoices, contactLo
                             return sum + withTax(Number(item.final_price || item.finalPrice || 0));
                           }, 0);
 
-                          const textbookTotal2 = textbookItems2.reduce((sum: number, item: any) =>
-                            sum + withTax(Number(item.final_price || item.finalPrice || item.unit_price || item.unitPrice || 0)), 0);
+                          // 教材費: 当月請求分のみ合計（半年払いは4月・10月以外は含めない）
+                          const textbookTotal2 = textbookItems2.reduce((sum: number, item: any) => {
+                            if (!isTextbookDueThisMonth(item)) return sum;
+                            return sum + withTax(Number(item.final_price || item.finalPrice || item.unit_price || item.unitPrice || 0));
+                          }, 0);
+
+                          // 季節講習会・特別費用: 該当月のみ合計
+                          const seasonalTotal = seasonalItems.reduce((sum: number, item: any) => {
+                            if (!isSeasonalItemDueThisMonth(item)) return sum;
+                            return sum + withTax(Number(item.final_price || item.finalPrice || item.unit_price || item.unitPrice || 0));
+                          }, 0);
 
                           const discountAmount = Number(discounts.length > 0 ? discountTotal : discountApplied);
                           const monthlyAfterDiscount = monthlyTotal2 - discountAmount;
 
-                          // 初月合計 = 入会時費用 + 月額(割引後) + 教材費
-                          const firstMonthTotal = enrollmentTotal + monthlyAfterDiscount + textbookTotal2;
+                          // 合計計算
+                          // 既存契約（入会月ではない）: 月額 + 当月請求の季節費用 + 当月請求の教材費
+                          // 新規入会: 入会時費用 + 月額 + 当月請求の季節費用 + 当月請求の教材費
+                          const monthlyTotal = isEnrollmentMonth
+                            ? enrollmentTotal + monthlyAfterDiscount + seasonalTotal + textbookTotal2
+                            : monthlyAfterDiscount + seasonalTotal + textbookTotal2;
 
                           return (
                             <>
-                              {/* 入会時費用 */}
-                              {enrollmentItems.length > 0 && (
+                              {/* 入会時費用（新規入会の場合のみ表示） */}
+                              {isEnrollmentMonth && enrollmentItems.length > 0 && (
                                 <div className="mb-3">
                                   <p className="text-xs font-medium text-gray-600 mb-1 flex items-center gap-1">
                                     <span className="bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded text-[10px]">入会時</span>
@@ -1738,7 +1861,7 @@ export function StudentDetail({ student, parents, contracts, invoices, contactLo
                                 <div className="mb-3">
                                   <p className="text-xs font-medium text-gray-600 mb-1 flex items-center gap-1">
                                     <span className="bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded text-[10px]">月額</span>
-                                    {next1.month > 0 && `${next1.month}月～請求`}
+                                    毎月請求
                                   </p>
                                   <table className="w-full text-xs">
                                     <tbody>
@@ -1776,12 +1899,48 @@ export function StudentDetail({ student, parents, contracts, invoices, contactLo
                                 </div>
                               )}
 
+                              {/* 季節講習会・特別費用 */}
+                              {seasonalItems.length > 0 && (
+                                <div className="mb-3">
+                                  <p className="text-xs font-medium text-gray-600 mb-1 flex items-center gap-1">
+                                    <span className="bg-green-100 text-green-700 px-1.5 py-0.5 rounded text-[10px]">季節</span>
+                                    講習会・特別費用
+                                  </p>
+                                  <table className="w-full text-xs">
+                                    <tbody>
+                                      {seasonalItems.map((item: any, idx: number) => {
+                                        const categoryName = item.category_name || item.categoryName;
+                                        const itemName = categoryName || item.product_name || item.productName || "-";
+                                        const finalPrice = withTax(Number(item.final_price || item.finalPrice || item.unit_price || item.unitPrice || 0));
+                                        const isDueThisMonth = isSeasonalItemDueThisMonth(item);
+                                        const billingLabel = getSeasonalItemLabel(item);
+                                        return (
+                                          <tr key={item.id || idx} className={`border-b border-gray-100 ${!isDueThisMonth ? 'opacity-60' : ''}`}>
+                                            <td className="py-1 text-gray-700">
+                                              {itemName}
+                                              {billingLabel && (
+                                                <span className={`ml-1 text-[10px] ${isDueThisMonth ? 'text-green-600' : 'text-gray-400'}`}>
+                                                  ({billingLabel})
+                                                </span>
+                                              )}
+                                            </td>
+                                            <td className={`py-1 text-right w-20 ${!isDueThisMonth ? 'text-gray-400' : ''}`}>
+                                              {isDueThisMonth ? `¥${finalPrice.toLocaleString()}` : '-'}
+                                            </td>
+                                          </tr>
+                                        );
+                                      })}
+                                    </tbody>
+                                  </table>
+                                </div>
+                              )}
+
                               {/* 教材費 */}
                               {textbookItems2.length > 0 && (
                                 <div className="mb-3">
                                   <p className="text-xs font-medium text-gray-600 mb-1 flex items-center gap-1">
                                     <span className="bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded text-[10px]">教材</span>
-                                    半年払い等
+                                    選択中の教材費
                                   </p>
                                   <table className="w-full text-xs">
                                     <tbody>
@@ -1789,10 +1948,19 @@ export function StudentDetail({ student, parents, contracts, invoices, contactLo
                                         const categoryName = item.category_name || item.categoryName;
                                         const itemName = categoryName || item.product_name || item.productName || "-";
                                         const finalPrice = withTax(Number(item.final_price || item.finalPrice || item.unit_price || item.unitPrice || 0));
+                                        const isDueThisMonth = isTextbookDueThisMonth(item);
+                                        const nextBillingMonth = getNextTextbookBillingMonth(item);
                                         return (
-                                          <tr key={item.id || idx} className="border-b border-gray-100">
-                                            <td className="py-1 text-gray-700">{itemName}</td>
-                                            <td className="py-1 text-right w-20">¥{finalPrice.toLocaleString()}</td>
+                                          <tr key={item.id || idx} className={`border-b border-gray-100 ${!isDueThisMonth ? 'opacity-60' : ''}`}>
+                                            <td className="py-1 text-gray-700">
+                                              {itemName}
+                                              {!isDueThisMonth && nextBillingMonth && (
+                                                <span className="ml-1 text-[10px] text-amber-600">({nextBillingMonth}請求予定)</span>
+                                              )}
+                                            </td>
+                                            <td className={`py-1 text-right w-20 ${!isDueThisMonth ? 'text-gray-400' : ''}`}>
+                                              {isDueThisMonth ? `¥${finalPrice.toLocaleString()}` : '-'}
+                                            </td>
                                           </tr>
                                         );
                                       })}
@@ -1804,17 +1972,21 @@ export function StudentDetail({ student, parents, contracts, invoices, contactLo
                               {/* 合計 */}
                               <div className="mt-3 pt-3 border-t-2 border-blue-200 bg-blue-50 -mx-3 px-3 pb-3 rounded-b-lg">
                                 <div className="flex justify-between items-center">
-                                  <span className="text-sm font-bold text-blue-800">初月合計（税込）</span>
-                                  <span className="text-lg font-bold text-blue-600">¥{firstMonthTotal.toLocaleString()}</span>
+                                  <span className="text-sm font-bold text-blue-800">
+                                    {isEnrollmentMonth ? '初月合計（税込）' : '当月合計（税込）'}
+                                  </span>
+                                  <span className="text-lg font-bold text-blue-600">¥{monthlyTotal.toLocaleString()}</span>
                                 </div>
                                 <p className="text-xs text-gray-500 mt-1">
-                                  {enrollmentTotal > 0 && `入会時 ¥${enrollmentTotal.toLocaleString()}`}
-                                  {enrollmentTotal > 0 && monthlyAfterDiscount > 0 && ' + '}
+                                  {isEnrollmentMonth && enrollmentTotal > 0 && `入会時 ¥${enrollmentTotal.toLocaleString()}`}
+                                  {isEnrollmentMonth && enrollmentTotal > 0 && monthlyAfterDiscount > 0 && ' + '}
                                   {monthlyAfterDiscount > 0 && `月額 ¥${monthlyAfterDiscount.toLocaleString()}`}
-                                  {(enrollmentTotal > 0 || monthlyAfterDiscount > 0) && textbookTotal2 > 0 && ' + '}
+                                  {(isEnrollmentMonth ? (enrollmentTotal > 0 || monthlyAfterDiscount > 0) : monthlyAfterDiscount > 0) && seasonalTotal > 0 && ' + '}
+                                  {seasonalTotal > 0 && `講習等 ¥${seasonalTotal.toLocaleString()}`}
+                                  {(monthlyAfterDiscount > 0 || seasonalTotal > 0) && textbookTotal2 > 0 && ' + '}
                                   {textbookTotal2 > 0 && `教材 ¥${textbookTotal2.toLocaleString()}`}
                                 </p>
-                                {monthlyAfterDiscount > 0 && (
+                                {isEnrollmentMonth && monthlyAfterDiscount > 0 && (
                                   <p className="text-xs text-gray-400 mt-0.5">
                                     ※ 翌月以降の月額: ¥{monthlyAfterDiscount.toLocaleString()}/月
                                   </p>

@@ -1,31 +1,13 @@
 'use client';
 
-import { useEffect, useState, useRef, useCallback } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Input } from '@/components/ui/input';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import { BottomNav } from '@/components/bottom-nav';
-import {
-  MessageCircle,
-  Users,
-  Send,
-  Loader2,
-  Search,
-  ChevronLeft,
-  Check,
-  CheckCheck,
-  User,
-  UserPlus,
-  Plus,
-  Image as ImageIcon,
-  MoreVertical,
-  Phone,
-  Video,
-} from 'lucide-react';
-import { format, isToday, isYesterday, isSameDay } from 'date-fns';
-import { ja } from 'date-fns/locale';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { ChatSidebar, ChatMessages, ThreadPanel, ChannelSettingsModal, SearchPanel, CreateGroupModal, CreateTaskModal, type TabType } from '@/components/chat';
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
+import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { Button } from '@/components/ui/button';
+import { MessageCircle, Phone, Briefcase, MapPin, Menu } from 'lucide-react';
 import {
   getChannels,
   getMessages,
@@ -35,18 +17,26 @@ import {
   getStaffMessages,
   sendStaffMessage,
   createStaffDM,
-  createStaffGroup,
-  getStaffList,
+  addReaction,
+  removeReaction,
+  getMentionableUsers,
+  uploadFile,
+  toggleChannelPin,
+  toggleChannelMute,
+  archiveChannel,
+  editMessage,
+  deleteMessage,
   type Channel,
   type Message,
   type StaffChannel,
-  type Staff,
+  type MessageReaction,
+  type MentionableUser,
+  type FileUploadProgress,
+  type SearchResult,
 } from '@/lib/api/chat';
 import { getAccessToken } from '@/lib/api/client';
 import api from '@/lib/api/client';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
-import { Building, MapPin, Briefcase, X, Filter } from 'lucide-react';
+import { useChatWebSocket, useTypingUsers } from '@/lib/hooks/useWebSocket';
 
 interface StaffDetail {
   id: string;
@@ -58,6 +48,7 @@ interface StaffDetail {
   phone: string;
   department: string;
   positionName: string | null;
+  profileImageUrl?: string | null;
   schoolsList: { id: string; name: string }[];
   brandsList: { id: string; name: string }[];
 }
@@ -72,8 +63,6 @@ interface BrandOption {
   brandName: string;
 }
 
-type TabType = 'guardian' | 'group' | 'staff';
-
 export default function ChatPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -83,12 +72,8 @@ export default function ChatPage() {
   const [channels, setChannels] = useState<Channel[]>([]);
   const [selectedChannel, setSelectedChannel] = useState<Channel | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
-  const [newMessage, setNewMessage] = useState('');
   const [isLoading, setIsLoading] = useState(true);
   const [isSending, setIsSending] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
-  const messagesEndRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
 
   // Staff chat state
   const [staffChannels, setStaffChannels] = useState<StaffChannel[]>([]);
@@ -104,9 +89,165 @@ export default function ChatPage() {
   const [brands, setBrands] = useState<BrandOption[]>([]);
   const [filterSchool, setFilterSchool] = useState<string>('');
   const [filterBrand, setFilterBrand] = useState<string>('');
-  const [showFilters, setShowFilters] = useState(false);
+
+  // Mobile view state - true: メッセージ画面, false: 一覧画面
+  const [showMessages, setShowMessages] = useState(false);
+
+  // Thread state
+  const [threadMessage, setThreadMessage] = useState<Message | null>(null);
+  const [showThread, setShowThread] = useState(false);
+
+  // Mention state
+  const [mentionableUsers, setMentionableUsers] = useState<MentionableUser[]>([]);
+
+  // File upload state
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<FileUploadProgress | null>(null);
+
+  // Channel settings modal state
+  const [showChannelSettings, setShowChannelSettings] = useState(false);
+
+  // Search panel state
+  const [showSearch, setShowSearch] = useState(false);
+
+  // Create group modal state
+  const [showCreateGroup, setShowCreateGroup] = useState(false);
+
+  // Create task modal state
+  const [showCreateTask, setShowCreateTask] = useState(false);
+  const [taskTargetMessage, setTaskTargetMessage] = useState<Message | null>(null);
 
   const currentUserId = getCurrentUserId();
+  const accessToken = getAccessToken() || '';
+
+  // WebSocket integration
+  const currentChannelId = activeTab === 'staff'
+    ? selectedStaffChannel?.id || null
+    : selectedChannel?.id || null;
+
+  const { typingUsers, handleTypingEvent } = useTypingUsers();
+
+  const { isConnected, sendMessage: wsSendMessage, sendTyping } = useChatWebSocket(
+    currentChannelId,
+    accessToken,
+    {
+      onMessage: (msg) => {
+        // Add new message to the list
+        const newMsg: Message = {
+          id: msg.id,
+          channel: currentChannelId || '',
+          channelId: currentChannelId || '',
+          senderName: msg.senderName,
+          sender: msg.senderId,
+          senderId: msg.senderId,
+          messageType: 'text',
+          content: msg.content,
+          isRead: false,
+          isEdited: false,
+          isBotMessage: msg.senderType === 'bot',
+          createdAt: msg.createdAt,
+          updatedAt: msg.createdAt,
+        };
+        if (activeTab === 'staff') {
+          setStaffMessages(prev => [...prev, newMsg]);
+        } else {
+          setMessages(prev => [...prev, newMsg]);
+        }
+      },
+      onTyping: handleTypingEvent,
+      onThreadReply: (event) => {
+        // Update reply count for parent message
+        const updateFn = (msgs: Message[]) =>
+          msgs.map(msg =>
+            msg.id === event.parentMessageId
+              ? { ...msg, replyCount: event.replyCount }
+              : msg
+          );
+
+        if (activeTab === 'staff') {
+          setStaffMessages(prev => updateFn(prev));
+        } else {
+          setMessages(prev => updateFn(prev));
+        }
+      },
+      onReactionAdded: (event) => {
+        // Add reaction to message
+        const updateFn = (msgs: Message[]) =>
+          msgs.map(msg => {
+            if (msg.id !== event.messageId) return msg;
+
+            const reactions = msg.reactions || [];
+            const existingReaction = reactions.find(r => r.emoji === event.emoji);
+
+            if (existingReaction) {
+              // Add user to existing reaction
+              const alreadyReacted = existingReaction.users.some(u => u.user_id === event.userId);
+              if (!alreadyReacted) {
+                return {
+                  ...msg,
+                  reactions: reactions.map(r =>
+                    r.emoji === event.emoji
+                      ? {
+                          ...r,
+                          count: r.count + 1,
+                          users: [...r.users, { user_id: event.userId, user_name: event.userName }]
+                        }
+                      : r
+                  )
+                };
+              }
+              return msg;
+            } else {
+              // Create new reaction
+              return {
+                ...msg,
+                reactions: [
+                  ...reactions,
+                  {
+                    emoji: event.emoji,
+                    count: 1,
+                    users: [{ user_id: event.userId, user_name: event.userName }]
+                  }
+                ]
+              };
+            }
+          });
+
+        if (activeTab === 'staff') {
+          setStaffMessages(prev => updateFn(prev));
+        } else {
+          setMessages(prev => updateFn(prev));
+        }
+      },
+      onReactionRemoved: (event) => {
+        // Remove reaction from message
+        const updateFn = (msgs: Message[]) =>
+          msgs.map(msg => {
+            if (msg.id !== event.messageId) return msg;
+
+            const reactions = msg.reactions || [];
+            const updatedReactions = reactions
+              .map(r => {
+                if (r.emoji !== event.emoji) return r;
+                const filteredUsers = r.users.filter(u => u.user_id !== event.userId);
+                return filteredUsers.length > 0
+                  ? { ...r, count: filteredUsers.length, users: filteredUsers }
+                  : null;
+              })
+              .filter((r): r is MessageReaction => r !== null);
+
+            return { ...msg, reactions: updatedReactions };
+          });
+
+        if (activeTab === 'staff') {
+          setStaffMessages(prev => updateFn(prev));
+        } else {
+          setMessages(prev => updateFn(prev));
+        }
+      },
+      autoConnect: !!currentChannelId,
+    }
+  );
 
   function getCurrentUserId(): string {
     if (typeof window === 'undefined') return '';
@@ -154,32 +295,39 @@ export default function ChatPage() {
     }
   }, [filterSchool, filterBrand]);
 
-  // 選択したチャンネルのメッセージを取得
+  // 選択したチャンネルのメッセージを取得（WebSocket接続時は初回のみ）
   useEffect(() => {
     if (selectedChannel) {
       loadMessages();
-      const interval = setInterval(loadMessages, 5000);
-      return () => clearInterval(interval);
+      // WebSocket接続がない場合のみポーリング
+      if (!isConnected) {
+        const interval = setInterval(loadMessages, 5000);
+        return () => clearInterval(interval);
+      }
     }
-  }, [selectedChannel?.id]);
+  }, [selectedChannel?.id, isConnected]);
 
   // 選択したスタッフチャンネルのメッセージを取得
   useEffect(() => {
     if (selectedStaffChannel) {
       loadStaffMessagesForChannel();
-      const interval = setInterval(loadStaffMessagesForChannel, 5000);
-      return () => clearInterval(interval);
+      // WebSocket接続がない場合のみポーリング
+      if (!isConnected) {
+        const interval = setInterval(loadStaffMessagesForChannel, 5000);
+        return () => clearInterval(interval);
+      }
     }
-  }, [selectedStaffChannel?.id]);
+  }, [selectedStaffChannel?.id, isConnected]);
 
-  // メッセージ更新時に自動スクロール
+  // メンション可能なユーザーを取得
   useEffect(() => {
-    scrollToBottom();
-  }, [messages, staffMessages]);
-
-  const scrollToBottom = useCallback(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, []);
+    const channelId = activeTab === 'staff' ? selectedStaffChannel?.id : selectedChannel?.id;
+    if (channelId) {
+      loadMentionableUsers(channelId);
+    } else {
+      setMentionableUsers([]);
+    }
+  }, [selectedChannel?.id, selectedStaffChannel?.id, activeTab]);
 
   const loadChannels = async () => {
     try {
@@ -207,79 +355,74 @@ export default function ChatPage() {
     }
   };
 
-  const loadStaffList = async () => {
-    try {
-      const data = await getStaffList();
-      // Convert to StaffDetail format
-      const staffDetails: StaffDetail[] = data.map((s: any) => ({
-        id: s.id,
-        employeeNo: s.employeeNo || '',
-        fullName: s.name || s.fullName || '',
-        lastName: s.lastName || '',
-        firstName: s.firstName || '',
-        email: s.email || '',
-        phone: s.phone || '',
-        department: s.department || '',
-        positionName: s.position || s.positionName || null,
-        schoolsList: [],
-        brandsList: [],
-      }));
-      setStaffList(staffDetails);
-    } catch (error) {
-      console.error('Failed to load staff list:', error);
-    }
-  };
-
   const loadStaffListWithDetails = async () => {
     try {
-      // Build query params for filtering
       const params = new URLSearchParams();
       if (filterSchool) params.append('school', filterSchool);
       if (filterBrand) params.append('brand', filterBrand);
 
       const url = `/tenants/employees/${params.toString() ? '?' + params.toString() : ''}`;
       const response = await api.get<any>(url);
-      const results = response.results || response || [];
+      const results = response?.data || response?.results || response || [];
 
-      const staffDetails: StaffDetail[] = results.map((e: any) => ({
-        id: e.id,
-        employeeNo: e.employee_no || '',
-        fullName: e.full_name || `${e.last_name || ''}${e.first_name || ''}`.trim() || e.email,
-        lastName: e.last_name || '',
-        firstName: e.first_name || '',
-        email: e.email || '',
-        phone: e.phone || e.mobile_phone || '',
-        department: e.department || '',
-        positionName: e.position_name || e.position || null,
-        schoolsList: (e.schools_list || []).map((s: any) => ({ id: s.id, name: s.school_name || s.name })),
-        brandsList: (e.brands_list || []).map((b: any) => ({ id: b.id, name: b.brand_name || b.name })),
-      }));
+      if (!Array.isArray(results)) {
+        console.warn('Staff list response is not an array:', results);
+        setStaffList([]);
+        return;
+      }
+
+      const staffDetails: StaffDetail[] = results.map((e: any) => {
+        // APIがcamelCaseまたはsnake_caseで返す可能性があるため両方チェック
+        const fullName = (e.fullName || e.full_name || '').trim();
+        const lastName = e.lastName || e.last_name || '';
+        const firstName = e.firstName || e.first_name || '';
+        const combinedName = `${lastName}${firstName}`.trim();
+        return {
+          id: e.id,
+          employeeNo: e.employeeNo || e.employee_no || '',
+          fullName: fullName || combinedName || e.email,
+          lastName,
+          firstName,
+          email: e.email || '',
+          phone: e.phone || e.mobilePhone || e.mobile_phone || '',
+          department: e.department || '',
+          positionName: e.positionName || e.position_name || e.position || null,
+          profileImageUrl: e.profileImageUrl || e.profile_image_url || null,
+          schoolsList: Array.isArray(e.schoolsList || e.schools_list)
+            ? (e.schoolsList || e.schools_list).map((s: any) => ({ id: s.id, name: s.schoolName || s.school_name || s.name }))
+            : [],
+          brandsList: Array.isArray(e.brandsList || e.brands_list)
+            ? (e.brandsList || e.brands_list).map((b: any) => ({ id: b.id, name: b.brandName || b.brand_name || b.name }))
+            : [],
+        };
+      });
 
       setStaffList(staffDetails);
     } catch (error) {
       console.error('Failed to load staff list with details:', error);
-      // Fallback to basic staff list
-      loadStaffList();
+      setStaffList([]);
     }
   };
 
   const loadSchoolsAndBrands = async () => {
     try {
-      // Load schools
       const schoolsResponse = await api.get<any>('/schools/schools/');
-      const schoolsData = schoolsResponse.results || schoolsResponse || [];
-      setSchools(schoolsData.map((s: any) => ({
-        id: s.id,
-        schoolName: s.school_name || s.name,
-      })));
+      const schoolsData = schoolsResponse?.results || schoolsResponse || [];
+      if (Array.isArray(schoolsData)) {
+        setSchools(schoolsData.map((s: any) => ({
+          id: s.id,
+          schoolName: s.school_name || s.name,
+        })));
+      }
 
-      // Load brands
       const brandsResponse = await api.get<any>('/schools/brands/');
-      const brandsData = brandsResponse.results || brandsResponse || [];
-      setBrands(brandsData.map((b: any) => ({
-        id: b.id,
-        brandName: b.brand_name || b.name,
-      })));
+      const brandsData = brandsResponse?.results || brandsResponse || [];
+      if (Array.isArray(brandsData)) {
+        setBrands(brandsData.map((b: any) => ({
+          id: b.id,
+          brandName: b.brand_name || b.name,
+        })));
+      }
     } catch (error) {
       console.error('Failed to load schools and brands:', error);
     }
@@ -314,20 +457,35 @@ export default function ChatPage() {
     }
   };
 
-  const handleSendMessage = async () => {
-    if (!newMessage.trim() || isSending) return;
+  const loadMentionableUsers = async (channelId: string) => {
+    try {
+      const users = await getMentionableUsers(channelId);
+      setMentionableUsers(users);
+    } catch (error) {
+      console.error('Failed to load mentionable users:', error);
+      setMentionableUsers([]);
+    }
+  };
 
-    const content = newMessage.trim();
-    setNewMessage('');
+  const handleSendMessage = async (content: string, replyTo?: string) => {
+    if (!content.trim() || isSending) return;
+
     setIsSending(true);
 
     if (activeTab === 'staff' && selectedStaffChannel) {
       try {
-        await sendStaffMessage(selectedStaffChannel.id, content);
-        await loadStaffMessagesForChannel();
+        // Staff messages - use sendMessage with replyTo support
+        await sendMessage({
+          channelId: selectedStaffChannel.id,
+          content,
+          messageType: 'text',
+          replyTo,
+        });
+        if (!isConnected) {
+          await loadStaffMessagesForChannel();
+        }
       } catch (error) {
         console.error('Failed to send staff message:', error);
-        setNewMessage(content);
       } finally {
         setIsSending(false);
       }
@@ -342,6 +500,7 @@ export default function ChatPage() {
         isRead: false,
         isEdited: false,
         isBotMessage: false,
+        replyTo,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       };
@@ -352,6 +511,7 @@ export default function ChatPage() {
           channelId: selectedChannel.id,
           content,
           messageType: 'text',
+          replyTo,
         });
         setMessages(prev =>
           prev.map(msg => (msg.id === tempMessage.id ? sentMessage : msg))
@@ -359,13 +519,10 @@ export default function ChatPage() {
       } catch (error) {
         console.error('Failed to send message:', error);
         setMessages(prev => prev.filter(msg => msg.id !== tempMessage.id));
-        setNewMessage(content);
       } finally {
         setIsSending(false);
       }
     }
-
-    inputRef.current?.focus();
   };
 
   const handleCreateStaffDM = async (staffId: string) => {
@@ -374,457 +531,354 @@ export default function ChatPage() {
       await loadStaffChannels();
       setSelectedStaffChannel(channel);
       setShowNewChat(false);
+      setShowMessages(true);
     } catch (error) {
       console.error('Failed to create staff DM:', error);
     }
   };
 
-  // 日付フォーマット
-  const formatMessageDate = (dateStr: string) => {
-    const date = new Date(dateStr);
-    if (isToday(date)) return '今日';
-    if (isYesterday(date)) return '昨日';
-    return format(date, 'M月d日(E)', { locale: ja });
+  const handleSelectChannel = (channel: Channel | StaffChannel) => {
+    if (activeTab === 'staff') {
+      setSelectedStaffChannel(channel as StaffChannel);
+    } else {
+      setSelectedChannel(channel as Channel);
+    }
+    setShowMessages(true);
   };
 
-  // メッセージをグループ化（日付ごと）
-  const groupMessagesByDate = (msgs: Message[]) => {
-    const groups: { date: string; messages: Message[] }[] = [];
-    let currentGroup: { date: string; messages: Message[] } | null = null;
-
-    msgs.forEach(msg => {
-      const msgDate = new Date(msg.createdAt);
-      if (!currentGroup || !isSameDay(new Date(currentGroup.messages[0].createdAt), msgDate)) {
-        currentGroup = { date: msg.createdAt, messages: [msg] };
-        groups.push(currentGroup);
+  // チャンネルのピン留めを切り替え
+  const handleTogglePin = async (channelId: string) => {
+    try {
+      const result = await toggleChannelPin(channelId);
+      // チャンネル一覧を更新
+      if (activeTab === 'staff') {
+        setStaffChannels(prev =>
+          prev.map(c => c.id === channelId ? { ...c, isPinned: result.is_pinned } : c)
+        );
       } else {
-        currentGroup.messages.push(msg);
+        setChannels(prev =>
+          prev.map(c => c.id === channelId ? { ...c, isPinned: result.is_pinned } : c)
+        );
       }
-    });
-
-    return groups;
-  };
-
-  const getChannelDisplayName = (channel: Channel | StaffChannel) => {
-    if ('guardian' in channel && channel.guardian?.fullName) {
-      return channel.guardian.fullName;
+    } catch (error) {
+      console.error('Failed to toggle pin:', error);
     }
-    if ('members' in channel && channel.members?.length === 2) {
-      const other = channel.members.find((m: any) => m.user?.id !== currentUserId);
-      return other?.user?.fullName || other?.user?.email || channel.name;
+  };
+
+  // チャンネルのミュートを切り替え
+  const handleToggleMute = async (channelId: string) => {
+    try {
+      const result = await toggleChannelMute(channelId);
+      // チャンネル一覧を更新
+      if (activeTab === 'staff') {
+        setStaffChannels(prev =>
+          prev.map(c => c.id === channelId ? { ...c, isMuted: result.is_muted } : c)
+        );
+      } else {
+        setChannels(prev =>
+          prev.map(c => c.id === channelId ? { ...c, isMuted: result.is_muted } : c)
+        );
+      }
+    } catch (error) {
+      console.error('Failed to toggle mute:', error);
     }
-    return channel.name || '不明';
   };
 
-  const getChannelAvatar = (channel: Channel | StaffChannel) => {
-    const name = getChannelDisplayName(channel);
-    return name.substring(0, 2);
+  // チャンネルをアーカイブ
+  const handleArchive = async (channelId: string) => {
+    try {
+      await archiveChannel(channelId);
+      // チャンネル一覧から削除
+      if (activeTab === 'staff') {
+        setStaffChannels(prev => prev.filter(c => c.id !== channelId));
+        if (selectedStaffChannel?.id === channelId) {
+          setSelectedStaffChannel(null);
+        }
+      } else {
+        setChannels(prev => prev.filter(c => c.id !== channelId));
+        if (selectedChannel?.id === channelId) {
+          setSelectedChannel(null);
+        }
+      }
+    } catch (error) {
+      console.error('Failed to archive channel:', error);
+    }
   };
 
-  // 検索フィルター
-  const filteredChannels = channels.filter(channel => {
-    if (!searchQuery) return true;
-    const query = searchQuery.toLowerCase();
-    return (
-      channel.name?.toLowerCase().includes(query) ||
-      channel.guardian?.fullName?.toLowerCase().includes(query) ||
-      channel.student?.fullName?.toLowerCase().includes(query)
+  const handleTabChange = (tab: TabType) => {
+    setActiveTab(tab);
+    setSelectedChannel(null);
+    setSelectedStaffChannel(null);
+    setShowNewChat(false);
+    setShowMessages(false);
+  };
+
+  const handleBack = () => {
+    setShowMessages(false); // 一覧画面に戻る
+  };
+
+  const handleOpenThread = (message: Message) => {
+    setThreadMessage(message);
+    setShowThread(true);
+  };
+
+  const handleCloseThread = () => {
+    setShowThread(false);
+    setThreadMessage(null);
+  };
+
+  const handleReplyCountUpdate = (messageId: string, count: number) => {
+    if (activeTab === 'staff') {
+      setStaffMessages(prev =>
+        prev.map(msg => msg.id === messageId ? { ...msg, replyCount: count } : msg)
+      );
+    } else {
+      setMessages(prev =>
+        prev.map(msg => msg.id === messageId ? { ...msg, replyCount: count } : msg)
+      );
+    }
+  };
+
+  const handleAddReaction = async (messageId: string, emoji: string) => {
+    try {
+      await addReaction(messageId, emoji);
+      // WebSocket will update the UI via onReactionAdded event
+    } catch (error) {
+      console.error('Failed to add reaction:', error);
+    }
+  };
+
+  const handleRemoveReaction = async (messageId: string, emoji: string) => {
+    try {
+      await removeReaction(messageId, emoji);
+      // WebSocket will update the UI via onReactionRemoved event
+    } catch (error) {
+      console.error('Failed to remove reaction:', error);
+    }
+  };
+
+  // メッセージ編集（Chatwork風）
+  const handleEditMessage = async (messageId: string, content: string) => {
+    try {
+      const updated = await editMessage(messageId, content);
+      // Update message in the list
+      if (activeTab === 'staff') {
+        setStaffMessages(prev =>
+          prev.map(msg => msg.id === messageId ? { ...msg, content: updated.content, isEdited: true } : msg)
+        );
+      } else {
+        setMessages(prev =>
+          prev.map(msg => msg.id === messageId ? { ...msg, content: updated.content, isEdited: true } : msg)
+        );
+      }
+    } catch (error) {
+      console.error('Failed to edit message:', error);
+      alert('メッセージの編集に失敗しました');
+    }
+  };
+
+  // メッセージ削除（Chatwork風）
+  const handleDeleteMessage = async (messageId: string) => {
+    try {
+      await deleteMessage(messageId);
+      // Remove message from the list
+      if (activeTab === 'staff') {
+        setStaffMessages(prev => prev.filter(msg => msg.id !== messageId));
+      } else {
+        setMessages(prev => prev.filter(msg => msg.id !== messageId));
+      }
+    } catch (error) {
+      console.error('Failed to delete message:', error);
+      alert('メッセージの削除に失敗しました');
+    }
+  };
+
+  // メッセージからタスク作成（Chatwork風）
+  const handleCreateTask = (message: Message) => {
+    setTaskTargetMessage(message);
+    setShowCreateTask(true);
+  };
+
+  const handleTaskCreated = (task: { id: string; title: string }) => {
+    alert(`タスク「${task.title}」を作成しました`);
+    setShowCreateTask(false);
+    setTaskTargetMessage(null);
+  };
+
+  const handleFileUpload = async (file: File, content?: string) => {
+    const channelId = activeTab === 'staff' ? selectedStaffChannel?.id : selectedChannel?.id;
+    if (!channelId) return;
+
+    setIsUploading(true);
+    setUploadProgress(null);
+
+    try {
+      const message = await uploadFile(
+        { channelId, file, content },
+        (progress) => setUploadProgress(progress)
+      );
+
+      // WebSocketがメッセージを追加するまで待つか、手動で追加
+      if (!isConnected) {
+        if (activeTab === 'staff') {
+          setStaffMessages(prev => [...prev, message]);
+        } else {
+          setMessages(prev => [...prev, message]);
+        }
+      }
+    } catch (error) {
+      console.error('Failed to upload file:', error);
+      alert(error instanceof Error ? error.message : 'ファイルのアップロードに失敗しました');
+    } finally {
+      setIsUploading(false);
+      setUploadProgress(null);
+    }
+  };
+
+  const handleChannelSettingsUpdate = (updatedChannel: StaffChannel) => {
+    // Update the channel in the list
+    setStaffChannels(prev =>
+      prev.map(ch => ch.id === updatedChannel.id ? updatedChannel : ch)
     );
-  });
+    // Update selected channel if it's the one being edited
+    if (selectedStaffChannel?.id === updatedChannel.id) {
+      setSelectedStaffChannel(updatedChannel);
+    }
+  };
 
-  const filteredStaffChannels = staffChannels.filter(channel => {
-    if (!searchQuery) return true;
-    const query = searchQuery.toLowerCase();
-    const displayName = getChannelDisplayName(channel);
-    return displayName.toLowerCase().includes(query);
-  });
+  const handleGroupCreated = (channel: StaffChannel) => {
+    // Add the new channel to the list
+    setStaffChannels(prev => [channel, ...prev]);
+    // Select the new channel
+    setSelectedStaffChannel(channel);
+    setShowMessages(true);
+    setShowCreateGroup(false);
+  };
 
-  const currentChannels = activeTab === 'staff' ? filteredStaffChannels : filteredChannels;
-  const currentMessages = activeTab === 'staff' ? staffMessages : messages;
+  const handleSearchResultClick = (result: SearchResult, channelId: string) => {
+    // Find the channel in staff channels first
+    const staffChannel = staffChannels.find(ch => ch.id === channelId);
+    if (staffChannel) {
+      setActiveTab('staff');
+      setSelectedStaffChannel(staffChannel);
+      setShowMessages(true);
+      return;
+    }
+
+    // Then check regular channels
+    const channel = channels.find(ch => ch.id === channelId);
+    if (channel) {
+      // Determine the tab based on channel type
+      if (channel.channelType === 'direct') {
+        setActiveTab('guardian');
+      } else {
+        setActiveTab('group');
+      }
+      setSelectedChannel(channel);
+      setShowMessages(true);
+    }
+  };
+
   const currentSelectedChannel = activeTab === 'staff' ? selectedStaffChannel : selectedChannel;
+  const currentMessages = activeTab === 'staff' ? staffMessages : messages;
 
-  // チャット詳細画面
-  if (currentSelectedChannel) {
-    const messageGroups = groupMessagesByDate(currentMessages);
-
-    return (
-      <div className="h-screen flex flex-col bg-[#7494C0]">
-        {/* ヘッダー */}
-        <div className="bg-[#7494C0] text-white px-2 py-3 flex items-center gap-2 safe-area-top">
-          <button
-            onClick={() => {
-              if (activeTab === 'staff') {
-                setSelectedStaffChannel(null);
-                setStaffMessages([]);
-              } else {
-                setSelectedChannel(null);
-                setMessages([]);
-              }
-            }}
-            className="p-2 hover:bg-white/10 rounded-full transition-colors"
-          >
-            <ChevronLeft className="w-6 h-6" />
-          </button>
-          <Avatar className="w-10 h-10 border-2 border-white/30">
-            <AvatarFallback className="bg-white/20 text-white font-bold">
-              {getChannelAvatar(currentSelectedChannel)}
-            </AvatarFallback>
-          </Avatar>
-          <div className="flex-1 min-w-0">
-            <h1 className="font-bold truncate">{getChannelDisplayName(currentSelectedChannel)}</h1>
-            {'student' in currentSelectedChannel && currentSelectedChannel.student && (
-              <p className="text-xs text-white/70">生徒: {currentSelectedChannel.student.fullName}</p>
-            )}
-          </div>
-          <button className="p-2 hover:bg-white/10 rounded-full">
-            <Phone className="w-5 h-5" />
-          </button>
-          <button className="p-2 hover:bg-white/10 rounded-full">
-            <MoreVertical className="w-5 h-5" />
-          </button>
-        </div>
-
-        {/* メッセージエリア */}
-        <div className="flex-1 overflow-y-auto px-3 py-4 bg-[#8CABD9]">
-          {currentMessages.length === 0 ? (
-            <div className="flex items-center justify-center h-full">
-              <p className="text-white/60 text-sm">メッセージがありません</p>
-            </div>
-          ) : (
-            messageGroups.map((group, groupIndex) => (
-              <div key={groupIndex}>
-                {/* 日付セパレーター */}
-                <div className="flex justify-center my-4">
-                  <span className="bg-black/20 text-white text-xs px-3 py-1 rounded-full">
-                    {formatMessageDate(group.date)}
-                  </span>
-                </div>
-
-                {/* メッセージ */}
-                {group.messages.map((message, msgIndex) => {
-                  const senderId = message.sender || message.senderId;
-                  const isOwnMessage = senderId === currentUserId;
-                  const showAvatar = !isOwnMessage && (
-                    msgIndex === 0 ||
-                    (group.messages[msgIndex - 1].sender || group.messages[msgIndex - 1].senderId) !== senderId
-                  );
-
-                  return (
-                    <div
-                      key={message.id}
-                      className={`flex items-end gap-2 mb-2 ${isOwnMessage ? 'flex-row-reverse' : ''}`}
-                    >
-                      {/* アバター（相手のメッセージのみ） */}
-                      {!isOwnMessage && (
-                        <div className="w-8 flex-shrink-0">
-                          {showAvatar && (
-                            <Avatar className="w-8 h-8">
-                              <AvatarFallback className="bg-white text-gray-600 text-xs">
-                                {(message.senderName || '?').substring(0, 2)}
-                              </AvatarFallback>
-                            </Avatar>
-                          )}
-                        </div>
-                      )}
-
-                      {/* メッセージバブル */}
-                      <div className={`flex flex-col ${isOwnMessage ? 'items-end' : 'items-start'} max-w-[70%]`}>
-                        {/* 送信者名（相手のメッセージで最初のみ） */}
-                        {!isOwnMessage && showAvatar && (
-                          <span className="text-xs text-white/70 mb-1 ml-1">
-                            {message.senderName || '不明'}
-                          </span>
-                        )}
-
-                        <div className={`flex items-end gap-1 ${isOwnMessage ? 'flex-row-reverse' : ''}`}>
-                          {/* バブル */}
-                          <div
-                            className={`relative px-3 py-2 rounded-2xl shadow-sm ${
-                              isOwnMessage
-                                ? 'bg-[#A8D86D] text-gray-800 rounded-br-sm'
-                                : 'bg-white text-gray-800 rounded-bl-sm'
-                            }`}
-                          >
-                            <p className="text-sm whitespace-pre-wrap break-words">{message.content}</p>
-                          </div>
-
-                          {/* 時刻と既読 */}
-                          <div className={`flex items-center gap-0.5 ${isOwnMessage ? 'flex-row-reverse' : ''}`}>
-                            {isOwnMessage && (
-                              <span className="text-xs text-white/70">
-                                {message.isRead ? '既読' : ''}
-                              </span>
-                            )}
-                            <span className="text-xs text-white/70">
-                              {format(new Date(message.createdAt), 'HH:mm')}
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            ))
-          )}
-          <div ref={messagesEndRef} />
-        </div>
-
-        {/* 入力エリア */}
-        <div className="bg-[#F5F5F5] px-2 py-2 safe-area-bottom">
-          <div className="flex items-center gap-2">
-            <button className="p-2 text-gray-500 hover:text-gray-700">
-              <Plus className="w-6 h-6" />
-            </button>
-            <button className="p-2 text-gray-500 hover:text-gray-700">
-              <ImageIcon className="w-6 h-6" />
-            </button>
-            <div className="flex-1 relative">
-              <Input
-                ref={inputRef}
-                placeholder="メッセージを入力"
-                value={newMessage}
-                onChange={e => setNewMessage(e.target.value)}
-                onKeyDown={e => {
-                  if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
-                    e.preventDefault();
-                    handleSendMessage();
-                  }
-                }}
-                disabled={isSending}
-                className="rounded-full bg-white border-0 pr-10"
-              />
-            </div>
-            <Button
-              onClick={handleSendMessage}
-              disabled={!newMessage.trim() || isSending}
-              size="icon"
-              className="rounded-full bg-[#07B53B] hover:bg-[#06a035] w-10 h-10"
-            >
-              {isSending ? (
-                <Loader2 className="w-5 h-5 animate-spin" />
-              ) : (
-                <Send className="w-5 h-5" />
-              )}
-            </Button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  // チャット一覧画面
   return (
-    <div className="min-h-screen bg-gray-50 pb-20">
-      {/* ヘッダー */}
-      <div className="bg-white sticky top-0 z-10 safe-area-top shadow-sm">
-        <div className="px-4 py-4 flex items-center justify-between">
-          <h1 className="text-xl font-bold text-gray-900">チャット</h1>
-          {activeTab === 'staff' && (
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => setShowNewChat(!showNewChat)}
-              className="text-blue-600"
-            >
-              <UserPlus className="w-5 h-5" />
-            </Button>
-          )}
-        </div>
-
-        {/* タブ */}
-        <div className="flex px-2">
-          {[
-            { key: 'guardian', label: '保護者' },
-            { key: 'group', label: 'グループ' },
-            { key: 'staff', label: '社内' },
-          ].map(tab => (
-            <button
-              key={tab.key}
-              onClick={() => {
-                setActiveTab(tab.key as TabType);
-                setSelectedChannel(null);
-                setSelectedStaffChannel(null);
-                setShowNewChat(false);
-              }}
-              className={`flex-1 py-2.5 text-sm font-medium transition-all relative ${
-                activeTab === tab.key
-                  ? 'text-blue-600'
-                  : 'text-gray-500'
-              }`}
-            >
-              {tab.label}
-              {activeTab === tab.key && (
-                <div className="absolute bottom-0 left-2 right-2 h-0.5 bg-blue-600 rounded-full" />
-              )}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* 検索バー */}
-      <div className="px-4 py-3 bg-white border-b">
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-          <Input
-            placeholder="名前で検索..."
-            value={searchQuery}
-            onChange={e => setSearchQuery(e.target.value)}
-            className="pl-10 bg-gray-100 border-0 rounded-full h-9 text-sm"
+    <div className="h-screen flex flex-col bg-gray-50 overflow-hidden">
+      {/* グループ作成画面 */}
+      {showCreateGroup ? (
+        <div className="flex-1 flex flex-col overflow-hidden">
+          <CreateGroupModal
+            onClose={() => setShowCreateGroup(false)}
+            onGroupCreated={handleGroupCreated}
+            staffList={staffList.map(s => ({
+              id: s.id,
+              fullName: s.fullName,
+              positionName: s.positionName,
+              email: s.email,
+            }))}
+            currentUserId={currentUserId}
           />
         </div>
-      </div>
-
-      {/* 新規チャット作成（社員タブ） */}
-      {activeTab === 'staff' && showNewChat && (
-        <div className="bg-white border-b">
-          <div className="px-4 py-2 bg-gray-50 flex items-center justify-between">
-            <p className="text-xs font-medium text-gray-500">メンバーを選択</p>
-            <button
-              onClick={() => setShowFilters(!showFilters)}
-              className={`flex items-center gap-1 text-xs px-2 py-1 rounded-full transition-colors ${
-                showFilters || filterSchool || filterBrand
-                  ? 'bg-blue-100 text-blue-600'
-                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-              }`}
-            >
-              <Filter className="w-3 h-3" />
-              絞り込み
-              {(filterSchool || filterBrand) && (
-                <span className="ml-1 bg-blue-500 text-white rounded-full w-4 h-4 flex items-center justify-center text-[10px]">
-                  {(filterSchool ? 1 : 0) + (filterBrand ? 1 : 0)}
-                </span>
-              )}
-            </button>
-          </div>
-
-          {/* フィルター */}
-          {showFilters && (
-            <div className="px-4 py-3 bg-gray-50 border-b space-y-2">
-              <div className="flex gap-2">
-                <Select value={filterSchool} onValueChange={setFilterSchool}>
-                  <SelectTrigger className="flex-1 h-9 text-sm bg-white">
-                    <SelectValue placeholder="教室で絞り込み" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="">すべての教室</SelectItem>
-                    {schools.map(school => (
-                      <SelectItem key={school.id} value={school.id}>
-                        {school.schoolName}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Select value={filterBrand} onValueChange={setFilterBrand}>
-                  <SelectTrigger className="flex-1 h-9 text-sm bg-white">
-                    <SelectValue placeholder="ブランドで絞り込み" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="">すべてのブランド</SelectItem>
-                    {brands.map(brand => (
-                      <SelectItem key={brand.id} value={brand.id}>
-                        {brand.brandName}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              {(filterSchool || filterBrand) && (
-                <button
-                  onClick={() => {
-                    setFilterSchool('');
-                    setFilterBrand('');
-                  }}
-                  className="text-xs text-blue-600 hover:underline"
-                >
-                  フィルターをクリア
-                </button>
-              )}
-            </div>
-          )}
-
-          <div className="max-h-64 overflow-y-auto">
-            {staffList.map(staff => {
-              const avatarColors = [
-                'from-pink-400 to-rose-500',
-                'from-blue-400 to-indigo-500',
-                'from-green-400 to-emerald-500',
-                'from-purple-400 to-violet-500',
-                'from-orange-400 to-amber-500',
-                'from-cyan-400 to-teal-500',
-              ];
-              const colorIndex = staff.fullName.charCodeAt(0) % avatarColors.length;
-
-              return (
-                <div
-                  key={staff.id}
-                  className="w-full px-4 py-3 flex items-center gap-3 hover:bg-gray-50 transition-colors border-b border-gray-50"
-                >
-                  {/* アバター - クリックで詳細表示 */}
-                  <button
-                    onClick={() => {
-                      setSelectedStaffDetail(staff);
-                      setShowStaffDetail(true);
-                    }}
-                    className="relative"
-                  >
-                    <Avatar className="w-11 h-11">
-                      <AvatarFallback className={`bg-gradient-to-br ${avatarColors[colorIndex]} text-white text-sm font-medium`}>
-                        {staff.fullName.substring(0, 2)}
-                      </AvatarFallback>
-                    </Avatar>
-                    <div className="absolute -bottom-0.5 -right-0.5 bg-white rounded-full p-0.5">
-                      <User className="w-3 h-3 text-gray-400" />
-                    </div>
-                  </button>
-
-                  {/* 情報 - クリックでDM作成 */}
-                  <button
-                    onClick={() => handleCreateStaffDM(staff.id)}
-                    className="flex-1 text-left"
-                  >
-                    <p className="font-medium text-gray-900 text-sm">{staff.fullName}</p>
-                    {staff.positionName && (
-                      <p className="text-xs text-gray-500">{staff.positionName}</p>
-                    )}
-                    {(staff.schoolsList.length > 0 || staff.brandsList.length > 0) && (
-                      <div className="flex flex-wrap gap-1 mt-1">
-                        {staff.brandsList.slice(0, 2).map(b => (
-                          <span key={b.id} className="text-[10px] px-1.5 py-0.5 bg-purple-100 text-purple-600 rounded">
-                            {b.name}
-                          </span>
-                        ))}
-                        {staff.schoolsList.slice(0, 2).map(s => (
-                          <span key={s.id} className="text-[10px] px-1.5 py-0.5 bg-blue-100 text-blue-600 rounded">
-                            {s.name}
-                          </span>
-                        ))}
-                        {(staff.schoolsList.length + staff.brandsList.length > 4) && (
-                          <span className="text-[10px] text-gray-400">
-                            +{staff.schoolsList.length + staff.brandsList.length - 4}
-                          </span>
-                        )}
-                      </div>
-                    )}
-                  </button>
-
-                  {/* メッセージアイコン */}
-                  <button
-                    onClick={() => handleCreateStaffDM(staff.id)}
-                    className="p-2 text-blue-500 hover:bg-blue-50 rounded-full transition-colors"
-                  >
-                    <MessageCircle className="w-5 h-5" />
-                  </button>
-                </div>
-              );
-            })}
-            {staffList.length === 0 && (
-              <p className="text-center text-gray-500 py-8 text-sm">
-                {filterSchool || filterBrand ? '該当するメンバーがいません' : 'メンバーがいません'}
-              </p>
-            )}
-          </div>
+      ) : !showMessages ? (
+        // チャット一覧画面
+        <div className="flex-1 flex flex-col overflow-hidden">
+          <ChatSidebar
+            activeTab={activeTab}
+            onTabChange={handleTabChange}
+            channels={channels}
+            staffChannels={staffChannels}
+            selectedChannelId={currentSelectedChannel?.id || null}
+            onSelectChannel={handleSelectChannel}
+            isLoading={isLoading}
+            currentUserId={currentUserId}
+            showNewChat={showNewChat}
+            onToggleNewChat={() => setShowNewChat(!showNewChat)}
+            staffList={staffList}
+            onCreateStaffDM={handleCreateStaffDM}
+            onShowStaffDetail={(staff) => {
+              setSelectedStaffDetail(staff);
+              setShowStaffDetail(true);
+            }}
+            onCreateGroup={() => setShowCreateGroup(true)}
+            schools={schools}
+            brands={brands}
+            filterSchool={filterSchool}
+            filterBrand={filterBrand}
+            onFilterSchoolChange={setFilterSchool}
+            onFilterBrandChange={setFilterBrand}
+            onOpenSearch={() => setShowSearch(true)}
+            onTogglePin={handleTogglePin}
+            onToggleMute={handleToggleMute}
+            onArchive={handleArchive}
+          />
         </div>
+      ) : (
+        // メッセージ画面
+        <div className="flex-1 flex flex-col overflow-hidden">
+          <ChatMessages
+            channel={currentSelectedChannel}
+            messages={currentMessages}
+            currentUserId={currentUserId}
+            isSending={isSending}
+            onSendMessage={handleSendMessage}
+            onBack={handleBack}
+            showBackButton={true}
+            typingUsers={typingUsers}
+            onOpenThread={handleOpenThread}
+            onAddReaction={handleAddReaction}
+            onRemoveReaction={handleRemoveReaction}
+            mentionableUsers={mentionableUsers}
+            onFileUpload={handleFileUpload}
+            isUploading={isUploading}
+            uploadProgress={uploadProgress}
+            onOpenSettings={activeTab === 'staff' && selectedStaffChannel ? () => setShowChannelSettings(true) : undefined}
+            onEditMessage={handleEditMessage}
+            onDeleteMessage={handleDeleteMessage}
+            onCreateTask={handleCreateTask}
+          />
+        </div>
+      )}
+
+      {/* ボトムナビ（グループ作成時は非表示） */}
+      {!showCreateGroup && (
+        <div className="flex-shrink-0">
+          <BottomNav />
+        </div>
+      )}
+
+      {/* スレッドパネル */}
+      {showThread && threadMessage && currentSelectedChannel && (
+        <Sheet open={showThread} onOpenChange={(open) => !open && handleCloseThread()}>
+          <SheetContent side="bottom" className="h-[85vh] rounded-t-2xl p-0">
+            <ThreadPanel
+              parentMessage={threadMessage}
+              channelId={currentSelectedChannel.id}
+              currentUserId={currentUserId}
+              onClose={handleCloseThread}
+              onReplyCountUpdate={handleReplyCountUpdate}
+            />
+          </SheetContent>
+        </Sheet>
       )}
 
       {/* スタッフ詳細シート */}
@@ -938,107 +992,38 @@ export default function ChatPage() {
         </SheetContent>
       </Sheet>
 
-      {/* チャンネル一覧 */}
-      <div className="bg-white">
-        {isLoading ? (
-          <div className="flex items-center justify-center py-16">
-            <Loader2 className="h-6 w-6 animate-spin text-blue-500" />
-          </div>
-        ) : currentChannels.length === 0 && !showNewChat ? (
-          <div className="text-center py-16 px-4">
-            <div className="w-20 h-20 mx-auto mb-4 bg-gray-100 rounded-full flex items-center justify-center">
-              <MessageCircle className="w-10 h-10 text-gray-400" />
-            </div>
-            <p className="text-gray-500 text-sm">
-              {searchQuery ? '検索結果がありません' : 'トークがありません'}
-            </p>
-            {activeTab === 'staff' && !searchQuery && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setShowNewChat(true)}
-                className="mt-4"
-              >
-                <UserPlus className="w-4 h-4 mr-2" />
-                トークを開始
-              </Button>
-            )}
-          </div>
-        ) : (
-          !showNewChat && currentChannels.map(channel => {
-            const lastMessage = 'lastMessage' in channel ? channel.lastMessage : null;
-            const unreadCount = channel.unreadCount || 0;
-            const displayName = getChannelDisplayName(channel);
+      {/* チャンネル設定モーダル */}
+      {selectedStaffChannel && (
+        <ChannelSettingsModal
+          channel={selectedStaffChannel}
+          isOpen={showChannelSettings}
+          onClose={() => setShowChannelSettings(false)}
+          onChannelUpdate={handleChannelSettingsUpdate}
+          currentUserId={currentUserId}
+        />
+      )}
 
-            const avatarColors = [
-              'from-pink-400 to-rose-500',
-              'from-blue-400 to-indigo-500',
-              'from-green-400 to-emerald-500',
-              'from-purple-400 to-violet-500',
-              'from-orange-400 to-amber-500',
-              'from-cyan-400 to-teal-500',
-            ];
-            const colorIndex = displayName.charCodeAt(0) % avatarColors.length;
+      {/* 検索パネル */}
+      <SearchPanel
+        isOpen={showSearch}
+        onClose={() => setShowSearch(false)}
+        onResultClick={handleSearchResultClick}
+        channels={[...channels, ...staffChannels]}
+        currentChannelId={currentSelectedChannel?.id}
+      />
 
-            return (
-              <button
-                key={channel.id}
-                onClick={() => {
-                  if (activeTab === 'staff') {
-                    setSelectedStaffChannel(channel as StaffChannel);
-                  } else {
-                    setSelectedChannel(channel as Channel);
-                  }
-                }}
-                className="w-full px-4 py-3 flex items-center gap-3 hover:bg-gray-50 transition-colors active:bg-gray-100 border-b border-gray-100"
-              >
-                <div className="relative flex-shrink-0">
-                  <Avatar className="w-12 h-12">
-                    <AvatarFallback className={`bg-gradient-to-br ${avatarColors[colorIndex]} text-white font-medium`}>
-                      {activeTab === 'group' ? (
-                        <Users className="w-5 h-5" />
-                      ) : (
-                        getChannelAvatar(channel)
-                      )}
-                    </AvatarFallback>
-                  </Avatar>
-                  {unreadCount > 0 && (
-                    <div className="absolute -top-0.5 -right-0.5 bg-red-500 text-white text-xs font-bold rounded-full min-w-[18px] h-[18px] flex items-center justify-center px-1">
-                      {unreadCount > 99 ? '99+' : unreadCount}
-                    </div>
-                  )}
-                </div>
-
-                <div className="flex-1 min-w-0 text-left">
-                  <div className="flex items-center justify-between mb-0.5">
-                    <h3 className={`text-[15px] truncate ${unreadCount > 0 ? 'font-semibold text-gray-900' : 'font-medium text-gray-800'}`}>
-                      {displayName}
-                    </h3>
-                    {lastMessage && (
-                      <span className="text-xs text-gray-400 flex-shrink-0 ml-2">
-                        {isToday(new Date(lastMessage.createdAt))
-                          ? format(new Date(lastMessage.createdAt), 'HH:mm')
-                          : isYesterday(new Date(lastMessage.createdAt))
-                          ? '昨日'
-                          : format(new Date(lastMessage.createdAt), 'M/d')}
-                      </span>
-                    )}
-                  </div>
-                  {lastMessage ? (
-                    <p className={`text-sm truncate ${unreadCount > 0 ? 'text-gray-700' : 'text-gray-500'}`}>
-                      {lastMessage.content}
-                    </p>
-                  ) : (
-                    <p className="text-sm text-gray-400">メッセージがありません</p>
-                  )}
-                </div>
-              </button>
-            );
-          })
-        )}
-      </div>
-
-      <BottomNav />
+      {/* タスク作成モーダル */}
+      {showCreateTask && taskTargetMessage && currentSelectedChannel && (
+        <CreateTaskModal
+          message={taskTargetMessage}
+          channelId={currentSelectedChannel.id}
+          onClose={() => {
+            setShowCreateTask(false);
+            setTaskTargetMessage(null);
+          }}
+          onSuccess={handleTaskCreated}
+        />
+      )}
     </div>
   );
 }

@@ -1,0 +1,37 @@
+# OZA Customer App - 振替・イベント機能テスト
+appId: com.mylesson.app
+
+---
+# ===== ホーム画面確認 =====
+- assertVisible:
+    text: "最新情報"
+
+- takeScreenshot: 01_home_screen
+
+# ===== 振替・イベントへ移動 =====
+- scrollUntilVisible:
+    element:
+      text: "振替・イベント"
+    direction: DOWN
+    timeout: 10000
+
+- tapOn:
+    text: "振替・イベント"
+
+- waitForAnimationToEnd
+
+- takeScreenshot: 02_furikae_screen
+
+# ===== 振替画面の内容確認 =====
+- assertVisible:
+    text: "振替|チケット|イベント"
+    optional: true
+
+- takeScreenshot: 03_furikae_detail
+
+# ===== 戻る =====
+- pressKey: back
+
+- waitForAnimationToEnd
+
+- takeScreenshot: 04_back_to_home

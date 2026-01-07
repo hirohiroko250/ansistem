@@ -9,6 +9,8 @@ from .chat import (
     ChannelMember,
     Message,
     MessageRead,
+    MessageReaction,
+    MessageMention,
 )
 
 # Contact Log
@@ -52,6 +54,8 @@ __all__ = [
     'ChannelMember',
     'Message',
     'MessageRead',
+    'MessageReaction',
+    'MessageMention',
     # Contact Log
     'ContactLog',
     'ContactLogComment',

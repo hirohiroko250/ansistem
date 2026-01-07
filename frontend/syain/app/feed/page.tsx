@@ -69,7 +69,7 @@ export default function FeedPage() {
     try {
       setLoading(true);
       setError(null);
-      const response = await api.get<FeedResponse>('/communications/feed/');
+      const response = await api.get<FeedResponse>('/communications/feed/posts/');
       setPosts(response.results || []);
     } catch (err: any) {
       console.error('Failed to load posts:', err);

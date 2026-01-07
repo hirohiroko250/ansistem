@@ -41,6 +41,24 @@ const getEndOfMonthOptions = (): { value: string; label: string }[] => {
   return options;
 };
 
+// 年月選択肢を生成（1日付で保存）- 休会・復会用
+const getYearMonthOptions = (startOffset: number = 0): { value: string; label: string }[] => {
+  const options: { value: string; label: string }[] = [];
+  const today = new Date();
+
+  for (let i = startOffset; i < startOffset + 12; i++) {
+    const date = new Date(today.getFullYear(), today.getMonth() + i, 1); // 月初1日
+    // ローカルタイムゾーンで日付を文字列に変換（toISOStringはUTCなのでずれる）
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const value = `${year}-${month}-01`;
+    const label = `${year}年${date.getMonth() + 1}月`;
+    options.push({ value, label });
+  }
+
+  return options;
+};
+
 type ActionMode = 'list' | 'detail' | 'change-class' | 'change-school' | 'change-school-class' | 'suspend' | 'cancel' | 'confirm';
 
 export default function ClassRegistrationPage() {
@@ -79,8 +97,9 @@ export default function ClassRegistrationPage() {
   // 休会申請用
   const [suspendFrom, setSuspendFrom] = useState<string>('');
   const [suspendUntil, setSuspendUntil] = useState<string>('');
+  const [returnDay, setReturnDay] = useState<string>(''); // 復会日（任意）
   const [keepSeat, setKeepSeat] = useState<boolean>(false);
-  const [suspendReason, setSuspendReason] = useState<string>('');
+  const [billingConfirmed, setBillingConfirmed] = useState<boolean>(false);
 
   // 退会申請用
   const [cancelDate, setCancelDate] = useState<string>('');
@@ -193,8 +212,9 @@ export default function ClassRegistrationPage() {
     } else if (action === 'suspend') {
       setSuspendFrom('');
       setSuspendUntil('');
+      setReturnDay('');
       setKeepSeat(false);
-      setSuspendReason('');
+      setBillingConfirmed(false);
       setMode('suspend');
     } else if (action === 'cancel') {
       setCancelDate('');
@@ -265,7 +285,7 @@ export default function ClassRegistrationPage() {
 
   // 休会申請確定
   const handleConfirmSuspension = async () => {
-    if (!selectedContract || !suspendFrom) return;
+    if (!selectedContract || !suspendFrom || !suspendUntil || !billingConfirmed) return;
 
     setProcessing(true);
     setError(null);
@@ -273,9 +293,10 @@ export default function ClassRegistrationPage() {
     try {
       const response = await requestSuspension(selectedContract.id, {
         suspendFrom,
-        suspendUntil: suspendUntil || undefined,
+        suspendUntil,
+        returnDay: returnDay || undefined,  // 復会日（任意）
         keepSeat,
-        reason: suspendReason,
+        reason: '',
       });
       setSuccessMessage(response.message);
       setMode('confirm');
@@ -1028,36 +1049,42 @@ export default function ClassRegistrationPage() {
               <CardContent className="p-4 space-y-4">
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-2">
-                    休会開始月（月末） <span className="text-red-500">*</span>
+                    休会開始月 <span className="text-red-500">*</span>
                   </label>
                   <select
                     value={suspendFrom}
-                    onChange={(e) => setSuspendFrom(e.target.value)}
+                    onChange={(e) => {
+                      setSuspendFrom(e.target.value);
+                      setSuspendUntil('');
+                    }}
                     className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
                   >
                     <option value="">選択してください</option>
-                    {getEndOfMonthOptions().map((option) => (
+                    {getYearMonthOptions(1).map((option) => (
                       <option key={option.value} value={option.value}>
                         {option.label}
                       </option>
                     ))}
                   </select>
                   <p className="text-xs text-gray-500 mt-1">
-                    休会は月末からの開始となります
+                    選択した月から休会となります
                   </p>
                 </div>
 
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-2">
-                    休会終了月（月末・任意）
+                    復会月 <span className="text-red-500">*</span>
                   </label>
                   <select
                     value={suspendUntil}
-                    onChange={(e) => setSuspendUntil(e.target.value)}
+                    onChange={(e) => {
+                      setSuspendUntil(e.target.value);
+                      setReturnDay('');
+                    }}
                     className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
                   >
-                    <option value="">未定</option>
-                    {getEndOfMonthOptions()
+                    <option value="">選択してください</option>
+                    {getYearMonthOptions(2)
                       .filter((option) => !suspendFrom || option.value > suspendFrom)
                       .map((option) => (
                         <option key={option.value} value={option.value}>
@@ -1066,9 +1093,35 @@ export default function ClassRegistrationPage() {
                       ))}
                   </select>
                   <p className="text-xs text-gray-500 mt-1">
-                    未選択の場合、再開時期未定となります
+                    選択した月から復会となります
                   </p>
                 </div>
+
+                {suspendUntil && (
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 mb-2">
+                      復会日（任意）
+                    </label>
+                    <input
+                      type="date"
+                      value={returnDay}
+                      onChange={(e) => setReturnDay(e.target.value)}
+                      min={suspendUntil}
+                      max={(() => {
+                        const [year, month] = suspendUntil.split('-').map(Number);
+                        const lastDay = new Date(year, month, 0).getDate();
+                        return `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+                      })()}
+                      className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">
+                      {(() => {
+                        const [year, month] = suspendUntil.split('-').map(Number);
+                        return `${year}年${month}月内の日付を選択できます（未選択は月初扱い）`;
+                      })()}
+                    </p>
+                  </div>
+                )}
 
                 <div className="bg-orange-50 p-4 rounded-lg">
                   <label className="flex items-start gap-3 cursor-pointer">
@@ -1090,17 +1143,24 @@ export default function ClassRegistrationPage() {
                   </label>
                 </div>
 
-                <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">
-                    休会理由（任意）
+                <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
+                  <label className="flex items-start gap-3 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={billingConfirmed}
+                      onChange={(e) => setBillingConfirmed(e.target.checked)}
+                      className="mt-1 h-5 w-5 rounded border-gray-300 text-blue-500 focus:ring-blue-500"
+                    />
+                    <div>
+                      <span className="font-semibold text-gray-800">復会月から請求が開始されることを確認しました</span>
+                      <p className="text-sm text-gray-600 mt-1">
+                        {suspendUntil && (() => {
+                          const date = new Date(suspendUntil);
+                          return `${date.getFullYear()}年${date.getMonth() + 1}月分から請求が再開されます`;
+                        })()}
+                      </p>
+                    </div>
                   </label>
-                  <textarea
-                    value={suspendReason}
-                    onChange={(e) => setSuspendReason(e.target.value)}
-                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
-                    rows={3}
-                    placeholder="例：習い事の都合、学校行事など"
-                  />
                 </div>
               </CardContent>
             </Card>
@@ -1115,7 +1175,7 @@ export default function ClassRegistrationPage() {
               </div>
             </div>
 
-            {suspendFrom && (
+            {suspendFrom && suspendUntil && billingConfirmed && (
               <Button
                 className="w-full bg-orange-500 hover:bg-orange-600"
                 onClick={handleConfirmSuspension}

@@ -1,0 +1,50 @@
+# 講師業務システム (Syain App) - 動作確認テスト
+appId: com.mylesson.syain
+
+---
+# ===== ホーム画面確認 =====
+- assertVisible:
+    text: "勤務状況"
+
+- assertVisible:
+    text: "今日の授業"
+
+- takeScreenshot: 01_home_screen
+
+# ===== 出勤ボタン確認 =====
+- assertVisible:
+    text: "出勤する"
+
+- takeScreenshot: 02_attendance_button
+
+# ===== Task タブへ移動 =====
+- tapOn:
+    text: "Task"
+
+- waitForAnimationToEnd
+
+- takeScreenshot: 03_task_screen
+
+# ===== Feed タブへ移動 =====
+- tapOn:
+    text: "Feed"
+
+- waitForAnimationToEnd
+
+- takeScreenshot: 04_feed_screen
+
+# ===== Attendance タブへ移動 =====
+- tapOn:
+    text: "Attendance"
+
+- waitForAnimationToEnd
+
+- takeScreenshot: 05_attendance_screen
+
+# ===== Home に戻る =====
+- tapOn:
+    text: "Home"
+
+- waitForAnimationToEnd
+
+- takeScreenshot: 06_back_to_home

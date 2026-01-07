@@ -1,0 +1,19 @@
+# OZA Customer App - 起動チェックテスト
+appId: com.mylesson.app
+
+---
+# 1. アプリ起動
+- launchApp
+
+# 2. 起動確認（スプラッシュ画面が消えるまで待機）
+- extendedWaitUntil:
+    visible: ".*"
+    timeout: 10000
+
+# 3. ログイン画面の表示確認
+- assertVisible:
+    text: "ログイン"
+    optional: true
+
+# 4. スクリーンショット取得
+- takeScreenshot: startup_screen

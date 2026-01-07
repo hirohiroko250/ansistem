@@ -281,6 +281,7 @@ class Employee(TenantModel):
     first_name = models.CharField('名', max_length=50)
     email = models.EmailField('メールアドレス', blank=True)
     phone = models.CharField('電話番号', max_length=20, blank=True)
+    profile_image_url = models.URLField('プロフィール画像URL', max_length=500, blank=True, null=True)
     position = models.ForeignKey(
         Position,
         on_delete=models.SET_NULL,

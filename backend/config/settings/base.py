@@ -24,6 +24,7 @@ ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', os.environ.get('DJANGO_ALLOWED_H
 
 # Application definition
 INSTALLED_APPS = [
+    'daphne',  # Must be first for ASGI/WebSocket support
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
@@ -40,6 +41,7 @@ INSTALLED_APPS = [
     'drf_spectacular',
     'django_celery_beat',
     'import_export',
+    'channels',  # WebSocket support
 
     # Local apps
     'apps.core',
@@ -94,6 +96,17 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = 'config.wsgi.application'
+ASGI_APPLICATION = 'config.asgi.application'
+
+# Channel Layers (WebSocket)
+CHANNEL_LAYERS = {
+    'default': {
+        'BACKEND': 'channels_redis.core.RedisChannelLayer',
+        'CONFIG': {
+            'hosts': [os.environ.get('REDIS_URL', 'redis://localhost:6379/0')],
+        },
+    },
+}
 
 
 # Database
