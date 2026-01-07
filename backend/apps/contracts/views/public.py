@@ -43,19 +43,10 @@ class PublicCourseListView(APIView):
         ?school_id=xxx で校舎フィルタリング（UUIDまたは校舎コード）
         ?grade_name=xxx で学年フィルタリング
         """
-        from django.db.models import Prefetch
-        from ..models import CourseItem
-
         queryset = Course.objects.filter(
             is_active=True,
             deleted_at__isnull=True
-        ).select_related('brand', 'school', 'grade').prefetch_related(
-            Prefetch(
-                'course_items',
-                queryset=CourseItem.objects.filter(is_active=True).select_related('product').prefetch_related('product__prices')
-            ),
-            'course_tickets__ticket'
-        )
+        ).select_related('brand', 'school', 'grade').prefetch_related('course_items__product', 'course_tickets__ticket')
 
         # ブランドでフィルタリング（UUIDまたはブランドコード）
         brand_id = request.query_params.get('brand_id')
@@ -123,16 +114,10 @@ class PublicPackListView(APIView):
         ?school_id=xxx で校舎フィルタリング（UUIDまたは校舎コード）
         ?grade_name=xxx で学年フィルタリング
         """
-        from django.db.models import Prefetch
-
         queryset = Pack.objects.filter(
             is_active=True,
             deleted_at__isnull=True
-        ).select_related('brand', 'school', 'grade').prefetch_related(
-            'pack_courses__course__course_items__product',
-            'pack_courses__course__course_tickets__ticket',
-            'pack_tickets__ticket'
-        )
+        ).select_related('brand', 'school', 'grade').prefetch_related('pack_courses__course', 'pack_tickets__ticket')
 
         # ブランドでフィルタリング（UUIDまたはブランドコード）
         brand_id = request.query_params.get('brand_id')
