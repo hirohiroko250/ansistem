@@ -2,7 +2,7 @@
 URL configuration for OZA System project.
 """
 from django.contrib import admin
-from django.urls import path, include
+from django.urls import path, include, re_path
 from django.conf import settings
 from django.conf.urls.static import static
 from drf_spectacular.views import (
@@ -10,6 +10,7 @@ from drf_spectacular.views import (
     SpectacularSwaggerView,
     SpectacularRedocView,
 )
+from apps.core.views import serve_media
 
 urlpatterns = [
     # Admin
@@ -31,11 +32,13 @@ urlpatterns = [
 
     # Health check
     path('health/', include('apps.core.urls')),
+
+    # Media files (for development/staging - use nginx/CDN in production)
+    re_path(r'^media/(?P<path>.*)$', serve_media, name='serve-media'),
 ]
 
 # Debug toolbar URLs (development only)
 if settings.DEBUG:
-    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
     urlpatterns += static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)
 
     try:

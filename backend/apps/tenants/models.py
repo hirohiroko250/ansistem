@@ -295,6 +295,7 @@ class Employee(TenantModel):
     # 雇用情報
     hire_date = models.DateField('採用日', null=True, blank=True)
     termination_date = models.DateField('解雇日', null=True, blank=True)
+    birth_date = models.DateField('生年月日', null=True, blank=True)
 
     # 住所情報
     postal_code = models.CharField('郵便番号', max_length=10, blank=True)
@@ -302,6 +303,10 @@ class Employee(TenantModel):
     city = models.CharField('市区町村', max_length=50, blank=True)
     address = models.CharField('住所', max_length=200, blank=True)
     nationality = models.CharField('国籍', max_length=50, blank=True, default='日本')
+
+    # 通勤情報
+    nearest_station = models.CharField('最寄駅', max_length=100, blank=True)
+    commuting_method = models.CharField('通勤方法', max_length=20, blank=True, help_text='train/car/both')
 
     # 社員割引情報
     discount_flag = models.BooleanField('社員割引フラグ', default=False)

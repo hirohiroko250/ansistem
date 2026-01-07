@@ -104,31 +104,39 @@ export function MultiSelect({
           <ChevronsUpDown className="h-4 w-4 shrink-0 opacity-50" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-full p-0" align="start">
+      <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
         <Command>
           <CommandInput placeholder="検索..." />
-          <CommandList>
+          <CommandList className="max-h-[300px] overflow-y-auto">
             <CommandEmpty>{emptyMessage}</CommandEmpty>
-            <CommandGroup className="max-h-64 overflow-auto">
+            <CommandGroup>
               {options.map((option) => (
                 <CommandItem
                   key={option.value}
                   value={option.label}
                   onSelect={() => handleSelect(option.value)}
+                  className="cursor-pointer"
                 >
-                  <Check
-                    className={cn(
-                      "mr-2 h-4 w-4",
-                      selected.includes(option.value)
-                        ? "opacity-100"
-                        : "opacity-0"
+                  <div className={cn(
+                    "mr-2 h-4 w-4 border rounded flex items-center justify-center",
+                    selected.includes(option.value)
+                      ? "bg-primary border-primary"
+                      : "border-gray-300"
+                  )}>
+                    {selected.includes(option.value) && (
+                      <Check className="h-3 w-3 text-primary-foreground" />
                     )}
-                  />
+                  </div>
                   {option.label}
                 </CommandItem>
               ))}
             </CommandGroup>
           </CommandList>
+          {selected.length > 0 && (
+            <div className="border-t p-2 text-xs text-gray-500">
+              {selected.length}件選択中
+            </div>
+          )}
         </Command>
       </PopoverContent>
     </Popover>

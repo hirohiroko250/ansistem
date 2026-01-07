@@ -41,6 +41,21 @@ class TaskViewSet(viewsets.ModelViewSet):
             return TaskCreateUpdateSerializer
         return TaskSerializer
 
+    def update(self, request, *args, **kwargs):
+        """更新後にTaskSerializerで完全なデータを返す"""
+        partial = kwargs.pop('partial', False)
+        instance = self.get_object()
+        serializer = self.get_serializer(instance, data=request.data, partial=partial)
+        serializer.is_valid(raise_exception=True)
+        self.perform_update(serializer)
+
+        if getattr(instance, '_prefetched_objects_cache', None):
+            instance._prefetched_objects_cache = {}
+
+        # TaskSerializerで完全なデータを返す（assigned_to_name等を含む）
+        response_serializer = TaskSerializer(instance)
+        return Response(response_serializer.data)
+
     @action(detail=False, methods=['get'])
     def my_tasks(self, request):
         """自分に割り当てられたタスク一覧"""
@@ -142,3 +157,8 @@ class TaskCommentViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated, IsTenantUser]
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ['task', 'is_internal']
+
+    def perform_create(self, serializer):
+        """コメント作成時にテナントを設定"""
+        tenant_id = self.request.user.tenant_id
+        serializer.save(tenant_id=tenant_id, tenant_ref_id=tenant_id)

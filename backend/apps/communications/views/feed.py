@@ -23,12 +23,19 @@ class FeedPostViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated, IsTenantUser]
 
     def get_queryset(self):
+        # tenant_idを取得（リクエストから、またはユーザーから）
         tenant_id = getattr(self.request, 'tenant_id', None)
+        if not tenant_id and self.request.user and hasattr(self.request.user, 'tenant_id'):
+            tenant_id = self.request.user.tenant_id
+
         queryset = FeedPost.objects.filter(
-            tenant_id=tenant_id,
             is_deleted=False,
             is_published=True
         ).select_related('author', 'school').prefetch_related('media', 'target_schools', 'target_grades')
+
+        # tenant_idがある場合のみフィルタ
+        if tenant_id:
+            queryset = queryset.filter(tenant_id=tenant_id)
 
         # 公開範囲フィルター
         visibility = self.request.query_params.get('visibility')
@@ -72,8 +79,12 @@ class FeedPostViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         from django.utils import timezone as tz
+        # tenant_idを取得（リクエストから、またはユーザーから）
+        tenant_id = getattr(self.request, 'tenant_id', None)
+        if not tenant_id and self.request.user:
+            tenant_id = getattr(self.request.user, 'tenant_id', None)
         serializer.save(
-            tenant_id=self.request.tenant_id,
+            tenant_id=tenant_id,
             author=self.request.user,
             published_at=tz.now() if serializer.validated_data.get('is_published', True) else None
         )

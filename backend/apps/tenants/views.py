@@ -363,6 +363,7 @@ from rest_framework.views import APIView
 
 class DepartmentListView(APIView):
     """部署一覧API - 社員の部署から動的に取得"""
+    authentication_classes = []
     permission_classes = [permissions.AllowAny]
 
     def get(self, request):
@@ -388,6 +389,7 @@ class DepartmentListView(APIView):
 
 class RoleListView(APIView):
     """役割一覧API - 役職マスタから取得"""
+    authentication_classes = []
     permission_classes = [permissions.AllowAny]
 
     def get(self, request):
@@ -409,6 +411,7 @@ class RoleListView(APIView):
 
 class PublicPositionListView(APIView):
     """役職一覧API（公開） - 新規登録用"""
+    authentication_classes = []
     permission_classes = [permissions.AllowAny]
 
     def get(self, request):

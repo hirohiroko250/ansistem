@@ -3,10 +3,12 @@ Core Views
 """
 import os
 import uuid
-from django.http import JsonResponse
+import mimetypes
+from django.http import JsonResponse, FileResponse, Http404
 from django.db import connection
 from django.conf import settings
 from django.core.files.storage import default_storage
+from django.views.decorators.http import require_GET
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes, parser_classes
 from rest_framework.permissions import IsAuthenticated
@@ -88,7 +90,8 @@ def upload_file(request):
     # ファイルを保存
     try:
         saved_path = default_storage.save(file_path, uploaded_file)
-        file_url = f"{settings.MEDIA_URL}{saved_path}"
+        # 完全なURLを生成（フロントエンドから正しく表示できるように）
+        file_url = request.build_absolute_uri(f"{settings.MEDIA_URL}{saved_path}")
 
         return Response({
             'url': file_url,
@@ -159,7 +162,8 @@ def upload_multiple_files(request):
 
         try:
             saved_path = default_storage.save(file_path, uploaded_file)
-            file_url = f"{settings.MEDIA_URL}{saved_path}"
+            # 完全なURLを生成
+            file_url = request.build_absolute_uri(f"{settings.MEDIA_URL}{saved_path}")
 
             results.append({
                 'url': file_url,
@@ -267,3 +271,37 @@ def system_info(request):
     }
 
     return JsonResponse(info)
+
+
+@require_GET
+def serve_media(request, path):
+    """
+    メディアファイル配信エンドポイント
+
+    GET /media/<path>
+
+    開発/ステージング環境でメディアファイルを配信
+    本番環境ではnginxやCDNを使用すること
+    """
+    # パストラバーサル攻撃を防ぐ
+    if '..' in path or path.startswith('/'):
+        raise Http404("Invalid path")
+
+    file_path = os.path.join(settings.MEDIA_ROOT, path)
+
+    # ファイルが存在するか確認
+    if not os.path.exists(file_path) or not os.path.isfile(file_path):
+        raise Http404("File not found")
+
+    # ファイルがMEDIA_ROOT内にあることを確認（セキュリティ）
+    real_file_path = os.path.realpath(file_path)
+    real_media_root = os.path.realpath(settings.MEDIA_ROOT)
+    if not real_file_path.startswith(real_media_root):
+        raise Http404("Invalid path")
+
+    # MIMEタイプを推測
+    content_type, _ = mimetypes.guess_type(file_path)
+    if content_type is None:
+        content_type = 'application/octet-stream'
+
+    return FileResponse(open(file_path, 'rb'), content_type=content_type)

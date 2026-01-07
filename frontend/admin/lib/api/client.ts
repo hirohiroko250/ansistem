@@ -201,4 +201,26 @@ export function getAccessToken(): string | null {
   return apiClient.getToken();
 }
 
+// Helper function to get backend base URL (for media files)
+export function getBackendBaseUrl(): string {
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1";
+  // Remove /api/v1 from the end to get base URL
+  return apiUrl.replace(/\/api\/v1\/?$/, "");
+}
+
+// Helper function to normalize media URLs (handles both relative and absolute URLs)
+export function getMediaUrl(url: string | undefined | null): string {
+  if (!url) return "";
+  // If already a full URL, return as-is
+  if (url.startsWith("http://") || url.startsWith("https://")) {
+    return url;
+  }
+  // If relative URL (starts with /), prepend backend base URL
+  if (url.startsWith("/")) {
+    return `${getBackendBaseUrl()}${url}`;
+  }
+  // Otherwise, assume it's a relative path and add /
+  return `${getBackendBaseUrl()}/${url}`;
+}
+
 export default apiClient;

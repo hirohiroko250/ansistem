@@ -949,9 +949,23 @@ export async function createTaskComment(data: {
   is_internal?: boolean;
 }): Promise<TaskComment | null> {
   try {
-    return await apiClient.post<TaskComment>("/tasks/comments/", data);
-  } catch (error) {
-    console.error("Error creating task comment:", error);
+    console.log('[createTaskComment] Sending request:', data);
+    const result = await apiClient.post<TaskComment>("/tasks/comments/", data);
+    console.log('[createTaskComment] Response:', result);
+    return result;
+  } catch (error: unknown) {
+    console.error("[createTaskComment] Error:", error);
+    // Extract more details from the error
+    if (error && typeof error === 'object') {
+      const err = error as { response?: { data?: unknown; status?: number }; message?: string };
+      if (err.response) {
+        console.error("[createTaskComment] Response data:", err.response.data);
+        console.error("[createTaskComment] Response status:", err.response.status);
+      }
+      if (err.message) {
+        console.error("[createTaskComment] Error message:", err.message);
+      }
+    }
     return null;
   }
 }

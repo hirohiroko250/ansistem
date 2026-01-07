@@ -339,6 +339,7 @@ class EmployeeRegisterSerializer(serializers.Serializer):
 
     # 雇用情報
     hire_date = serializers.DateField(required=False, allow_null=True)
+    birth_date = serializers.DateField(required=False, allow_null=True)
 
     # 住所情報
     postal_code = serializers.CharField(required=False, allow_blank=True)
@@ -347,9 +348,22 @@ class EmployeeRegisterSerializer(serializers.Serializer):
     address = serializers.CharField(required=False, allow_blank=True)
     nationality = serializers.CharField(required=False, default='日本')
 
+    # 通勤情報
+    nearest_station = serializers.CharField(required=False, allow_blank=True)
+    commuting_method = serializers.CharField(required=False, allow_blank=True)
+
+    # 顔写真
+    profile_image = serializers.ImageField(required=False, allow_null=True)
+
     def validate_email(self, value):
-        if User.objects.filter(email=value).exists():
-            raise serializers.ValidationError('このメールアドレスは既に登録されています')
+        # 既にSTAFFとして登録されている場合のみエラー
+        # GUARDIANとして登録されている場合は、社員情報を追加できるようにする
+        existing_user = User.objects.filter(email=value).first()
+        if existing_user:
+            if existing_user.user_type == User.UserType.STAFF:
+                raise serializers.ValidationError('このメールアドレスは既に社員として登録されています')
+            if existing_user.staff_id:
+                raise serializers.ValidationError('このメールアドレスは既に社員情報が紐付けられています')
         return value
 
     def validate(self, data):
@@ -387,22 +401,29 @@ class EmployeeRegisterSerializer(serializers.Serializer):
             'department': validated_data.get('department', ''),
             'position_text': validated_data.get('position_text', ''),
             'hire_date': validated_data.get('hire_date'),
+            'birth_date': validated_data.get('birth_date'),
             'postal_code': validated_data.get('postal_code', ''),
             'prefecture': validated_data.get('prefecture', ''),
             'city': validated_data.get('city', ''),
             'address': validated_data.get('address', ''),
             'nationality': validated_data.get('nationality', '日本'),
+            'nearest_station': validated_data.get('nearest_station', ''),
+            'commuting_method': validated_data.get('commuting_method', ''),
             'is_active': False,  # 管理者の承認待ち
         }
 
+        # プロフィール画像の処理（アップロードされている場合）
+        profile_image = validated_data.get('profile_image')
+        # TODO: 画像ストレージへの保存処理を実装
+
         with transaction.atomic():
             # 1. 社員（Employee）作成
-            employee = Employee(tenant_ref=tenant_id, **employee_data)
+            employee = Employee(tenant_ref_id=tenant_id, **employee_data)
 
             # 役職を設定
             if position_id:
                 try:
-                    position = Position.objects.get(id=position_id, tenant_ref=tenant_id)
+                    position = Position.objects.get(id=position_id, tenant_ref_id=tenant_id)
                     employee.position = position
                 except Position.DoesNotExist:
                     pass
@@ -419,20 +440,33 @@ class EmployeeRegisterSerializer(serializers.Serializer):
                 brands = Brand.objects.filter(id__in=brand_ids)
                 employee.brands.set(brands)
 
-            # 2. ユーザー（User）作成 - 承認待ちで無効化
-            user = User(
-                email=validated_data['email'],
-                last_name=validated_data['last_name'],
-                first_name=validated_data['first_name'],
-                phone=validated_data.get('phone', ''),
-                user_type=User.UserType.STAFF,
-                role=User.Role.STAFF,
-                tenant_id=tenant_id,
-                staff_id=employee.id,
-                is_active=False,  # 管理者の承認待ち
-                must_change_password=False,
-            )
-            user.set_password(password)
-            user.save()
+            # 2. ユーザー（User）作成または更新
+            existing_user = User.objects.filter(email=validated_data['email']).first()
+
+            if existing_user:
+                # 既存ユーザー（GUARDIAN等）に社員情報を追加
+                # user_typeは変更しない（保護者のまま社員情報も持てる）
+                existing_user.staff_id = employee.id
+                if not existing_user.tenant_id:
+                    existing_user.tenant_id = tenant_id
+                # パスワードは更新しない（既存のパスワードを維持）
+                existing_user.save()
+                user = existing_user
+            else:
+                # 新規ユーザー作成 - 承認待ちで無効化
+                user = User(
+                    email=validated_data['email'],
+                    last_name=validated_data['last_name'],
+                    first_name=validated_data['first_name'],
+                    phone=validated_data.get('phone', ''),
+                    user_type=User.UserType.STAFF,
+                    role=User.Role.USER,  # 社員はUSERロールで登録
+                    tenant_id=tenant_id,
+                    staff_id=employee.id,
+                    is_active=False,  # 管理者の承認待ち
+                    must_change_password=False,
+                )
+                user.set_password(password)
+                user.save()
 
         return user

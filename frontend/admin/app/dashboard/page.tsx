@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -47,6 +47,7 @@ import {
   Undo2,
   X,
   ChevronRight,
+  ChevronDown,
   ExternalLink,
   UserPlus,
   Send,
@@ -200,6 +201,7 @@ export default function DashboardPage() {
   const [brands, setBrands] = useState<Array<{id: string; name: string}>>([]);
   const [selectedSchool, setSelectedSchool] = useState<string>("");  // 選択された校舎
   const [selectedBrand, setSelectedBrand] = useState<string>("");   // 選択されたブランド
+  const [selectedStaff, setSelectedStaff] = useState<string>("");   // 選択された担当者
   const [comment, setComment] = useState("");
   const [currentUser, setCurrentUser] = useState<{id: string; name: string} | null>(null);
   const [isAnonymous, setIsAnonymous] = useState(false);
@@ -209,13 +211,23 @@ export default function DashboardPage() {
   const [brandOpen, setBrandOpen] = useState(false);
   const [staffOpen, setStaffOpen] = useState(false);
 
+  // タスク展開状態（コメント表示用）
+  const [expandedTasks, setExpandedTasks] = useState<Set<string>>(new Set());
+  const [taskCommentsCache, setTaskCommentsCache] = useState<Record<string, TaskComment[]>>({});
+
   // チャット関連
   const [chatChannel, setChatChannel] = useState<Channel | null>(null);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [chatLoading, setChatLoading] = useState(false);
   const [replyMessage, setReplyMessage] = useState("");
   const [sendingReply, setSendingReply] = useState(false);
-  const [detailTab, setDetailTab] = useState<"info" | "chat" | "assign">("info");
+  const [detailTab, setDetailTab] = useState<"info" | "chat" | "assign" | "comments">("info");
+
+  // タスクコメント関連
+  const [taskComments, setTaskComments] = useState<TaskComment[]>([]);
+  const [commentsLoading, setCommentsLoading] = useState(false);
+  const [newComment, setNewComment] = useState("");
+  const [sendingComment, setSendingComment] = useState(false);
 
   useEffect(() => {
     loadTasks();
@@ -281,11 +293,12 @@ export default function DashboardPage() {
       // 全スタッフリストを設定
       if (allEmployees.length > 0) {
         const allStaff: Staff[] = allEmployees.map(e => ({
-          id: e.id,
+          id: String(e.id),  // 確実に文字列に変換
           name: e.full_name || e.fullName || '',
           email: e.email,
           position: e.position_name || e.positionName,
         }));
+        console.log('[Staff] Loaded staff list:', allStaff.length, 'First:', allStaff[0]);
         setStaffList(allStaff);
       } else {
         console.warn('[Staff] No employees in response');
@@ -309,6 +322,17 @@ export default function DashboardPage() {
   async function loadTasks() {
     setLoading(true);
     const data = await getTasks();
+    // 割り当て済みタスクを確認
+    const assignedTasks = data.filter(t => t.assigned_to_id);
+    console.log('[Tasks] Loaded:', data.length, 'tasks, Assigned:', assignedTasks.length);
+    if (assignedTasks.length > 0) {
+      console.log('[Tasks] First assigned task:', {
+        id: assignedTasks[0].id,
+        title: assignedTasks[0].title,
+        assigned_to_id: assignedTasks[0].assigned_to_id,
+        assigned_to_name: assignedTasks[0].assigned_to_name,
+      });
+    }
     setTasks(data);
     setLoading(false);
   }
@@ -354,13 +378,94 @@ export default function DashboardPage() {
     setSelectedTask(task);
     setComment("");
     setReplyMessage("");
+    setNewComment("");
     setDetailTab("info");
     setChatChannel(null);
     setChatMessages([]);
+    setTaskComments([]);
+    // 割り当て用の選択をリセット
+    setSelectedSchool("");
+    setSelectedBrand("");
+    setSelectedStaff(task.assigned_to_id || "");
+
+    // コメント履歴を読み込む
+    loadTaskComments(task.id);
 
     // 保護者がいる場合はチャット履歴を読み込む
     if (task.guardian) {
       loadChatHistory(task.guardian);
+    }
+  }
+
+  // タスクコメントを読み込む
+  async function loadTaskComments(taskId: string) {
+    try {
+      setCommentsLoading(true);
+      const comments = await getTaskComments(taskId);
+      setTaskComments(comments);
+    } catch (error) {
+      console.error('Failed to load task comments:', error);
+    } finally {
+      setCommentsLoading(false);
+    }
+  }
+
+  // タスクの展開/折りたたみを切り替え
+  async function toggleTaskExpand(taskId: string, e: React.MouseEvent) {
+    e.stopPropagation();
+    const newExpanded = new Set(expandedTasks);
+    if (newExpanded.has(taskId)) {
+      newExpanded.delete(taskId);
+    } else {
+      newExpanded.add(taskId);
+      // コメントがキャッシュされていない場合は読み込む
+      if (!taskCommentsCache[taskId]) {
+        try {
+          const comments = await getTaskComments(taskId);
+          setTaskCommentsCache(prev => ({ ...prev, [taskId]: comments }));
+        } catch (error) {
+          console.error('Failed to load comments:', error);
+        }
+      }
+    }
+    setExpandedTasks(newExpanded);
+  }
+
+  // コメントを投稿
+  async function handleSubmitComment() {
+    console.log('[Comment] Submit clicked', { selectedTask: selectedTask?.id, newComment, currentUser });
+    if (!selectedTask || !newComment.trim()) {
+      console.warn('[Comment] Validation failed', { selectedTask: !!selectedTask, newComment: newComment?.trim() });
+      return;
+    }
+
+    try {
+      setSendingComment(true);
+      console.log('[Comment] Creating comment...', {
+        task: selectedTask.id,
+        comment: newComment.trim(),
+        commented_by_id: currentUser?.id,
+      });
+      const comment = await createTaskComment({
+        task: selectedTask.id,
+        comment: newComment.trim(),
+        commented_by_id: currentUser?.id,
+        is_internal: false,
+      });
+      console.log('[Comment] Result:', comment);
+
+      if (comment) {
+        setTaskComments([...taskComments, comment]);
+        setNewComment("");
+      } else {
+        console.error('[Comment] Comment creation returned null');
+        alert('コメントの作成に失敗しました');
+      }
+    } catch (error) {
+      console.error('[Comment] Failed to create comment:', error);
+      alert('コメントの作成に失敗しました');
+    } finally {
+      setSendingComment(false);
     }
   }
 
@@ -612,6 +717,7 @@ export default function DashboardPage() {
               <table className="min-w-full text-xs">
                 <thead className="bg-gray-50 border-b sticky top-0 z-10">
                   <tr>
+                    <th className="px-1 py-2 text-left font-medium text-gray-500 whitespace-nowrap w-6"></th>
                     <th className="px-2 py-2 text-left font-medium text-gray-500 whitespace-nowrap">No.</th>
                     <th className="px-2 py-2 text-left font-medium text-gray-500 whitespace-nowrap">登録日時</th>
                     <th className="px-2 py-2 text-left font-medium text-gray-500 whitespace-nowrap">状態</th>
@@ -627,26 +733,43 @@ export default function DashboardPage() {
                     <th className="px-2 py-2 text-left font-medium text-gray-500 whitespace-nowrap">校舎</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-200 bg-white">
+                <tbody className="bg-white">
                   {filteredTasks.map((task, index) => {
                     const statusClass = task.status === "completed"
                       ? "bg-green-100 text-green-800 border-green-300"
                       : task.status === "in_progress"
                       ? "bg-yellow-100 text-yellow-800 border-yellow-300"
                       : "bg-red-100 text-red-800 border-red-300";
+                    const isExpanded = expandedTasks.has(task.id);
+                    const cachedComments = taskCommentsCache[task.id] || [];
+
+                    // 担当者表示用のデバッグ - assigned_to_idがあるかを確認
+                    const hasAssignee = task.assigned_to_id && task.assigned_to_id !== '';
+                    const assigneeName = hasAssignee
+                      ? (task.assigned_to_name || staffList.find(s => String(s.id) === String(task.assigned_to_id))?.name || '担当者')
+                      : '未割当て';
 
                     return (
-                      <tr
-                        key={task.id}
-                        onClick={() => selectTask(task)}
-                        className={cn(
-                          "hover:bg-blue-50 cursor-pointer transition-colors",
-                          selectedTask?.id === task.id && "bg-blue-100",
-                          task.status === "completed" && "opacity-60",
-                          (task.priority === "urgent" || task.priority === "high") && task.status !== "completed" && "bg-red-50"
-                        )}
-                      >
-                        <td className="px-2 py-2 whitespace-nowrap text-gray-900">{index + 1}</td>
+                      <React.Fragment key={task.id}>
+                        <tr
+                          onClick={() => selectTask(task)}
+                          className={cn(
+                            "hover:bg-blue-50 cursor-pointer transition-colors border-b border-gray-200",
+                            selectedTask?.id === task.id && "bg-blue-100",
+                            task.status === "completed" && "opacity-60",
+                            (task.priority === "urgent" || task.priority === "high") && task.status !== "completed" && "bg-red-50",
+                            isExpanded && "border-b-0"
+                          )}
+                        >
+                          <td className="px-1 py-2 whitespace-nowrap">
+                            <button
+                              onClick={(e) => toggleTaskExpand(task.id, e)}
+                              className="p-1 hover:bg-gray-200 rounded transition-colors"
+                            >
+                              <ChevronDown className={cn("w-4 h-4 text-gray-500 transition-transform", isExpanded && "rotate-180")} />
+                            </button>
+                          </td>
+                          <td className="px-2 py-2 whitespace-nowrap text-gray-900">{index + 1}</td>
                         <td className="px-2 py-2 whitespace-nowrap text-gray-600">
                           {task.created_at ? new Date(task.created_at).toLocaleDateString("ja-JP", { year: "numeric", month: "2-digit", day: "2-digit" }) : "---"}
                           {" "}
@@ -659,24 +782,45 @@ export default function DashboardPage() {
                         </td>
                         <td className="px-2 py-2 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
                           <Select
-                            value={task.assigned_to_id || ""}
+                            value={hasAssignee ? String(task.assigned_to_id) : "__none__"}
                             onValueChange={async (value) => {
+                              if (!task.id) {
+                                alert('タスクIDが見つかりません');
+                                return;
+                              }
+                              console.log('[Table Select] Value changed:', value, 'for task:', task.id);
+                              const actualValue = value === "__none__" ? undefined : value;
+
+                              // 即座にUIを更新（楽観的更新）
+                              const staffName = actualValue ? staffList.find(s => String(s.id) === String(actualValue))?.name : undefined;
+                              setTasks(prev => prev.map(t => t.id === task.id ? {
+                                ...t,
+                                assigned_to_id: actualValue,
+                                assigned_to_name: staffName,
+                                status: t.status === "new" && actualValue ? "in_progress" : t.status,
+                              } : t));
+
                               const result = await updateTask(task.id, {
-                                assigned_to_id: value || undefined,
-                                status: task.status === "new" && value ? "in_progress" : task.status,
+                                assigned_to_id: actualValue,
+                                status: task.status === "new" && actualValue ? "in_progress" : task.status,
                               });
+                              console.log('[Table Select] Update result:', result);
                               if (result) {
+                                // サーバーからの応答で状態を更新
+                                setTasks(prev => prev.map(t => t.id === task.id ? result : t));
+                              } else {
+                                // エラー時は元に戻す
                                 loadTasks();
                               }
                             }}
                           >
                             <SelectTrigger className="h-7 text-xs w-[110px] border-dashed">
-                              <SelectValue placeholder="未割当て" />
+                              <span className="truncate">{assigneeName}</span>
                             </SelectTrigger>
                             <SelectContent>
-                              <SelectItem value="">未割当て</SelectItem>
+                              <SelectItem value="__none__">未割当て</SelectItem>
                               {staffList.map((staff) => (
-                                <SelectItem key={staff.id} value={staff.id}>
+                                <SelectItem key={staff.id} value={String(staff.id)}>
                                   {staff.name}
                                 </SelectItem>
                               ))}
@@ -688,9 +832,10 @@ export default function DashboardPage() {
                         </td>
                         <td className="px-2 py-2 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
                           <Select
-                            value={task.brand || ""}
+                            value={task.brand || "__none__"}
                             onValueChange={async (value) => {
-                              const result = await updateTask(task.id, { brand: value || undefined });
+                              const actualValue = value === "__none__" ? undefined : value;
+                              const result = await updateTask(task.id, { brand: actualValue });
                               if (result) loadTasks();
                             }}
                           >
@@ -698,7 +843,7 @@ export default function DashboardPage() {
                               <SelectValue placeholder="---" />
                             </SelectTrigger>
                             <SelectContent>
-                              <SelectItem value="">---</SelectItem>
+                              <SelectItem value="__none__">---</SelectItem>
                               {brands.map((brand) => (
                                 <SelectItem key={brand.id} value={brand.id}>
                                   {brand.name}
@@ -727,9 +872,10 @@ export default function DashboardPage() {
                         </td>
                         <td className="px-2 py-2 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
                           <Select
-                            value={task.school || ""}
+                            value={task.school || "__none__"}
                             onValueChange={async (value) => {
-                              const result = await updateTask(task.id, { school: value || undefined });
+                              const actualValue = value === "__none__" ? undefined : value;
+                              const result = await updateTask(task.id, { school: actualValue });
                               if (result) loadTasks();
                             }}
                           >
@@ -737,7 +883,7 @@ export default function DashboardPage() {
                               <SelectValue placeholder="---" />
                             </SelectTrigger>
                             <SelectContent>
-                              <SelectItem value="">---</SelectItem>
+                              <SelectItem value="__none__">---</SelectItem>
                               {schools.map((school) => (
                                 <SelectItem key={school.id} value={school.id}>
                                   {school.name}
@@ -746,7 +892,58 @@ export default function DashboardPage() {
                             </SelectContent>
                           </Select>
                         </td>
-                      </tr>
+                        </tr>
+                        {/* 展開時のコメント行 */}
+                        {isExpanded && (
+                          <tr className="bg-gray-50 border-b border-gray-200">
+                            <td colSpan={14} className="px-4 py-3">
+                              <div className="ml-6 pl-4 border-l-2 border-blue-200">
+                                {cachedComments.length > 0 ? (
+                                  <div className="space-y-2">
+                                    {cachedComments.map((comment) => {
+                                      const isAssignment = comment.comment.includes("に割り当て】");
+                                      return (
+                                        <div key={comment.id} className="flex gap-3 items-start">
+                                          <div className={cn(
+                                            "w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-medium flex-shrink-0",
+                                            isAssignment ? "bg-blue-500 text-white" : "bg-gray-200 text-gray-600"
+                                          )}>
+                                            {isAssignment ? <UserPlus className="w-3 h-3" /> : (comment.commented_by_name?.charAt(0) || "?")}
+                                          </div>
+                                          <div className="flex-1 min-w-0">
+                                            <div className="flex items-center gap-2 text-xs">
+                                              <span className="font-medium text-gray-700">
+                                                {comment.commented_by_name || "システム"}
+                                              </span>
+                                              <span className="text-gray-400">
+                                                {new Date(comment.created_at).toLocaleString("ja-JP", {
+                                                  month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit"
+                                                })}
+                                              </span>
+                                            </div>
+                                            <div className={cn(
+                                              "mt-1 text-xs p-2 rounded",
+                                              isAssignment ? "bg-blue-50 text-blue-700" : "bg-white text-gray-600"
+                                            )}>
+                                              {comment.comment.split("\n").map((line, i) => (
+                                                <div key={i}>{line}</div>
+                                              ))}
+                                            </div>
+                                          </div>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                ) : (
+                                  <div className="text-xs text-gray-400 py-2">
+                                    対応履歴がありません
+                                  </div>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </React.Fragment>
                     );
                   })}
                 </tbody>
@@ -829,6 +1026,20 @@ export default function DashboardPage() {
               >
                 <UserPlus className="w-4 h-4 inline mr-1" />
                 割り当て
+              </button>
+              <button
+                onClick={() => setDetailTab("comments")}
+                className={`flex-1 px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+                  detailTab === "comments"
+                    ? "border-blue-500 text-blue-600"
+                    : "border-transparent text-gray-500 hover:text-gray-700"
+                }`}
+              >
+                <MessageSquare className="w-4 h-4 inline mr-1" />
+                コメント
+                {taskComments.length > 0 && (
+                  <Badge variant="secondary" className="ml-1 text-[10px]">{taskComments.length}</Badge>
+                )}
               </button>
             </div>
 
@@ -1088,63 +1299,27 @@ export default function DashboardPage() {
                   </Popover>
                 </div>
 
-                {/* 担当者選択（検索可能） */}
+                {/* 担当者選択 */}
                 <div className="mb-3">
-                  <Popover open={staffOpen} onOpenChange={setStaffOpen}>
-                    <PopoverTrigger asChild>
-                      <Button
-                        variant="outline"
-                        role="combobox"
-                        aria-expanded={staffOpen}
-                        className="w-full justify-between"
-                      >
-                        {selectedTask?.assigned_to_id
-                          ? staffList.find((s) => s.id === selectedTask?.assigned_to_id)?.name || "担当者"
-                          : "👤 担当者を選択..."}
-                        <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                      </Button>
-                    </PopoverTrigger>
-                    <PopoverContent className="w-full p-0" align="start">
-                      <Command>
-                        <CommandInput placeholder="担当者を検索..." />
-                        <CommandList>
-                          <CommandEmpty>見つかりません</CommandEmpty>
-                          <CommandGroup>
-                            <CommandItem
-                              value=""
-                              onSelect={() => {
-                                if (selectedTask) {
-                                  setSelectedTask({...selectedTask, assigned_to_id: undefined});
-                                }
-                                setStaffOpen(false);
-                              }}
-                            >
-                              <Check className={cn("mr-2 h-4 w-4", !selectedTask?.assigned_to_id ? "opacity-100" : "opacity-0")} />
-                              未選択
-                            </CommandItem>
-                            {staffList.map((staff) => (
-                              <CommandItem
-                                key={staff.id}
-                                value={`${staff.name} ${staff.position || ''}`}
-                                onSelect={() => {
-                                  if (selectedTask) {
-                                    setSelectedTask({...selectedTask, assigned_to_id: staff.id});
-                                  }
-                                  setStaffOpen(false);
-                                }}
-                              >
-                                <Check className={cn("mr-2 h-4 w-4", selectedTask?.assigned_to_id === staff.id ? "opacity-100" : "opacity-0")} />
-                                <span>{staff.name}</span>
-                                {staff.position && (
-                                  <span className="ml-2 text-xs text-gray-400">({staff.position})</span>
-                                )}
-                              </CommandItem>
-                            ))}
-                          </CommandGroup>
-                        </CommandList>
-                      </Command>
-                    </PopoverContent>
-                  </Popover>
+                  <Select
+                    value={selectedStaff || "__none__"}
+                    onValueChange={(value) => {
+                      console.log('[Assign] Selected staff:', value);
+                      setSelectedStaff(value === "__none__" ? "" : value);
+                    }}
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="👤 担当者を選択..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none__">未選択</SelectItem>
+                      {staffList.map((staff) => (
+                        <SelectItem key={staff.id} value={staff.id}>
+                          {staff.name} {staff.position && `(${staff.position})`}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
 
                 {/* コメント入力 */}
@@ -1179,7 +1354,7 @@ export default function DashboardPage() {
                 </div>
 
                 {/* 誰から誰へ表示 */}
-                {selectedTask?.assigned_to_id && (
+                {selectedStaff && (
                   <div className="mb-3 p-3 bg-blue-50 border border-blue-100 rounded-lg">
                     <div className="flex items-center justify-center gap-2 text-sm">
                       <div className="flex items-center gap-1 px-2 py-1 bg-white rounded shadow-sm">
@@ -1192,7 +1367,7 @@ export default function DashboardPage() {
                       <div className="flex items-center gap-1 px-2 py-1 bg-white rounded shadow-sm">
                         <User className="w-3 h-3 text-blue-500" />
                         <span className="font-medium text-blue-700">
-                          {staffList.find(s => s.id === selectedTask.assigned_to_id)?.name}
+                          {staffList.find(s => s.id === selectedStaff)?.name}
                         </span>
                       </div>
                     </div>
@@ -1206,53 +1381,80 @@ export default function DashboardPage() {
                   onClick={async () => {
                     if (!selectedTask) return;
 
+                    console.log('[Confirm] Starting assignment...', {
+                      taskId: selectedTask.id,
+                      selectedStaff,
+                      selectedSchool,
+                      selectedBrand,
+                    });
+
                     const updateData: any = {
                       status: selectedTask.status === "new" ? "in_progress" : selectedTask.status,
                     };
 
                     if (selectedSchool) updateData.school = selectedSchool;
                     if (selectedBrand) updateData.brand = selectedBrand;
-                    if (selectedTask.assigned_to_id) updateData.assigned_to_id = selectedTask.assigned_to_id;
+                    if (selectedStaff) updateData.assigned_to_id = selectedStaff;
                     // 匿名でない場合は作成者IDを設定
                     if (!isAnonymous && currentUser?.id) {
                       updateData.created_by_id = currentUser.id;
                     }
 
+                    console.log('[Confirm] Update data:', updateData);
                     const result = await updateTask(selectedTask.id, updateData);
+                    console.log('[Confirm] Result:', result);
+
                     if (result) {
-                      // コメントがあれば送信
-                      if (comment.trim()) {
-                        try {
-                          const assigneeName = staffList.find(s => s.id === selectedTask.assigned_to_id)?.name || '担当者';
-                          const fromName = isAnonymous ? '匿名' : (currentUser?.name || '自分');
+                      // タスク一覧を即座に更新
+                      setTasks(prev => prev.map(t => t.id === selectedTask.id ? result : t));
+                      setSelectedTask(result);
 
-                          // 割り当て情報をコメントに含める
-                          let fullComment = comment;
-                          if (selectedTask.assigned_to_id) {
-                            fullComment = `【${fromName} → ${assigneeName} に割り当て】\n${comment}`;
-                          }
+                      // 割り当て情報を常にコメントとして追加
+                      try {
+                        const assigneeName = staffList.find(s => s.id === selectedStaff)?.name || '担当者';
+                        const fromName = isAnonymous ? '匿名' : (currentUser?.name || '自分');
 
+                        // 割り当て情報をコメントに含める
+                        let fullComment = "";
+                        if (selectedStaff) {
+                          fullComment = `【${fromName} → ${assigneeName} に割り当て】`;
+                        }
+                        if (selectedSchool) {
+                          const schoolName = schools.find(s => s.id === selectedSchool)?.name || '校舎';
+                          fullComment += fullComment ? `\n校舎: ${schoolName}` : `校舎: ${schoolName}`;
+                        }
+                        if (selectedBrand) {
+                          const brandName = brands.find(b => b.id === selectedBrand)?.name || 'ブランド';
+                          fullComment += fullComment ? `\nブランド: ${brandName}` : `ブランド: ${brandName}`;
+                        }
+                        if (comment.trim()) {
+                          fullComment += fullComment ? `\n\n${comment.trim()}` : comment.trim();
+                        }
+
+                        if (fullComment) {
+                          console.log('[Confirm] Creating comment:', fullComment);
                           await apiClient.post('/tasks/comments/', {
                             task: selectedTask.id,
                             comment: fullComment,
                             commented_by_id: isAnonymous ? null : currentUser?.id,
                             is_internal: false,
                           });
-                        } catch (error) {
-                          console.error('Failed to add comment:', error);
                         }
+                      } catch (error) {
+                        console.error('Failed to add comment:', error);
                       }
 
-                      loadTasks();
-                      setSelectedTask(result);
+                      // コメントを再読み込み
+                      loadTaskComments(selectedTask.id);
                       // 選択をリセット
                       setSelectedSchool("");
                       setSelectedBrand("");
+                      setSelectedStaff(result.assigned_to_id || "");
                       setIsAnonymous(false);
                       setComment("");
                     }
                   }}
-                  disabled={!selectedSchool && !selectedBrand && !selectedTask?.assigned_to_id}
+                  disabled={!selectedSchool && !selectedBrand && !selectedStaff}
                 >
                   <Send className="w-4 h-4 mr-2" />
                   確定して割り当て{comment.trim() ? "（コメント付き）" : ""}
@@ -1266,6 +1468,116 @@ export default function DashboardPage() {
                   </div>
                 )}
               </div>
+              )}
+
+              {/* コメントタブ */}
+              {detailTab === "comments" && (
+                <div className="flex flex-col h-full">
+                  {/* コメント入力エリア */}
+                  <div className="mb-4 flex items-start gap-2">
+                    <div className="w-8 h-8 rounded-full bg-blue-500 flex items-center justify-center text-white text-sm font-medium flex-shrink-0">
+                      {currentUser?.name?.charAt(0) || "?"}
+                    </div>
+                    <div className="flex-1">
+                      <Textarea
+                        placeholder="コメントを入力..."
+                        value={newComment}
+                        onChange={(e) => setNewComment(e.target.value)}
+                        rows={2}
+                        className="text-sm resize-none"
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                            handleSubmitComment();
+                          }
+                        }}
+                      />
+                      <div className="flex justify-between items-center mt-2">
+                        <span className="text-xs text-gray-400">Ctrl+Enter で送信</span>
+                        <Button
+                          size="sm"
+                          onClick={handleSubmitComment}
+                          disabled={!newComment.trim() || sendingComment}
+                        >
+                          {sendingComment ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <>
+                              <Send className="w-3 h-3 mr-1" />
+                              投稿
+                            </>
+                          )}
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* コメント一覧（スレッド形式） */}
+                  <div className="flex-1 overflow-y-auto" style={{ maxHeight: "350px" }}>
+                    {commentsLoading ? (
+                      <div className="flex items-center justify-center py-8">
+                        <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
+                      </div>
+                    ) : taskComments.length > 0 ? (
+                      <div className="relative">
+                        {/* スレッドライン */}
+                        <div className="absolute left-4 top-0 bottom-0 w-0.5 bg-gray-200" />
+
+                        {taskComments.map((comment, index) => {
+                          const isAssignment = comment.comment.includes("に割り当て】");
+                          return (
+                            <div key={comment.id} className="relative flex gap-3 pb-4">
+                              {/* アバター */}
+                              <div className={cn(
+                                "relative z-10 w-8 h-8 rounded-full flex items-center justify-center text-xs font-medium flex-shrink-0 border-2 border-white",
+                                isAssignment ? "bg-blue-500 text-white" : "bg-gray-100 text-gray-600"
+                              )}>
+                                {isAssignment ? <UserPlus className="w-4 h-4" /> : (comment.commented_by_name?.charAt(0) || "?")}
+                              </div>
+
+                              {/* コメント内容 */}
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2">
+                                  <span className="font-medium text-sm text-gray-900">
+                                    {comment.commented_by_name || "システム"}
+                                  </span>
+                                  <span className="text-xs text-gray-400">
+                                    {formatRelativeTime(comment.created_at)}
+                                  </span>
+                                </div>
+                                <div className={cn(
+                                  "mt-1 text-sm rounded-lg p-2",
+                                  isAssignment ? "bg-blue-50 border border-blue-100" : "bg-gray-50"
+                                )}>
+                                  {isAssignment ? (
+                                    <div>
+                                      {comment.comment.split("\n").map((line, i) => (
+                                        <div key={i} className={cn(
+                                          line.startsWith("【") ? "font-medium text-blue-700" : "text-gray-600"
+                                        )}>
+                                          {line}
+                                        </div>
+                                      ))}
+                                    </div>
+                                  ) : (
+                                    <p className="text-gray-700 whitespace-pre-wrap break-words">
+                                      {comment.comment}
+                                    </p>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <div className="flex flex-col items-center justify-center py-8 text-gray-500">
+                        <MessageSquare className="w-10 h-10 mb-2 text-gray-300" />
+                        <p className="text-sm">コメントがありません</p>
+                        <p className="text-xs text-gray-400 mt-1">最初のコメントを投稿してください</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
               )}
             </div>
 

@@ -44,4 +44,7 @@ urlpatterns = [
 
     # ナレッジ管理（マニュアル・テンプレート）
     path('knowledge/', include('apps.knowledge.urls', namespace='knowledge')),
+
+    # コア機能（ファイルアップロード等）
+    path('core/', include('apps.core.urls', namespace='core')),
 ]

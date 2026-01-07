@@ -3,8 +3,9 @@
 import { useState, useRef, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Upload, X, Image as ImageIcon, Film, Loader2 } from "lucide-react";
+import { Upload, X, Image as ImageIcon, Film, Loader2, Pencil } from "lucide-react";
 import { getAccessToken } from "@/lib/api/client";
+import { ImageEditor } from "./image-editor";
 
 interface UploadedFile {
   url: string;
@@ -20,6 +21,7 @@ interface FileUploadProps {
   maxSize?: number; // MB
   className?: string;
   label?: string;
+  enableImageEdit?: boolean; // 画像編集を有効にするか
 }
 
 export function FileUpload({
@@ -29,39 +31,88 @@ export function FileUpload({
   maxSize = 50,
   className = "",
   label = "ファイルをアップロード",
+  enableImageEdit = true,
 }: FileUploadProps) {
   const [uploading, setUploading] = useState(false);
   const [dragActive, setDragActive] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [editingFile, setEditingFile] = useState<File | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // 画像編集後のアップロード処理
+  const uploadFile = useCallback(
+    async (file: File) => {
+      setUploading(true);
+      setError(null);
+
+      try {
+        const token = getAccessToken();
+        const baseUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1";
+        const formData = new FormData();
+        formData.append("file", file);
+
+        const response = await fetch(`${baseUrl}/core/upload/`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+          body: formData,
+        });
+
+        if (!response.ok) {
+          const data = await response.json();
+          throw new Error(data.error || "アップロードに失敗しました");
+        }
+
+        const data = await response.json();
+        onUpload(data);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "アップロードに失敗しました");
+      } finally {
+        setUploading(false);
+      }
+    },
+    [onUpload]
+  );
 
   const handleFiles = useCallback(
     async (files: FileList | null) => {
       if (!files || files.length === 0) return;
 
       setError(null);
-      setUploading(true);
-
-      const formData = new FormData();
       const filesToUpload = multiple ? Array.from(files) : [files[0]];
 
       // サイズチェック
       for (const file of filesToUpload) {
         if (file.size > maxSize * 1024 * 1024) {
           setError(`ファイルサイズは${maxSize}MB以下にしてください`);
-          setUploading(false);
           return;
         }
       }
 
+      const file = filesToUpload[0];
+
+      // 画像ファイルで編集が有効な場合はエディタを表示
+      if (enableImageEdit && file.type.startsWith("image/") && !multiple) {
+        setEditingFile(file);
+        if (inputRef.current) {
+          inputRef.current.value = "";
+        }
+        return;
+      }
+
+      // 編集なしでアップロード
+      setUploading(true);
+
       try {
         const token = getAccessToken();
-        const baseUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api";
+        const baseUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1";
 
         if (multiple && filesToUpload.length > 1) {
           // 複数ファイルアップロード
-          for (const file of filesToUpload) {
-            formData.append("files", file);
+          const formData = new FormData();
+          for (const f of filesToUpload) {
+            formData.append("files", f);
           }
 
           const response = await fetch(`${baseUrl}/core/upload/multiple/`, {
@@ -78,28 +129,11 @@ export function FileUpload({
           }
 
           const data = await response.json();
-          for (const file of data.files) {
-            onUpload(file);
+          for (const uploadedFile of data.files) {
+            onUpload(uploadedFile);
           }
         } else {
-          // 単一ファイルアップロード
-          formData.append("file", filesToUpload[0]);
-
-          const response = await fetch(`${baseUrl}/core/upload/`, {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${token}`,
-            },
-            body: formData,
-          });
-
-          if (!response.ok) {
-            const data = await response.json();
-            throw new Error(data.error || "アップロードに失敗しました");
-          }
-
-          const data = await response.json();
-          onUpload(data);
+          await uploadFile(file);
         }
       } catch (err) {
         setError(err instanceof Error ? err.message : "アップロードに失敗しました");
@@ -110,8 +144,22 @@ export function FileUpload({
         }
       }
     },
-    [multiple, maxSize, onUpload]
+    [multiple, maxSize, onUpload, enableImageEdit, uploadFile]
   );
+
+  // 画像編集完了
+  const handleImageEditSave = useCallback(
+    async (editedFile: File) => {
+      setEditingFile(null);
+      await uploadFile(editedFile);
+    },
+    [uploadFile]
+  );
+
+  // 画像編集キャンセル
+  const handleImageEditCancel = useCallback(() => {
+    setEditingFile(null);
+  }, []);
 
   const handleDrag = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -178,6 +226,15 @@ export function FileUpload({
 
       {error && (
         <p className="mt-2 text-sm text-red-500">{error}</p>
+      )}
+
+      {/* 画像編集ダイアログ */}
+      {editingFile && (
+        <ImageEditor
+          file={editingFile}
+          onSave={handleImageEditSave}
+          onCancel={handleImageEditCancel}
+        />
       )}
     </div>
   );

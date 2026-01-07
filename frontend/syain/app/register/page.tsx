@@ -1,15 +1,16 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import Image from 'next/image';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
-import { GraduationCap, ChevronLeft, ChevronRight } from 'lucide-react';
+import { GraduationCap, ChevronLeft, ChevronRight, Camera, Search, Train, Car } from 'lucide-react';
 import api from '@/lib/api/client';
 
 // 型定義
@@ -24,20 +25,20 @@ interface Position {
 
 interface School {
   id: string;
-  school_name: string;
-  school_code: string;
+  schoolName: string;
+  schoolCode: string;
 }
 
 interface Brand {
   id: string;
-  brand_name: string;
-  brand_code: string;
+  brandName: string;
+  brandCode: string;
 }
 
 interface Tenant {
   id: string;
-  tenant_code: string;
-  tenant_name: string;
+  tenantCode: string;
+  tenantName: string;
 }
 
 // 都道府県リスト
@@ -74,6 +75,7 @@ export default function RegisterPage() {
     phone: '',
     password: '',
     passwordConfirm: '',
+    birthDate: '',
 
     // 所属情報
     tenantId: '',
@@ -94,23 +96,42 @@ export default function RegisterPage() {
     city: '',
     address: '',
     nationality: '日本',
+
+    // 通勤情報
+    nearestStation: '',
+    commutingMethod: '' as '' | 'train' | 'car' | 'both',
   });
+
+  // 顔写真
+  const [profileImage, setProfileImage] = useState<string | null>(null);
+  const [profileImageFile, setProfileImageFile] = useState<File | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [addressLoading, setAddressLoading] = useState(false);
 
   // マスタデータの取得
   useEffect(() => {
     const fetchMasterData = async () => {
       try {
-        // テナント（会社）一覧を取得
-        const tenantsRes = await api.get<Tenant[]>('/tenants/tenants/', { skipAuth: true });
-        setTenants(Array.isArray(tenantsRes) ? tenantsRes : []);
+        // テナント（会社）一覧を取得（公開API）
+        const tenantsRes = await api.get<any>('/tenants/tenants/', { skipAuth: true });
+        const tenantsList = tenantsRes?.data || tenantsRes?.results || (Array.isArray(tenantsRes) ? tenantsRes : []);
+        setTenants(tenantsList);
 
-        // 校舎一覧を取得（認証不要）
-        const schoolsRes = await api.get<School[]>('/schools/', { skipAuth: true });
+        // 校舎一覧を取得（公開API）- 配列で返ってくる
+        const schoolsRes = await api.get<School[]>('/schools/public/schools/', { skipAuth: true });
         setSchools(Array.isArray(schoolsRes) ? schoolsRes : []);
 
-        // ブランド一覧を取得（認証不要）
-        const brandsRes = await api.get<Brand[]>('/schools/brands/', { skipAuth: true });
-        setBrands(Array.isArray(brandsRes) ? brandsRes : []);
+        // ブランド一覧を取得（公開API）- カテゴリー配列で返ってくる
+        const brandsRes = await api.get<any>('/schools/public/brand-categories/', { skipAuth: true });
+        const categories = brandsRes?.data || brandsRes || [];
+        // カテゴリーからブランドをフラットに取得
+        const allBrands: Brand[] = [];
+        categories.forEach((cat: any) => {
+          if (cat.brands && Array.isArray(cat.brands)) {
+            allBrands.push(...cat.brands);
+          }
+        });
+        setBrands(allBrands);
       } catch (err) {
         console.error('マスタデータ取得エラー:', err);
       }
@@ -170,6 +191,57 @@ export default function RegisterPage() {
     }));
   };
 
+  // 郵便番号から住所を検索
+  const searchAddress = async () => {
+    const postalCode = formData.postalCode.replace(/-/g, '');
+    if (postalCode.length !== 7) {
+      setError('郵便番号は7桁で入力してください');
+      return;
+    }
+
+    setAddressLoading(true);
+    setError('');
+
+    try {
+      const response = await fetch(`https://zipcloud.ibsnet.co.jp/api/search?zipcode=${postalCode}`);
+      const data = await response.json();
+
+      if (data.status === 200 && data.results && data.results.length > 0) {
+        const result = data.results[0];
+        setFormData(prev => ({
+          ...prev,
+          prefecture: result.address1,
+          city: result.address2 + result.address3,
+        }));
+      } else {
+        setError('住所が見つかりませんでした');
+      }
+    } catch (err) {
+      console.error('住所検索エラー:', err);
+      setError('住所の検索に失敗しました');
+    } finally {
+      setAddressLoading(false);
+    }
+  };
+
+  // 顔写真の選択
+  const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      if (file.size > 5 * 1024 * 1024) {
+        setError('画像サイズは5MB以下にしてください');
+        return;
+      }
+
+      setProfileImageFile(file);
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setProfileImage(reader.result as string);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
   const validateStep = (currentStep: number): boolean => {
     switch (currentStep) {
       case 1:
@@ -193,6 +265,14 @@ export default function RegisterPage() {
       case 2:
         if (!formData.tenantId) {
           setError('会社を選択してください');
+          return false;
+        }
+        if (!formData.department) {
+          setError('部署を入力してください');
+          return false;
+        }
+        if (!formData.positionId && !formData.positionText) {
+          setError('役職を選択または入力してください');
           return false;
         }
         break;
@@ -219,26 +299,68 @@ export default function RegisterPage() {
     setError('');
 
     try {
-      await api.post('/auth/register/employee/', {
-        last_name: formData.lastName,
-        first_name: formData.firstName,
-        email: formData.email,
-        phone: formData.phone,
-        password: formData.password,
-        password_confirm: formData.passwordConfirm,
-        tenant_id: formData.tenantId,
-        department: formData.department,
-        position_id: formData.positionId || null,
-        position_text: formData.positionText,
-        school_ids: formData.schoolIds,
-        brand_ids: formData.brandIds,
-        hire_date: formData.hireDate || null,
-        postal_code: formData.postalCode,
-        prefecture: formData.prefecture,
-        city: formData.city,
-        address: formData.address,
-        nationality: formData.nationality,
-      }, { skipAuth: true });
+      // FormDataを使って画像も送信
+      const submitData = new FormData();
+      submitData.append('last_name', formData.lastName);
+      submitData.append('first_name', formData.firstName);
+      submitData.append('email', formData.email);
+      submitData.append('phone', formData.phone);
+      submitData.append('password', formData.password);
+      submitData.append('password_confirm', formData.passwordConfirm);
+      submitData.append('tenant_id', formData.tenantId);
+      submitData.append('department', formData.department);
+      if (formData.positionId) submitData.append('position_id', formData.positionId);
+      submitData.append('position_text', formData.positionText);
+      formData.schoolIds.forEach(id => submitData.append('school_ids', id));
+      formData.brandIds.forEach(id => submitData.append('brand_ids', id));
+      if (formData.hireDate) submitData.append('hire_date', formData.hireDate);
+      if (formData.birthDate) submitData.append('birth_date', formData.birthDate);
+      submitData.append('postal_code', formData.postalCode);
+      submitData.append('prefecture', formData.prefecture);
+      submitData.append('city', formData.city);
+      submitData.append('address', formData.address);
+      submitData.append('nationality', formData.nationality);
+      submitData.append('nearest_station', formData.nearestStation);
+      submitData.append('commuting_method', formData.commutingMethod);
+
+      if (profileImageFile) {
+        submitData.append('profile_image', profileImageFile);
+      }
+
+      // multipart/form-dataで送信
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1';
+
+      // デバッグ: 送信データをログ出力
+      console.log('Submitting to:', `${apiUrl}/auth/register/employee/`);
+      const formDataEntries: Record<string, string | File> = {};
+      submitData.forEach((value, key) => {
+        formDataEntries[key] = value;
+      });
+      console.log('Form data:', formDataEntries);
+
+      const response = await fetch(`${apiUrl}/auth/register/employee/`, {
+        method: 'POST',
+        body: submitData,
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        console.error('Registration error:', errorData);
+        // エラーメッセージを詳細に表示
+        let errorMessage = '登録に失敗しました';
+        if (errorData.message) {
+          errorMessage = errorData.message;
+        } else if (errorData.detail) {
+          errorMessage = errorData.detail;
+        } else if (typeof errorData === 'object') {
+          // フィールドごとのエラーを表示
+          const fieldErrors = Object.entries(errorData)
+            .map(([key, value]) => `${key}: ${Array.isArray(value) ? value.join(', ') : value}`)
+            .join('\n');
+          errorMessage = fieldErrors || '登録に失敗しました';
+        }
+        throw new Error(errorMessage);
+      }
 
       setSuccess(true);
     } catch (err: unknown) {
@@ -279,23 +401,23 @@ export default function RegisterPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-blue-50 to-blue-100 flex items-center justify-center p-4">
-      <div className="w-full max-w-2xl">
-        <div className="flex flex-col items-center mb-6">
-          <div className="w-16 h-16 bg-blue-600 rounded-full flex items-center justify-center mb-4 shadow-lg">
-            <GraduationCap className="w-8 h-8 text-white" />
+    <div className="min-h-screen bg-gradient-to-b from-blue-50 to-blue-100 py-6 px-4">
+      <div className="max-w-md mx-auto">
+        <div className="text-center mb-4">
+          <div className="w-14 h-14 bg-blue-600 rounded-full flex items-center justify-center mb-3 shadow-lg mx-auto">
+            <GraduationCap className="w-7 h-7 text-white" />
           </div>
-          <h1 className="text-2xl font-bold text-gray-900">新規社員登録</h1>
-          <p className="text-sm text-gray-600 mt-1">Employee Registration</p>
+          <h1 className="text-xl font-bold text-gray-900">新規社員登録</h1>
+          <p className="text-xs text-gray-600 mt-1">Employee Registration</p>
         </div>
 
         {/* ステップインジケーター */}
-        <div className="flex justify-center mb-6">
-          <div className="flex items-center space-x-2">
+        <div className="flex justify-center mb-4">
+          <div className="flex items-center space-x-1">
             {[1, 2, 3, 4].map(s => (
               <div key={s} className="flex items-center">
                 <div
-                  className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium ${
+                  className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-medium ${
                     s === step
                       ? 'bg-blue-600 text-white'
                       : s < step
@@ -306,7 +428,7 @@ export default function RegisterPage() {
                   {s < step ? '✓' : s}
                 </div>
                 {s < 4 && (
-                  <div className={`w-8 h-0.5 ${s < step ? 'bg-green-500' : 'bg-gray-200'}`} />
+                  <div className={`w-6 h-0.5 ${s < step ? 'bg-green-500' : 'bg-gray-200'}`} />
                 )}
               </div>
             ))}
@@ -314,25 +436,54 @@ export default function RegisterPage() {
         </div>
 
         <Card className="shadow-xl border-0">
-          <CardHeader>
-            <CardTitle className="text-xl">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-lg">
               {step === 1 && '基本情報'}
               {step === 2 && '所属情報'}
               {step === 3 && '対応校舎・ブランド'}
               {step === 4 && '住所・その他'}
             </CardTitle>
-            <CardDescription>
-              {step === 1 && 'お名前とログイン情報を入力してください'}
-              {step === 2 && '所属会社と部署を選択してください'}
-              {step === 3 && '対応する校舎とブランドを選択してください'}
-              {step === 4 && '住所と採用日を入力してください'}
+            <CardDescription className="text-xs">
+              {step === 1 && 'お名前とログイン情報を入力'}
+              {step === 2 && '所属会社と部署を選択'}
+              {step === 3 && '校舎とブランドを選択'}
+              {step === 4 && '住所と採用日を入力'}
             </CardDescription>
           </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
+          <CardContent className="pt-2">
+            <div className="space-y-3">
               {/* Step 1: 基本情報 */}
               {step === 1 && (
                 <>
+                  {/* 顔写真アップロード */}
+                  <div className="flex justify-center mb-2">
+                    <div
+                      className="relative w-24 h-24 rounded-full bg-gray-100 border-2 border-dashed border-gray-300 flex items-center justify-center cursor-pointer hover:border-blue-500 transition-colors overflow-hidden"
+                      onClick={() => fileInputRef.current?.click()}
+                    >
+                      {profileImage ? (
+                        <Image
+                          src={profileImage}
+                          alt="プロフィール写真"
+                          fill
+                          className="object-cover"
+                        />
+                      ) : (
+                        <div className="text-center">
+                          <Camera className="w-8 h-8 text-gray-400 mx-auto" />
+                          <span className="text-xs text-gray-500">写真を追加</span>
+                        </div>
+                      )}
+                    </div>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={handleImageSelect}
+                    />
+                  </div>
+
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <Label htmlFor="lastName">姓 <span className="text-red-500">*</span></Label>
@@ -341,7 +492,7 @@ export default function RegisterPage() {
                         placeholder="山田"
                         value={formData.lastName}
                         onChange={(e) => updateFormData('lastName', e.target.value)}
-                        className="h-12"
+                        className="h-10"
                       />
                     </div>
                     <div className="space-y-2">
@@ -351,10 +502,22 @@ export default function RegisterPage() {
                         placeholder="太郎"
                         value={formData.firstName}
                         onChange={(e) => updateFormData('firstName', e.target.value)}
-                        className="h-12"
+                        className="h-10"
                       />
                     </div>
                   </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="birthDate">生年月日</Label>
+                    <Input
+                      id="birthDate"
+                      type="date"
+                      value={formData.birthDate}
+                      onChange={(e) => updateFormData('birthDate', e.target.value)}
+                      className="h-10"
+                    />
+                  </div>
+
                   <div className="space-y-2">
                     <Label htmlFor="email">メールアドレス <span className="text-red-500">*</span></Label>
                     <Input
@@ -363,7 +526,7 @@ export default function RegisterPage() {
                       placeholder="example@email.com"
                       value={formData.email}
                       onChange={(e) => updateFormData('email', e.target.value)}
-                      className="h-12"
+                      className="h-10"
                     />
                   </div>
                   <div className="space-y-2">
@@ -374,7 +537,7 @@ export default function RegisterPage() {
                       placeholder="080-1234-5678"
                       value={formData.phone}
                       onChange={(e) => updateFormData('phone', e.target.value)}
-                      className="h-12"
+                      className="h-10"
                     />
                   </div>
                   <div className="space-y-2">
@@ -385,7 +548,7 @@ export default function RegisterPage() {
                       placeholder="8文字以上"
                       value={formData.password}
                       onChange={(e) => updateFormData('password', e.target.value)}
-                      className="h-12"
+                      className="h-10"
                     />
                   </div>
                   <div className="space-y-2">
@@ -396,7 +559,7 @@ export default function RegisterPage() {
                       placeholder="もう一度入力してください"
                       value={formData.passwordConfirm}
                       onChange={(e) => updateFormData('passwordConfirm', e.target.value)}
-                      className="h-12"
+                      className="h-10"
                     />
                   </div>
                 </>
@@ -411,26 +574,26 @@ export default function RegisterPage() {
                       value={formData.tenantId}
                       onValueChange={(value) => updateFormData('tenantId', value)}
                     >
-                      <SelectTrigger className="h-12">
+                      <SelectTrigger className="h-10">
                         <SelectValue placeholder="会社を選択" />
                       </SelectTrigger>
                       <SelectContent>
                         {tenants.map(tenant => (
                           <SelectItem key={tenant.id} value={tenant.id}>
-                            {tenant.tenant_code} - {tenant.tenant_name}
+                            {tenant.tenantCode} - {tenant.tenantName}
                           </SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
                   </div>
                   <div className="space-y-2">
-                    <Label>部署</Label>
+                    <Label>部署 <span className="text-red-500">*</span></Label>
                     <Select
                       value={formData.department}
                       onValueChange={(value) => updateFormData('department', value)}
                     >
-                      <SelectTrigger className="h-12">
-                        <SelectValue placeholder="部署を選択（任意）" />
+                      <SelectTrigger className="h-10">
+                        <SelectValue placeholder="部署を選択" />
                       </SelectTrigger>
                       <SelectContent>
                         {departments.map(dept => (
@@ -448,13 +611,13 @@ export default function RegisterPage() {
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label>役職</Label>
+                    <Label>役職 <span className="text-red-500">*</span></Label>
                     <Select
                       value={formData.positionId}
                       onValueChange={(value) => updateFormData('positionId', value)}
                     >
-                      <SelectTrigger className="h-12">
-                        <SelectValue placeholder="役職を選択（任意）" />
+                      <SelectTrigger className="h-10">
+                        <SelectValue placeholder="役職を選択" />
                       </SelectTrigger>
                       <SelectContent>
                         {positions.map(pos => (
@@ -472,7 +635,7 @@ export default function RegisterPage() {
                       placeholder="マスタ未登録時の役職名"
                       value={formData.positionText}
                       onChange={(e) => updateFormData('positionText', e.target.value)}
-                      className="h-12"
+                      className="h-10"
                     />
                   </div>
                 </>
@@ -498,7 +661,7 @@ export default function RegisterPage() {
                               htmlFor={`school-${school.id}`}
                               className="text-sm cursor-pointer"
                             >
-                              {school.school_name} ({school.school_code})
+                              {school.schoolName} ({school.schoolCode})
                             </label>
                           </div>
                         ))
@@ -525,7 +688,7 @@ export default function RegisterPage() {
                               htmlFor={`brand-${brand.id}`}
                               className="text-sm cursor-pointer"
                             >
-                              {brand.brand_name} ({brand.brand_code})
+                              {brand.brandName} ({brand.brandCode})
                             </label>
                           </div>
                         ))
@@ -548,47 +711,62 @@ export default function RegisterPage() {
                       type="date"
                       value={formData.hireDate}
                       onChange={(e) => updateFormData('hireDate', e.target.value)}
-                      className="h-12"
+                      className="h-10"
                     />
                   </div>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="postalCode">郵便番号</Label>
+
+                  {/* 郵便番号と検索ボタン */}
+                  <div className="space-y-2">
+                    <Label htmlFor="postalCode">郵便番号</Label>
+                    <div className="flex gap-2">
                       <Input
                         id="postalCode"
-                        placeholder="1234567"
+                        placeholder="4640096"
                         value={formData.postalCode}
                         onChange={(e) => updateFormData('postalCode', e.target.value)}
-                        className="h-12"
+                        className="h-10 flex-1"
                       />
-                    </div>
-                    <div className="space-y-2">
-                      <Label>都道府県</Label>
-                      <Select
-                        value={formData.prefecture}
-                        onValueChange={(value) => updateFormData('prefecture', value)}
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-10 px-3"
+                        onClick={searchAddress}
+                        disabled={addressLoading}
                       >
-                        <SelectTrigger className="h-12">
-                          <SelectValue placeholder="選択" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {PREFECTURES.map(pref => (
-                            <SelectItem key={pref} value={pref}>
-                              {pref}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                        <Search className="w-4 h-4 mr-1" />
+                        {addressLoading ? '検索中' : '検索'}
+                      </Button>
                     </div>
                   </div>
+
+                  <div className="space-y-2">
+                    <Label>都道府県</Label>
+                    <Select
+                      value={formData.prefecture}
+                      onValueChange={(value) => updateFormData('prefecture', value)}
+                    >
+                      <SelectTrigger className="h-10">
+                        <SelectValue placeholder="選択" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {PREFECTURES.map(pref => (
+                          <SelectItem key={pref} value={pref}>
+                            {pref}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
                   <div className="space-y-2">
                     <Label htmlFor="city">市区町村</Label>
                     <Input
                       id="city"
-                      placeholder="渋谷区"
+                      placeholder="名古屋市千種区"
                       value={formData.city}
                       onChange={(e) => updateFormData('city', e.target.value)}
-                      className="h-12"
+                      className="h-10"
                     />
                   </div>
                   <div className="space-y-2">
@@ -598,9 +776,58 @@ export default function RegisterPage() {
                       placeholder="1-2-3 〇〇ビル101"
                       value={formData.address}
                       onChange={(e) => updateFormData('address', e.target.value)}
-                      className="h-12"
+                      className="h-10"
                     />
                   </div>
+
+                  {/* 最寄駅 */}
+                  <div className="space-y-2">
+                    <Label htmlFor="nearestStation">最寄駅</Label>
+                    <Input
+                      id="nearestStation"
+                      placeholder="名古屋駅"
+                      value={formData.nearestStation}
+                      onChange={(e) => updateFormData('nearestStation', e.target.value)}
+                      className="h-10"
+                    />
+                  </div>
+
+                  {/* 通勤方法 */}
+                  <div className="space-y-2">
+                    <Label>通勤方法</Label>
+                    <div className="flex gap-2">
+                      <Button
+                        type="button"
+                        variant={formData.commutingMethod === 'train' ? 'default' : 'outline'}
+                        size="sm"
+                        className={`flex-1 h-10 ${formData.commutingMethod === 'train' ? 'bg-blue-600' : ''}`}
+                        onClick={() => updateFormData('commutingMethod', formData.commutingMethod === 'train' ? '' : 'train')}
+                      >
+                        <Train className="w-4 h-4 mr-1" />
+                        電車
+                      </Button>
+                      <Button
+                        type="button"
+                        variant={formData.commutingMethod === 'car' ? 'default' : 'outline'}
+                        size="sm"
+                        className={`flex-1 h-10 ${formData.commutingMethod === 'car' ? 'bg-blue-600' : ''}`}
+                        onClick={() => updateFormData('commutingMethod', formData.commutingMethod === 'car' ? '' : 'car')}
+                      >
+                        <Car className="w-4 h-4 mr-1" />
+                        車
+                      </Button>
+                      <Button
+                        type="button"
+                        variant={formData.commutingMethod === 'both' ? 'default' : 'outline'}
+                        size="sm"
+                        className={`flex-1 h-10 ${formData.commutingMethod === 'both' ? 'bg-blue-600' : ''}`}
+                        onClick={() => updateFormData('commutingMethod', formData.commutingMethod === 'both' ? '' : 'both')}
+                      >
+                        両方
+                      </Button>
+                    </div>
+                  </div>
+
                   <div className="space-y-2">
                     <Label htmlFor="nationality">国籍</Label>
                     <Input
@@ -608,7 +835,7 @@ export default function RegisterPage() {
                       placeholder="日本"
                       value={formData.nationality}
                       onChange={(e) => updateFormData('nationality', e.target.value)}
-                      className="h-12"
+                      className="h-10"
                     />
                   </div>
                 </>
@@ -616,28 +843,29 @@ export default function RegisterPage() {
 
               {/* エラー表示 */}
               {error && (
-                <div className="text-sm text-red-600 bg-red-50 p-3 rounded-lg">
+                <div className="text-sm text-red-600 bg-red-50 p-3 rounded-lg whitespace-pre-wrap">
                   {error}
                 </div>
               )}
 
               {/* ナビゲーションボタン */}
-              <div className="flex justify-between pt-4">
+              <div className="flex justify-between pt-3 gap-2">
                 {step > 1 ? (
                   <Button
                     type="button"
                     variant="outline"
                     onClick={prevStep}
-                    className="h-12"
+                    size="sm"
+                    className="h-9"
                   >
                     <ChevronLeft className="w-4 h-4 mr-1" />
                     戻る
                   </Button>
                 ) : (
                   <Link href="/login">
-                    <Button type="button" variant="outline" className="h-12">
+                    <Button type="button" variant="outline" size="sm" className="h-9">
                       <ChevronLeft className="w-4 h-4 mr-1" />
-                      ログイン画面へ
+                      ログインへ
                     </Button>
                   </Link>
                 )}
@@ -646,7 +874,8 @@ export default function RegisterPage() {
                   <Button
                     type="button"
                     onClick={nextStep}
-                    className="h-12 bg-blue-600 hover:bg-blue-700"
+                    size="sm"
+                    className="h-9 bg-blue-600 hover:bg-blue-700"
                   >
                     次へ
                     <ChevronRight className="w-4 h-4 ml-1" />
@@ -656,7 +885,8 @@ export default function RegisterPage() {
                     type="button"
                     onClick={handleSubmit}
                     disabled={loading}
-                    className="h-12 bg-green-600 hover:bg-green-700"
+                    size="sm"
+                    className="h-9 bg-green-600 hover:bg-green-700"
                   >
                     {loading ? '登録中...' : '登録する'}
                   </Button>

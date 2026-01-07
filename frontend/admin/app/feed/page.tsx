@@ -21,7 +21,7 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
-import apiClient from "@/lib/api/client";
+import apiClient, { getMediaUrl } from "@/lib/api/client";
 import {
   Plus,
   Heart,
@@ -128,7 +128,8 @@ export default function FeedPage() {
 
   async function loadSchools() {
     try {
-      const response = await apiClient.get<any>("/schools/schools/");
+      // 全件取得するためpage_sizeを大きく設定
+      const response = await apiClient.get<any>("/schools/schools/?page_size=500");
       const data = response.results || response.data || response || [];
       setSchools(Array.isArray(data) ? data : []);
     } catch (error) {
@@ -138,7 +139,8 @@ export default function FeedPage() {
 
   async function loadBrands() {
     try {
-      const response = await apiClient.get<any>("/schools/brands/");
+      // 全件取得するためpage_sizeを大きく設定
+      const response = await apiClient.get<any>("/schools/brands/?page_size=500");
       const data = response.results || response.data || response || [];
       setBrands(Array.isArray(data) ? data : []);
     } catch (error) {
@@ -336,7 +338,7 @@ export default function FeedPage() {
                     {post.media && post.media.length > 0 && (
                       <div className="flex-shrink-0">
                         <img
-                          src={post.media[0].thumbnailUrl || post.media[0].fileUrl}
+                          src={getMediaUrl(post.media[0].thumbnailUrl || post.media[0].fileUrl)}
                           alt=""
                           className="w-24 h-24 object-cover rounded"
                         />
@@ -420,14 +422,14 @@ export default function FeedPage() {
 
       {/* 投稿ダイアログ */}
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-w-lg max-h-[90vh] flex flex-col">
           <DialogHeader>
             <DialogTitle>
               {isEditing ? "投稿を編集" : "新規投稿"}
             </DialogTitle>
           </DialogHeader>
 
-          <div className="space-y-4 py-4">
+          <div className="space-y-4 py-4 overflow-y-auto flex-1">
             <div>
               <label className="text-sm font-medium">内容</label>
               <Textarea
@@ -573,12 +575,12 @@ export default function FeedPage() {
                     <div key={idx} className="relative">
                       {file.type === "video" ? (
                         <video
-                          src={file.url}
+                          src={getMediaUrl(file.url)}
                           className="w-20 h-20 object-cover rounded border"
                         />
                       ) : (
                         <img
-                          src={file.url}
+                          src={getMediaUrl(file.url)}
                           alt={file.filename}
                           className="w-20 h-20 object-cover rounded border"
                         />
@@ -649,7 +651,7 @@ export default function FeedPage() {
             </div>
           </div>
 
-          <DialogFooter>
+          <DialogFooter className="flex-shrink-0 border-t pt-4 mt-2">
             <Button variant="outline" onClick={() => setIsDialogOpen(false)}>
               キャンセル
             </Button>
