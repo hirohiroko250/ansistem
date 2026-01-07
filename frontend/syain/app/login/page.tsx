@@ -8,6 +8,7 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useAuth } from '@/lib/auth';
 import { GraduationCap } from 'lucide-react';
+import Link from 'next/link';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
@@ -88,6 +89,14 @@ export default function LoginPage() {
               >
                 {loading ? 'ログイン中...' : 'ログイン'}
               </Button>
+              <div className="text-center mt-4">
+                <p className="text-sm text-gray-600">
+                  アカウントをお持ちでない方は
+                  <Link href="/register" className="text-blue-600 hover:underline ml-1">
+                    新規登録
+                  </Link>
+                </p>
+              </div>
             </form>
           </CardContent>
         </Card>

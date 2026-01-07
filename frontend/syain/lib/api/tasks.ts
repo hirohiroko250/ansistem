@@ -75,49 +75,75 @@ export async function getTasks(params?: {
   taskType?: string;
   assignedToId?: string;
 }): Promise<Task[]> {
-  const queryParams = new URLSearchParams();
-  if (params?.status) queryParams.append('status', params.status);
-  if (params?.priority) queryParams.append('priority', params.priority);
-  if (params?.taskType) queryParams.append('task_type', params.taskType);
-  if (params?.assignedToId) queryParams.append('assigned_to_id', params.assignedToId);
+  try {
+    const queryParams = new URLSearchParams();
+    if (params?.status) queryParams.append('status', params.status);
+    if (params?.priority) queryParams.append('priority', params.priority);
+    if (params?.taskType) queryParams.append('task_type', params.taskType);
+    if (params?.assignedToId) queryParams.append('assigned_to_id', params.assignedToId);
 
-  const url = `/tasks/tasks/${queryParams.toString() ? '?' + queryParams.toString() : ''}`;
-  const response = await api.get<PaginatedResponse<any>>(url);
-  return (response.results || []).map(transformTask);
+    const url = `/tasks/${queryParams.toString() ? '?' + queryParams.toString() : ''}`;
+    const response = await api.get<PaginatedResponse<any> | any[]>(url);
+    const results = Array.isArray(response) ? response : response.results || [];
+    return results.map(transformTask);
+  } catch (error) {
+    console.error('Failed to get tasks:', error);
+    return [];
+  }
 }
 
 // 自分に割り当てられたタスク取得
 export async function getMyTasks(params?: { status?: string }): Promise<Task[]> {
-  const queryParams = new URLSearchParams();
-  if (params?.status) queryParams.append('status', params.status);
+  try {
+    const queryParams = new URLSearchParams();
+    if (params?.status) queryParams.append('status', params.status);
 
-  const url = `/tasks/tasks/my_tasks/${queryParams.toString() ? '?' + queryParams.toString() : ''}`;
-  const response = await api.get<PaginatedResponse<any> | any[]>(url);
-  const results = Array.isArray(response) ? response : response.results || [];
-  return results.map(transformTask);
+    const url = `/tasks/my_tasks/${queryParams.toString() ? '?' + queryParams.toString() : ''}`;
+    const response = await api.get<PaginatedResponse<any> | any[]>(url);
+    const results = Array.isArray(response) ? response : response.results || [];
+    return results.map(transformTask);
+  } catch (error) {
+    console.error('Failed to get my tasks:', error);
+    return [];
+  }
 }
 
 // 未完了タスク取得
 export async function getPendingTasks(): Promise<Task[]> {
-  const response = await api.get<any[]>('/tasks/tasks/pending/');
-  return (response || []).map(transformTask);
+  try {
+    const response = await api.get<any[]>('/tasks/pending/');
+    return (response || []).map(transformTask);
+  } catch (error) {
+    console.error('Failed to get pending tasks:', error);
+    return [];
+  }
 }
 
 // 今日の期限タスク取得
 export async function getTodayTasks(): Promise<Task[]> {
-  const response = await api.get<any[]>('/tasks/tasks/today/');
-  return (response || []).map(transformTask);
+  try {
+    const response = await api.get<any[]>('/tasks/today/');
+    return (response || []).map(transformTask);
+  } catch (error) {
+    console.error('Failed to get today tasks:', error);
+    return [];
+  }
 }
 
 // 期限切れタスク取得
 export async function getOverdueTasks(): Promise<Task[]> {
-  const response = await api.get<any[]>('/tasks/tasks/overdue/');
-  return (response || []).map(transformTask);
+  try {
+    const response = await api.get<any[]>('/tasks/overdue/');
+    return (response || []).map(transformTask);
+  } catch (error) {
+    console.error('Failed to get overdue tasks:', error);
+    return [];
+  }
 }
 
 // タスク詳細取得
 export async function getTask(taskId: string): Promise<Task> {
-  const response = await api.get<any>(`/tasks/tasks/${taskId}/`);
+  const response = await api.get<any>(`/tasks/${taskId}/`);
   return transformTask(response);
 }
 
@@ -145,7 +171,7 @@ export async function createTask(data: {
     guardian: data.guardian,
     status: 'new',
   };
-  const response = await api.post<any>('/tasks/tasks/', payload);
+  const response = await api.post<any>('/tasks/', payload);
   return transformTask(response);
 }
 
@@ -166,19 +192,19 @@ export async function updateTask(taskId: string, data: Partial<{
   if (data.assignedToId !== undefined) payload.assigned_to_id = data.assignedToId;
   if (data.dueDate !== undefined) payload.due_date = data.dueDate;
 
-  const response = await api.patch<any>(`/tasks/tasks/${taskId}/`, payload);
+  const response = await api.patch<any>(`/tasks/${taskId}/`, payload);
   return transformTask(response);
 }
 
 // タスク完了
 export async function completeTask(taskId: string): Promise<Task> {
-  const response = await api.post<any>(`/tasks/tasks/${taskId}/complete/`);
+  const response = await api.post<any>(`/tasks/${taskId}/complete/`);
   return transformTask(response);
 }
 
 // タスク再開
 export async function reopenTask(taskId: string): Promise<Task> {
-  const response = await api.post<any>(`/tasks/tasks/${taskId}/reopen/`);
+  const response = await api.post<any>(`/tasks/${taskId}/reopen/`);
   return transformTask(response);
 }
 

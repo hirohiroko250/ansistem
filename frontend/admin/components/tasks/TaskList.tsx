@@ -1,12 +1,10 @@
 "use client";
 
 import { Task } from "@/lib/api/staff";
-import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { format } from "date-fns";
 import { ja } from "date-fns/locale";
-import { Calendar, AlertCircle } from "lucide-react";
 
 interface TaskListProps {
   tasks: Task[];
@@ -14,87 +12,121 @@ interface TaskListProps {
   onSelectTask: (taskId: string) => void;
 }
 
+const statusConfig: Record<string, { label: string; className: string }> = {
+  pending: { label: "未対応", className: "bg-red-100 text-red-800 border-red-300" },
+  new: { label: "未対応", className: "bg-red-100 text-red-800 border-red-300" },
+  in_progress: { label: "対応中", className: "bg-yellow-100 text-yellow-800 border-yellow-300" },
+  completed: { label: "完了", className: "bg-green-100 text-green-800 border-green-300" },
+  closed: { label: "クローズ", className: "bg-gray-100 text-gray-800 border-gray-300" },
+};
+
 const taskTypeLabels: Record<string, string> = {
+  inquiry: "問い合わせ",
+  trial_request: "体験希望",
+  enrollment: "新規入会",
   lesson_prep: "授業準備",
   parent_contact: "保護者連絡",
   admin: "事務処理",
   follow_up: "フォローアップ",
-};
-
-const statusLabels: Record<string, string> = {
-  pending: "未着手",
-  in_progress: "進行中",
-  completed: "完了",
-};
-
-const priorityConfig: Record<
-  string,
-  { label: string; variant: "default" | "secondary" | "destructive" }
-> = {
-  high: { label: "高", variant: "destructive" },
-  medium: { label: "中", variant: "default" },
-  low: { label: "低", variant: "secondary" },
+  billing: "請求関連",
+  absence: "お休み連絡",
+  invoice: "請求書関連",
+  other: "その他",
 };
 
 export function TaskList({ tasks, selectedTaskId, onSelectTask }: TaskListProps) {
   return (
-    <div className="space-y-2">
-      {tasks.map((task) => {
-        const priorityInfo = priorityConfig[task.priority] || priorityConfig.medium;
-        const isOverdue =
-          task.due_date && new Date(task.due_date) < new Date() && task.status !== "completed";
+    <div className="overflow-x-auto border rounded-lg">
+      <table className="min-w-full text-sm">
+        <thead className="bg-gray-50 border-b">
+          <tr>
+            <th className="px-2 py-2 text-left text-xs font-medium text-gray-500 whitespace-nowrap">No.</th>
+            <th className="px-2 py-2 text-left text-xs font-medium text-gray-500 whitespace-nowrap">登録日時</th>
+            <th className="px-2 py-2 text-left text-xs font-medium text-gray-500 whitespace-nowrap">状態</th>
+            <th className="px-2 py-2 text-left text-xs font-medium text-gray-500 whitespace-nowrap">担当者</th>
+            <th className="px-2 py-2 text-left text-xs font-medium text-gray-500 whitespace-nowrap">カテゴリー</th>
+            <th className="px-2 py-2 text-left text-xs font-medium text-gray-500 whitespace-nowrap">ブランド</th>
+            <th className="px-2 py-2 text-left text-xs font-medium text-gray-500 whitespace-nowrap min-w-[200px]">お問合せ内容</th>
+            <th className="px-2 py-2 text-left text-xs font-medium text-gray-500 whitespace-nowrap min-w-[150px]">件名</th>
+            <th className="px-2 py-2 text-left text-xs font-medium text-gray-500 whitespace-nowrap">生徒ID</th>
+            <th className="px-2 py-2 text-left text-xs font-medium text-gray-500 whitespace-nowrap">生徒名</th>
+            <th className="px-2 py-2 text-left text-xs font-medium text-gray-500 whitespace-nowrap">保護者ID</th>
+            <th className="px-2 py-2 text-left text-xs font-medium text-gray-500 whitespace-nowrap">保護者名</th>
+            <th className="px-2 py-2 text-left text-xs font-medium text-gray-500 whitespace-nowrap">校舎</th>
+            <th className="px-2 py-2 text-left text-xs font-medium text-gray-500 whitespace-nowrap">期限</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-gray-200 bg-white">
+          {tasks.map((task, index) => {
+            const statusInfo = statusConfig[task.status] || statusConfig.pending;
+            const isOverdue =
+              task.due_date && new Date(task.due_date) < new Date() && task.status !== "completed";
 
-        return (
-          <Card
-            key={task.id}
-            className={cn(
-              "p-4 cursor-pointer hover:shadow-md transition-all",
-              selectedTaskId === task.id
-                ? "border-blue-500 bg-blue-50"
-                : "border-gray-200",
-              isOverdue && "border-l-4 border-l-red-500"
-            )}
-            onClick={() => onSelectTask(task.id)}
-          >
-            <div className="flex items-start justify-between gap-3">
-              <div className="flex-1">
-                <div className="flex items-center gap-2 mb-1">
-                  <h3 className="font-semibold text-gray-900">{task.title}</h3>
-                  {isOverdue && <AlertCircle className="w-4 h-4 text-red-500" />}
-                </div>
-                <p className="text-sm text-gray-600 line-clamp-2 mb-2">
-                  {task.description}
-                </p>
-                <div className="flex items-center gap-2 text-xs text-gray-500">
-                  <Badge variant="outline">
-                    {taskTypeLabels[task.task_type] || task.task_type}
+            return (
+              <tr
+                key={task.id}
+                className={cn(
+                  "hover:bg-blue-50 cursor-pointer transition-colors",
+                  selectedTaskId === task.id && "bg-blue-100",
+                  isOverdue && "bg-red-50"
+                )}
+                onClick={() => onSelectTask(task.id)}
+              >
+                <td className="px-2 py-2 whitespace-nowrap text-gray-900">{index + 1}</td>
+                <td className="px-2 py-2 whitespace-nowrap text-gray-600">
+                  {format(new Date(task.created_at), "yyyy/MM/dd HH:mm", { locale: ja })}
+                </td>
+                <td className="px-2 py-2 whitespace-nowrap">
+                  <Badge variant="outline" className={cn("text-xs", statusInfo.className)}>
+                    {task.status_display || statusInfo.label}
                   </Badge>
-                  {task.student_name && (
-                    <span>生徒：{task.student_name}</span>
-                  )}
-                  {!task.student_name && task.guardian_name && (
-                    <span>保護者：{task.guardian_name}</span>
-                  )}
-                  {task.due_date && (
-                    <div className="flex items-center gap-1">
-                      <Calendar className="w-3 h-3" />
-                      {format(new Date(task.due_date), "M/d HH:mm", {
-                        locale: ja,
-                      })}
-                    </div>
-                  )}
-                </div>
-              </div>
-              <div className="flex flex-col items-end gap-2">
-                <Badge variant={priorityInfo.variant}>{priorityInfo.label}</Badge>
-                <Badge variant="secondary" className="text-xs">
-                  {statusLabels[task.status] || task.status}
-                </Badge>
-              </div>
-            </div>
-          </Card>
-        );
-      })}
+                </td>
+                <td className="px-2 py-2 whitespace-nowrap text-gray-600">
+                  {task.assigned_to_name || "未割当て"}
+                </td>
+                <td className="px-2 py-2 whitespace-nowrap text-gray-600">
+                  {task.category_name || taskTypeLabels[task.task_type] || task.task_type_display || task.task_type || "---"}
+                </td>
+                <td className="px-2 py-2 whitespace-nowrap text-gray-600">
+                  {task.brand_name || "---"}
+                </td>
+                <td className="px-2 py-2 text-gray-600 max-w-[300px] truncate" title={task.description}>
+                  {task.description || "---"}
+                </td>
+                <td className="px-2 py-2 text-gray-900 font-medium max-w-[200px] truncate" title={task.title}>
+                  {task.title}
+                </td>
+                <td className="px-2 py-2 whitespace-nowrap text-gray-600">
+                  {task.student ? task.student.substring(0, 8) : "---"}
+                </td>
+                <td className="px-2 py-2 whitespace-nowrap text-gray-600">
+                  {task.student_name || "---"}
+                </td>
+                <td className="px-2 py-2 whitespace-nowrap text-gray-600">
+                  {task.guardian ? task.guardian.substring(0, 8) : "---"}
+                </td>
+                <td className="px-2 py-2 whitespace-nowrap text-gray-600">
+                  {task.guardian_name || "---"}
+                </td>
+                <td className="px-2 py-2 whitespace-nowrap text-gray-600">
+                  {task.school_name || "---"}
+                </td>
+                <td className="px-2 py-2 whitespace-nowrap text-gray-600">
+                  {task.due_date
+                    ? format(new Date(task.due_date), "MM/dd HH:mm", { locale: ja })
+                    : "---"
+                  }
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+      {tasks.length === 0 && (
+        <div className="text-center text-gray-500 py-8">
+          タスクがありません
+        </div>
+      )}
     </div>
   );
 }

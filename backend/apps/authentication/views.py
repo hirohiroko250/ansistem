@@ -13,6 +13,7 @@ from django.utils import timezone
 from .serializers import (
     CustomTokenObtainPairSerializer,
     RegisterSerializer,
+    EmployeeRegisterSerializer,
     LogoutSerializer,
     PasswordResetRequestSerializer,
     PasswordResetConfirmSerializer,
@@ -456,3 +457,23 @@ class ImpersonateGuardianView(GenericAPIView):
                 'name': f"{guardian.last_name} {guardian.first_name}",
             }
         }, status=status.HTTP_200_OK)
+
+
+class EmployeeRegisterView(GenericAPIView):
+    """社員登録ビュー（認証不要の公開API）"""
+    serializer_class = EmployeeRegisterSerializer
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        user = serializer.save()
+
+        return Response({
+            'message': '社員登録が完了しました。管理者の承認後、ログインが可能になります。',
+            'user': {
+                'id': str(user.id),
+                'email': user.email,
+                'full_name': user.full_name,
+            }
+        }, status=status.HTTP_201_CREATED)

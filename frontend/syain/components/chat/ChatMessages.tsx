@@ -94,7 +94,6 @@ export function ChatMessages({
   onDeleteMessage,
   onCreateTask,
 }: ChatMessagesProps) {
-  const [hoveredMessageId, setHoveredMessageId] = useState<string | null>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   // 編集中のメッセージ
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
@@ -195,6 +194,28 @@ export function ChatMessages({
     setQuotedMessage(null);
   };
 
+  // クリップボードから画像を貼り付け
+  const handlePaste = (e: React.ClipboardEvent) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      if (item.type.startsWith('image/')) {
+        e.preventDefault();
+        const file = item.getAsFile();
+        if (file && onFileUpload) {
+          // ファイル名を生成（スクリーンショットの場合）
+          const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+          const extension = item.type.split('/')[1] || 'png';
+          const newFile = new File([file], `screenshot-${timestamp}.${extension}`, { type: item.type });
+          setSelectedFile(newFile);
+        }
+        break;
+      }
+    }
+  };
+
   const getChannelDisplayName = (ch: Channel | StaffChannel) => {
     if ('guardian' in ch && ch.guardian?.fullName) {
       return ch.guardian.fullName;
@@ -260,7 +281,7 @@ export function ChatMessages({
   const messageGroups = groupMessagesByDate(messages);
 
   const mainContent = (
-    <div className="h-full w-full flex flex-col bg-gray-100 absolute inset-0">
+    <div className="flex flex-col bg-gray-100 flex-1 min-h-0">
       {/* ヘッダー */}
       <div className="flex-shrink-0 bg-white text-gray-800 px-3 py-3 flex items-center gap-3 shadow-sm border-b z-10">
         {/* 戻るボタン */}
@@ -310,7 +331,7 @@ export function ChatMessages({
             <p className="text-gray-400 text-sm">メッセージがありません</p>
           </div>
         ) : (
-          <div className="mt-auto">
+          <div>
           {messageGroups.map((group, groupIndex) => (
             <div key={groupIndex}>
               {/* 日付セパレーター */}
@@ -329,7 +350,6 @@ export function ChatMessages({
                   (group.messages[msgIndex - 1].sender || group.messages[msgIndex - 1].senderId) !== senderId
                 );
                 const replyCount = message.replyCount || 0;
-                const isHovered = hoveredMessageId === message.id;
                 const isEditing = editingMessageId === message.id;
                 const readCount = message.readCount || 0;
 
@@ -337,8 +357,6 @@ export function ChatMessages({
                   <div
                     key={message.id}
                     className={`flex items-end gap-2 mb-2 ${isOwnMessage ? 'flex-row-reverse' : ''}`}
-                    onMouseEnter={() => setHoveredMessageId(message.id)}
-                    onMouseLeave={() => setHoveredMessageId(null)}
                   >
                     {/* アバター */}
                     {!isOwnMessage && (
@@ -354,7 +372,7 @@ export function ChatMessages({
                     )}
 
                     {/* メッセージバブル */}
-                    <div className={`flex flex-col ${isOwnMessage ? 'items-end' : 'items-start'} max-w-[70%]`}>
+                    <div className={`flex flex-col ${isOwnMessage ? 'items-end' : 'items-start'} max-w-[75%]`}>
                       {/* 送信者名（相手のメッセージで最初のみ） */}
                       {!isOwnMessage && showAvatar && (
                         <span className="text-xs text-gray-500 mb-1 ml-2 font-medium">
@@ -362,84 +380,7 @@ export function ChatMessages({
                         </span>
                       )}
 
-                      <div className={`flex items-end gap-1.5 ${isOwnMessage ? 'flex-row-reverse' : ''}`}>
-                        {/* アクションボタン（ホバー時に表示） */}
-                        {isHovered && !isEditing && (
-                          <div className={`flex items-center gap-0.5 bg-white/90 backdrop-blur rounded-full shadow-lg p-1 ${isOwnMessage ? 'flex-row-reverse' : ''}`}>
-                            {/* クイックリアクション */}
-                            {onAddReaction && (
-                              <>
-                                {QUICK_REACTIONS.slice(0, 3).map((emoji) => (
-                                  <button
-                                    key={emoji}
-                                    onClick={() => onAddReaction(message.id, emoji)}
-                                    className="p-1.5 hover:bg-gray-100 rounded-full transition-colors text-sm"
-                                    title={emoji}
-                                  >
-                                    {emoji}
-                                  </button>
-                                ))}
-                                <EmojiButton
-                                  onSelect={(emoji) => onAddReaction(message.id, emoji)}
-                                />
-                              </>
-                            )}
-                            {/* 引用返信 */}
-                            <button
-                              onClick={() => handleQuoteReply(message)}
-                              className="p-1.5 hover:bg-gray-100 rounded-full transition-colors"
-                              title="引用返信"
-                            >
-                              <Quote className="w-4 h-4 text-gray-500" />
-                            </button>
-                            {/* スレッド返信 */}
-                            {onOpenThread && (
-                              <button
-                                onClick={() => onOpenThread(message)}
-                                className="p-1.5 hover:bg-gray-100 rounded-full transition-colors"
-                                title="スレッドで返信"
-                              >
-                                <Reply className="w-4 h-4 text-gray-500" />
-                              </button>
-                            )}
-                            {/* その他メニュー */}
-                            {(onCreateTask || (isOwnMessage && (onEditMessage || onDeleteMessage))) && (
-                              <DropdownMenu>
-                                <DropdownMenuTrigger asChild>
-                                  <button className="p-1.5 hover:bg-gray-100 rounded-full transition-colors">
-                                    <MoreVertical className="w-4 h-4 text-gray-500" />
-                                  </button>
-                                </DropdownMenuTrigger>
-                                <DropdownMenuContent align={isOwnMessage ? 'end' : 'start'}>
-                                  {onCreateTask && (
-                                    <DropdownMenuItem onClick={() => onCreateTask(message)}>
-                                      <ClipboardList className="w-4 h-4 mr-2" />
-                                      タスクを作成
-                                    </DropdownMenuItem>
-                                  )}
-                                  {isOwnMessage && onEditMessage && (
-                                    <>
-                                      {onCreateTask && <DropdownMenuSeparator />}
-                                      <DropdownMenuItem onClick={() => handleStartEdit(message)}>
-                                        <Pencil className="w-4 h-4 mr-2" />
-                                        編集
-                                      </DropdownMenuItem>
-                                    </>
-                                  )}
-                                  {isOwnMessage && onDeleteMessage && (
-                                    <DropdownMenuItem
-                                      onClick={() => handleDeleteMessage(message.id)}
-                                      className="text-red-600"
-                                    >
-                                      <Trash2 className="w-4 h-4 mr-2" />
-                                      削除
-                                    </DropdownMenuItem>
-                                  )}
-                                </DropdownMenuContent>
-                              </DropdownMenu>
-                            )}
-                          </div>
-                        )}
+                      <div className={`flex items-end gap-1 ${isOwnMessage ? 'flex-row-reverse' : ''}`}>
 
                         {/* バブル */}
                         <div className="flex flex-col">
@@ -549,8 +490,76 @@ export function ChatMessages({
                           )}
                         </div>
 
+                        {/* アクションメニュー（クリックで表示） */}
+                        {!isEditing && (
+                          <DropdownMenu modal={false}>
+                            <DropdownMenuTrigger asChild>
+                              <button className="p-1 hover:bg-gray-200 rounded-full transition-colors flex-shrink-0">
+                                <MoreVertical className="w-4 h-4 text-gray-400" />
+                              </button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align={isOwnMessage ? 'end' : 'start'} className="w-48 z-50">
+                              {/* リアクション */}
+                              {onAddReaction && (
+                                <>
+                                  <div className="flex items-center justify-around px-2 py-1.5 border-b">
+                                    {QUICK_REACTIONS.map((emoji) => (
+                                      <button
+                                        key={emoji}
+                                        onClick={() => onAddReaction(message.id, emoji)}
+                                        className="p-1.5 hover:bg-gray-100 rounded-full transition-colors text-lg"
+                                      >
+                                        {emoji}
+                                      </button>
+                                    ))}
+                                  </div>
+                                </>
+                              )}
+                              {/* 引用返信 */}
+                              <DropdownMenuItem onClick={() => handleQuoteReply(message)}>
+                                <Quote className="w-4 h-4 mr-2" />
+                                引用返信
+                              </DropdownMenuItem>
+                              {/* スレッド返信 */}
+                              {onOpenThread && (
+                                <DropdownMenuItem onClick={() => onOpenThread(message)}>
+                                  <Reply className="w-4 h-4 mr-2" />
+                                  スレッドで返信
+                                </DropdownMenuItem>
+                              )}
+                              {/* タスク作成 */}
+                              {onCreateTask && (
+                                <DropdownMenuItem onClick={() => onCreateTask(message)}>
+                                  <ClipboardList className="w-4 h-4 mr-2" />
+                                  タスクを作成
+                                </DropdownMenuItem>
+                              )}
+                              {/* 編集（自分のメッセージのみ） */}
+                              {isOwnMessage && onEditMessage && (
+                                <>
+                                  <DropdownMenuSeparator />
+                                  <DropdownMenuItem onClick={() => handleStartEdit(message)}>
+                                    <Pencil className="w-4 h-4 mr-2" />
+                                    編集
+                                  </DropdownMenuItem>
+                                </>
+                              )}
+                              {/* 削除（自分のメッセージのみ） */}
+                              {isOwnMessage && onDeleteMessage && (
+                                <DropdownMenuItem
+                                  onClick={() => handleDeleteMessage(message.id)}
+                                  className="text-red-600"
+                                >
+                                  <Trash2 className="w-4 h-4 mr-2" />
+                                  削除
+                                </DropdownMenuItem>
+                              )}
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        )}
+
                         {/* 時刻と既読 */}
-                        <div className={`flex flex-col gap-0.5 ${isOwnMessage ? 'items-end' : 'items-start'}`}>
+                        <div className={`flex flex-col gap-0.5 flex-shrink-0 ${isOwnMessage ? 'items-end' : 'items-start'}`}>
                           {isOwnMessage && readCount > 0 && (
                             <span className="text-[10px] text-gray-500 font-medium">
                               既読
@@ -601,7 +610,7 @@ export function ChatMessages({
           />
         )}
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2" onPaste={handlePaste}>
           {/* ファイル添付ボタン */}
           {onFileUpload && (
             <FileAttachmentInput
@@ -619,7 +628,7 @@ export function ChatMessages({
               }
             }}
             mentionableUsers={mentionableUsers}
-            placeholder="メッセージを入力　（@でメンション）"
+            placeholder="メッセージを入力　（@でメンション、Ctrl+Vで画像貼付）"
             disabled={isSending || isUploading}
             className="rounded-full bg-white border border-gray-300 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 px-4"
           />

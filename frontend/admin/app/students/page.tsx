@@ -34,6 +34,7 @@ import {
   type ChatLog,
   type ChatMessage,
 } from "@/lib/api/staff";
+import { getChannels } from "@/lib/api/chat";
 import apiClient from "@/lib/api/client";
 import type { Student, Guardian, Contract, Invoice, Brand, School, PaginatedResult, StudentFilters } from "@/lib/api/types";
 
@@ -65,6 +66,7 @@ export default function StudentsPage() {
   const [selectedStudentMessages, setSelectedStudentMessages] = useState<ChatMessage[]>([]);
   const [selectedStudentSiblings, setSelectedStudentSiblings] = useState<Student[]>([]);
   const [loading, setLoading] = useState(true);
+  const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({});
 
   useEffect(() => {
     // 認証チェック
@@ -114,6 +116,54 @@ export default function StudentsPage() {
     const data = await getStudents(filters);
     setResult(data);
     setLoading(false);
+
+    // 各生徒の未読件数を取得（バックグラウンドで）
+    loadUnreadCounts(data.data);
+  }
+
+  async function loadUnreadCounts(students: Student[]) {
+    const counts: Record<string, number> = {};
+
+    // 保護者IDでグループ化（同じ保護者の生徒は同じチャンネルを共有）
+    const guardianToStudents: Record<string, string[]> = {};
+    students.forEach((student) => {
+      const guardianId = student.guardianId || student.guardian_id || student.guardian?.id;
+      if (guardianId) {
+        if (!guardianToStudents[guardianId]) {
+          guardianToStudents[guardianId] = [];
+        }
+        guardianToStudents[guardianId].push(student.id);
+      }
+    });
+
+    // 保護者ごとにチャンネルを取得（並列で最大10件ずつ）
+    const guardianIds = Object.keys(guardianToStudents);
+    const batchSize = 10;
+    for (let i = 0; i < guardianIds.length; i += batchSize) {
+      const batch = guardianIds.slice(i, i + batchSize);
+      await Promise.all(
+        batch.map(async (guardianId) => {
+          try {
+            const channels = await getChannels({ guardianId });
+            // 未読件数を合計
+            const totalUnread = (channels || []).reduce(
+              (sum, ch) => sum + (ch.unreadCount || 0),
+              0
+            );
+            if (totalUnread > 0) {
+              // この保護者に紐づく全生徒に未読件数を設定
+              guardianToStudents[guardianId].forEach((studentId) => {
+                counts[studentId] = totalUnread;
+              });
+            }
+          } catch (err) {
+            console.error(`Failed to get unread count for guardian ${guardianId}:`, err);
+          }
+        })
+      );
+    }
+
+    setUnreadCounts(counts);
   }
 
   async function loadStudentDetail(studentId: string) {
@@ -378,6 +428,7 @@ export default function StudentsPage() {
               result={result}
               selectedStudentId={selectedStudentId}
               onSelectStudent={handleSelectStudent}
+              unreadCounts={unreadCounts}
             />
           )}
         </div>

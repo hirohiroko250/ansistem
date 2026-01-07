@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { BottomTabBar } from '@/components/bottom-tab-bar';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import Link from 'next/link';
+import Image from 'next/image';
 import { getChannels, getActiveBotConfig, archiveChannel, type BotConfig } from '@/lib/api/chat';
 import type { Channel } from '@/lib/api/types';
 
@@ -46,7 +47,29 @@ function formatTimestamp(dateString?: string): string {
 // チャンネル名からアバターテキストを生成
 function getAvatarText(name?: string): string {
   if (!name) return '??';
-  return name.substring(0, 2);
+  // メールアドレスを除去してからアバターテキストを生成
+  const cleanName = getCleanChannelName(name);
+  return cleanName.substring(0, 2);
+}
+
+// チャンネル名からメールアドレスを除去
+function getCleanChannelName(name?: string): string {
+  if (!name) return 'チャット';
+  // "名前 - email@example.com" 形式からメール部分を除去
+  const dashIndex = name.indexOf(' - ');
+  if (dashIndex > 0) {
+    const beforeDash = name.substring(0, dashIndex);
+    const afterDash = name.substring(dashIndex + 3);
+    // afterDashがメールアドレスっぽければ除去
+    if (afterDash.includes('@')) {
+      return beforeDash;
+    }
+  }
+  // メールアドレスのみの場合は「スタッフ」と表示
+  if (name.includes('@')) {
+    return 'スタッフ';
+  }
+  return name;
 }
 
 // スワイプ可能なアイテムコンポーネント
@@ -150,32 +173,53 @@ export default function ChatListPage() {
   const [error, setError] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
-  // チャンネル一覧とボット設定を取得
-  useEffect(() => {
-    async function fetchData() {
-      try {
+  // チャンネル一覧を取得する関数
+  const fetchChannels = useCallback(async (showLoading = true) => {
+    try {
+      if (showLoading) {
         setIsLoading(true);
         setError(null);
+      }
 
-        // チャンネルとボット設定を並行取得
-        const [channelsData, botData] = await Promise.all([
-          getChannels().catch(() => []),
-          getActiveBotConfig().catch(() => DEFAULT_BOT),
-        ]);
+      // チャンネルとボット設定を並行取得
+      const [channelsData, botData] = await Promise.all([
+        getChannels().catch(() => []),
+        getActiveBotConfig().catch(() => DEFAULT_BOT),
+      ]);
 
-        setChannels(Array.isArray(channelsData) ? channelsData : []);
-        setBotConfig(botData || DEFAULT_BOT);
-      } catch (err) {
-        console.error('Failed to fetch data:', err);
+      setChannels(Array.isArray(channelsData) ? channelsData : []);
+      setBotConfig(botData || DEFAULT_BOT);
+    } catch (err) {
+      console.error('Failed to fetch data:', err);
+      if (showLoading) {
         setError('データの取得に失敗しました');
-        setChannels([]);
-      } finally {
+      }
+      setChannels([]);
+    } finally {
+      if (showLoading) {
         setIsLoading(false);
       }
     }
-
-    fetchData();
   }, []);
+
+  // 初回読み込み
+  useEffect(() => {
+    fetchChannels();
+  }, [fetchChannels]);
+
+  // ページに戻った時にデータを再取得（既読状態を反映）
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        fetchChannels(false);
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [fetchChannels]);
 
   // チャンネルを削除（アーカイブ）
   const handleDeleteChannel = useCallback(async (channelId: string) => {
@@ -191,8 +235,19 @@ export default function ChatListPage() {
     }
   }, []);
 
-  // 検索フィルタリング（通常のチャンネルのみ）
+  // 検索フィルタリング（スタッフが返信したEXTERNALチャンネルのみ表示）
+  // ボットチャット(BOT/SUPPORT)は除外、AIアシスタント内で対応
   const filteredChats = (channels || []).filter((channel) => {
+    // BOTやSUPPORTタイプのチャンネルは除外
+    const channelType = channel.channelType?.toUpperCase();
+    if (channelType === 'BOT' || channelType === 'SUPPORT') {
+      return false;
+    }
+    // EXTERNALチャンネルのみ表示
+    if (channelType !== 'EXTERNAL') {
+      return false;
+    }
+    // 検索フィルタ
     const name = channel.name || '';
     const lastMessage = channel.lastMessage?.content || '';
     return (
@@ -271,16 +326,20 @@ export default function ChatListPage() {
               <Pin className="h-4 w-4 text-gray-600" />
               <h2 className="text-sm font-semibold text-gray-600">ピン留め</h2>
             </div>
-            <Link href={`/chat/${botConfig.id}`}>
+            <Link href="/chat/ai-assistant">
               <Card className="rounded-none border-x-0 border-t-0 shadow-none hover:bg-gray-50 transition-colors cursor-pointer">
                 <CardContent className="p-4">
                   <div className="flex items-center gap-3">
                     <div className="relative">
-                      <Avatar className="bg-gradient-to-br from-blue-500 to-purple-600">
-                        <AvatarFallback className="text-white">
-                          <Bot className="h-5 w-5" />
-                        </AvatarFallback>
-                      </Avatar>
+                      <div className="w-10 h-10 rounded-full overflow-hidden bg-white border border-gray-200 flex items-center justify-center">
+                        <Image
+                          src="/anlogo.svg"
+                          alt="AIアシスタント"
+                          width={48}
+                          height={48}
+                          className="scale-125"
+                        />
+                      </div>
                       <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-green-500 rounded-full border-2 border-white" />
                     </div>
                     <div className="flex-1 min-w-0">
@@ -331,7 +390,7 @@ export default function ChatListPage() {
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center justify-between mb-1">
                             <h3 className="font-semibold text-gray-800 truncate">
-                              {channel.name || 'チャット'}
+                              {getCleanChannelName(channel.name)}
                             </h3>
                             <span className="text-xs text-gray-500 shrink-0 ml-2">
                               {formatTimestamp(channel.lastMessage?.createdAt || channel.updatedAt)}

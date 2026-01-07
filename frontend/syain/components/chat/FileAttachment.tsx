@@ -319,7 +319,7 @@ export function DragDropZone({
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
-      className="relative"
+      className="relative flex-1 flex flex-col min-h-0"
     >
       {children}
 

@@ -1,9 +1,9 @@
 "use client";
 
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { Student, Guardian, Contract, Invoice, StudentDiscount } from "@/lib/api/types";
 import { ContactLog, ChatLog, ChatMessage, createContactLog, ContactLogCreateData, getStudentContactLogs } from "@/lib/api/staff";
-import { getChannels, getMessages, sendMessage, getOrCreateChannelForGuardian, type Channel, type Message } from "@/lib/api/chat";
+import { getChannels, getMessages, sendMessage, getOrCreateChannelForGuardian, uploadFile, type Channel, type Message } from "@/lib/api/chat";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -35,6 +35,9 @@ import {
   Send,
   ChevronLeft,
   ArrowLeft,
+  Image as ImageIcon,
+  Paperclip,
+  X,
 } from "lucide-react";
 import { ContractEditDialog } from "./ContractEditDialog";
 import { NewContractDialog } from "./NewContractDialog";
@@ -458,6 +461,11 @@ export function StudentDetail({ student, parents, contracts, invoices, contactLo
   const [newChatTitle, setNewChatTitle] = useState("");
   const [creatingChat, setCreatingChat] = useState(false);
 
+  // 画像アップロード用state
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const [filePreviewUrl, setFilePreviewUrl] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   // 日付フィルタリングされた対応ログ
   const filteredContactLogs = useMemo(() => {
     return localContactLogs.filter((log) => {
@@ -488,18 +496,20 @@ export function StudentDetail({ student, parents, contracts, invoices, contactLo
   // チャンネル一覧を読み込む
   const loadChatChannels = async () => {
     const guardianId = parents[0]?.id;
-    if (!guardianId) return;
+    console.log("[loadChatChannels] parents:", parents);
+    console.log("[loadChatChannels] guardianId:", guardianId);
+    if (!guardianId) {
+      console.log("[loadChatChannels] No guardianId, returning");
+      return;
+    }
 
     setChannelsLoading(true);
     try {
-      // studentIdでフィルタしてチャンネルを取得
-      const channels = await getChannels({ studentId: student.id });
-      // 該当生徒のチャンネルのみフィルタリング（念のためフロントエンドでも）
-      const filteredChannels = (channels || []).filter((ch) => {
-        // 生徒IDが一致するチャンネルのみ表示
-        return ch.student?.id === student.id;
-      });
-      setChatChannels(filteredChannels);
+      // 保護者IDでフィルタしてチャンネルを取得（チャンネルにはstudent_idが設定されていないため）
+      console.log("[loadChatChannels] Calling getChannels with guardianId:", guardianId);
+      const channels = await getChannels({ guardianId });
+      console.log("[loadChatChannels] Received channels:", channels);
+      setChatChannels(channels || []);
     } catch (err) {
       console.error("Failed to load channels:", err);
     } finally {
@@ -513,7 +523,8 @@ export function StudentDetail({ student, parents, contracts, invoices, contactLo
     try {
       const res = await getMessages(channel.id, { pageSize: 50 });
       const msgs = res?.results || res?.data || [];
-      setChannelMessages(msgs.reverse());
+      // 古い順に表示（新しいメッセージは下に溜まる）
+      setChannelMessages(msgs);
     } catch (err) {
       console.error("Failed to load messages:", err);
     } finally {
@@ -550,6 +561,82 @@ export function StudentDetail({ student, parents, contracts, invoices, contactLo
     } catch (err) {
       console.error("Failed to send message:", err);
       alert("メッセージの送信に失敗しました");
+    } finally {
+      setSendingMessage(false);
+    }
+  };
+
+  // ファイル選択処理
+  const handleFileSelect = useCallback((file: File) => {
+    // 画像ファイルのみ許可
+    if (!file.type.startsWith('image/')) {
+      alert('画像ファイルのみアップロードできます');
+      return;
+    }
+    // 10MB制限
+    if (file.size > 10 * 1024 * 1024) {
+      alert('ファイルサイズは10MB以下にしてください');
+      return;
+    }
+    setPendingFile(file);
+    const url = URL.createObjectURL(file);
+    setFilePreviewUrl(url);
+  }, []);
+
+  // ペースト処理
+  const handlePaste = useCallback((e: React.ClipboardEvent) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      if (item.type.startsWith('image/')) {
+        e.preventDefault();
+        const file = item.getAsFile();
+        if (file) {
+          handleFileSelect(file);
+        }
+        break;
+      }
+    }
+  }, [handleFileSelect]);
+
+  // ファイル入力変更処理
+  const handleFileInputChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      handleFileSelect(file);
+    }
+    // 入力をリセットして同じファイルを再選択できるようにする
+    e.target.value = '';
+  }, [handleFileSelect]);
+
+  // 選択ファイルをクリア
+  const clearPendingFile = useCallback(() => {
+    if (filePreviewUrl) {
+      URL.revokeObjectURL(filePreviewUrl);
+    }
+    setPendingFile(null);
+    setFilePreviewUrl(null);
+  }, [filePreviewUrl]);
+
+  // 画像送信
+  const handleSendFile = async () => {
+    if (!pendingFile || !selectedChannel) return;
+
+    setSendingMessage(true);
+    try {
+      const sentMsg = await uploadFile({
+        file: pendingFile,
+        channelId: selectedChannel.id,
+        content: newMessage.trim() || undefined,
+      });
+      setChannelMessages((prev) => [...prev, sentMsg]);
+      setNewMessage("");
+      clearPendingFile();
+    } catch (err) {
+      console.error("Failed to upload file:", err);
+      alert("ファイルのアップロードに失敗しました");
     } finally {
       setSendingMessage(false);
     }
@@ -2572,7 +2659,30 @@ export function StudentDetail({ student, parents, contracts, invoices, contactLo
                                     {msg.senderGuardianName || msg.senderName || "保護者"}
                                   </p>
                                 )}
-                                <p className="whitespace-pre-wrap">{msg.content}</p>
+                                {/* 画像メッセージの場合 */}
+                                {(() => {
+                                  const msgType = msg.messageType || (msg as any).message_type || '';
+                                  const attachUrl = msg.attachmentUrl || msg.attachment_url;
+                                  const attachName = msg.attachmentName || msg.attachment_name;
+                                  const isImage = msgType.toUpperCase() === 'IMAGE' && attachUrl;
+
+                                  if (isImage) {
+                                    return (
+                                      <div className="mb-1">
+                                        <img
+                                          src={attachUrl}
+                                          alt={attachName || "添付画像"}
+                                          className="max-w-full max-h-64 rounded cursor-pointer hover:opacity-90"
+                                          onClick={() => window.open(attachUrl, '_blank')}
+                                        />
+                                        {msg.content && msg.content !== attachName && (
+                                          <p className="whitespace-pre-wrap mt-1">{msg.content}</p>
+                                        )}
+                                      </div>
+                                    );
+                                  }
+                                  return <p className="whitespace-pre-wrap">{msg.content}</p>;
+                                })()}
                                 <p className={`text-xs mt-1 ${isStaff ? "text-blue-200" : "text-gray-400"}`}>
                                   {formatMsgTime(msg.createdAt)}
                                 </p>
@@ -2585,24 +2695,66 @@ export function StudentDetail({ student, parents, contracts, invoices, contactLo
 
                     {/* 入力エリア */}
                     <div className="border-t bg-white p-2">
+                      {/* 画像プレビュー */}
+                      {filePreviewUrl && (
+                        <div className="mb-2 relative inline-block">
+                          <img
+                            src={filePreviewUrl}
+                            alt="プレビュー"
+                            className="max-h-32 rounded border"
+                          />
+                          <button
+                            onClick={clearPendingFile}
+                            className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 hover:bg-red-600"
+                            type="button"
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        </div>
+                      )}
                       <div className="flex gap-2">
+                        {/* 隠しファイル入力 */}
+                        <input
+                          type="file"
+                          ref={fileInputRef}
+                          onChange={handleFileInputChange}
+                          accept="image/*"
+                          className="hidden"
+                        />
+                        {/* ファイル選択ボタン */}
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          onClick={() => fileInputRef.current?.click()}
+                          disabled={sendingMessage}
+                          className="flex-shrink-0"
+                          title="画像を添付 (Ctrl+Vでペーストも可能)"
+                        >
+                          <ImageIcon className="w-4 h-4" />
+                        </Button>
                         <Input
                           value={newMessage}
                           onChange={(e) => setNewMessage(e.target.value)}
-                          placeholder="メッセージを入力..."
+                          onPaste={handlePaste}
+                          placeholder={pendingFile ? "コメントを追加（任意）..." : "メッセージを入力...（画像はCtrl+Vでペースト可）"}
                           className="flex-1 text-sm"
                           onKeyDown={(e) => {
                             if (e.key === "Enter" && !e.shiftKey) {
                               e.preventDefault();
-                              handleSendMessage();
+                              if (pendingFile) {
+                                handleSendFile();
+                              } else {
+                                handleSendMessage();
+                              }
                             }
                           }}
                           disabled={sendingMessage}
                         />
                         <Button
                           size="sm"
-                          onClick={handleSendMessage}
-                          disabled={!newMessage.trim() || sendingMessage}
+                          onClick={pendingFile ? handleSendFile : handleSendMessage}
+                          disabled={(!newMessage.trim() && !pendingFile) || sendingMessage}
                           className="bg-blue-600 hover:bg-blue-700"
                         >
                           {sendingMessage ? (
@@ -2648,11 +2800,9 @@ export function StudentDetail({ student, parents, contracts, invoices, contactLo
                     ) : (
                       <div className="divide-y">
                         {chatChannels.map((channel) => {
-                          // 未返信判定：最後のメッセージが保護者からの場合
-                          const isUnreplied = channel.lastMessage &&
-                            (channel.lastMessage.senderName?.includes("保護者") ||
-                             !channel.lastMessage.senderName?.includes("スタッフ"));
+                          // 未返信判定：未読があれば未返信とみなす
                           const hasUnread = channel.unreadCount > 0;
+                          const isUnreplied = hasUnread;
 
                           return (
                             <button

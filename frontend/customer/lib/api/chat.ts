@@ -123,7 +123,7 @@ export async function deleteMessage(messageId: string): Promise<ApiSuccessMessag
  * @returns 成功メッセージ
  */
 export async function markChannelAsRead(channelId: string): Promise<ApiSuccessMessage> {
-  return api.patch<ApiSuccessMessage>(`/communications/channels/${channelId}/read/`);
+  return api.post<ApiSuccessMessage>(`/communications/channels/${channelId}/mark_read/`);
 }
 
 // ============================================

@@ -340,3 +340,33 @@ class Employee(TenantModel):
     @property
     def full_name(self):
         return f"{self.last_name} {self.first_name}"
+
+
+class EmployeeGroup(TenantModel):
+    """社員グループ - チャットや権限管理用のグルーピング"""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    name = models.CharField('グループ名', max_length=100)
+    description = models.TextField('説明', blank=True)
+    members = models.ManyToManyField(
+        Employee,
+        blank=True,
+        related_name='employee_groups',
+        verbose_name='メンバー'
+    )
+    is_active = models.BooleanField('有効', default=True)
+    created_at = models.DateTimeField('作成日時', auto_now_add=True)
+    updated_at = models.DateTimeField('更新日時', auto_now=True)
+
+    class Meta:
+        db_table = 't19_employee_groups'
+        verbose_name = '社員グループ'
+        verbose_name_plural = '社員グループ'
+        ordering = ['name']
+
+    def __str__(self):
+        return self.name
+
+    @property
+    def member_count(self):
+        return self.members.count()

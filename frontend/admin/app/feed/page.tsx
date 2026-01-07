@@ -41,6 +41,7 @@ import {
   Film,
 } from "lucide-react";
 import { FileUpload } from "@/components/ui/file-upload";
+import { MultiSelect } from "@/components/ui/multi-select";
 
 interface FeedPost {
   id: string;
@@ -481,82 +482,40 @@ export default function FeedPage() {
             <div>
               <label className="text-sm font-medium flex items-center gap-1 mb-2">
                 <Building className="w-4 h-4" />
-                対象ブランド（複数選択可）
+                対象ブランド
               </label>
-              <div className="flex flex-wrap gap-2 p-3 border rounded-md bg-gray-50">
-                {brands.length === 0 ? (
-                  <span className="text-sm text-gray-500">ブランドがありません</span>
-                ) : (
-                  brands.map((brand) => (
-                    <label
-                      key={brand.id}
-                      className={`flex items-center gap-1 px-3 py-1 rounded-full border cursor-pointer transition-colors ${
-                        formData.targetBrands.includes(brand.id)
-                          ? "bg-blue-500 text-white border-blue-500"
-                          : "bg-white hover:bg-gray-100 border-gray-300"
-                      }`}
-                    >
-                      <input
-                        type="checkbox"
-                        className="sr-only"
-                        checked={formData.targetBrands.includes(brand.id)}
-                        onChange={(e) => {
-                          if (e.target.checked) {
-                            setFormData({ ...formData, targetBrands: [...formData.targetBrands, brand.id] });
-                          } else {
-                            setFormData({ ...formData, targetBrands: formData.targetBrands.filter(id => id !== brand.id) });
-                          }
-                        }}
-                      />
-                      <span className="text-sm">{brand.brandName}</span>
-                    </label>
-                  ))
-                )}
-              </div>
-              {formData.targetBrands.length === 0 && (
-                <p className="text-xs text-gray-500 mt-1">未選択の場合は全ブランドに表示されます</p>
-              )}
+              <MultiSelect
+                options={brands.map((brand) => ({
+                  value: brand.id,
+                  label: brand.brandName,
+                }))}
+                selected={formData.targetBrands}
+                onChange={(selected) => setFormData({ ...formData, targetBrands: selected })}
+                placeholder="ブランドを選択..."
+                emptyMessage="ブランドがありません"
+                badgeVariant="default"
+              />
+              <p className="text-xs text-gray-500 mt-1">未選択の場合は全ブランドに表示されます</p>
             </div>
 
             {/* 対象校舎選択 */}
             <div>
               <label className="text-sm font-medium flex items-center gap-1 mb-2">
                 <Building className="w-4 h-4" />
-                対象校舎（複数選択可）
+                対象校舎
               </label>
-              <div className="flex flex-wrap gap-2 p-3 border rounded-md bg-gray-50 max-h-40 overflow-y-auto">
-                {schools.length === 0 ? (
-                  <span className="text-sm text-gray-500">校舎がありません</span>
-                ) : (
-                  schools.map((school) => (
-                    <label
-                      key={school.id}
-                      className={`flex items-center gap-1 px-3 py-1 rounded-full border cursor-pointer transition-colors ${
-                        formData.targetSchools.includes(school.id)
-                          ? "bg-green-500 text-white border-green-500"
-                          : "bg-white hover:bg-gray-100 border-gray-300"
-                      }`}
-                    >
-                      <input
-                        type="checkbox"
-                        className="sr-only"
-                        checked={formData.targetSchools.includes(school.id)}
-                        onChange={(e) => {
-                          if (e.target.checked) {
-                            setFormData({ ...formData, targetSchools: [...formData.targetSchools, school.id] });
-                          } else {
-                            setFormData({ ...formData, targetSchools: formData.targetSchools.filter(id => id !== school.id) });
-                          }
-                        }}
-                      />
-                      <span className="text-sm">{school.schoolName}</span>
-                    </label>
-                  ))
-                )}
-              </div>
-              {formData.targetSchools.length === 0 && (
-                <p className="text-xs text-gray-500 mt-1">未選択の場合は全校舎に表示されます</p>
-              )}
+              <MultiSelect
+                options={schools.map((school) => ({
+                  value: school.id,
+                  label: school.schoolName,
+                }))}
+                selected={formData.targetSchools}
+                onChange={(selected) => setFormData({ ...formData, targetSchools: selected })}
+                placeholder="校舎を選択..."
+                emptyMessage="校舎がありません"
+                badgeVariant="outline"
+              />
+              <p className="text-xs text-gray-500 mt-1">未選択の場合は全校舎に表示されます</p>
             </div>
 
             {/* 公開期間設定 */}

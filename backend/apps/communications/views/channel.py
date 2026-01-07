@@ -43,6 +43,16 @@ class ChannelViewSet(viewsets.ModelViewSet):
         if channel_type:
             queryset = queryset.filter(channel_type=channel_type)
 
+        # guardian_idでフィルタ
+        guardian_id = self.request.query_params.get('guardian_id')
+        if guardian_id:
+            queryset = queryset.filter(guardian_id=guardian_id)
+
+        # student_idでフィルタ
+        student_id = self.request.query_params.get('student_id')
+        if student_id:
+            queryset = queryset.filter(student_id=student_id)
+
         is_archived = self.request.query_params.get('is_archived')
         include_archived = self.request.query_params.get('include_archived')
         if is_archived is not None:

@@ -795,6 +795,8 @@ export default function ChatPage() {
               fullName: s.fullName,
               positionName: s.positionName,
               email: s.email,
+              department: s.department,
+              brandsList: s.brandsList,
             }))}
             currentUserId={currentUserId}
           />
@@ -834,7 +836,7 @@ export default function ChatPage() {
         </div>
       ) : (
         // メッセージ画面
-        <div className="flex-1 relative pb-16">
+        <div className="flex-1 flex flex-col min-h-0 pb-16">
           <ChatMessages
             channel={currentSelectedChannel}
             messages={currentMessages}
@@ -843,6 +845,7 @@ export default function ChatPage() {
             onSendMessage={handleSendMessage}
             onBack={handleBack}
             showBackButton={true}
+            onOpenSidebar={handleBack}
             typingUsers={typingUsers}
             onOpenThread={handleOpenThread}
             onAddReaction={handleAddReaction}

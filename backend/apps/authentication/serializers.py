@@ -306,3 +306,133 @@ class PasswordChangeSerializer(serializers.Serializer):
         user.must_change_password = False
         user.save(update_fields=['password', 'must_change_password', 'updated_at'])
         return user
+
+
+class EmployeeRegisterSerializer(serializers.Serializer):
+    """社員登録シリアライザー（認証不要の公開API用）"""
+
+    # 必須フィールド
+    email = serializers.EmailField()
+    password = serializers.CharField(write_only=True, min_length=8)
+    password_confirm = serializers.CharField(write_only=True)
+    last_name = serializers.CharField()
+    first_name = serializers.CharField()
+    tenant_id = serializers.UUIDField()
+
+    # 任意フィールド
+    phone = serializers.CharField(required=False, allow_blank=True)
+    department = serializers.CharField(required=False, allow_blank=True)
+    position_id = serializers.UUIDField(required=False, allow_null=True)
+    position_text = serializers.CharField(required=False, allow_blank=True)
+
+    # 対応校舎・ブランド
+    school_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        required=False,
+        default=list
+    )
+    brand_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        required=False,
+        default=list
+    )
+
+    # 雇用情報
+    hire_date = serializers.DateField(required=False, allow_null=True)
+
+    # 住所情報
+    postal_code = serializers.CharField(required=False, allow_blank=True)
+    prefecture = serializers.CharField(required=False, allow_blank=True)
+    city = serializers.CharField(required=False, allow_blank=True)
+    address = serializers.CharField(required=False, allow_blank=True)
+    nationality = serializers.CharField(required=False, default='日本')
+
+    def validate_email(self, value):
+        if User.objects.filter(email=value).exists():
+            raise serializers.ValidationError('このメールアドレスは既に登録されています')
+        return value
+
+    def validate(self, data):
+        if data['password'] != data['password_confirm']:
+            raise serializers.ValidationError({'password_confirm': 'パスワードが一致しません'})
+
+        # テナントの存在確認
+        from apps.tenants.models import Tenant
+        try:
+            Tenant.objects.get(id=data['tenant_id'], is_active=True)
+        except Tenant.DoesNotExist:
+            raise serializers.ValidationError({'tenant_id': '無効な会社IDです'})
+
+        return data
+
+    def create(self, validated_data):
+        from django.db import transaction
+        from apps.tenants.models import Employee, Position
+        from apps.schools.models import School, Brand
+
+        # 除外するフィールド
+        validated_data.pop('password_confirm')
+        password = validated_data.pop('password')
+        tenant_id = validated_data.pop('tenant_id')
+        school_ids = validated_data.pop('school_ids', [])
+        brand_ids = validated_data.pop('brand_ids', [])
+        position_id = validated_data.pop('position_id', None)
+
+        # Employee用のデータ
+        employee_data = {
+            'last_name': validated_data.get('last_name', ''),
+            'first_name': validated_data.get('first_name', ''),
+            'email': validated_data.get('email', ''),
+            'phone': validated_data.get('phone', ''),
+            'department': validated_data.get('department', ''),
+            'position_text': validated_data.get('position_text', ''),
+            'hire_date': validated_data.get('hire_date'),
+            'postal_code': validated_data.get('postal_code', ''),
+            'prefecture': validated_data.get('prefecture', ''),
+            'city': validated_data.get('city', ''),
+            'address': validated_data.get('address', ''),
+            'nationality': validated_data.get('nationality', '日本'),
+            'is_active': False,  # 管理者の承認待ち
+        }
+
+        with transaction.atomic():
+            # 1. 社員（Employee）作成
+            employee = Employee(tenant_ref=tenant_id, **employee_data)
+
+            # 役職を設定
+            if position_id:
+                try:
+                    position = Position.objects.get(id=position_id, tenant_ref=tenant_id)
+                    employee.position = position
+                except Position.DoesNotExist:
+                    pass
+
+            employee.save()
+
+            # 対応校舎を設定
+            if school_ids:
+                schools = School.objects.filter(id__in=school_ids)
+                employee.schools.set(schools)
+
+            # 対応ブランドを設定
+            if brand_ids:
+                brands = Brand.objects.filter(id__in=brand_ids)
+                employee.brands.set(brands)
+
+            # 2. ユーザー（User）作成 - 承認待ちで無効化
+            user = User(
+                email=validated_data['email'],
+                last_name=validated_data['last_name'],
+                first_name=validated_data['first_name'],
+                phone=validated_data.get('phone', ''),
+                user_type=User.UserType.STAFF,
+                role=User.Role.STAFF,
+                tenant_id=tenant_id,
+                staff_id=employee.id,
+                is_active=False,  # 管理者の承認待ち
+                must_change_password=False,
+            )
+            user.set_password(password)
+            user.save()
+
+        return user

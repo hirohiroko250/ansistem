@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input';
 import { BottomTabBar } from '@/components/bottom-tab-bar';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import Link from 'next/link';
+import Image from 'next/image';
 import { useParams, useSearchParams } from 'next/navigation';
 import { getChannel, getMessages, sendMessage, markChannelAsRead, chatWithBot, deleteMessage } from '@/lib/api/chat';
 import type { Channel, Message } from '@/lib/api/types';
@@ -220,13 +221,11 @@ export default function ChatConversationPage() {
         const messageList = messagesData?.data || messagesData?.results || [];
         setMessages(Array.isArray(messageList) ? messageList : []);
 
-        // 既読処理
-        if (channelData.unreadCount > 0) {
-          try {
-            await markChannelAsRead(channelId);
-          } catch (err) {
-            console.error('Failed to mark as read:', err);
-          }
+        // 既読処理（常に実行して last_read_at を更新）
+        try {
+          await markChannelAsRead(channelId);
+        } catch (err) {
+          console.error('Failed to mark as read:', err);
         }
       } catch (err) {
         console.error('Failed to fetch chat data:', err);
@@ -485,11 +484,23 @@ export default function ChatConversationPage() {
           <Link href="/chat" className="mr-3">
             <ChevronLeft className="h-6 w-6 text-gray-700" />
           </Link>
-          <Avatar className={isBot ? 'bg-gradient-to-br from-blue-500 to-purple-600 mr-3' : 'bg-blue-100 mr-3'}>
-            <AvatarFallback className={isBot ? 'text-white' : 'text-blue-600 font-semibold'}>
-              {isBot ? <Bot className="h-5 w-5" /> : channelName.substring(0, 2)}
-            </AvatarFallback>
-          </Avatar>
+          {isBot ? (
+            <div className="w-10 h-10 rounded-full overflow-hidden bg-white border border-gray-200 flex items-center justify-center mr-3">
+              <Image
+                src="/anlogo.svg"
+                alt="AIアシスタント"
+                width={48}
+                height={48}
+                className="scale-125"
+              />
+            </div>
+          ) : (
+            <Avatar className="bg-blue-100 mr-3">
+              <AvatarFallback className="text-blue-600 font-semibold">
+                {channelName.substring(0, 2)}
+              </AvatarFallback>
+            </Avatar>
+          )}
           <div>
             <h1 className="text-lg font-bold text-gray-800">{channelName}</h1>
             <p className="text-xs text-green-600">オンライン</p>
@@ -534,7 +545,7 @@ export default function ChatConversationPage() {
                     {/* 送信者名（自分以外） */}
                     {!isOwnMessage && (
                       <p className={`text-xs font-medium mb-1 ${isFromHQ ? 'text-blue-600' : 'text-gray-600'}`}>
-                        {message.isBotMessage ? 'アシスタント' : message.senderName}
+                        {message.isBotMessage ? 'アシスタント' : isFromHQ ? 'スタッフ' : message.senderName}
                       </p>
                     )}
                     <p className="text-sm break-words whitespace-pre-wrap">

@@ -57,8 +57,10 @@ export type Task = {
   brand?: string;
   brand_name?: string;
   student?: string;
+  student_no?: string;
   student_name?: string;
   guardian?: string;
+  guardian_no?: string;
   guardian_name?: string;
   assigned_to_id?: string;
   assigned_to_name?: string;
@@ -908,6 +910,49 @@ export async function getTasksByAssignee(assigneeId: string, filters?: {
   } catch (error) {
     console.error("Error fetching tasks by assignee:", error);
     return [];
+  }
+}
+
+// ============================================================================
+// タスクコメント
+// ============================================================================
+
+export type TaskComment = {
+  id: string;
+  task: string;
+  comment: string;
+  commented_by_id?: string;
+  commented_by_name?: string;
+  is_internal: boolean;
+  created_at: string;
+  updated_at?: string;
+};
+
+export async function getTaskComments(taskId: string): Promise<TaskComment[]> {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const response = await apiClient.get<any>("/tasks/comments/", { task: taskId });
+    if (Array.isArray(response)) {
+      return response;
+    }
+    return response.data || response.results || [];
+  } catch (error) {
+    console.error("Error fetching task comments:", error);
+    return [];
+  }
+}
+
+export async function createTaskComment(data: {
+  task: string;
+  comment: string;
+  commented_by_id?: string;
+  is_internal?: boolean;
+}): Promise<TaskComment | null> {
+  try {
+    return await apiClient.post<TaskComment>("/tasks/comments/", data);
+  } catch (error) {
+    console.error("Error creating task comment:", error);
+    return null;
   }
 }
 
@@ -2114,4 +2159,295 @@ export async function getActiveDiscountMasters(): Promise<DiscountMaster[]> {
  */
 export async function getManualDiscountMasters(): Promise<DiscountMaster[]> {
   return getDiscountMasters({ is_active: true, is_employee_discount: false });
+}
+
+// ============================================================================
+// 社員（スタッフ）管理
+// ============================================================================
+
+import type { StaffDetail, StaffFilters, StaffGroup } from "./types";
+
+export type { StaffDetail, StaffFilters, StaffGroup };
+
+/**
+ * 社員一覧を取得
+ */
+export async function getStaffList(filters?: StaffFilters): Promise<PaginatedResult<StaffDetail>> {
+  try {
+    const params: Record<string, string | number | boolean | undefined> = {
+      page: filters?.page || 1,
+      page_size: filters?.page_size || 50,
+    };
+    if (filters?.search) params.search = filters.search;
+    if (filters?.status) params.status = filters.status;
+    if (filters?.brand_id) params.brand_id = filters.brand_id;
+    if (filters?.school_id) params.school_id = filters.school_id;
+    if (filters?.role) params.role = filters.role;
+    if (filters?.department) params.department = filters.department;
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const response = await apiClient.get<any>("/tenants/employees/", params);
+
+    const results = response.data || response.results || [];
+    const normalizedResults: StaffDetail[] = results.map((e: Record<string, unknown>) => ({
+      id: e.id as string,
+      employeeNo: (e.employeeNo || e.employee_no || '') as string,
+      fullName: (e.fullName || e.full_name || `${e.last_name || ''} ${e.first_name || ''}`.trim()) as string,
+      lastName: (e.lastName || e.last_name || '') as string,
+      firstName: (e.firstName || e.first_name || '') as string,
+      email: (e.email || '') as string,
+      phone: (e.phone || e.phone_mobile || '') as string,
+      department: (e.department || '') as string,
+      positionName: (e.positionName || e.position_name || null) as string | null,
+      profileImageUrl: (e.profileImageUrl || e.profile_image_url || null) as string | null,
+      status: (e.status || 'active') as 'active' | 'inactive' | 'suspended',
+      hireDate: (e.hireDate || e.hire_date || '') as string,
+      schools: ((e.schools || e.schools_list || []) as { id: string; name: string; school_name?: string }[]).map(s => ({
+        id: s.id,
+        name: s.name || s.school_name || '',
+      })),
+      brands: ((e.brands || e.brands_list || []) as { id: string; name: string; brand_name?: string }[]).map(b => ({
+        id: b.id,
+        name: b.name || b.brand_name || '',
+      })),
+      roles: (e.roles || []) as string[],
+      createdAt: (e.createdAt || e.created_at || '') as string,
+      updatedAt: (e.updatedAt || e.updated_at || '') as string,
+    }));
+
+    return {
+      data: normalizedResults,
+      count: response.count || normalizedResults.length,
+      page: Number(params.page),
+      pageSize: Number(params.page_size),
+      totalPages: Math.ceil((response.count || normalizedResults.length) / Number(params.page_size)),
+    };
+  } catch (error) {
+    console.error("Error fetching staff list:", error);
+    return { data: [], count: 0, page: 1, pageSize: 50, totalPages: 0 };
+  }
+}
+
+/**
+ * 社員詳細を取得
+ */
+export async function getStaffDetail(id: string): Promise<StaffDetail | null> {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const e = await apiClient.get<any>(`/tenants/employees/${id}/`);
+    return {
+      id: e.id as string,
+      employeeNo: (e.employeeNo || e.employee_no || '') as string,
+      fullName: (e.fullName || e.full_name || `${e.last_name || ''} ${e.first_name || ''}`.trim()) as string,
+      lastName: (e.lastName || e.last_name || '') as string,
+      firstName: (e.firstName || e.first_name || '') as string,
+      email: (e.email || '') as string,
+      phone: (e.phone || e.phone_mobile || '') as string,
+      department: (e.department || '') as string,
+      positionName: (e.positionName || e.position_name || null) as string | null,
+      profileImageUrl: (e.profileImageUrl || e.profile_image_url || null) as string | null,
+      status: (e.status || 'active') as 'active' | 'inactive' | 'suspended',
+      hireDate: (e.hireDate || e.hire_date || '') as string,
+      schools: ((e.schools || e.schools_list || []) as { id: string; name: string; school_name?: string }[]).map(s => ({
+        id: s.id,
+        name: s.name || s.school_name || '',
+      })),
+      brands: ((e.brands || e.brands_list || []) as { id: string; name: string; brand_name?: string }[]).map(b => ({
+        id: b.id,
+        name: b.name || b.brand_name || '',
+      })),
+      roles: (e.roles || []) as string[],
+      createdAt: (e.createdAt || e.created_at || '') as string,
+      updatedAt: (e.updatedAt || e.updated_at || '') as string,
+    };
+  } catch (error) {
+    console.error("Error fetching staff detail:", error);
+    return null;
+  }
+}
+
+/**
+ * 社員を作成
+ */
+export async function createStaff(data: Partial<StaffDetail>): Promise<StaffDetail | null> {
+  try {
+    const payload = {
+      employee_no: data.employeeNo,
+      last_name: data.lastName,
+      first_name: data.firstName,
+      email: data.email,
+      phone: data.phone,
+      department: data.department,
+      position_name: data.positionName,
+      status: data.status || 'active',
+      hire_date: data.hireDate,
+      school_ids: data.schools?.map(s => s.id) || [],
+      brand_ids: data.brands?.map(b => b.id) || [],
+      roles: data.roles || [],
+    };
+    return await apiClient.post<StaffDetail>("/tenants/employees/", payload);
+  } catch (error) {
+    console.error("Error creating staff:", error);
+    throw error;
+  }
+}
+
+/**
+ * 社員を更新
+ */
+export async function updateStaff(id: string, data: Partial<StaffDetail>): Promise<StaffDetail | null> {
+  try {
+    const payload: Record<string, unknown> = {};
+    if (data.employeeNo !== undefined) payload.employee_no = data.employeeNo;
+    if (data.lastName !== undefined) payload.last_name = data.lastName;
+    if (data.firstName !== undefined) payload.first_name = data.firstName;
+    if (data.email !== undefined) payload.email = data.email;
+    if (data.phone !== undefined) payload.phone = data.phone;
+    if (data.department !== undefined) payload.department = data.department;
+    if (data.positionName !== undefined) payload.position_name = data.positionName;
+    if (data.status !== undefined) payload.status = data.status;
+    if (data.hireDate !== undefined) payload.hire_date = data.hireDate;
+    if (data.schools !== undefined) payload.school_ids = data.schools.map(s => s.id);
+    if (data.brands !== undefined) payload.brand_ids = data.brands.map(b => b.id);
+    if (data.roles !== undefined) payload.roles = data.roles;
+
+    return await apiClient.patch<StaffDetail>(`/tenants/employees/${id}/`, payload);
+  } catch (error) {
+    console.error("Error updating staff:", error);
+    throw error;
+  }
+}
+
+/**
+ * 社員を削除
+ */
+export async function deleteStaff(id: string): Promise<boolean> {
+  try {
+    await apiClient.delete(`/tenants/employees/${id}/`);
+    return true;
+  } catch (error) {
+    console.error("Error deleting staff:", error);
+    return false;
+  }
+}
+
+/**
+ * スタッフグループ一覧を取得
+ */
+export async function getStaffGroups(): Promise<StaffGroup[]> {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const response = await apiClient.get<any>("/tenants/employee-groups/");
+    const results = response.data || response.results || response || [];
+    return results.map((g: Record<string, unknown>) => ({
+      id: g.id as string,
+      name: (g.name || '') as string,
+      description: (g.description || '') as string,
+      memberCount: (g.memberCount || g.member_count || 0) as number,
+      members: ((g.members || []) as StaffDetail[]),
+      createdAt: (g.createdAt || g.created_at || '') as string,
+    }));
+  } catch {
+    // API endpoint may not exist yet
+    return [];
+  }
+}
+
+/**
+ * スタッフグループ詳細を取得
+ */
+export async function getStaffGroupDetail(id: string): Promise<StaffGroup | null> {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const g = await apiClient.get<any>(`/tenants/employee-groups/${id}/`);
+    return {
+      id: g.id as string,
+      name: (g.name || '') as string,
+      description: (g.description || '') as string,
+      memberCount: (g.memberCount || g.member_count || 0) as number,
+      members: ((g.members || []) as StaffDetail[]),
+      createdAt: (g.createdAt || g.created_at || '') as string,
+    };
+  } catch {
+    // API endpoint may not exist yet
+    return null;
+  }
+}
+
+/**
+ * スタッフグループを作成
+ */
+export async function createStaffGroup(data: { name: string; description?: string; memberIds: string[] }): Promise<StaffGroup | null> {
+  try {
+    const payload = {
+      name: data.name,
+      description: data.description || '',
+      member_ids: data.memberIds,
+    };
+    return await apiClient.post<StaffGroup>("/tenants/employee-groups/", payload);
+  } catch (error) {
+    console.error("Error creating staff group:", error);
+    throw error;
+  }
+}
+
+/**
+ * スタッフグループを更新
+ */
+export async function updateStaffGroup(id: string, data: { name?: string; description?: string; memberIds?: string[] }): Promise<StaffGroup | null> {
+  try {
+    const payload: Record<string, unknown> = {};
+    if (data.name !== undefined) payload.name = data.name;
+    if (data.description !== undefined) payload.description = data.description;
+    if (data.memberIds !== undefined) payload.member_ids = data.memberIds;
+    return await apiClient.patch<StaffGroup>(`/tenants/employee-groups/${id}/`, payload);
+  } catch (error) {
+    console.error("Error updating staff group:", error);
+    throw error;
+  }
+}
+
+/**
+ * スタッフグループを削除
+ */
+export async function deleteStaffGroup(id: string): Promise<boolean> {
+  try {
+    await apiClient.delete(`/tenants/employee-groups/${id}/`);
+    return true;
+  } catch (error) {
+    console.error("Error deleting staff group:", error);
+    return false;
+  }
+}
+
+/**
+ * 役割一覧を取得
+ */
+export async function getRoles(): Promise<string[]> {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const response = await apiClient.get<any>("/tenants/roles/");
+    return (response.data || response.results || response || []).map((r: { name?: string } | string) =>
+      typeof r === 'string' ? r : r.name || ''
+    );
+  } catch {
+    // API endpoint may not exist yet
+    return [];
+  }
+}
+
+/**
+ * 部署一覧を取得
+ */
+export async function getDepartments(): Promise<string[]> {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const response = await apiClient.get<any>("/tenants/departments/");
+    return (response.data || response.results || response || []).map((d: { name?: string } | string) =>
+      typeof d === 'string' ? d : d.name || ''
+    );
+  } catch {
+    // API endpoint may not exist yet
+    return [];
+  }
 }

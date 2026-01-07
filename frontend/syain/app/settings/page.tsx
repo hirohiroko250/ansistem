@@ -7,126 +7,93 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
-import { Checkbox } from '@/components/ui/checkbox';
 import { useAuth } from '@/lib/auth';
-import { supabase } from '@/lib/supabase';
 import { BottomNav } from '@/components/bottom-nav';
-import { User, Bell, MapPin, LogOut, Save } from 'lucide-react';
+import { User, Bell, LogOut, Save, Settings, ChevronRight } from 'lucide-react';
+import api from '@/lib/api/client';
 
-interface Campus {
+interface UserProfile {
   id: string;
-  name: string;
+  email: string;
+  full_name: string;
+  lastName?: string;
+  firstName?: string;
+  phoneNumber?: string;
 }
 
 export default function SettingsPage() {
-  const { user, loading, signOut } = useAuth();
+  const { user, loading, isAuthenticated, signOut } = useAuth();
   const router = useRouter();
-  const [profile, setProfile] = useState<any>(null);
-  const [fullName, setFullName] = useState('');
+  const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [lastName, setLastName] = useState('');
+  const [firstName, setFirstName] = useState('');
   const [phone, setPhone] = useState('');
-  const [email, setEmail] = useState('');
-  const [campuses, setCampuses] = useState<Campus[]>([]);
-  const [selectedCampuses, setSelectedCampuses] = useState<string[]>([]);
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [loadingProfile, setLoadingProfile] = useState(true);
+  const [loggingOut, setLoggingOut] = useState(false);
 
   useEffect(() => {
     if (loading) return;
-    if (!user) {
+    if (!isAuthenticated) {
       router.push('/login');
       return;
     }
-    loadData();
-  }, [user, loading]);
+    loadProfile();
+  }, [isAuthenticated, loading, router]);
 
-  const loadData = async () => {
-    if (!user) return;
-
-    const { data: profileData } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('id', user.id)
-      .single();
-
-    if (profileData) {
-      setProfile(profileData);
-      setFullName(profileData.full_name);
-      setPhone(profileData.phone);
-      setEmail(profileData.email);
+  const loadProfile = async () => {
+    try {
+      const data = await api.get<UserProfile>('/auth/me/');
+      setProfile(data);
+      setLastName(data.lastName || '');
+      setFirstName(data.firstName || '');
+      setPhone(data.phoneNumber || '');
+    } catch (err) {
+      console.error('プロフィール取得エラー:', err);
+    } finally {
+      setLoadingProfile(false);
     }
-
-    const { data: campusesData } = await supabase
-      .from('campuses')
-      .select('id, name')
-      .order('name');
-
-    if (campusesData) {
-      setCampuses(campusesData);
-    }
-
-    const { data: instructorCampusesData } = await supabase
-      .from('instructor_campuses')
-      .select('campus_id')
-      .eq('instructor_id', user.id);
-
-    if (instructorCampusesData) {
-      setSelectedCampuses(instructorCampusesData.map((ic) => ic.campus_id));
-    }
-  };
-
-  const handleCampusToggle = (campusId: string) => {
-    setSelectedCampuses((prev) =>
-      prev.includes(campusId)
-        ? prev.filter((id) => id !== campusId)
-        : [...prev, campusId]
-    );
   };
 
   const handleSave = async () => {
-    if (!user) return;
     setSubmitting(true);
-
-    const { error: profileError } = await supabase
-      .from('profiles')
-      .update({
-        full_name: fullName,
-        phone,
-        email,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', user.id);
-
-    if (profileError) {
-      console.error('Profile update error:', profileError);
+    try {
+      await api.patch('/auth/me/', {
+        lastName,
+        firstName,
+        phoneNumber: phone,
+      });
+      alert('設定を保存しました');
+    } catch (err) {
+      console.error('保存エラー:', err);
+      alert('保存に失敗しました');
+    } finally {
       setSubmitting(false);
-      return;
     }
-
-    const { error: deleteError } = await supabase
-      .from('instructor_campuses')
-      .delete()
-      .eq('instructor_id', user.id);
-
-    for (const campusId of selectedCampuses) {
-      await supabase
-        .from('instructor_campuses')
-        .insert({
-          instructor_id: user.id,
-          campus_id: campusId,
-        });
-    }
-
-    setSubmitting(false);
-    alert('設定を保存しました');
   };
 
   const handleLogout = async () => {
-    await signOut();
-    router.push('/login');
+    setLoggingOut(true);
+    try {
+      await signOut();
+    } catch (err) {
+      console.error('ログアウトエラー:', err);
+      // エラーが発生してもログイン画面に遷移
+      router.push('/login');
+    }
   };
 
-  if (loading || !profile) {
-    return <div className="min-h-screen bg-gradient-to-b from-blue-50 to-blue-100" />;
+  if (loading || loadingProfile) {
+    return (
+      <div className="min-h-screen bg-gradient-to-b from-blue-50 to-blue-100 flex items-center justify-center">
+        <div className="text-gray-500">読み込み中...</div>
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return null;
   }
 
   return (
@@ -134,29 +101,47 @@ export default function SettingsPage() {
       <div className="max-w-[390px] mx-auto">
         <div className="bg-white/80 backdrop-blur-sm border-b border-gray-200 sticky top-0 z-10">
           <div className="p-4">
-            <h1 className="text-2xl font-bold text-gray-900">設定</h1>
+            <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+              <Settings className="w-6 h-6" />
+              設定
+            </h1>
           </div>
         </div>
 
         <div className="p-4 space-y-4">
+          {/* アカウント情報 */}
           <Card className="shadow-md border-0">
             <CardHeader>
               <CardTitle className="text-lg flex items-center gap-2">
                 <User className="w-5 h-5" />
-                プロフィール
+                アカウント情報
               </CardTitle>
-              <CardDescription>基本情報の編集</CardDescription>
+              <CardDescription>{user?.email}</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="fullName">氏名</Label>
-                <Input
-                  id="fullName"
-                  type="text"
-                  value={fullName}
-                  onChange={(e) => setFullName(e.target.value)}
-                  className="h-12"
-                />
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="lastName">姓</Label>
+                  <Input
+                    id="lastName"
+                    type="text"
+                    value={lastName}
+                    onChange={(e) => setLastName(e.target.value)}
+                    className="h-12"
+                    placeholder="山田"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="firstName">名</Label>
+                  <Input
+                    id="firstName"
+                    type="text"
+                    value={firstName}
+                    onChange={(e) => setFirstName(e.target.value)}
+                    className="h-12"
+                    placeholder="太郎"
+                  />
+                </div>
               </div>
 
               <div className="space-y-2">
@@ -167,56 +152,24 @@ export default function SettingsPage() {
                   value={phone}
                   onChange={(e) => setPhone(e.target.value)}
                   className="h-12"
+                  placeholder="090-1234-5678"
                 />
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="email">メールアドレス</Label>
+                <Label>メールアドレス</Label>
                 <Input
-                  id="email"
                   type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  className="h-12"
+                  value={user?.email || ''}
+                  disabled
+                  className="h-12 bg-gray-100"
                 />
+                <p className="text-xs text-gray-500">メールアドレスは変更できません</p>
               </div>
             </CardContent>
           </Card>
 
-          <Card className="shadow-md border-0">
-            <CardHeader>
-              <CardTitle className="text-lg flex items-center gap-2">
-                <MapPin className="w-5 h-5" />
-                勤務可能校舎
-              </CardTitle>
-              <CardDescription>担当する校舎を選択してください</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-2 max-h-64 overflow-y-auto p-2 border rounded-lg">
-                {campuses.map((campus) => (
-                  <div key={campus.id} className="flex items-center space-x-2">
-                    <Checkbox
-                      id={`campus-${campus.id}`}
-                      checked={selectedCampuses.includes(campus.id)}
-                      onCheckedChange={() => handleCampusToggle(campus.id)}
-                    />
-                    <label
-                      htmlFor={`campus-${campus.id}`}
-                      className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer"
-                    >
-                      {campus.name}
-                    </label>
-                  </div>
-                ))}
-                {campuses.length === 0 && (
-                  <p className="text-sm text-gray-500 text-center py-4">
-                    校舎データがありません
-                  </p>
-                )}
-              </div>
-            </CardContent>
-          </Card>
-
+          {/* 通知設定 */}
           <Card className="shadow-md border-0">
             <CardHeader>
               <CardTitle className="text-lg flex items-center gap-2">
@@ -239,6 +192,23 @@ export default function SettingsPage() {
             </CardContent>
           </Card>
 
+          {/* パスワード変更 */}
+          <Card
+            className="shadow-md border-0 cursor-pointer hover:bg-gray-50 transition-colors"
+            onClick={() => router.push('/settings/password')}
+          >
+            <CardContent className="pt-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="font-medium">パスワード変更</p>
+                  <p className="text-sm text-gray-500">ログインパスワードの変更</p>
+                </div>
+                <ChevronRight className="w-5 h-5 text-gray-400" />
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* 保存ボタン */}
           <Button
             onClick={handleSave}
             disabled={submitting}
@@ -248,18 +218,26 @@ export default function SettingsPage() {
             {submitting ? '保存中...' : '設定を保存'}
           </Button>
 
+          {/* ログアウト */}
           <Card className="shadow-md border-0 border-red-200 bg-red-50">
             <CardContent className="pt-6">
               <Button
                 onClick={handleLogout}
                 variant="destructive"
                 className="w-full h-12"
+                disabled={loggingOut}
               >
                 <LogOut className="w-4 h-4 mr-2" />
-                ログアウト
+                {loggingOut ? 'ログアウト中...' : 'ログアウト'}
               </Button>
             </CardContent>
           </Card>
+
+          {/* アプリ情報 */}
+          <div className="text-center text-xs text-gray-400 pt-4">
+            <p>講師業務システム v1.0.0</p>
+            <p className="mt-1">© 2024 アンイングリッシュグループ</p>
+          </div>
         </div>
       </div>
 

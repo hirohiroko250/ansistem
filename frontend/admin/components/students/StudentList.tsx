@@ -3,12 +3,13 @@
 import { Student, PaginatedResult } from "@/lib/api/staff";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
-import { GraduationCap } from "lucide-react";
+import { GraduationCap, MessageCircle } from "lucide-react";
 
 interface StudentListProps {
   result: PaginatedResult<Student>;
   selectedStudentId?: string;
   onSelectStudent: (studentId: string) => void;
+  unreadCounts?: Record<string, number>; // 生徒IDごとの未読件数
 }
 
 // ステータスの日本語変換
@@ -30,7 +31,7 @@ function getStatusVariant(status: string): "default" | "secondary" | "destructiv
   return "secondary";
 }
 
-export function StudentList({ result, selectedStudentId, onSelectStudent }: StudentListProps) {
+export function StudentList({ result, selectedStudentId, onSelectStudent, unreadCounts = {} }: StudentListProps) {
   const { data: students } = result;
 
   if (students.length === 0) {
@@ -54,13 +55,16 @@ export function StudentList({ result, selectedStudentId, onSelectStudent }: Stud
         const gradeText = student.gradeText || student.grade_text || student.gradeName || "";
         // 生徒番号
         const studentNo = student.studentNo || student.student_no || "";
+        // 未読件数
+        const unreadCount = unreadCounts[student.id] || 0;
 
         return (
           <div
             key={student.id}
             className={cn(
               "px-3 py-2 cursor-pointer hover:bg-blue-50 transition-all border-b border-gray-100",
-              selectedStudentId === student.id && "bg-blue-50 border-l-4 border-l-blue-500"
+              selectedStudentId === student.id && "bg-blue-50 border-l-4 border-l-blue-500",
+              unreadCount > 0 && "bg-red-50"
             )}
             onClick={() => onSelectStudent(student.id)}
           >
@@ -75,6 +79,12 @@ export function StudentList({ result, selectedStudentId, onSelectStudent }: Stud
                   >
                     {getStatusLabel(student.status)}
                   </Badge>
+                  {unreadCount > 0 && (
+                    <span className="flex items-center gap-0.5 bg-red-500 text-white text-[10px] px-1.5 py-0.5 rounded-full">
+                      <MessageCircle className="w-3 h-3" />
+                      {unreadCount}
+                    </span>
+                  )}
                 </div>
                 <div className="text-xs text-gray-400">
                   {studentNo && <span>No.{studentNo}</span>}

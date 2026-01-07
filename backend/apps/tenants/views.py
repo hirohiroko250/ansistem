@@ -5,12 +5,13 @@ from rest_framework import viewsets, permissions, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
-from .models import Tenant, Position, FeatureMaster, PositionPermission, Employee
+from .models import Tenant, Position, FeatureMaster, PositionPermission, Employee, EmployeeGroup
 from .serializers import (
     TenantSerializer, TenantDetailSerializer,
     PositionSerializer, FeatureMasterSerializer,
     PositionPermissionSerializer, BulkPermissionUpdateSerializer,
     EmployeeListSerializer, EmployeeDetailSerializer,
+    EmployeeGroupListSerializer, EmployeeGroupDetailSerializer, EmployeeGroupCreateUpdateSerializer,
 )
 
 
@@ -329,3 +330,100 @@ class EmployeeViewSet(viewsets.ModelViewSet):
             'unassigned': unassigned_employees,
             'all_employees': EmployeeListSerializer(employees, many=True).data,
         })
+
+
+class EmployeeGroupViewSet(viewsets.ModelViewSet):
+    """社員グループViewSet"""
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        return EmployeeGroup.objects.filter(
+            tenant_ref=self.request.user.tenant_id,
+            is_active=True
+        ).prefetch_related('members', 'members__position', 'members__schools', 'members__brands').order_by('name')
+
+    def get_serializer_class(self):
+        if self.action in ['create', 'update', 'partial_update']:
+            return EmployeeGroupCreateUpdateSerializer
+        if self.action == 'retrieve':
+            return EmployeeGroupDetailSerializer
+        return EmployeeGroupListSerializer
+
+    def perform_create(self, serializer):
+        serializer.save(tenant_ref=self.request.user.tenant_id)
+
+    def perform_destroy(self, instance):
+        # 論理削除
+        instance.is_active = False
+        instance.save()
+
+
+from rest_framework.views import APIView
+
+
+class DepartmentListView(APIView):
+    """部署一覧API - 社員の部署から動的に取得"""
+    permission_classes = [permissions.AllowAny]
+
+    def get(self, request):
+        # X-Tenant-ID ヘッダーまたは認証ユーザーからテナントIDを取得
+        tenant_id = request.headers.get('X-Tenant-ID')
+        if not tenant_id and hasattr(request, 'user') and request.user.is_authenticated:
+            tenant_id = request.user.tenant_id
+
+        if not tenant_id:
+            return Response([])
+
+        departments = Employee.objects.filter(
+            tenant_ref=tenant_id,
+            is_active=True
+        ).exclude(
+            department__isnull=True
+        ).exclude(
+            department=''
+        ).values_list('department', flat=True).distinct().order_by('department')
+
+        return Response([{'name': d} for d in departments])
+
+
+class RoleListView(APIView):
+    """役割一覧API - 役職マスタから取得"""
+    permission_classes = [permissions.AllowAny]
+
+    def get(self, request):
+        # X-Tenant-ID ヘッダーまたは認証ユーザーからテナントIDを取得
+        tenant_id = request.headers.get('X-Tenant-ID')
+        if not tenant_id and hasattr(request, 'user') and request.user.is_authenticated:
+            tenant_id = request.user.tenant_id
+
+        if not tenant_id:
+            return Response([])
+
+        positions = Position.objects.filter(
+            tenant_ref=tenant_id,
+            is_active=True
+        ).values_list('position_name', flat=True).order_by('position_name')
+
+        return Response([{'name': p} for p in positions])
+
+
+class PublicPositionListView(APIView):
+    """役職一覧API（公開） - 新規登録用"""
+    permission_classes = [permissions.AllowAny]
+
+    def get(self, request):
+        # X-Tenant-ID ヘッダーからテナントIDを取得
+        tenant_id = request.headers.get('X-Tenant-ID')
+        if not tenant_id:
+            return Response([])
+
+        positions = Position.objects.filter(
+            tenant_ref=tenant_id,
+            is_active=True
+        ).order_by('position_name')
+
+        return Response([{
+            'id': str(p.id),
+            'position_name': p.position_name,
+            'position_code': p.position_code,
+        } for p in positions])

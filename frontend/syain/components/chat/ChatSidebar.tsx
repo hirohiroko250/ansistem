@@ -174,12 +174,12 @@ export function ChatSidebar({
   const pinnedCount = currentChannels.filter(c => 'isPinned' in c && c.isPinned).length;
 
   return (
-    <div className="h-full flex flex-col bg-[#1a1a2e]">
-      {/* Chatwork風ヘッダー */}
-      <div className="flex-shrink-0 bg-[#1a1a2e] px-3 py-3">
+    <div className="h-full flex flex-col bg-white">
+      {/* ヘッダー */}
+      <div className="flex-shrink-0 bg-white px-3 py-3 border-b">
         <div className="flex items-center justify-between mb-3">
-          <h1 className="text-lg font-bold text-white flex items-center gap-2">
-            <MessageCircle className="w-5 h-5 text-[#07B53B]" />
+          <h1 className="text-lg font-bold text-gray-800 flex items-center gap-2">
+            <MessageCircle className="w-5 h-5 text-blue-500" />
             チャット
           </h1>
           <div className="flex items-center gap-1">
@@ -188,7 +188,7 @@ export function ChatSidebar({
                 variant="ghost"
                 size="icon"
                 onClick={onOpenSearch}
-                className="text-gray-400 hover:text-white hover:bg-white/10 h-8 w-8"
+                className="text-gray-500 hover:text-gray-700 hover:bg-gray-100 h-8 w-8"
                 title="メッセージを検索"
               >
                 <Search className="w-4 h-4" />
@@ -199,7 +199,7 @@ export function ChatSidebar({
                 variant="ghost"
                 size="icon"
                 onClick={onCreateGroup}
-                className="text-[#07B53B] hover:text-[#07B53B] hover:bg-white/10 h-8 w-8"
+                className="text-blue-500 hover:text-blue-600 hover:bg-blue-50 h-8 w-8"
                 title="グループを作成"
               >
                 <UsersRound className="w-4 h-4" />
@@ -210,7 +210,7 @@ export function ChatSidebar({
                 variant="ghost"
                 size="icon"
                 onClick={onToggleNewChat}
-                className="text-[#07B53B] hover:text-[#07B53B] hover:bg-white/10 h-8 w-8"
+                className="text-blue-500 hover:text-blue-600 hover:bg-blue-50 h-8 w-8"
                 title="DMを作成"
               >
                 <UserPlus className="w-4 h-4" />
@@ -219,8 +219,8 @@ export function ChatSidebar({
           </div>
         </div>
 
-        {/* Chatwork風タブ */}
-        <div className="flex bg-[#2d2d44] rounded-lg p-0.5">
+        {/* タブ */}
+        <div className="flex bg-gray-100 rounded-lg p-0.5">
           {[
             { key: 'guardian', label: '保護者', icon: User },
             { key: 'group', label: 'グループ', icon: Users },
@@ -233,8 +233,8 @@ export function ChatSidebar({
                 onClick={() => onTabChange(tab.key as TabType)}
                 className={`flex-1 py-2 text-xs font-medium rounded-md transition-all flex items-center justify-center gap-1 ${
                   activeTab === tab.key
-                    ? 'bg-[#07B53B] text-white'
-                    : 'text-gray-400 hover:text-white hover:bg-white/5'
+                    ? 'bg-blue-500 text-white'
+                    : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
                 }`}
               >
                 <Icon className="w-3.5 h-3.5" />
@@ -245,30 +245,30 @@ export function ChatSidebar({
         </div>
       </div>
 
-      {/* Chatwork風検索バー */}
-      <div className="flex-shrink-0 px-3 py-2 bg-[#2d2d44]">
+      {/* 検索バー */}
+      <div className="flex-shrink-0 px-3 py-2 bg-gray-50 border-b">
         <div className="relative">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-500" />
+          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
           <Input
             placeholder="チャットを検索..."
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
-            className="pl-9 bg-[#1a1a2e] border-0 rounded-md h-8 text-sm text-white placeholder:text-gray-500 focus-visible:ring-1 focus-visible:ring-[#07B53B]"
+            className="pl-9 bg-white border border-gray-200 rounded-md h-8 text-sm text-gray-800 placeholder:text-gray-400 focus-visible:ring-1 focus-visible:ring-blue-500"
           />
         </div>
       </div>
 
-      {/* 新規チャット作成（社員タブ）- Chatwork風 */}
+      {/* 新規チャット作成（社員タブ） */}
       {activeTab === 'staff' && showNewChat && (
-        <div className="flex-shrink-0 bg-[#2d2d44]">
-          <div className="px-3 py-2 flex items-center justify-between border-b border-white/10">
-            <p className="text-xs font-medium text-gray-400">メンバーを選択</p>
+        <div className="flex-shrink-0 bg-gray-50">
+          <div className="px-3 py-2 flex items-center justify-between border-b border-gray-200">
+            <p className="text-xs font-medium text-gray-600">メンバーを選択</p>
             <button
               onClick={() => setShowFilters(!showFilters)}
               className={`flex items-center gap-1 text-xs px-2 py-1 rounded transition-colors ${
                 showFilters || filterSchool || filterBrand
-                  ? 'bg-[#07B53B] text-white'
-                  : 'bg-white/10 text-gray-400 hover:bg-white/20'
+                  ? 'bg-blue-500 text-white'
+                  : 'bg-gray-200 text-gray-600 hover:bg-gray-300'
               }`}
             >
               <Filter className="w-3 h-3" />
@@ -283,10 +283,10 @@ export function ChatSidebar({
 
           {/* フィルター */}
           {showFilters && (
-            <div className="px-3 py-3 border-b border-white/10 space-y-2">
+            <div className="px-3 py-3 border-b border-gray-200 space-y-2 bg-white">
               <div className="flex gap-2">
                 <Select value={filterSchool} onValueChange={onFilterSchoolChange}>
-                  <SelectTrigger className="flex-1 h-8 text-xs bg-[#1a1a2e] border-0 text-white">
+                  <SelectTrigger className="flex-1 h-8 text-xs bg-white border-gray-200 text-gray-800">
                     <SelectValue placeholder="教室" />
                   </SelectTrigger>
                   <SelectContent>
@@ -299,7 +299,7 @@ export function ChatSidebar({
                   </SelectContent>
                 </Select>
                 <Select value={filterBrand} onValueChange={onFilterBrandChange}>
-                  <SelectTrigger className="flex-1 h-8 text-xs bg-[#1a1a2e] border-0 text-white">
+                  <SelectTrigger className="flex-1 h-8 text-xs bg-white border-gray-200 text-gray-800">
                     <SelectValue placeholder="ブランド" />
                   </SelectTrigger>
                   <SelectContent>
@@ -318,7 +318,7 @@ export function ChatSidebar({
                     onFilterSchoolChange('');
                     onFilterBrandChange('');
                   }}
-                  className="text-xs text-[#07B53B] hover:underline"
+                  className="text-xs text-blue-500 hover:underline"
                 >
                   フィルターをクリア
                 </button>
@@ -326,14 +326,14 @@ export function ChatSidebar({
             </div>
           )}
 
-          <div className="max-h-64 overflow-y-auto bg-[#1a1a2e]">
+          <div className="max-h-64 overflow-y-auto bg-white">
             {staffList.map(staff => {
               const colorIndex = staff.fullName.charCodeAt(0) % avatarColors.length;
 
               return (
                 <div
                   key={staff.id}
-                  className="w-full px-3 py-2.5 flex items-center gap-3 hover:bg-white/5 transition-colors border-b border-white/5"
+                  className="w-full px-3 py-2.5 flex items-center gap-3 hover:bg-gray-50 transition-colors border-b border-gray-100"
                 >
                   <button
                     onClick={() => onShowStaffDetail(staff)}
@@ -353,7 +353,7 @@ export function ChatSidebar({
                     onClick={() => onCreateStaffDM(staff.id)}
                     className="flex-1 text-left min-w-0"
                   >
-                    <p className="font-medium text-white text-sm truncate">{staff.fullName}</p>
+                    <p className="font-medium text-gray-800 text-sm truncate">{staff.fullName}</p>
                     {staff.positionName && (
                       <p className="text-xs text-gray-500 truncate">{staff.positionName}</p>
                     )}
@@ -361,7 +361,7 @@ export function ChatSidebar({
 
                   <button
                     onClick={() => onCreateStaffDM(staff.id)}
-                    className="p-1.5 text-[#07B53B] hover:bg-[#07B53B]/20 rounded transition-colors"
+                    className="p-1.5 text-blue-500 hover:bg-blue-50 rounded transition-colors"
                   >
                     <MessageCircle className="w-4 h-4" />
                   </button>
@@ -377,16 +377,16 @@ export function ChatSidebar({
         </div>
       )}
 
-      {/* Chatwork風チャンネル一覧 */}
-      <div className="flex-1 overflow-y-auto bg-[#1a1a2e]">
+      {/* チャンネル一覧 */}
+      <div className="flex-1 overflow-y-auto bg-white">
         {isLoading ? (
           <div className="flex items-center justify-center py-16">
-            <Loader2 className="h-6 w-6 animate-spin text-[#07B53B]" />
+            <Loader2 className="h-6 w-6 animate-spin text-blue-500" />
           </div>
         ) : currentChannels.length === 0 && !showNewChat ? (
           <div className="text-center py-16 px-4">
-            <div className="w-16 h-16 mx-auto mb-4 bg-[#2d2d44] rounded-full flex items-center justify-center">
-              <MessageCircle className="w-8 h-8 text-gray-500" />
+            <div className="w-16 h-16 mx-auto mb-4 bg-gray-100 rounded-full flex items-center justify-center">
+              <MessageCircle className="w-8 h-8 text-gray-400" />
             </div>
             <p className="text-gray-500 text-sm">
               {searchQuery ? '検索結果がありません' : 'トークがありません'}
@@ -395,7 +395,7 @@ export function ChatSidebar({
               <Button
                 size="sm"
                 onClick={onToggleNewChat}
-                className="mt-4 bg-[#07B53B] hover:bg-[#06a035]"
+                className="mt-4 bg-blue-500 hover:bg-blue-600"
               >
                 <UserPlus className="w-4 h-4 mr-2" />
                 トークを開始
@@ -405,9 +405,9 @@ export function ChatSidebar({
         ) : (
           !showNewChat && (
             <>
-              {/* ピン留めセクション - Chatwork風 */}
+              {/* ピン留めセクション */}
               {pinnedCount > 0 && (
-                <div className="px-3 py-1.5 bg-[#2d2d44]">
+                <div className="px-3 py-1.5 bg-gray-50 border-b">
                   <p className="text-[10px] font-medium text-gray-500 uppercase tracking-wider flex items-center gap-1">
                     <Pin className="w-2.5 h-2.5" />
                     ピン留め
@@ -430,15 +430,15 @@ export function ChatSidebar({
                 return (
                   <div key={channel.id}>
                     {showDivider && (
-                      <div className="px-3 py-1.5 bg-[#2d2d44]">
+                      <div className="px-3 py-1.5 bg-gray-50 border-b">
                         <p className="text-[10px] font-medium text-gray-500 uppercase tracking-wider">すべて</p>
                       </div>
                     )}
                     <div
                       className={`w-full px-3 py-2.5 flex items-center gap-2.5 transition-colors group cursor-pointer ${
                         isSelected
-                          ? 'bg-[#07B53B]/20 border-l-2 border-l-[#07B53B]'
-                          : 'hover:bg-white/5 border-l-2 border-l-transparent'
+                          ? 'bg-blue-50 border-l-2 border-l-blue-500'
+                          : 'hover:bg-gray-50 border-l-2 border-l-transparent'
                       }`}
                     >
                       <button
@@ -455,9 +455,9 @@ export function ChatSidebar({
                               )}
                             </AvatarFallback>
                           </Avatar>
-                          {/* Chatwork風の未読バッジ */}
+                          {/* 未読バッジ */}
                           {unreadCount > 0 && (
-                            <div className="absolute -top-1 -right-1 bg-[#E53935] text-white text-[10px] font-bold rounded-full min-w-[18px] h-[18px] flex items-center justify-center px-1 shadow-lg">
+                            <div className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] font-bold rounded-full min-w-[18px] h-[18px] flex items-center justify-center px-1 shadow-lg">
                               {unreadCount > 99 ? '99+' : unreadCount}
                             </div>
                           )}
@@ -467,32 +467,32 @@ export function ChatSidebar({
                           <div className="flex items-center gap-1">
                             <h3 className={`text-sm truncate ${
                               unreadCount > 0
-                                ? 'font-semibold text-white'
+                                ? 'font-semibold text-gray-900'
                                 : isSelected
-                                  ? 'font-medium text-white'
-                                  : 'font-medium text-gray-300'
+                                  ? 'font-medium text-gray-900'
+                                  : 'font-medium text-gray-700'
                             }`}>
                               {displayName}
                             </h3>
                             {isPinned && (
-                              <Pin className="w-3 h-3 text-[#07B53B] flex-shrink-0" />
+                              <Pin className="w-3 h-3 text-blue-500 flex-shrink-0" />
                             )}
                             {isMuted && (
-                              <BellOff className="w-3 h-3 text-gray-600 flex-shrink-0" />
+                              <BellOff className="w-3 h-3 text-gray-400 flex-shrink-0" />
                             )}
                           </div>
                           <div className="flex items-center justify-between mt-0.5">
                             {lastMessage ? (
                               <p className={`text-xs truncate flex-1 ${
-                                unreadCount > 0 ? 'text-gray-300' : 'text-gray-500'
+                                unreadCount > 0 ? 'text-gray-600' : 'text-gray-500'
                               }`}>
                                 {lastMessage.content}
                               </p>
                             ) : (
-                              <p className="text-xs text-gray-600 truncate flex-1">メッセージなし</p>
+                              <p className="text-xs text-gray-400 truncate flex-1">メッセージなし</p>
                             )}
                             {lastMessage && (
-                              <span className="text-[10px] text-gray-500 flex-shrink-0 ml-2">
+                              <span className="text-[10px] text-gray-400 flex-shrink-0 ml-2">
                                 {isToday(new Date(lastMessage.createdAt))
                                   ? format(new Date(lastMessage.createdAt), 'HH:mm')
                                   : isYesterday(new Date(lastMessage.createdAt))
@@ -504,43 +504,37 @@ export function ChatSidebar({
                         </div>
                       </button>
 
-                      {/* Chatwork風チャンネルメニュー */}
-                      <DropdownMenu>
+                      {/* チャンネルメニュー */}
+                      <DropdownMenu modal={false}>
                         <DropdownMenuTrigger asChild>
                           <Button
                             variant="ghost"
                             size="icon"
-                            className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0 text-gray-400 hover:text-white hover:bg-white/10"
+                            className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0 text-gray-400 hover:text-gray-600 hover:bg-gray-100"
                           >
                             <MoreVertical className="h-4 w-4" />
                           </Button>
                         </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="w-44 bg-[#2d2d44] border-white/10">
+                        <DropdownMenuContent align="end" className="w-44">
                           {onTogglePin && (
-                            <DropdownMenuItem
-                              onClick={() => onTogglePin(channel.id)}
-                              className="text-gray-300 focus:text-white focus:bg-white/10"
-                            >
+                            <DropdownMenuItem onClick={() => onTogglePin(channel.id)}>
                               <Pin className="w-4 h-4 mr-2" />
                               {isPinned ? 'ピン留め解除' : 'ピン留め'}
                             </DropdownMenuItem>
                           )}
                           {onToggleMute && (
-                            <DropdownMenuItem
-                              onClick={() => onToggleMute(channel.id)}
-                              className="text-gray-300 focus:text-white focus:bg-white/10"
-                            >
+                            <DropdownMenuItem onClick={() => onToggleMute(channel.id)}>
                               <BellOff className="w-4 h-4 mr-2" />
                               {isMuted ? 'ミュート解除' : 'ミュート'}
                             </DropdownMenuItem>
                           )}
                           {(onTogglePin || onToggleMute) && onArchive && (
-                            <DropdownMenuSeparator className="bg-white/10" />
+                            <DropdownMenuSeparator />
                           )}
                           {onArchive && (
                             <DropdownMenuItem
                               onClick={() => onArchive(channel.id)}
-                              className="text-red-400 focus:text-red-300 focus:bg-red-500/10"
+                              className="text-red-600"
                             >
                               <Archive className="w-4 h-4 mr-2" />
                               アーカイブ

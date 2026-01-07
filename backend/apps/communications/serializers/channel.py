@@ -53,11 +53,24 @@ class ChannelListSerializer(serializers.ModelSerializer):
         request = self.context.get('request')
         if request and request.user:
             member = obj.members.filter(user=request.user).first()
-            if member and member.last_read_at:
-                return obj.messages.filter(
-                    created_at__gt=member.last_read_at,
-                    is_deleted=False
-                ).count()
+            if member:
+                from django.db.models import Q
+                # 自分が送信したメッセージは除外
+                # sender（スタッフ）が自分でない、かつsender_guardian（保護者）も自分に紐づく保護者でない
+                exclude_filter = Q(sender=request.user)
+
+                # ユーザーに紐づく保護者があれば、その保護者からのメッセージも除外
+                if hasattr(request.user, 'guardian'):
+                    exclude_filter |= Q(sender_guardian=request.user.guardian)
+
+                base_query = obj.messages.filter(is_deleted=False).exclude(exclude_filter)
+
+                if member.last_read_at:
+                    # last_read_at以降の相手からのメッセージをカウント
+                    return base_query.filter(created_at__gt=member.last_read_at).count()
+                else:
+                    # last_read_atがNoneの場合は相手からの全メッセージを未読とする
+                    return base_query.count()
         return 0
 
     def get_is_pinned(self, obj):

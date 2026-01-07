@@ -3,27 +3,27 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import { Home, CheckSquare, MessageCircle, QrCode, Image } from 'lucide-react';
+import { Home, CheckSquare, MessageCircle, QrCode, Settings } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { useAuth } from '@/lib/auth';
+import { getAccessToken } from '@/lib/api/client';
 
 const tabs = [
   { name: 'Home', href: '/home', icon: Home },
   { name: 'Task', href: '/tasks', icon: CheckSquare },
-  { name: 'Feed', href: '/feed', icon: Image },
   { name: 'Attendance', href: '/attendance', icon: QrCode },
   { name: 'Chat', href: '/chat', icon: MessageCircle },
+  { name: 'Settings', href: '/settings', icon: Settings },
 ];
 
 export function BottomNav() {
   const pathname = usePathname();
-  const { token } = useAuth();
   const [unreadCount, setUnreadCount] = useState(0);
   const [taskCount, setTaskCount] = useState(0);
 
   // 未読メッセージ数と未完了タスク数を取得
   useEffect(() => {
     const fetchCounts = async () => {
+      const token = getAccessToken();
       if (!token) return;
 
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1';
@@ -40,7 +40,7 @@ export function BottomNav() {
         if (chatResponse.ok) {
           const data = await chatResponse.json();
           const channels = data.data || data.results || data || [];
-          const total = channels.reduce((sum: number, ch: any) => {
+          const total = channels.reduce((sum: number, ch: { unreadCount?: number; unread_count?: number }) => {
             return sum + (ch.unreadCount || ch.unread_count || 0);
           }, 0);
           setUnreadCount(total);
@@ -72,7 +72,7 @@ export function BottomNav() {
     // 30秒ごとに更新
     const interval = setInterval(fetchCounts, 30000);
     return () => clearInterval(interval);
-  }, [token]);
+  }, []);
 
   return (
     <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 z-50">

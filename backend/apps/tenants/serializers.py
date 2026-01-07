@@ -2,7 +2,7 @@
 Tenants Serializers
 """
 from rest_framework import serializers
-from .models import Tenant, Position, FeatureMaster, PositionPermission, Employee
+from .models import Tenant, Position, FeatureMaster, PositionPermission, Employee, EmployeeGroup
 
 
 class TenantSerializer(serializers.ModelSerializer):
@@ -144,3 +144,65 @@ class EmployeeDetailSerializer(serializers.ModelSerializer):
 
     def get_brands_list(self, obj):
         return [{'id': str(b.id), 'name': b.brand_name} for b in obj.brands.all()]
+
+
+# =============================================================================
+# 社員グループ関連
+# =============================================================================
+
+class EmployeeGroupListSerializer(serializers.ModelSerializer):
+    """社員グループ一覧シリアライザ"""
+    member_count = serializers.IntegerField(read_only=True)
+    members = EmployeeListSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = EmployeeGroup
+        fields = [
+            'id', 'name', 'description', 'member_count', 'members',
+            'is_active', 'created_at', 'updated_at',
+        ]
+
+
+class EmployeeGroupDetailSerializer(serializers.ModelSerializer):
+    """社員グループ詳細シリアライザ"""
+    member_count = serializers.IntegerField(read_only=True)
+    members = EmployeeListSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = EmployeeGroup
+        fields = [
+            'id', 'name', 'description', 'member_count', 'members',
+            'is_active', 'created_at', 'updated_at',
+        ]
+
+
+class EmployeeGroupCreateUpdateSerializer(serializers.ModelSerializer):
+    """社員グループ作成・更新シリアライザ"""
+    member_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        write_only=True,
+        required=False,
+    )
+
+    class Meta:
+        model = EmployeeGroup
+        fields = ['id', 'name', 'description', 'member_ids', 'is_active']
+        read_only_fields = ['id']
+
+    def create(self, validated_data):
+        member_ids = validated_data.pop('member_ids', [])
+        group = EmployeeGroup.objects.create(**validated_data)
+        if member_ids:
+            employees = Employee.objects.filter(id__in=member_ids)
+            group.members.set(employees)
+        return group
+
+    def update(self, instance, validated_data):
+        member_ids = validated_data.pop('member_ids', None)
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+        instance.save()
+        if member_ids is not None:
+            employees = Employee.objects.filter(id__in=member_ids)
+            instance.members.set(employees)
+        return instance

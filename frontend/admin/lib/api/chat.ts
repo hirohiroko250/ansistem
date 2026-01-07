@@ -51,7 +51,12 @@ export interface Message {
   senderGuardian?: string;
   senderGuardianName?: string;
   messageType: string;
+  message_type?: string;  // snake_case バックエンド互換
   content: string;
+  attachmentUrl?: string;
+  attachment_url?: string;  // snake_case バックエンド互換
+  attachmentName?: string;
+  attachment_name?: string;  // snake_case バックエンド互換
   isRead: boolean;
   isEdited: boolean;
   isBotMessage: boolean;
@@ -314,4 +319,30 @@ export async function createContactLog(data: {
  */
 export async function resolveContactLog(id: string): Promise<ContactLog> {
   return apiClient.post<ContactLog>(`/communications/contact-logs/${id}/resolve/`);
+}
+
+// ============================================
+// ファイルアップロード関連
+// ============================================
+
+/**
+ * ファイルをアップロードしてメッセージを作成
+ */
+export async function uploadFile(data: {
+  file: File;
+  channelId: string;
+  content?: string;
+  replyTo?: string;
+}): Promise<Message> {
+  const formData = new FormData();
+  formData.append('file', data.file);
+  formData.append('channel_id', data.channelId);
+  if (data.content) {
+    formData.append('content', data.content);
+  }
+  if (data.replyTo) {
+    formData.append('reply_to', data.replyTo);
+  }
+
+  return apiClient.postFormData<Message>('/communications/messages/upload/', formData);
 }

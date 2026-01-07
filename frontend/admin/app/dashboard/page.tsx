@@ -56,7 +56,7 @@ import {
   ArrowRight,
   EyeOff,
 } from "lucide-react";
-import { getTasks, completeTask, reopenTask, updateTask, Task } from "@/lib/api/staff";
+import { getTasks, completeTask, reopenTask, updateTask, Task, getTaskComments, createTaskComment, TaskComment } from "@/lib/api/staff";
 import apiClient from "@/lib/api/client";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { cn } from "@/lib/utils";
@@ -602,107 +602,155 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          {/* タスクリスト */}
-          <div className="flex-1 overflow-y-auto">
+          {/* タスクリスト（テーブル形式） */}
+          <div className="flex-1 overflow-auto">
             {loading ? (
               <div className="flex items-center justify-center py-12">
                 <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
               </div>
             ) : filteredTasks.length > 0 ? (
-              <div className="divide-y">
-                {filteredTasks.map((task) => (
-                  <div
-                    key={task.id}
-                    onClick={() => selectTask(task)}
-                    className={`flex items-center gap-3 px-4 py-3 cursor-pointer transition-colors ${
-                      selectedTask?.id === task.id
-                        ? "bg-blue-50 border-l-4 border-l-blue-500"
-                        : task.status === "completed"
-                        ? "bg-gray-50 opacity-60 hover:bg-gray-100"
-                        : task.priority === "urgent" || task.priority === "high"
-                        ? "bg-red-50 hover:bg-red-100"
-                        : "hover:bg-gray-50"
-                    }`}
-                  >
-                    {/* チェックボックス */}
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        toggleTaskStatus(task.id, task.status);
-                      }}
-                      className="flex-shrink-0"
-                    >
-                      {task.status === "completed" ? (
-                        <CheckCircle2 className="w-5 h-5 text-green-500" />
-                      ) : task.status === "in_progress" ? (
-                        <Clock className="w-5 h-5 text-yellow-500" />
-                      ) : (
-                        <Circle className="w-5 h-5 text-gray-300 hover:text-blue-400" />
-                      )}
-                    </button>
+              <table className="min-w-full text-xs">
+                <thead className="bg-gray-50 border-b sticky top-0 z-10">
+                  <tr>
+                    <th className="px-2 py-2 text-left font-medium text-gray-500 whitespace-nowrap">No.</th>
+                    <th className="px-2 py-2 text-left font-medium text-gray-500 whitespace-nowrap">登録日時</th>
+                    <th className="px-2 py-2 text-left font-medium text-gray-500 whitespace-nowrap">状態</th>
+                    <th className="px-2 py-2 text-left font-medium text-gray-500 whitespace-nowrap min-w-[120px]">担当者</th>
+                    <th className="px-2 py-2 text-left font-medium text-gray-500 whitespace-nowrap">カテゴリー</th>
+                    <th className="px-2 py-2 text-left font-medium text-gray-500 whitespace-nowrap">ブランド</th>
+                    <th className="px-2 py-2 text-left font-medium text-gray-500 whitespace-nowrap min-w-[180px]">お問合せ内容</th>
+                    <th className="px-2 py-2 text-left font-medium text-gray-500 whitespace-nowrap min-w-[120px]">件名</th>
+                    <th className="px-2 py-2 text-left font-medium text-gray-500 whitespace-nowrap">生徒ID</th>
+                    <th className="px-2 py-2 text-left font-medium text-gray-500 whitespace-nowrap">生徒名</th>
+                    <th className="px-2 py-2 text-left font-medium text-gray-500 whitespace-nowrap">保護者ID</th>
+                    <th className="px-2 py-2 text-left font-medium text-gray-500 whitespace-nowrap">保護者名</th>
+                    <th className="px-2 py-2 text-left font-medium text-gray-500 whitespace-nowrap">校舎</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-200 bg-white">
+                  {filteredTasks.map((task, index) => {
+                    const statusClass = task.status === "completed"
+                      ? "bg-green-100 text-green-800 border-green-300"
+                      : task.status === "in_progress"
+                      ? "bg-yellow-100 text-yellow-800 border-yellow-300"
+                      : "bg-red-100 text-red-800 border-red-300";
 
-                    {/* カテゴリアイコン */}
-                    <div className={`flex-shrink-0 p-1.5 rounded ${
-                      task.task_type === "bank_account_request" ? "bg-purple-100 text-purple-600" :
-                      task.task_type === "withdrawal" ? "bg-red-100 text-red-600" :
-                      task.task_type === "suspension" ? "bg-orange-100 text-orange-600" :
-                      "bg-gray-100 text-gray-600"
-                    }`}>
-                      {getCategoryIcon(task.task_type, "md")}
-                    </div>
-
-                    {/* メインコンテンツ */}
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <span className={`text-sm font-medium truncate ${
-                          task.status === "completed" ? "text-gray-500 line-through" : "text-gray-900"
-                        }`}>
-                          {task.title}
-                        </span>
-                        {(task.priority === "urgent" || task.priority === "high") && (
-                          <Badge variant="destructive" className="text-[10px] px-1 py-0">
-                            {task.priority_display || task.priority}
+                    return (
+                      <tr
+                        key={task.id}
+                        onClick={() => selectTask(task)}
+                        className={cn(
+                          "hover:bg-blue-50 cursor-pointer transition-colors",
+                          selectedTask?.id === task.id && "bg-blue-100",
+                          task.status === "completed" && "opacity-60",
+                          (task.priority === "urgent" || task.priority === "high") && task.status !== "completed" && "bg-red-50"
+                        )}
+                      >
+                        <td className="px-2 py-2 whitespace-nowrap text-gray-900">{index + 1}</td>
+                        <td className="px-2 py-2 whitespace-nowrap text-gray-600">
+                          {task.created_at ? new Date(task.created_at).toLocaleDateString("ja-JP", { year: "numeric", month: "2-digit", day: "2-digit" }) : "---"}
+                          {" "}
+                          {task.created_at ? new Date(task.created_at).toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" }) : ""}
+                        </td>
+                        <td className="px-2 py-2 whitespace-nowrap">
+                          <Badge variant="outline" className={cn("text-[10px]", statusClass)}>
+                            {task.status_display || (task.status === "completed" ? "完了" : task.status === "in_progress" ? "対応中" : "未対応")}
                           </Badge>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-2 mt-0.5 text-xs text-gray-500">
-                        <span>{task.task_type_display}</span>
-                        {(task.student_name || task.guardian_name) && (
-                          <>
-                            <span>•</span>
-                            <span>{task.student_name || task.guardian_name}</span>
-                          </>
-                        )}
-                        {task.assigned_to_name && (
-                          <>
-                            <span>•</span>
-                            <span className="text-blue-600 font-medium">
-                              <User className="w-3 h-3 inline mr-0.5" />
-                              {task.assigned_to_name}
-                            </span>
-                          </>
-                        )}
-                        <span>•</span>
-                        <span className="text-gray-400" title={formatDate(task.created_at)}>
-                          {formatRelativeTime(task.created_at)}
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* 時刻 */}
-                    <div className="flex-shrink-0 text-right" title={formatDate(task.created_at)}>
-                      <div className="text-xs font-medium text-gray-600">
-                        {task.created_at ? new Date(task.created_at).toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" }) : "-"}
-                      </div>
-                      <div className="text-[10px] text-gray-400">
-                        {task.created_at ? new Date(task.created_at).toLocaleDateString("ja-JP", { month: "short", day: "numeric" }) : "-"}
-                      </div>
-                    </div>
-
-                    <ChevronRight className="w-4 h-4 text-gray-300 flex-shrink-0" />
-                  </div>
-                ))}
-              </div>
+                        </td>
+                        <td className="px-2 py-2 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                          <Select
+                            value={task.assigned_to_id || ""}
+                            onValueChange={async (value) => {
+                              const result = await updateTask(task.id, {
+                                assigned_to_id: value || undefined,
+                                status: task.status === "new" && value ? "in_progress" : task.status,
+                              });
+                              if (result) {
+                                loadTasks();
+                              }
+                            }}
+                          >
+                            <SelectTrigger className="h-7 text-xs w-[110px] border-dashed">
+                              <SelectValue placeholder="未割当て" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="">未割当て</SelectItem>
+                              {staffList.map((staff) => (
+                                <SelectItem key={staff.id} value={staff.id}>
+                                  {staff.name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </td>
+                        <td className="px-2 py-2 whitespace-nowrap text-gray-600">
+                          {task.category_name || task.task_type_display || task.task_type || "---"}
+                        </td>
+                        <td className="px-2 py-2 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                          <Select
+                            value={task.brand || ""}
+                            onValueChange={async (value) => {
+                              const result = await updateTask(task.id, { brand: value || undefined });
+                              if (result) loadTasks();
+                            }}
+                          >
+                            <SelectTrigger className="h-7 text-xs w-[100px] border-dashed">
+                              <SelectValue placeholder="---" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="">---</SelectItem>
+                              {brands.map((brand) => (
+                                <SelectItem key={brand.id} value={brand.id}>
+                                  {brand.name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </td>
+                        <td className="px-2 py-2 text-gray-600 max-w-[250px] truncate" title={task.description}>
+                          {task.description || "---"}
+                        </td>
+                        <td className="px-2 py-2 text-gray-900 font-medium max-w-[180px] truncate" title={task.title}>
+                          {task.title}
+                        </td>
+                        <td className="px-2 py-2 whitespace-nowrap text-gray-600">
+                          {task.student_no || "---"}
+                        </td>
+                        <td className="px-2 py-2 whitespace-nowrap text-gray-600">
+                          {task.student_name || "---"}
+                        </td>
+                        <td className="px-2 py-2 whitespace-nowrap text-gray-600">
+                          {task.guardian_no || "---"}
+                        </td>
+                        <td className="px-2 py-2 whitespace-nowrap text-gray-600">
+                          {task.guardian_name || "---"}
+                        </td>
+                        <td className="px-2 py-2 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                          <Select
+                            value={task.school || ""}
+                            onValueChange={async (value) => {
+                              const result = await updateTask(task.id, { school: value || undefined });
+                              if (result) loadTasks();
+                            }}
+                          >
+                            <SelectTrigger className="h-7 text-xs w-[100px] border-dashed">
+                              <SelectValue placeholder="---" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="">---</SelectItem>
+                              {schools.map((school) => (
+                                <SelectItem key={school.id} value={school.id}>
+                                  {school.name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             ) : (
               <div className="flex flex-col items-center justify-center py-12 text-gray-500">
                 <CheckCircle2 className="w-12 h-12 mb-3 text-gray-300" />

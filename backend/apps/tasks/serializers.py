@@ -19,7 +19,9 @@ class TaskSerializer(serializers.ModelSerializer):
     school_name = serializers.CharField(source='school.school_name', read_only=True, allow_null=True)
     brand_name = serializers.CharField(source='brand.brand_name', read_only=True, allow_null=True)
     student_name = serializers.SerializerMethodField()
+    student_no = serializers.SerializerMethodField()
     guardian_name = serializers.SerializerMethodField()
+    guardian_no = serializers.SerializerMethodField()
     assigned_to_name = serializers.SerializerMethodField()
     created_by_name = serializers.SerializerMethodField()
     task_type_display = serializers.CharField(source='get_task_type_display', read_only=True)
@@ -32,7 +34,7 @@ class TaskSerializer(serializers.ModelSerializer):
             'id', 'task_type', 'task_type_display', 'category', 'category_name',
             'title', 'description', 'status', 'status_display', 'priority', 'priority_display',
             'school', 'school_name', 'brand', 'brand_name',
-            'student', 'student_name', 'guardian', 'guardian_name',
+            'student', 'student_no', 'student_name', 'guardian', 'guardian_no', 'guardian_name',
             'assigned_to_id', 'assigned_to_name', 'created_by_id', 'created_by_name', 'due_date', 'completed_at',
             'source_type', 'source_id', 'source_url', 'metadata',
             'created_at', 'updated_at'
@@ -44,9 +46,19 @@ class TaskSerializer(serializers.ModelSerializer):
             return f"{obj.student.last_name}{obj.student.first_name}"
         return None
 
+    def get_student_no(self, obj):
+        if obj.student:
+            return obj.student.student_no
+        return None
+
     def get_guardian_name(self, obj):
         if obj.guardian:
             return f"{obj.guardian.last_name}{obj.guardian.first_name}"
+        return None
+
+    def get_guardian_no(self, obj):
+        if obj.guardian:
+            return obj.guardian.guardian_no
         return None
 
     def get_assigned_to_name(self, obj):
@@ -86,10 +98,23 @@ class TaskCreateUpdateSerializer(serializers.ModelSerializer):
 
 class TaskCommentSerializer(serializers.ModelSerializer):
     """作業コメントシリアライザ"""
+    commented_by_name = serializers.SerializerMethodField()
+
     class Meta:
         model = TaskComment
         fields = [
-            'id', 'task', 'comment', 'commented_by_id', 'is_internal',
+            'id', 'task', 'comment', 'commented_by_id', 'commented_by_name', 'is_internal',
             'created_at', 'updated_at'
         ]
         read_only_fields = ['id', 'created_at', 'updated_at']
+
+    def get_commented_by_name(self, obj):
+        """コメント者名を取得"""
+        if obj.commented_by_id:
+            from apps.tenants.models import Employee
+            try:
+                employee = Employee.objects.get(id=obj.commented_by_id)
+                return employee.full_name
+            except Employee.DoesNotExist:
+                pass
+        return None

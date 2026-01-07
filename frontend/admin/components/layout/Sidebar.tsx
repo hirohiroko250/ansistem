@@ -8,6 +8,7 @@ import {
   CheckSquare,
   Users,
   UserCircle,
+  UserCog,
   BookOpen,
   FileText,
   MessageSquare,
@@ -47,6 +48,11 @@ const menuItems = [
     name: "Parents",
     href: "/parents",
     icon: UserCircle,
+  },
+  {
+    name: "Staff",
+    href: "/staff",
+    icon: UserCog,
   },
   {
     name: "Lessons",

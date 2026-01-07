@@ -566,6 +566,58 @@ export interface Staff {
   role?: string;
 }
 
+// 詳細なスタッフ情報
+export interface StaffDetail {
+  id: string;
+  employeeNo: string;
+  employee_no?: string;
+  fullName: string;
+  full_name?: string;
+  lastName: string;
+  last_name?: string;
+  firstName: string;
+  first_name?: string;
+  email: string;
+  phone: string;
+  department: string;
+  positionName: string | null;
+  position_name?: string | null;
+  profileImageUrl?: string | null;
+  profile_image_url?: string | null;
+  status: 'active' | 'inactive' | 'suspended';
+  hireDate?: string;
+  hire_date?: string;
+  schools: { id: string; name: string }[];
+  brands: { id: string; name: string }[];
+  roles: string[];
+  createdAt?: string;
+  created_at?: string;
+  updatedAt?: string;
+  updated_at?: string;
+}
+
+export interface StaffFilters {
+  page?: number;
+  page_size?: number;
+  search?: string;
+  status?: string;
+  brand_id?: string;
+  school_id?: string;
+  role?: string;
+  department?: string;
+}
+
+export interface StaffGroup {
+  id: string;
+  name: string;
+  description?: string;
+  memberCount: number;
+  member_count?: number;
+  members: StaffDetail[];
+  createdAt?: string;
+  created_at?: string;
+}
+
 export interface LessonSchedule {
   id: string;
   student: Student | null;

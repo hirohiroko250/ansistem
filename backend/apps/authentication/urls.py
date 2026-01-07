@@ -5,6 +5,7 @@ from django.urls import path
 from .views import (
     LoginView,
     RegisterView,
+    EmployeeRegisterView,
     LogoutView,
     TokenRefreshAPIView,
     PasswordResetRequestView,
@@ -21,6 +22,7 @@ app_name = 'authentication'
 urlpatterns = [
     path('login/', LoginView.as_view(), name='login'),
     path('register/', RegisterView.as_view(), name='register'),
+    path('register/employee/', EmployeeRegisterView.as_view(), name='register_employee'),
     path('check-email/', CheckEmailView.as_view(), name='check_email'),
     path('check-phone/', CheckPhoneView.as_view(), name='check_phone'),
     path('logout/', LogoutView.as_view(), name='logout'),
