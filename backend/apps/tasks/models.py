@@ -26,21 +26,37 @@ class TaskCategory(TenantModel):
 class Task(TenantModel):
     """作業（タスク）"""
     TASK_TYPE_CHOICES = [
+        # 問い合わせ系
+        ('customer_inquiry', '客問い合わせ'),
         ('inquiry', '問い合わせ'),
-        ('request', '依頼'),
-        ('trouble', 'トラブル'),
-        ('follow_up', 'フォローアップ'),
-        ('guardian_registration', '保護者登録'),
-        ('student_registration', '生徒登録'),
         ('chat', 'チャット対応'),
+
+        # 入会・退会・休会
         ('trial_registration', '体験登録'),
         ('enrollment', '入会申請'),
-        ('withdrawal', '退会申請'),
-        ('suspension', '休会申請'),
+        ('withdrawal', '退会'),
+        ('suspension', '休会'),
+
+        # 契約・料金系
         ('contract_change', '契約変更'),
+        ('tuition_operation', '授業料操作'),
         ('debit_failure', '引落失敗'),
         ('refund_request', '返金申請'),
         ('bank_account_request', '口座申請'),
+
+        # イベント・紹介
+        ('event_registration', 'イベント申し込み'),
+        ('referral', '友人紹介'),
+
+        # 登録系
+        ('guardian_registration', '保護者登録'),
+        ('student_registration', '生徒登録'),
+        ('staff_registration', '社員登録'),
+
+        # その他
+        ('request', '依頼'),
+        ('trouble', 'トラブル'),
+        ('follow_up', 'フォローアップ'),
         ('other', 'その他'),
     ]
 

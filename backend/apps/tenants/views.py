@@ -205,10 +205,18 @@ class EmployeeViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        queryset = Employee.objects.filter(
-            tenant_ref=self.request.user.tenant_id,
-            is_active=True
-        ).select_related('position').prefetch_related('schools', 'brands').order_by(
+        # 承認/却下アクションの場合は承認待ち社員も含める
+        if self.action in ['approve', 'reject', 'retrieve']:
+            queryset = Employee.objects.filter(
+                tenant_ref=self.request.user.tenant_id
+            )
+        else:
+            queryset = Employee.objects.filter(
+                tenant_ref=self.request.user.tenant_id,
+                is_active=True
+            )
+
+        queryset = queryset.select_related('position').prefetch_related('schools', 'brands').order_by(
             'department', 'last_name', 'first_name'
         )
 
@@ -329,6 +337,86 @@ class EmployeeViewSet(viewsets.ModelViewSet):
             'brand_groups': brand_groups,
             'unassigned': unassigned_employees,
             'all_employees': EmployeeListSerializer(employees, many=True).data,
+        })
+
+    @action(detail=False, methods=['get'])
+    def pending(self, request):
+        """承認待ち社員一覧を取得"""
+        from apps.users.models import User
+
+        tenant_id = request.user.tenant_id
+
+        # 承認待ちの社員を取得（is_active=False）
+        pending_employees = Employee.objects.filter(
+            tenant_ref=tenant_id,
+            is_active=False
+        ).select_related('position').prefetch_related('schools', 'brands').order_by('-id')
+
+        result = []
+        for emp in pending_employees:
+            # 関連するUserを取得
+            user = User.objects.filter(staff_id=emp.id).first()
+            result.append({
+                'id': str(emp.id),
+                'employee_no': emp.employee_no,
+                'last_name': emp.last_name,
+                'first_name': emp.first_name,
+                'full_name': f"{emp.last_name} {emp.first_name}",
+                'email': emp.email,
+                'phone': emp.phone,
+                'department': emp.department,
+                'position_name': emp.position.position_name if emp.position else emp.position_text,
+                'hire_date': emp.hire_date.isoformat() if emp.hire_date else None,
+                'schools': [{'id': str(s.id), 'name': s.school_name} for s in emp.schools.all()],
+                'brands': [{'id': str(b.id), 'name': b.brand_name} for b in emp.brands.all()],
+                'user_id': str(user.id) if user else None,
+                'user_email': user.email if user else emp.email,
+                'created_at': user.created_at.isoformat() if user else None,
+            })
+
+        return Response(result)
+
+    @action(detail=True, methods=['post'])
+    def approve(self, request, pk=None):
+        """社員を承認（有効化）"""
+        from apps.users.models import User
+
+        employee = self.get_object()
+
+        # 社員を有効化
+        employee.is_active = True
+        employee.save()
+
+        # 関連するUserも有効化
+        user = User.objects.filter(staff_id=employee.id).first()
+        if user:
+            user.is_active = True
+            user.save()
+
+        return Response({
+            'success': True,
+            'message': f'{employee.last_name} {employee.first_name}さんを承認しました',
+            'employee_id': str(employee.id),
+            'user_id': str(user.id) if user else None,
+        })
+
+    @action(detail=True, methods=['post'])
+    def reject(self, request, pk=None):
+        """社員登録を却下（削除）"""
+        from apps.users.models import User
+
+        employee = self.get_object()
+
+        # 関連するUserを削除
+        User.objects.filter(staff_id=employee.id).delete()
+
+        # 社員を削除
+        employee_name = f'{employee.last_name} {employee.first_name}'
+        employee.delete()
+
+        return Response({
+            'success': True,
+            'message': f'{employee_name}さんの登録を却下しました',
         })
 
 

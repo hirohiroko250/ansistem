@@ -42,6 +42,17 @@ export function GuardianFeed() {
 
       const response = await getFeedPosts({ pageSize: 50 });
       const postsData = response.results || response.data || [];
+
+      // デバッグ: メディアデータの構造を確認
+      console.log('Feed posts response:', postsData);
+      if (postsData.length > 0 && postsData[0].media) {
+        console.log('First post media:', postsData[0].media);
+        if (postsData[0].media[0]) {
+          console.log('Media URL field:', postsData[0].media[0].fileUrl);
+          console.log('Full media object:', JSON.stringify(postsData[0].media[0], null, 2));
+        }
+      }
+
       setPosts(postsData);
 
       // いいね済みの投稿を設定
@@ -304,6 +315,7 @@ export function GuardianFeed() {
                         src={getMediaUrl(post.media[0].fileUrl)}
                         alt={post.media[0].caption || '投稿画像'}
                         className="w-full aspect-square object-cover"
+                        onError={(e) => console.error('Image load error:', post.media[0].fileUrl, e)}
                       />
                     )}
                     {post.media.length > 1 && (
@@ -345,6 +357,10 @@ export function GuardianFeed() {
                     <p className="font-semibold text-sm text-gray-800 mb-1">
                       {post.likeCount}件のいいね
                     </p>
+                  )}
+
+                  {post.title && (
+                    <h4 className="font-semibold text-gray-900 mb-1">{post.title}</h4>
                   )}
 
                   <p className="text-sm text-gray-800">

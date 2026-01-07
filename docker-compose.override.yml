@@ -7,6 +7,17 @@ services:
       - static_volume:/app/staticfiles
       - media_volume:/app/media
       - ./data:/app/data
+    environment:
+      - DEBUG=False
+      - DJANGO_SETTINGS_MODULE=config.settings.production
+      - EMAIL_HOST=smtp.lolipop.jp
+      - EMAIL_PORT=465
+      - EMAIL_USE_SSL=True
+      - EMAIL_USE_TLS=False
+      - EMAIL_HOST_USER=info@oz-a.jp
+      - EMAIL_HOST_PASSWORD=Z_uOO_9f7-YH_h34
+      - DEFAULT_FROM_EMAIL=info@oz-a.jp
+      - FRONTEND_URL=http://localhost:3000
 
   # frontend-customer: 本番ビルドを使用（開発時はコメント解除）
   # frontend-customer:

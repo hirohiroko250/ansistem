@@ -11,7 +11,7 @@ import { Heart, MessageCircle, Bookmark, Plus, Loader2, RefreshCw, Pin } from 'l
 import { formatDistanceToNow } from 'date-fns';
 import { ja } from 'date-fns/locale';
 import Image from 'next/image';
-import api from '@/lib/api/client';
+import api, { getMediaUrl } from '@/lib/api/client';
 
 interface FeedAuthor {
   id: string;
@@ -29,6 +29,7 @@ interface FeedMedia {
 
 interface FeedPost {
   id: string;
+  title?: string;
   content: string;
   postType: string;
   visibility: string;
@@ -191,13 +192,13 @@ export default function FeedPage() {
                 <div className="w-full">
                   {post.media[0].mediaType === 'VIDEO' ? (
                     <video
-                      src={post.media[0].fileUrl}
+                      src={getMediaUrl(post.media[0].fileUrl)}
                       controls
                       className="w-full h-auto max-h-[400px] object-cover"
                     />
                   ) : (
                     <img
-                      src={post.media[0].fileUrl}
+                      src={getMediaUrl(post.media[0].fileUrl)}
                       alt="Post image"
                       className="w-full h-auto max-h-[400px] object-cover"
                     />
@@ -206,6 +207,9 @@ export default function FeedPage() {
               )}
 
               <CardContent className="pt-4">
+                {post.title && (
+                  <h4 className="font-semibold text-gray-900 mb-2">{post.title}</h4>
+                )}
                 <p className="text-gray-800 whitespace-pre-wrap mb-3">{post.content}</p>
 
                 {/* ハッシュタグ */}

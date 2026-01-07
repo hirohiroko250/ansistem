@@ -18,6 +18,7 @@ export interface FeedPost {
   postType: string;
   authorName: string;
   schoolName: string | null;
+  title?: string;
   content: string;
   visibility: string;
   hashtags: string[];
@@ -120,10 +121,13 @@ export async function getLatestNews(limit: number = 5): Promise<NewsItem[]> {
         type = 'お知らせ';
       }
 
+      // 題名があれば題名を、なければ内容の先頭100文字を表示
+      const caption = f.title || f.content.slice(0, 100);
+
       news.push({
         id: f.id,
         type,
-        caption: f.content.slice(0, 100),
+        caption,
         date: formatDate(f.publishedAt || f.createdAt),
         source: 'feed',
       });

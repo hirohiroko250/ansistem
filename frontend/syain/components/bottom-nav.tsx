@@ -3,14 +3,14 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import { Home, CheckSquare, MessageCircle, QrCode, Settings } from 'lucide-react';
+import { Home, CheckSquare, MessageCircle, Image, Settings } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { getAccessToken } from '@/lib/api/client';
 
 const tabs = [
   { name: 'Home', href: '/home', icon: Home },
   { name: 'Task', href: '/tasks', icon: CheckSquare },
-  { name: 'Attendance', href: '/attendance', icon: QrCode },
+  { name: 'Feed', href: '/feed', icon: Image },
   { name: 'Chat', href: '/chat', icon: MessageCircle },
   { name: 'Settings', href: '/settings', icon: Settings },
 ];

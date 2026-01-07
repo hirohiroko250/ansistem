@@ -51,6 +51,13 @@ class FeedPost(models.Model):
         related_name='feed_posts',
         verbose_name='校舎'
     )
+    # 題名
+    title = models.CharField(
+        max_length=200,
+        blank=True,
+        default='',
+        verbose_name='題名'
+    )
     # 内容
     content = models.TextField(
         verbose_name='本文'

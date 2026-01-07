@@ -68,7 +68,7 @@ class FeedPostListSerializer(serializers.ModelSerializer):
         model = FeedPost
         fields = [
             'id', 'post_type', 'author', 'author_name', 'author_email',
-            'school', 'school_name', 'content', 'visibility',
+            'school', 'school_name', 'title', 'content', 'visibility',
             'target_brands', 'target_brands_detail',
             'target_schools', 'target_schools_detail',
             'hashtags', 'is_pinned', 'allow_comments', 'allow_likes',
@@ -115,7 +115,7 @@ class FeedPostDetailSerializer(serializers.ModelSerializer):
         model = FeedPost
         fields = [
             'id', 'tenant_id', 'post_type', 'author', 'author_name', 'author_email',
-            'school', 'school_name', 'content', 'visibility',
+            'school', 'school_name', 'title', 'content', 'visibility',
             'target_brands', 'target_brands_detail',
             'target_schools', 'target_schools_detail',
             'target_grades', 'target_grades_detail',
@@ -172,7 +172,7 @@ class FeedPostCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = FeedPost
         fields = [
-            'post_type', 'school', 'content', 'visibility',
+            'post_type', 'school', 'title', 'content', 'visibility',
             'target_brands', 'target_schools', 'target_grades', 'hashtags',
             'allow_comments', 'allow_likes', 'is_published', 'is_pinned',
             'publish_start_at', 'publish_end_at',

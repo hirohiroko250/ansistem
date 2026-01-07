@@ -46,6 +46,7 @@ import { MultiSelect } from "@/components/ui/multi-select";
 interface FeedPost {
   id: string;
   postType: string;
+  title?: string;
   content: string;
   visibility: string;
   authorName?: string;
@@ -91,6 +92,7 @@ export default function FeedPage() {
   const [saving, setSaving] = useState(false);
 
   const [formData, setFormData] = useState({
+    title: "",
     content: "",
     visibility: "PUBLIC",
     school: "",
@@ -150,6 +152,7 @@ export default function FeedPage() {
 
   function handleCreate() {
     setFormData({
+      title: "",
       content: "",
       visibility: "PUBLIC",
       school: "",
@@ -171,6 +174,7 @@ export default function FeedPage() {
 
   function handleEdit(post: FeedPost) {
     setFormData({
+      title: post.title || "",
       content: post.content || "",
       visibility: post.visibility || "PUBLIC",
       school: "",
@@ -207,6 +211,7 @@ export default function FeedPage() {
 
       const payload: any = {
         post_type: postType,
+        title: formData.title,
         content: formData.content,
         visibility: formData.visibility,
         hashtags: formData.hashtags.split(",").map(t => t.trim()).filter(t => t),
@@ -366,6 +371,11 @@ export default function FeedPage() {
                         )}
                       </div>
 
+                      {/* 題名 */}
+                      {post.title && (
+                        <h4 className="font-semibold text-gray-900 mb-1">{post.title}</h4>
+                      )}
+
                       {/* コンテンツ */}
                       <p className="text-gray-700 mb-2 line-clamp-3 whitespace-pre-wrap">
                         {post.content}
@@ -430,6 +440,15 @@ export default function FeedPage() {
           </DialogHeader>
 
           <div className="space-y-4 py-4 overflow-y-auto flex-1">
+            <div>
+              <label className="text-sm font-medium">題名</label>
+              <Input
+                value={formData.title}
+                onChange={(e) => setFormData({ ...formData, title: e.target.value })}
+                placeholder="投稿の題名を入力..."
+              />
+            </div>
+
             <div>
               <label className="text-sm font-medium">内容</label>
               <Textarea

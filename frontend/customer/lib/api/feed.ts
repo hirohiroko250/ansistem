@@ -13,6 +13,7 @@ import type { PaginatedResponse } from './types';
 export interface FeedPost {
   id: string;
   postType: string;
+  title?: string;
   content: string;
   visibility: string;
   hashtags: string[];

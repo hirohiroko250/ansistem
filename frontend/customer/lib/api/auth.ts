@@ -136,7 +136,7 @@ export async function changePassword(data: PasswordChangeRequest): Promise<Passw
  * @returns 成功メッセージ
  */
 export async function requestPasswordReset(email: string): Promise<ApiSuccessMessage> {
-  return api.post<ApiSuccessMessage>('/auth/password/reset/', { email }, {
+  return api.post<ApiSuccessMessage>('/auth/password-reset/', { email }, {
     skipAuth: true,
   });
 }
@@ -153,7 +153,7 @@ export interface PasswordResetConfirmRequest {
 }
 
 export async function confirmPasswordReset(data: PasswordResetConfirmRequest): Promise<ApiSuccessMessage> {
-  return api.post<ApiSuccessMessage>('/auth/password/reset/confirm/', {
+  return api.post<ApiSuccessMessage>('/auth/password-reset/confirm/', {
     token: data.token,
     new_password: data.newPassword,
     new_password_confirm: data.newPasswordConfirm,

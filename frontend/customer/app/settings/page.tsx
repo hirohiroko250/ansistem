@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { ChevronRight, User, CreditCard, HelpCircle, LogOut, Loader2, AlertCircle } from 'lucide-react';
+import { ChevronRight, User, CreditCard, HelpCircle, LogOut, Loader2, AlertCircle, KeyRound } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { BottomTabBar } from '@/components/bottom-tab-bar';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
@@ -12,8 +12,9 @@ import type { Profile, ApiError } from '@/lib/api/types';
 
 const menuItems = [
   { id: 1, icon: User, label: 'プロフィール編集', href: '/settings/profile-edit' },
-  { id: 2, icon: CreditCard, label: '支払い方法', href: '/settings/payment' },
-  { id: 3, icon: HelpCircle, label: 'よくある質問', href: '#' },
+  { id: 2, icon: KeyRound, label: 'パスワード変更', href: '/settings/password' },
+  { id: 3, icon: CreditCard, label: '支払い方法', href: '/settings/payment' },
+  { id: 4, icon: HelpCircle, label: 'よくある質問', href: '#' },
 ];
 
 export default function SettingsPage() {

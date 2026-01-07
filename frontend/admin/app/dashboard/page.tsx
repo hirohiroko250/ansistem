@@ -229,13 +229,66 @@ export default function DashboardPage() {
   const [newComment, setNewComment] = useState("");
   const [sendingComment, setSendingComment] = useState(false);
 
+  // 承認待ち社員
+  const [pendingEmployees, setPendingEmployees] = useState<any[]>([]);
+  const [pendingLoading, setPendingLoading] = useState(false);
+  const [approvingId, setApprovingId] = useState<string | null>(null);
+
   useEffect(() => {
     loadTasks();
     loadDeadlines();
     loadStaff();
     loadSchoolsAndBrands();
     loadCurrentUser();
+    loadPendingEmployees();
   }, []);
+
+  async function loadPendingEmployees() {
+    try {
+      setPendingLoading(true);
+      console.log('[Pending] Loading pending employees...');
+      const data = await apiClient.get<any[]>('/tenants/employees/pending/');
+      console.log('[Pending] API Response:', data);
+      setPendingEmployees(Array.isArray(data) ? data : []);
+    } catch (error) {
+      console.error('[Pending] Failed to load pending employees:', error);
+      setPendingEmployees([]);
+    } finally {
+      setPendingLoading(false);
+    }
+  }
+
+  async function approveEmployee(employeeId: string) {
+    try {
+      setApprovingId(employeeId);
+      await apiClient.post(`/tenants/employees/${employeeId}/approve/`);
+      // リストから削除
+      setPendingEmployees(prev => prev.filter(e => e.id !== employeeId));
+      // スタッフリストを再読み込み
+      loadStaff();
+    } catch (error) {
+      console.error('Failed to approve employee:', error);
+      alert('承認に失敗しました');
+    } finally {
+      setApprovingId(null);
+    }
+  }
+
+  async function rejectEmployee(employeeId: string) {
+    if (!confirm('この社員登録を却下しますか？この操作は取り消せません。')) return;
+
+    try {
+      setApprovingId(employeeId);
+      await apiClient.post(`/tenants/employees/${employeeId}/reject/`);
+      // リストから削除
+      setPendingEmployees(prev => prev.filter(e => e.id !== employeeId));
+    } catch (error) {
+      console.error('Failed to reject employee:', error);
+      alert('却下に失敗しました');
+    } finally {
+      setApprovingId(null);
+    }
+  }
 
   async function loadCurrentUser() {
     try {
@@ -321,7 +374,15 @@ export default function DashboardPage() {
 
   async function loadTasks() {
     setLoading(true);
-    const data = await getTasks();
+    const rawData = await getTasks();
+    // APIがcamelCaseで返すので、snake_caseにも対応
+    const data = rawData.map(t => ({
+      ...t,
+      // camelCase -> snake_case の正規化
+      assigned_to_id: t.assigned_to_id || (t as any).assignedToId,
+      assigned_to_name: t.assigned_to_name || (t as any).assignedToName,
+      created_by_id: t.created_by_id || (t as any).createdById,
+    }));
     // 割り当て済みタスクを確認
     const assignedTasks = data.filter(t => t.assigned_to_id);
     console.log('[Tasks] Loaded:', data.length, 'tasks, Assigned:', assignedTasks.length);
@@ -337,11 +398,33 @@ export default function DashboardPage() {
     setLoading(false);
   }
 
+  // 経過時間を計算（時間単位）
+  function getElapsedHours(createdAt?: string): number {
+    if (!createdAt) return 0;
+    const created = new Date(createdAt);
+    const now = new Date();
+    return (now.getTime() - created.getTime()) / (1000 * 60 * 60);
+  }
+
+  // 経過時間アラートレベルを取得
+  function getElapsedAlertLevel(task: Task): 'none' | 'warning' | 'danger' {
+    if (task.status === 'completed' || task.status === 'cancelled') return 'none';
+    const hours = getElapsedHours(task.created_at);
+    if (hours >= 48) return 'danger';  // 48時間以上
+    if (hours >= 24) return 'warning'; // 24時間以上
+    return 'none';
+  }
+
   // フィルタリングされたタスク
   const filteredTasks = tasks.filter((task) => {
     if (!showCompleted && (task.status === "completed" || task.status === "cancelled")) return false;
-    if (filter === "all") return true;
-    return task.task_type === filter;
+    // カテゴリフィルター
+    if (filter !== "all" && task.task_type !== filter) return false;
+    // 校舎フィルター
+    if (selectedSchool && selectedSchool !== "all" && task.school !== selectedSchool) return false;
+    // ブランドフィルター
+    if (selectedBrand && selectedBrand !== "all" && task.brand !== selectedBrand) return false;
+    return true;
   });
 
   // 統計
@@ -351,6 +434,9 @@ export default function DashboardPage() {
   const urgentCount = tasks.filter(
     (t) => (t.priority === "urgent" || t.priority === "high") && t.status !== "completed" && t.status !== "cancelled"
   ).length;
+  // 経過時間アラートカウント
+  const warningCount = tasks.filter((t) => getElapsedAlertLevel(t) === 'warning').length;
+  const dangerCount = tasks.filter((t) => getElapsedAlertLevel(t) === 'danger').length;
 
   // タスクのステータスを切り替え
   async function toggleTaskStatus(taskId: string, currentStatus: string) {
@@ -647,6 +733,68 @@ export default function DashboardPage() {
               </div>
             )}
 
+            {/* 承認待ち社員 */}
+            {pendingEmployees.length > 0 && (
+              <div className="mb-3 p-3 bg-orange-50 border border-orange-200 rounded-lg">
+                <div className="flex items-center gap-2 mb-2">
+                  <UserPlus className="w-4 h-4 text-orange-600" />
+                  <span className="text-sm font-medium text-orange-800">
+                    承認待ち社員 ({pendingEmployees.length}件)
+                  </span>
+                </div>
+                <div className="space-y-2 max-h-40 overflow-y-auto">
+                  {pendingEmployees.map((emp) => (
+                    <div
+                      key={emp.id}
+                      className="flex items-center justify-between bg-white p-2 rounded border border-orange-100"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 rounded-full bg-orange-100 flex items-center justify-center">
+                          <User className="w-4 h-4 text-orange-600" />
+                        </div>
+                        <div>
+                          <div className="text-sm font-medium text-gray-900">
+                            {emp.full_name || emp.fullName}
+                          </div>
+                          <div className="text-xs text-gray-500">
+                            {emp.department} {emp.position_name || emp.positionName ? `/ ${emp.position_name || emp.positionName}` : ''}
+                            {emp.email && <span className="ml-2">{emp.email}</span>}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-7 text-xs text-red-600 border-red-200 hover:bg-red-50"
+                          onClick={() => rejectEmployee(emp.id)}
+                          disabled={approvingId === emp.id}
+                        >
+                          <X className="w-3 h-3 mr-1" />
+                          却下
+                        </Button>
+                        <Button
+                          size="sm"
+                          className="h-7 text-xs bg-green-600 hover:bg-green-700"
+                          onClick={() => approveEmployee(emp.id)}
+                          disabled={approvingId === emp.id}
+                        >
+                          {approvingId === emp.id ? (
+                            <Loader2 className="w-3 h-3 animate-spin" />
+                          ) : (
+                            <>
+                              <Check className="w-3 h-3 mr-1" />
+                              承認
+                            </>
+                          )}
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {/* 統計 */}
             <div className="flex items-center gap-4 mb-3">
               <div className="flex items-center gap-1">
@@ -671,27 +819,75 @@ export default function DashboardPage() {
                   <span className="text-sm font-bold">{urgentCount}</span>
                 </div>
               )}
+              {dangerCount > 0 && (
+                <div className="flex items-center gap-1 text-red-600">
+                  <Clock className="w-3 h-3" />
+                  <span className="text-xs">48h超</span>
+                  <span className="text-sm font-bold animate-pulse">{dangerCount}</span>
+                </div>
+              )}
+              {warningCount > 0 && (
+                <div className="flex items-center gap-1 text-yellow-600">
+                  <Clock className="w-3 h-3" />
+                  <span className="text-xs">24h超</span>
+                  <span className="text-sm font-bold">{warningCount}</span>
+                </div>
+              )}
             </div>
 
             {/* フィルター */}
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <Filter className="w-4 h-4 text-gray-400" />
+              {/* カテゴリフィルター */}
               <Select value={filter} onValueChange={setFilter}>
-                <SelectTrigger className="w-[130px] h-8 text-xs">
-                  <SelectValue placeholder="種別" />
+                <SelectTrigger className="w-[140px] h-8 text-xs">
+                  <SelectValue placeholder="カテゴリ" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">すべて</SelectItem>
-                  <SelectItem value="bank_account_request">口座申請</SelectItem>
+                  <SelectItem value="customer_inquiry">客問い合わせ</SelectItem>
                   <SelectItem value="inquiry">問い合わせ</SelectItem>
                   <SelectItem value="chat">チャット</SelectItem>
                   <SelectItem value="trial_registration">体験登録</SelectItem>
                   <SelectItem value="enrollment">入会申請</SelectItem>
-                  <SelectItem value="withdrawal">退会申請</SelectItem>
-                  <SelectItem value="suspension">休会申請</SelectItem>
+                  <SelectItem value="withdrawal">退会</SelectItem>
+                  <SelectItem value="suspension">休会</SelectItem>
                   <SelectItem value="contract_change">契約変更</SelectItem>
+                  <SelectItem value="tuition_operation">授業料操作</SelectItem>
                   <SelectItem value="debit_failure">引落失敗</SelectItem>
                   <SelectItem value="refund_request">返金申請</SelectItem>
+                  <SelectItem value="bank_account_request">口座申請</SelectItem>
+                  <SelectItem value="event_registration">イベント申し込み</SelectItem>
+                  <SelectItem value="referral">友人紹介</SelectItem>
+                  <SelectItem value="staff_registration">社員登録</SelectItem>
+                </SelectContent>
+              </Select>
+              {/* 校舎フィルター */}
+              <Select value={selectedSchool} onValueChange={setSelectedSchool}>
+                <SelectTrigger className="w-[120px] h-8 text-xs">
+                  <SelectValue placeholder="校舎" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">全校舎</SelectItem>
+                  {schools.map((school) => (
+                    <SelectItem key={school.id} value={school.id}>
+                      {school.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {/* ブランドフィルター */}
+              <Select value={selectedBrand} onValueChange={setSelectedBrand}>
+                <SelectTrigger className="w-[120px] h-8 text-xs">
+                  <SelectValue placeholder="ブランド" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">全ブランド</SelectItem>
+                  {brands.map((brand) => (
+                    <SelectItem key={brand.id} value={brand.id}>
+                      {brand.name}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
               <div className="flex items-center gap-1">
@@ -776,9 +972,33 @@ export default function DashboardPage() {
                           {task.created_at ? new Date(task.created_at).toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" }) : ""}
                         </td>
                         <td className="px-2 py-2 whitespace-nowrap">
-                          <Badge variant="outline" className={cn("text-[10px]", statusClass)}>
-                            {task.status_display || (task.status === "completed" ? "完了" : task.status === "in_progress" ? "対応中" : "未対応")}
-                          </Badge>
+                          <div className="flex items-center gap-1">
+                            <Badge variant="outline" className={cn("text-[10px]", statusClass)}>
+                              {task.status_display || (task.status === "completed" ? "完了" : task.status === "in_progress" ? "対応中" : "未対応")}
+                            </Badge>
+                            {/* 経過時間アラート */}
+                            {(() => {
+                              const alertLevel = getElapsedAlertLevel(task);
+                              const hours = Math.floor(getElapsedHours(task.created_at));
+                              if (alertLevel === 'danger') {
+                                return (
+                                  <span className="flex items-center gap-0.5 px-1.5 py-0.5 bg-red-100 text-red-700 rounded text-[10px] font-medium animate-pulse" title={`${hours}時間経過`}>
+                                    <AlertCircle className="w-3 h-3" />
+                                    {hours}h
+                                  </span>
+                                );
+                              }
+                              if (alertLevel === 'warning') {
+                                return (
+                                  <span className="flex items-center gap-0.5 px-1.5 py-0.5 bg-yellow-100 text-yellow-700 rounded text-[10px] font-medium" title={`${hours}時間経過`}>
+                                    <Clock className="w-3 h-3" />
+                                    {hours}h
+                                  </span>
+                                );
+                              }
+                              return null;
+                            })()}
+                          </div>
                         </td>
                         <td className="px-2 py-2 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
                           <Select
@@ -806,8 +1026,13 @@ export default function DashboardPage() {
                               });
                               console.log('[Table Select] Update result:', result);
                               if (result) {
-                                // サーバーからの応答で状態を更新
-                                setTasks(prev => prev.map(t => t.id === task.id ? result : t));
+                                // APIレスポンスを正規化してから状態を更新
+                                const normalizedResult = {
+                                  ...result,
+                                  assigned_to_id: result.assigned_to_id || (result as any).assignedToId,
+                                  assigned_to_name: result.assigned_to_name || (result as any).assignedToName,
+                                };
+                                setTasks(prev => prev.map(t => t.id === task.id ? normalizedResult : t));
                               } else {
                                 // エラー時は元に戻す
                                 loadTasks();
@@ -1405,9 +1630,15 @@ export default function DashboardPage() {
                     console.log('[Confirm] Result:', result);
 
                     if (result) {
+                      // APIレスポンスを正規化
+                      const normalizedResult = {
+                        ...result,
+                        assigned_to_id: result.assigned_to_id || (result as any).assignedToId,
+                        assigned_to_name: result.assigned_to_name || (result as any).assignedToName,
+                      };
                       // タスク一覧を即座に更新
-                      setTasks(prev => prev.map(t => t.id === selectedTask.id ? result : t));
-                      setSelectedTask(result);
+                      setTasks(prev => prev.map(t => t.id === selectedTask.id ? normalizedResult : t));
+                      setSelectedTask(normalizedResult);
 
                       // 割り当て情報を常にコメントとして追加
                       try {
