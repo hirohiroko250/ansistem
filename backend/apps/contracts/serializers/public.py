@@ -77,23 +77,37 @@ class PublicCourseSerializer(serializers.Serializer):
         return obj.get_price()
 
     def get_tuitionPrice(self, obj):
-        """ProductPriceから月額授業料（税込）を取得"""
+        """ProductPriceから月額授業料（税込）を取得（prefetchされたデータを使用）"""
         from datetime import date
         from decimal import Decimal
 
-        for ci in obj.course_items.filter(is_active=True).select_related('product'):
+        # prefetchされたcourse_itemsを使用（.filter()を避ける）
+        course_items = getattr(obj, '_prefetched_objects_cache', {}).get('course_items', None)
+        if course_items is None:
+            course_items = obj.course_items.all()
+
+        for ci in course_items:
+            if not ci.is_active:
+                continue
             product = ci.product
             if product and product.is_active and product.item_type == Product.ItemType.TUITION:
                 tax_rate = product.tax_rate or Decimal('0.1')
-                try:
-                    product_price = product.prices.filter(is_active=True).first()
-                    if product_price:
+                # prefetchされたpricesを使用
+                prices = getattr(product, '_prefetched_objects_cache', {}).get('prices', None)
+                if prices is None:
+                    prices = list(product.prices.all())
+                else:
+                    prices = list(prices)
+
+                active_price = next((p for p in prices if p.is_active), None)
+                if active_price:
+                    try:
                         current_month = date.today().month
-                        price = product_price.get_enrollment_price(current_month)
+                        price = active_price.get_enrollment_price(current_month)
                         if price is not None:
                             return int(Decimal(str(price)) * (1 + tax_rate))
-                except Exception:
-                    pass
+                    except Exception:
+                        pass
                 base_price = product.base_price or Decimal('0')
                 return int(base_price * (1 + tax_rate))
         return 0
