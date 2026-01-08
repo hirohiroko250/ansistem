@@ -7,9 +7,13 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.permissions import AllowAny
 from django.db.models import Q
+from django.core.cache import cache
 
 from ..models import Course, Pack
 from ..serializers import PublicCourseSerializer, PublicPackSerializer, PublicBrandSerializer
+
+# キャッシュ有効期間（5分）
+CACHE_TTL = 60 * 5
 
 
 class PublicBrandListView(APIView):
@@ -43,6 +47,17 @@ class PublicCourseListView(APIView):
         ?school_id=xxx で校舎フィルタリング（UUIDまたは校舎コード）
         ?grade_name=xxx で学年フィルタリング
         """
+        # キャッシュキー生成
+        brand_id = request.query_params.get('brand_id', '')
+        school_id = request.query_params.get('school_id', '')
+        grade_name = request.query_params.get('grade_name', '')
+        cache_key = f"public_courses:{brand_id}:{school_id}:{grade_name}"
+
+        # キャッシュから取得
+        cached_data = cache.get(cache_key)
+        if cached_data is not None:
+            return Response(cached_data)
+
         queryset = Course.objects.filter(
             is_active=True,
             deleted_at__isnull=True
@@ -52,7 +67,6 @@ class PublicCourseListView(APIView):
         )
 
         # ブランドでフィルタリング（UUIDまたはブランドコード）
-        brand_id = request.query_params.get('brand_id')
         if brand_id:
             # UUIDかブランドコードかを判定
             try:
@@ -65,7 +79,6 @@ class PublicCourseListView(APIView):
 
         # 校舎でフィルタリング（UUIDまたは校舎コード）
         # school_id=NULLのコース（ブランド全体で利用可能）も含める
-        school_id = request.query_params.get('school_id')
         if school_id:
             try:
                 import uuid
@@ -76,12 +89,15 @@ class PublicCourseListView(APIView):
                 queryset = queryset.filter(Q(school__school_code=school_id) | Q(school_id__isnull=True))
 
         # 学年でフィルタリング
-        grade_name = request.query_params.get('grade_name')
         if grade_name:
             queryset = queryset.filter(grade__grade_name__icontains=grade_name)
 
         queryset = queryset.order_by('sort_order', 'course_name')
         serializer = PublicCourseSerializer(queryset, many=True)
+
+        # キャッシュに保存
+        cache.set(cache_key, serializer.data, CACHE_TTL)
+
         return Response(serializer.data)
 
 
@@ -120,6 +136,17 @@ class PublicPackListView(APIView):
         ?school_id=xxx で校舎フィルタリング（UUIDまたは校舎コード）
         ?grade_name=xxx で学年フィルタリング
         """
+        # キャッシュキー生成
+        brand_id = request.query_params.get('brand_id', '')
+        school_id = request.query_params.get('school_id', '')
+        grade_name = request.query_params.get('grade_name', '')
+        cache_key = f"public_packs:{brand_id}:{school_id}:{grade_name}"
+
+        # キャッシュから取得
+        cached_data = cache.get(cache_key)
+        if cached_data is not None:
+            return Response(cached_data)
+
         queryset = Pack.objects.filter(
             is_active=True,
             deleted_at__isnull=True
@@ -130,7 +157,6 @@ class PublicPackListView(APIView):
         )
 
         # ブランドでフィルタリング（UUIDまたはブランドコード）
-        brand_id = request.query_params.get('brand_id')
         if brand_id:
             try:
                 import uuid
@@ -142,7 +168,6 @@ class PublicPackListView(APIView):
 
         # 校舎でフィルタリング（UUIDまたは校舎コード）
         # school_id=NULLのパック（ブランド全体で利用可能）も含める
-        school_id = request.query_params.get('school_id')
         if school_id:
             try:
                 import uuid
@@ -153,12 +178,15 @@ class PublicPackListView(APIView):
                 queryset = queryset.filter(Q(school__school_code=school_id) | Q(school_id__isnull=True))
 
         # 学年でフィルタリング
-        grade_name = request.query_params.get('grade_name')
         if grade_name:
             queryset = queryset.filter(grade__grade_name__icontains=grade_name)
 
         queryset = queryset.order_by('sort_order', 'pack_name')
         serializer = PublicPackSerializer(queryset, many=True)
+
+        # キャッシュに保存
+        cache.set(cache_key, serializer.data, CACHE_TTL)
+
         return Response(serializer.data)
 
 
