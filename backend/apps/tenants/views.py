@@ -237,9 +237,31 @@ class EmployeeViewSet(viewsets.ModelViewSet):
         return EmployeeListSerializer
 
     def perform_create(self, serializer):
-        employee = serializer.save(tenant_ref=self.request.user.tenant_id)
+        # 承認待ち状態で社員を作成
+        employee = serializer.save(
+            tenant_ref=self.request.user.tenant_id,
+            is_active=False,
+            approval_status='pending'
+        )
 
-        # 社員用のUserアカウントを自動作成（チャット機能用）
+        # 承認タスクを自動作成
+        from apps.tasks.models import Task
+        Task.objects.create(
+            tenant_id=self.request.user.tenant_id,
+            task_type='staff_registration',
+            title=f'社員登録承認: {employee.last_name} {employee.first_name}',
+            description=f'新規社員「{employee.last_name} {employee.first_name}」の登録承認が必要です。\n\n'
+                       f'社員番号: {employee.employee_no or "未設定"}\n'
+                       f'メール: {employee.email or "未設定"}\n'
+                       f'部署: {employee.department or "未設定"}',
+            status='new',
+            priority='normal',
+            source_type='employee',
+            source_id=str(employee.id),
+            created_by_id=self.request.user.staff_id,
+        )
+
+        # 社員用のUserアカウントを作成（is_active=Falseで作成、承認後に有効化）
         from apps.users.models import User
         import secrets
 
@@ -252,7 +274,7 @@ class EmployeeViewSet(viewsets.ModelViewSet):
                 user_type='STAFF',
                 tenant_id=self.request.user.tenant_id,
                 staff_id=employee.id,
-                is_active=True,
+                is_active=False,  # 承認後に有効化
                 must_change_password=True,  # 初回ログイン時にパスワード変更を促す
             )
 
@@ -380,11 +402,14 @@ class EmployeeViewSet(viewsets.ModelViewSet):
     def approve(self, request, pk=None):
         """社員を承認（有効化）"""
         from apps.users.models import User
+        from apps.tasks.models import Task
+        from django.utils import timezone
 
         employee = self.get_object()
 
-        # 社員を有効化
+        # 社員を有効化・承認済みに更新
         employee.is_active = True
+        employee.approval_status = 'approved'
         employee.save()
 
         # 関連するUserも有効化
@@ -392,6 +417,15 @@ class EmployeeViewSet(viewsets.ModelViewSet):
         if user:
             user.is_active = True
             user.save()
+
+        # 関連するタスクを完了にする
+        Task.objects.filter(
+            tenant_id=request.user.tenant_id,
+            source_type='employee',
+            source_id=str(employee.id),
+            task_type='staff_registration',
+            status__in=['new', 'in_progress', 'waiting']
+        ).update(status='completed', completed_at=timezone.now())
 
         return Response({
             'success': True,
@@ -402,17 +436,36 @@ class EmployeeViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'])
     def reject(self, request, pk=None):
-        """社員登録を却下（削除）"""
+        """社員登録を却下（データは保持）"""
         from apps.users.models import User
+        from apps.tasks.models import Task
+        from django.utils import timezone
 
         employee = self.get_object()
-
-        # 関連するUserを削除
-        User.objects.filter(staff_id=employee.id).delete()
-
-        # 社員を削除
+        employee_id = str(employee.id)
         employee_name = f'{employee.last_name} {employee.first_name}'
-        employee.delete()
+
+        # 却下理由を取得
+        reason = request.data.get('reason', '')
+
+        # 社員を却下状態に更新（データは保持）
+        employee.approval_status = 'rejected'
+        employee.rejected_at = timezone.now()
+        employee.rejected_reason = reason
+        employee.is_active = False
+        employee.save()
+
+        # 関連するUserを無効化（削除せずに保持）
+        User.objects.filter(staff_id=employee.id).update(is_active=False)
+
+        # 関連するタスクをキャンセルにする
+        Task.objects.filter(
+            tenant_id=request.user.tenant_id,
+            source_type='employee',
+            source_id=employee_id,
+            task_type='staff_registration',
+            status__in=['new', 'in_progress', 'waiting']
+        ).update(status='cancelled', completed_at=timezone.now())
 
         return Response({
             'success': True,

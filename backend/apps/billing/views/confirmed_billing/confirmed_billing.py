@@ -8,10 +8,12 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from django.db import models
-from drf_spectacular.utils import extend_schema, extend_schema_view
+from django.http import HttpResponse
+from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiParameter
 
 from apps.billing.models import ConfirmedBilling
 from apps.billing.serializers import ConfirmedBillingSerializer, ConfirmedBillingListSerializer
+from apps.billing.services.receipt_service import generate_receipt_response
 from .mixins import BillingCreationMixin, BillingExportMixin
 
 
@@ -203,3 +205,89 @@ class ConfirmedBillingViewSet(
             'status_counts': status_counts,
             'payment_method_counts': payment_method_counts,
         })
+
+    @extend_schema(summary='領収書PDFを生成（管理者向け）')
+    @action(detail=True, methods=['get'])
+    def receipt(self, request, pk=None):
+        """指定された請求確定データの領収書PDFを生成"""
+        confirmed = self.get_object()
+
+        # 入金済みでない場合は領収書発行不可
+        if confirmed.status not in [ConfirmedBilling.Status.PAID, ConfirmedBilling.Status.PARTIAL]:
+            return Response(
+                {'error': '入金が確認されていないため領収書を発行できません'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        return generate_receipt_response(confirmed)
+
+    @extend_schema(
+        summary='領収書PDFを生成（保護者向け）',
+        parameters=[
+            OpenApiParameter(name='year', type=int, required=True, description='請求年'),
+            OpenApiParameter(name='month', type=int, required=True, description='請求月'),
+        ]
+    )
+    @action(detail=False, methods=['get'], url_path='my-receipt')
+    def my_receipt(self, request):
+        """保護者が自分の領収書PDFをダウンロード
+
+        ログイン中の保護者に紐づく請求確定データの領収書を生成。
+        子ども全員分の請求を合算した領収書を発行。
+        """
+        year = request.query_params.get('year')
+        month = request.query_params.get('month')
+
+        if not year or not month:
+            return Response(
+                {'error': 'year と month を指定してください'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+            year = int(year)
+            month = int(month)
+        except ValueError:
+            return Response(
+                {'error': 'year と month は整数で指定してください'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # ログイン中のユーザーに紐づくGuardianを取得
+        user = request.user
+        guardian = getattr(user, 'guardian', None)
+
+        if not guardian:
+            # Guardianが直接紐づいていない場合、guardian_idで検索
+            from apps.students.models import Guardian
+            guardian = Guardian.objects.filter(user=user).first()
+
+        if not guardian:
+            return Response(
+                {'error': '保護者情報が見つかりません'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        tenant_id = _get_tenant_id(request)
+
+        # 該当月の請求確定データを取得
+        confirmed_billings = ConfirmedBilling.objects.filter(
+            tenant_id=tenant_id,
+            guardian=guardian,
+            year=year,
+            month=month,
+            deleted_at__isnull=True,
+            status__in=[ConfirmedBilling.Status.PAID, ConfirmedBilling.Status.PARTIAL],
+        )
+
+        if not confirmed_billings.exists():
+            return Response(
+                {'error': '該当する入金済みの請求データが見つかりません'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        # 最初の請求データを使用して領収書を生成
+        # 複数の子どもがいる場合でも、保護者単位で1つの領収書を発行
+        confirmed = confirmed_billings.first()
+
+        return generate_receipt_response(confirmed)

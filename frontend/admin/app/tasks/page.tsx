@@ -51,6 +51,14 @@ export default function TasksPage() {
     setSelectedTask(null);
   }
 
+  function handleTaskUpdated() {
+    // タスク一覧を再読み込み
+    loadTasks();
+    loadMyTasks();
+    // 詳細パネルを閉じる
+    handleCloseDetail();
+  }
+
   const todayTasks = tasks.filter((task) => {
     if (!task.due_date) return false;
     const taskDate = new Date(task.due_date);
@@ -72,7 +80,7 @@ export default function TasksPage() {
       onCloseRightPanel={handleCloseDetail}
       rightPanel={
         selectedTask ? (
-          <TaskDetail task={selectedTask} />
+          <TaskDetail task={selectedTask} onTaskUpdated={handleTaskUpdated} />
         ) : (
           <div className="text-center text-gray-500">読み込み中...</div>
         )

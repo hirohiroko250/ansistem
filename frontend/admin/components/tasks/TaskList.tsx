@@ -31,6 +31,7 @@ const taskTypeLabels: Record<string, string> = {
   billing: "請求関連",
   absence: "お休み連絡",
   invoice: "請求書関連",
+  staff_registration: "社員登録",
   other: "その他",
 };
 

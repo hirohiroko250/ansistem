@@ -31,6 +31,7 @@ daphne>=4.0.0
 Pillow>=10.0.0
 python-dateutil>=2.8.2
 pykakasi>=2.2.1
+reportlab>=4.0.0
 
 # Data processing (for Excel imports)
 pandas>=2.0.0

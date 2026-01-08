@@ -435,3 +435,40 @@ export const REQUEST_STATUS_LABELS = {
   cancelled: '取消',
   resumed: '復会済',
 } as const;
+
+// ============================================
+// 領収書ダウンロードAPI
+// ============================================
+
+/**
+ * 領収書PDFをダウンロード
+ * @param year - 請求年
+ * @param month - 請求月
+ * @returns PDFのBlob
+ */
+export async function downloadReceipt(year: number, month: number): Promise<Blob> {
+  return api.getBlob(`/billing/confirmed/my-receipt/?year=${year}&month=${month}`);
+}
+
+/**
+ * 領収書PDFをダウンロードしてブラウザで保存ダイアログを表示
+ * @param year - 請求年
+ * @param month - 請求月
+ */
+export async function downloadAndSaveReceipt(year: number, month: number): Promise<void> {
+  const blob = await downloadReceipt(year, month);
+
+  // ダウンロードリンクを作成
+  const url = window.URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `領収書_${year}年${month}月.pdf`;
+
+  // クリックしてダウンロード
+  document.body.appendChild(link);
+  link.click();
+
+  // クリーンアップ
+  document.body.removeChild(link);
+  window.URL.revokeObjectURL(url);
+}

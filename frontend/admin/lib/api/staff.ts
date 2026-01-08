@@ -873,6 +873,39 @@ export async function reopenTask(id: string): Promise<Task | null> {
   }
 }
 
+/**
+ * 社員登録タスクを承認する
+ */
+export async function approveEmployeeTask(taskId: string): Promise<{
+  success: boolean;
+  message: string;
+  task?: Task;
+  employee_id?: string;
+} | null> {
+  try {
+    return await apiClient.post(`/tasks/${taskId}/approve_employee/`);
+  } catch (error) {
+    console.error("Error approving employee task:", error);
+    throw error;
+  }
+}
+
+/**
+ * 社員登録タスクを却下する
+ */
+export async function rejectEmployeeTask(taskId: string): Promise<{
+  success: boolean;
+  message: string;
+  task?: Task;
+} | null> {
+  try {
+    return await apiClient.post(`/tasks/${taskId}/reject_employee/`);
+  } catch (error) {
+    console.error("Error rejecting employee task:", error);
+    throw error;
+  }
+}
+
 export async function getMyTasks(filters?: {
   status?: string;
 }): Promise<Task[]> {

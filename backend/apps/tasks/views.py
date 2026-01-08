@@ -149,6 +149,100 @@ class TaskViewSet(viewsets.ModelViewSet):
         serializer = TaskSerializer(task)
         return Response(serializer.data)
 
+    @action(detail=True, methods=['post'])
+    def approve_employee(self, request, pk=None):
+        """社員登録タスクを承認する"""
+        from apps.tenants.models import Employee
+        from apps.users.models import User
+
+        task = self.get_object()
+
+        # 社員登録タスクかチェック
+        if task.task_type != 'staff_registration' or task.source_type != 'employee':
+            return Response(
+                {'error': 'このタスクは社員登録承認タスクではありません'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # 社員を取得
+        try:
+            employee = Employee.objects.get(id=task.source_id)
+        except Employee.DoesNotExist:
+            return Response(
+                {'error': '対象の社員が見つかりません'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        # 社員を有効化
+        employee.is_active = True
+        employee.save()
+
+        # 関連するUserも有効化
+        user = User.objects.filter(staff_id=employee.id).first()
+        if user:
+            user.is_active = True
+            user.save()
+
+        # タスクを完了にする
+        task.status = 'completed'
+        task.completed_at = timezone.now()
+        task.save()
+
+        serializer = TaskSerializer(task)
+        return Response({
+            'success': True,
+            'message': f'{employee.last_name} {employee.first_name}さんを承認しました',
+            'task': serializer.data,
+            'employee_id': str(employee.id),
+        })
+
+    @action(detail=True, methods=['post'])
+    def reject_employee(self, request, pk=None):
+        """社員登録タスクを却下する（データは保持）"""
+        from apps.tenants.models import Employee
+        from apps.users.models import User
+
+        task = self.get_object()
+
+        # 社員登録タスクかチェック
+        if task.task_type != 'staff_registration' or task.source_type != 'employee':
+            return Response(
+                {'error': 'このタスクは社員登録承認タスクではありません'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # 却下理由を取得
+        reason = request.data.get('reason', '')
+
+        # 社員を取得
+        try:
+            employee = Employee.objects.get(id=task.source_id)
+            employee_name = f'{employee.last_name} {employee.first_name}'
+
+            # 社員を却下状態に更新（データは保持）
+            employee.approval_status = 'rejected'
+            employee.rejected_at = timezone.now()
+            employee.rejected_reason = reason
+            employee.is_active = False
+            employee.save()
+
+            # 関連するUserを無効化（削除せずに保持）
+            User.objects.filter(staff_id=employee.id).update(is_active=False)
+        except Employee.DoesNotExist:
+            employee_name = '不明'
+
+        # タスクをキャンセルにする
+        task.status = 'cancelled'
+        task.completed_at = timezone.now()
+        task.save()
+
+        serializer = TaskSerializer(task)
+        return Response({
+            'success': True,
+            'message': f'{employee_name}さんの登録を却下しました',
+            'task': serializer.data,
+        })
+
 
 class TaskCommentViewSet(viewsets.ModelViewSet):
     """作業コメント ViewSet"""

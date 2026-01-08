@@ -147,12 +147,13 @@ class AbsenceTicketListView(APIView):
         if status_filter:
             queryset = queryset.filter(status=status_filter)
 
-        # 期限切れチケットの自動更新
+        # 期限切れチケットの自動更新（bulk_updateで一括更新）
         today = date.today()
-        for ticket in queryset.filter(status='issued'):
-            if ticket.valid_until and ticket.valid_until < today:
-                ticket.status = 'expired'
-                ticket.save(update_fields=['status'])
+        AbsenceTicket.objects.filter(
+            student_id__in=student_ids,
+            status='issued',
+            valid_until__lt=today
+        ).update(status='expired')
 
         # レスポンス生成
         tickets = []
@@ -372,14 +373,16 @@ class TransferAvailableClassesView(APIView):
         if student and student.status == 'withdrawn' and student.withdrawal_date and date.today() > student.withdrawal_date:
             return Response({'error': '退会日を過ぎているため、振替チケットは使用できません'}, status=400)
 
+        # 生徒の学年を取得（振替対象クラスのフィルタリング用）
+        student_school_year = None
+        if student and student.birth_date:
+            from apps.schools.views.trial.utils import get_school_year_from_birth_date
+            student_school_year = get_school_year_from_birth_date(student.birth_date)
+
         # 同じconsumption_symbolを持つClassScheduleを検索
         available_classes = ClassSchedule.objects.filter(
             is_active=True
-        ).select_related('school', 'brand')
-
-        import sys
-        print(f"[TransferAvailableClasses] absence_ticket.consumption_symbol={absence_ticket.consumption_symbol}", file=sys.stderr, flush=True)
-        print(f"[TransferAvailableClasses] Total active ClassSchedules: {available_classes.count()}", file=sys.stderr, flush=True)
+        ).select_related('school', 'brand', 'brand_category', 'grade').prefetch_related('grade__school_years')
 
         # consumption_symbolでフィルタ
         if absence_ticket.consumption_symbol:
@@ -387,15 +390,24 @@ class TransferAvailableClassesView(APIView):
             matching_ticket_codes = list(Ticket.objects.filter(
                 consumption_symbol=absence_ticket.consumption_symbol
             ).values_list('ticket_code', flat=True))
-            print(f"[TransferAvailableClasses] matching_ticket_codes={matching_ticket_codes}", file=sys.stderr, flush=True)
 
             if matching_ticket_codes:
                 available_classes = available_classes.filter(
                     ticket_id__in=matching_ticket_codes
                 )
-            print(f"[TransferAvailableClasses] After filter: {available_classes.count()} classes", file=sys.stderr, flush=True)
-        else:
-            print(f"[TransferAvailableClasses] No consumption_symbol, returning all classes", file=sys.stderr, flush=True)
+
+        # 生徒の学年でフィルター（対象学年のクラスのみ表示）
+        if student_school_year:
+            filtered_classes = []
+            for cs in available_classes:
+                if cs.grade:
+                    # gradeに紐づくschool_yearsに生徒の学年が含まれるかチェック
+                    if cs.grade.school_years.filter(id=student_school_year.id).exists():
+                        filtered_classes.append(cs)
+                else:
+                    # gradeが未設定のクラスは含める
+                    filtered_classes.append(cs)
+            available_classes = filtered_classes
 
         day_names = ['日', '月', '火', '水', '木', '金', '土']
         classes = []

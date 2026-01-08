@@ -314,6 +314,59 @@ export const api = {
 
   delete: <T>(endpoint: string, options?: Omit<RequestOptions, 'method' | 'body'>) =>
     apiRequest<T>(endpoint, { ...options, method: 'DELETE' }),
+
+  /**
+   * BlobとしてGETリクエスト（ファイルダウンロード用）
+   */
+  getBlob: async (endpoint: string, options?: Omit<RequestOptions, 'method' | 'body'>): Promise<Blob> => {
+    const { skipAuth = false, tenantId, ...fetchOptions } = options || {};
+
+    const headers: HeadersInit = {
+      ...(fetchOptions.headers || {}),
+    };
+
+    // テナントID を追加
+    const tenant = tenantId || getTenantId();
+    if (tenant) {
+      (headers as Record<string, string>)['X-Tenant-ID'] = tenant;
+    }
+
+    // 認証トークンを追加
+    if (!skipAuth) {
+      let token = getAccessToken();
+
+      // トークンが期限切れの場合はリフレッシュを試みる
+      if (token && isTokenExpired(token)) {
+        token = await refreshAccessToken();
+      }
+
+      if (token) {
+        (headers as Record<string, string>)['Authorization'] = `Bearer ${token}`;
+      }
+    }
+
+    const url = endpoint.startsWith('http') ? endpoint : `${API_BASE_URL}${endpoint}`;
+
+    const response = await fetch(url, {
+      ...fetchOptions,
+      method: 'GET',
+      headers,
+    });
+
+    if (!response.ok) {
+      // エラーレスポンスを取得
+      let errorMessage = 'ファイルのダウンロードに失敗しました';
+      try {
+        const errorData = await response.json();
+        errorMessage = errorData.error || errorData.message || errorMessage;
+      } catch {
+        // JSONでない場合はデフォルトメッセージを使用
+      }
+      throw { message: errorMessage, status: response.status } as ApiError;
+    }
+
+    return response.blob();
+  },
 };
 
 // Helper function to get backend base URL (for media files)

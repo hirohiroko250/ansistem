@@ -140,7 +140,8 @@ class StudentItemsMixin:
             student_id__in=student_ids,
             deleted_at__isnull=True
         ).select_related(
-            'student', 'product', 'product__brand',
+            'student', 'student__primary_school',  # 生徒の主校舎も含める
+            'product', 'product__brand',
             'contract', 'contract__school', 'contract__course', 'contract__course__brand',
             'brand', 'school', 'course'  # StudentItemに直接保存された情報
         )
@@ -149,14 +150,8 @@ class StudentItemsMixin:
         if billing_month:
             items = items.filter(billing_month=billing_month)
 
-        # ブランド名からブランドIDを取得するためのマッピングをキャッシュ
-        brand_cache = {}
-        for brand in Brand.objects.all():
-            brand_cache[brand.brand_name] = {
-                'id': str(brand.id),
-                'code': brand.brand_code,
-                'name': brand.brand_name
-            }
+        # ブランド名からブランドIDを取得するためのマッピング（遅延読み込み）
+        brand_cache = None
 
         result = []
         for item in items:
@@ -204,9 +199,18 @@ class StudentItemsMixin:
                 brand_code = item.product.brand.brand_code or ''
                 brand_id = str(item.product.brand.id)
 
-            # 4. fallback: 商品名からブランドを推測
+            # 4. fallback: 商品名からブランドを推測（遅延読み込み）
             if not brand_id and item.product:
                 product_name = item.product.product_name or ''
+                # 必要な時だけブランドキャッシュを構築
+                if brand_cache is None:
+                    brand_cache = {}
+                    for brand in Brand.objects.filter(tenant_id=request.user.tenant_id):
+                        brand_cache[brand.brand_name] = {
+                            'id': str(brand.id),
+                            'code': brand.brand_code,
+                            'name': brand.brand_name
+                        }
                 for bn, binfo in brand_cache.items():
                     if product_name.startswith(bn):
                         brand_name = bn

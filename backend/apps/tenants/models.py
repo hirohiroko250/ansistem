@@ -333,6 +333,21 @@ class Employee(TenantModel):
     # ステータス
     is_active = models.BooleanField('有効', default=True)
 
+    # 承認ステータス
+    APPROVAL_STATUS_CHOICES = [
+        ('pending', '承認待ち'),
+        ('approved', '承認済み'),
+        ('rejected', '却下'),
+    ]
+    approval_status = models.CharField(
+        '承認ステータス',
+        max_length=20,
+        choices=APPROVAL_STATUS_CHOICES,
+        default='pending'
+    )
+    rejected_at = models.DateTimeField('却下日時', null=True, blank=True)
+    rejected_reason = models.TextField('却下理由', blank=True)
+
     class Meta:
         db_table = 't19_employees'
         verbose_name = 'T19_社員'

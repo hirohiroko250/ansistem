@@ -8,7 +8,7 @@ import Link from 'next/link';
 import { format } from 'date-fns';
 import { ja } from 'date-fns/locale';
 import { useRouter } from 'next/navigation';
-import { getAllStudentItems, type PurchasedItem } from '@/lib/api/students';
+import { getAllStudentItems, downloadAndSaveReceipt, type PurchasedItem } from '@/lib/api/students';
 import { isAuthenticated } from '@/lib/api/auth';
 
 // 月別集計データ型
@@ -137,9 +137,26 @@ export default function PassbookListPage() {
   };
 
   // 領収書ダウンロード
+  const [downloadingMonth, setDownloadingMonth] = useState<string | null>(null);
+
   const handleDownloadReceipt = async (month: string) => {
-    // TODO: 実際の領収書PDF生成APIを呼び出す
-    alert(`${month}の領収書をダウンロードします`);
+    try {
+      setDownloadingMonth(month);
+      // month は "YYYY-MM" 形式
+      const [yearStr, monthStr] = month.split('-');
+      const year = parseInt(yearStr, 10);
+      const monthNum = parseInt(monthStr, 10);
+
+      await downloadAndSaveReceipt(year, monthNum);
+    } catch (err: unknown) {
+      console.error('領収書のダウンロードに失敗しました:', err);
+      const errorMessage = err && typeof err === 'object' && 'message' in err
+        ? (err as { message: string }).message
+        : '領収書のダウンロードに失敗しました';
+      alert(errorMessage);
+    } finally {
+      setDownloadingMonth(null);
+    }
   };
 
   // スマホ縦向き時は回転を促すメッセージ
@@ -275,9 +292,14 @@ export default function PassbookListPage() {
                       {summary.hasReceipt ? (
                         <button
                           onClick={() => handleDownloadReceipt(summary.month)}
-                          className="text-blue-600 hover:text-blue-700 hover:underline text-[10px] font-medium"
+                          disabled={downloadingMonth === summary.month}
+                          className={`text-[10px] font-medium ${
+                            downloadingMonth === summary.month
+                              ? 'text-gray-400 cursor-wait'
+                              : 'text-blue-600 hover:text-blue-700 hover:underline'
+                          }`}
                         >
-                          領収書発行
+                          {downloadingMonth === summary.month ? '発行中...' : '領収書発行'}
                         </button>
                       ) : (
                         <span className="text-gray-400">-</span>
