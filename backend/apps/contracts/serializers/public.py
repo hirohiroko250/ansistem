@@ -73,6 +73,15 @@ class PublicCourseSerializer(serializers.Serializer):
     ticketName = serializers.SerializerMethodField()
     perWeek = serializers.SerializerMethodField()
 
+    def _get_first_course_ticket(self, obj):
+        """最初のコースチケットを取得（キャッシュ付き）"""
+        cache_attr = '_cached_first_course_ticket'
+        if not hasattr(obj, cache_attr):
+            # prefetch済みのデータを使用（追加クエリなし）
+            course_tickets = list(obj.course_tickets.all())
+            setattr(obj, cache_attr, course_tickets[0] if course_tickets else None)
+        return getattr(obj, cache_attr)
+
     def get_price(self, obj):
         return obj.get_price()
 
@@ -81,12 +90,17 @@ class PublicCourseSerializer(serializers.Serializer):
         from datetime import date
         from decimal import Decimal
 
-        for ci in obj.course_items.filter(is_active=True).select_related('product'):
+        # prefetch済みのcourse_itemsを使用（追加クエリなし）
+        for ci in obj.course_items.all():
+            if not ci.is_active:
+                continue
             product = ci.product
             if product and product.is_active and product.item_type == Product.ItemType.TUITION:
                 tax_rate = product.tax_rate or Decimal('0.1')
                 try:
-                    product_price = product.prices.filter(is_active=True).first()
+                    # prefetch済みのpricesを使用
+                    prices = list(product.prices.all())
+                    product_price = next((p for p in prices if p.is_active), None)
                     if product_price:
                         current_month = date.today().month
                         price = product_price.get_enrollment_price(current_month)
@@ -104,26 +118,26 @@ class PublicCourseSerializer(serializers.Serializer):
         return any(pattern in course_name for pattern in monthly_patterns)
 
     def get_ticketId(self, obj):
-        course_ticket = obj.course_tickets.first() if hasattr(obj, 'course_tickets') else None
+        course_ticket = self._get_first_course_ticket(obj)
         if course_ticket and course_ticket.ticket:
             return str(course_ticket.ticket.id)
         return None
 
     def get_ticketCode(self, obj):
-        course_ticket = obj.course_tickets.first() if hasattr(obj, 'course_tickets') else None
+        course_ticket = self._get_first_course_ticket(obj)
         if course_ticket and course_ticket.ticket:
             return course_ticket.ticket.ticket_code
         return None
 
     def get_ticketName(self, obj):
-        course_ticket = obj.course_tickets.first() if hasattr(obj, 'course_tickets') else None
+        course_ticket = self._get_first_course_ticket(obj)
         if course_ticket and course_ticket.ticket:
             return course_ticket.ticket.ticket_name
         return None
 
     def get_perWeek(self, obj):
         """コースチケットの週あたり回数を取得"""
-        course_ticket = obj.course_tickets.first() if hasattr(obj, 'course_tickets') else None
+        course_ticket = self._get_first_course_ticket(obj)
         if course_ticket:
             return course_ticket.per_week
         return 1  # デフォルト値
@@ -143,9 +157,14 @@ class PublicPackCourseSerializer(serializers.Serializer):
         return obj.course.get_price()
 
     def _get_first_ticket(self, obj):
-        """コースに紐付く最初のチケットを取得"""
-        course_ticket = obj.course.course_tickets.first()
-        return course_ticket.ticket if course_ticket else None
+        """コースに紐付く最初のチケットを取得（キャッシュ付き）"""
+        cache_attr = '_cached_first_ticket'
+        if not hasattr(obj, cache_attr):
+            # prefetch済みのデータを使用（追加クエリなし）
+            course_tickets = list(obj.course.course_tickets.all())
+            course_ticket = course_tickets[0] if course_tickets else None
+            setattr(obj, cache_attr, course_ticket.ticket if course_ticket else None)
+        return getattr(obj, cache_attr)
 
     def get_ticketId(self, obj):
         ticket = self._get_first_ticket(obj)

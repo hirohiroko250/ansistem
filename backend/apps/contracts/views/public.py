@@ -46,7 +46,10 @@ class PublicCourseListView(APIView):
         queryset = Course.objects.filter(
             is_active=True,
             deleted_at__isnull=True
-        ).select_related('brand', 'school', 'grade').prefetch_related('course_items__product', 'course_tickets__ticket')
+        ).select_related('brand', 'school', 'grade').prefetch_related(
+            'course_items__product__prices',
+            'course_tickets__ticket'
+        )
 
         # ブランドでフィルタリング（UUIDまたはブランドコード）
         brand_id = request.query_params.get('brand_id')
@@ -91,7 +94,10 @@ class PublicCourseDetailView(APIView):
         try:
             course = Course.objects.select_related(
                 'brand', 'school', 'grade'
-            ).prefetch_related('course_items__product', 'course_tickets__ticket').get(
+            ).prefetch_related(
+                'course_items__product__prices',
+                'course_tickets__ticket'
+            ).get(
                 id=pk,
                 is_active=True,
                 deleted_at__isnull=True
@@ -117,7 +123,11 @@ class PublicPackListView(APIView):
         queryset = Pack.objects.filter(
             is_active=True,
             deleted_at__isnull=True
-        ).select_related('brand', 'school', 'grade').prefetch_related('pack_courses__course', 'pack_tickets__ticket')
+        ).select_related('brand', 'school', 'grade').prefetch_related(
+            'pack_courses__course__course_items__product',
+            'pack_courses__course__course_tickets__ticket',
+            'pack_tickets__ticket'
+        )
 
         # ブランドでフィルタリング（UUIDまたはブランドコード）
         brand_id = request.query_params.get('brand_id')
@@ -161,7 +171,11 @@ class PublicPackDetailView(APIView):
         try:
             pack = Pack.objects.select_related(
                 'brand', 'school', 'grade'
-            ).prefetch_related('pack_courses__course', 'pack_tickets__ticket').get(
+            ).prefetch_related(
+                'pack_courses__course__course_items__product',
+                'pack_courses__course__course_tickets__ticket',
+                'pack_tickets__ticket'
+            ).get(
                 id=pk,
                 is_active=True,
                 deleted_at__isnull=True

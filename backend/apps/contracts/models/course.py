@@ -102,10 +102,11 @@ class Course(TenantModel):
         """コースの料金を取得"""
         if self.course_price is not None:
             return self.course_price
-        # 商品積み上げ
+        # 商品積み上げ（prefetchキャッシュを活用するためall()を使用）
         total = Decimal('0')
-        for item in self.course_items.filter(is_active=True):
-            total += item.get_price() * item.quantity
+        for item in self.course_items.all():
+            if item.is_active:
+                total += item.get_price() * item.quantity
         return total
 
 

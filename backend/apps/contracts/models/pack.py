@@ -103,10 +103,11 @@ class Pack(TenantModel):
         if self.pack_price is not None:
             return self.pack_price
 
-        # コース積み上げ
+        # コース積み上げ（prefetchキャッシュを活用するためall()を使用）
         total = Decimal('0')
-        for item in self.pack_courses.filter(is_active=True):
-            total += item.course.get_price()
+        for item in self.pack_courses.all():
+            if item.is_active:
+                total += item.course.get_price()
 
         # 割引適用
         if self.discount_type == 'percentage':
