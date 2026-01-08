@@ -274,15 +274,47 @@ export async function getStudentItems(
   return api.get<PurchasedItem[]>(`/students/${studentId}/items/${params}`);
 }
 
+// マイル情報の型
+export type MileInfo = {
+  balance: number;
+  potentialDiscount: number;
+};
+
+// FS割引の型
+export type FSDiscount = {
+  id: string;
+  discountType: string;
+  discountValue: number;
+  validFrom: string | null;
+  validUntil: string | null;
+};
+
+// 購入アイテム一覧レスポンスの型
+export type AllStudentItemsResponse = {
+  items: PurchasedItem[];
+  mileInfo: MileInfo;
+  fsDiscounts: FSDiscount[];
+};
+
 /**
  * 保護者の全子どもの購入アイテム一覧を取得
  * @param billingMonth - 請求月（例: 2025-01）
  */
 export async function getAllStudentItems(
   billingMonth?: string
-): Promise<PurchasedItem[]> {
+): Promise<AllStudentItemsResponse> {
   const params = billingMonth ? `?billing_month=${billingMonth}` : '';
-  return api.get<PurchasedItem[]>(`/students/all_items/${params}`);
+  const response = await api.get<AllStudentItemsResponse | PurchasedItem[]>(`/students/all_items/${params}`);
+
+  // 後方互換性: 古いAPIレスポンス形式の場合
+  if (Array.isArray(response)) {
+    return {
+      items: response,
+      mileInfo: { balance: 0, potentialDiscount: 0 },
+      fsDiscounts: [],
+    };
+  }
+  return response;
 }
 
 // ============================================

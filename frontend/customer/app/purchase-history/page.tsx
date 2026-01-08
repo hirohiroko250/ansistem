@@ -66,11 +66,11 @@ export default function PassbookListPage() {
   const fetchData = async () => {
     try {
       setLoading(true);
-      const items = await getAllStudentItems();
-      setAllItems(items);
+      const response = await getAllStudentItems();
+      setAllItems(response.items);
 
       // 月別に集計
-      const summaries = createMonthSummaries(items);
+      const summaries = createMonthSummaries(response.items);
       setMonthSummaries(summaries);
       setError(null);
     } catch (err: unknown) {

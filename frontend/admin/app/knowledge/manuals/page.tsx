@@ -25,6 +25,7 @@ import {
   Upload,
 } from "lucide-react";
 import { FileUpload, FilePreview } from "@/components/ui/file-upload";
+import { RichTextEditor } from "@/components/ui/rich-text-editor";
 
 interface ManualCategory {
   id: number;
@@ -367,11 +368,11 @@ export default function ManualsPage() {
 
               <div>
                 <Label>内容</Label>
-                <Textarea
+                <RichTextEditor
                   value={editForm.content}
-                  onChange={(e) => setEditForm({ ...editForm, content: e.target.value })}
+                  onChange={(content) => setEditForm({ ...editForm, content })}
                   placeholder="マニュアルの本文（Markdown対応）"
-                  rows={12}
+                  minHeight="400px"
                 />
               </div>
 

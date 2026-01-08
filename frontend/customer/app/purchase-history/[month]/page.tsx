@@ -10,9 +10,10 @@ import Link from 'next/link';
 import { format, addMonths, subMonths, parse } from 'date-fns';
 import { ja } from 'date-fns/locale';
 import { useRouter, useParams } from 'next/navigation';
-import { getAllStudentItems, type PurchasedItem } from '@/lib/api/students';
+import { getAllStudentItems, type PurchasedItem, type MileInfo, type FSDiscount } from '@/lib/api/students';
 import { getMe } from '@/lib/api/auth';
 import type { Profile } from '@/lib/api/types';
+import { Users } from 'lucide-react';
 
 type TicketItem = {
   id: string;
@@ -190,9 +191,23 @@ function convertToStudentGroups(items: PurchasedItem[], billingMonth: string): S
   const studentGroups: StudentGroup[] = [];
 
   studentMap.forEach(({ studentId, studentName, items: studentItems }) => {
+    // 設備費の重複排除: 生徒ごとに最高額の設備費のみを有効にする
+    const facilityItems = studentItems.filter(item => item.productType === 'facility');
+    const highestFacility = facilityItems.length > 0
+      ? facilityItems.reduce((max, item) => item.finalPrice > max.finalPrice ? item : max, facilityItems[0])
+      : null;
+    const excludedFacilityIds = new Set(
+      facilityItems
+        .filter(item => highestFacility && item.id !== highestFacility.id)
+        .map(item => item.id)
+    );
+
+    // 除外された設備費を除いたアイテムリスト
+    const filteredItems = studentItems.filter(item => !excludedFacilityIds.has(item.id));
+
     // ブランドごとにグループ化
     const brandMap = new Map<string, PurchasedItem[]>();
-    studentItems.forEach(item => {
+    filteredItems.forEach(item => {
       const brandKey = item.brandName || item.productName;
       if (!brandMap.has(brandKey)) {
         brandMap.set(brandKey, []);
@@ -208,7 +223,7 @@ function convertToStudentGroups(items: PurchasedItem[], billingMonth: string): S
     brandMap.forEach((brandItems, brandName) => {
       const ticketItems: TicketItem[] = brandItems.map(item => ({
         id: item.id,
-        description: `${item.productName}（${getProductTypeName(item.productType)}）`,
+        description: getProductTypeName(item.productType),
         productType: item.productType,
         amount: item.finalPrice,
         originalAmount: item.discountAmount > 0 ? item.unitPrice * item.quantity : undefined,
@@ -267,6 +282,8 @@ export default function PassbookDetailPage() {
 
   const [currentDate, setCurrentDate] = useState(getInitialDate);
   const [allItems, setAllItems] = useState<PurchasedItem[]>([]);
+  const [mileInfo, setMileInfo] = useState<MileInfo>({ balance: 0, potentialDiscount: 0 });
+  const [fsDiscounts, setFsDiscounts] = useState<FSDiscount[]>([]);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -284,16 +301,19 @@ export default function PassbookDetailPage() {
     itemAmount: 0,
   });
 
-  // データ取得
+  // データ取得（請求月でフィルタ）
   useEffect(() => {
     const fetchData = async () => {
       try {
         setLoading(true);
-        const [items, userProfile] = await Promise.all([
-          getAllStudentItems(),
+        // 該当月のデータのみ取得
+        const [itemsResponse, userProfile] = await Promise.all([
+          getAllStudentItems(monthParam),
           getMe(),
         ]);
-        setAllItems(items);
+        setAllItems(itemsResponse.items);
+        setMileInfo(itemsResponse.mileInfo);
+        setFsDiscounts(itemsResponse.fsDiscounts);
         setProfile(userProfile);
         setError(null);
       } catch (err: unknown) {
@@ -311,7 +331,7 @@ export default function PassbookDetailPage() {
       }
     };
     fetchData();
-  }, [router]);
+  }, [router, monthParam]);
 
   const monthKey = format(currentDate, 'yyyy-MM');
   const studentGroups = convertToStudentGroups(allItems, monthKey);
@@ -320,7 +340,15 @@ export default function PassbookDetailPage() {
   const totalAmount = studentGroups.reduce((sum, group) => sum + group.totalAmount, 0);
   const totalDiscount = studentGroups.reduce((sum, group) => sum + group.totalDiscount, 0);
   const totalOriginal = studentGroups.reduce((sum, group) => sum + group.totalOriginal, 0);
-  const finalAmount = totalAmount - mileCalculation.mileDiscount;  // マイル割引適用後
+
+  // FS割引の合計額を計算
+  const totalFsDiscount = fsDiscounts.reduce((sum, fs) => sum + fs.discountValue, 0);
+
+  // マイル割引額（APIから取得した値を使用、なければローカル計算）
+  const mileDiscount = mileInfo.potentialDiscount > 0 ? mileInfo.potentialDiscount : mileCalculation.mileDiscount;
+
+  // 最終金額（商品割引 + マイル割引 + FS割引を適用後）
+  const finalAmount = Math.max(0, totalAmount - mileDiscount - totalFsDiscount);
 
   const handlePrevMonth = () => {
     const prevMonth = subMonths(currentDate, 1);
@@ -421,13 +449,13 @@ export default function PassbookDetailPage() {
             <p className="text-xs opacity-90 mb-1">今月のお支払い金額</p>
             <div className="flex items-baseline gap-2">
               <p className="text-2xl font-bold">¥{finalAmount.toLocaleString()}</p>
-              {(totalDiscount > 0 || mileCalculation.mileDiscount > 0) && (
+              {(totalDiscount > 0 || mileDiscount > 0 || totalFsDiscount > 0) && (
                 <p className="text-sm opacity-70 line-through">¥{totalOriginal.toLocaleString()}</p>
               )}
             </div>
-            {(totalDiscount > 0 || mileCalculation.mileDiscount > 0) && (() => {
-              const totalSaved = totalDiscount + mileCalculation.mileDiscount;
-              const savingsPercent = Math.round((totalSaved / totalOriginal) * 100);
+            {(totalDiscount > 0 || mileDiscount > 0 || totalFsDiscount > 0) && (() => {
+              const totalSaved = totalDiscount + mileDiscount + totalFsDiscount;
+              const savingsPercent = totalOriginal > 0 ? Math.round((totalSaved / totalOriginal) * 100) : 0;
               return (
                 <div className="mt-2 inline-flex items-center gap-1.5 bg-red-500 text-white px-2 py-1 rounded text-xs font-bold">
                   <Tag className="h-3.5 w-3.5" />
@@ -439,18 +467,18 @@ export default function PassbookDetailPage() {
           </CardContent>
         </Card>
 
-        {/* 保護者カード - 兄弟割引（子供カードと同形式） */}
-        {mileCalculation.mileDiscount > 0 && (
+        {/* マイル割引（兄弟割引）カード */}
+        {mileDiscount > 0 && (
           <Card className="rounded-xl shadow-md mb-4 overflow-hidden">
             <div className="bg-gradient-to-r from-purple-600 to-purple-700 text-white px-3 py-2.5">
               <div className="flex items-center gap-2">
-                <User className="h-4 w-4" />
-                <h2 className="font-bold text-sm">{profile?.fullName || '保護者'}</h2>
+                <Star className="h-4 w-4" />
+                <h2 className="font-bold text-sm">マイル割引（兄弟割引）</h2>
               </div>
               <div className="flex justify-between items-center mt-1.5">
-                <span className="text-[10px] opacity-80">月額合計</span>
+                <span className="text-[10px] opacity-80">割引額</span>
                 <div className="text-sm font-bold">
-                  -¥{mileCalculation.mileDiscount.toLocaleString()}
+                  -¥{mileDiscount.toLocaleString()}
                 </div>
               </div>
             </div>
@@ -463,12 +491,14 @@ export default function PassbookDetailPage() {
                     <h3 className="font-semibold text-xs text-purple-900">兄弟割引</h3>
                   </div>
                   <div className="text-[10px] text-gray-600 mt-0.5">
-                    {mileCalculation.totalCourses}コース受講中 → {mileCalculation.effectiveMiles}マイル獲得
+                    {mileInfo.balance > 0
+                      ? `${mileInfo.balance}マイル保有中`
+                      : `${mileCalculation.totalCourses}コース受講中 → ${mileCalculation.effectiveMiles}マイル獲得`}
                   </div>
                 </div>
                 <div className="text-right">
                   <div className="text-sm font-bold text-purple-900">
-                    -¥{mileCalculation.mileDiscount.toLocaleString()}
+                    -¥{mileDiscount.toLocaleString()}
                   </div>
                 </div>
               </div>
@@ -476,23 +506,23 @@ export default function PassbookDetailPage() {
               <div className="px-3 py-2 border-t border-gray-100">
                 <div className="flex items-center justify-between">
                   <div className="text-xs text-gray-700">
-                    {mileCalculation.is1000PokiriDoubleCourse
-                      ? '1000円ポッキリ2コース特例'
-                      : `マイル割引（${Math.floor(mileCalculation.effectiveMiles / 2)}回 × 500円）`}
+                    {mileInfo.balance > 0
+                      ? `マイル割引（${mileInfo.balance}マイル）`
+                      : mileCalculation.is1000PokiriDoubleCourse
+                        ? '1000円ポッキリ2コース特例'
+                        : `マイル割引（${Math.floor(mileCalculation.effectiveMiles / 2)}回 × 500円）`}
                   </div>
                   <div className="flex items-center gap-1.5">
                     <span className="text-xs font-bold text-gray-900 tabular-nums">
-                      -¥{mileCalculation.mileDiscount.toLocaleString()}
+                      -¥{mileDiscount.toLocaleString()}
                     </span>
                     <div className="w-5 flex justify-center">
                       <button
                         onClick={() => handleOpenInquiry(
                           profile?.fullName || '保護者',
-                          '兄弟割引',
-                          mileCalculation.is1000PokiriDoubleCourse
-                            ? '1000円ポッキリ2コース特例'
-                            : `マイル割引（${Math.floor(mileCalculation.effectiveMiles / 2)}回 × 500円）`,
-                          -mileCalculation.mileDiscount
+                          'マイル割引（兄弟割引）',
+                          `マイル割引 -¥${mileDiscount.toLocaleString()}`,
+                          -mileDiscount
                         )}
                         className="hover:bg-red-100 rounded p-0.5"
                       >
@@ -502,11 +532,9 @@ export default function PassbookDetailPage() {
                     <button
                       onClick={() => handleOpenInquiry(
                         profile?.fullName || '保護者',
-                        '兄弟割引',
-                        mileCalculation.is1000PokiriDoubleCourse
-                          ? '1000円ポッキリ2コース特例'
-                          : `マイル割引（${Math.floor(mileCalculation.effectiveMiles / 2)}回 × 500円）`,
-                        -mileCalculation.mileDiscount
+                        'マイル割引（兄弟割引）',
+                        `マイル割引 -¥${mileDiscount.toLocaleString()}`,
+                        -mileDiscount
                       )}
                       className="hover:bg-blue-100 rounded p-0.5"
                     >
@@ -515,6 +543,75 @@ export default function PassbookDetailPage() {
                   </div>
                 </div>
               </div>
+            </div>
+          </Card>
+        )}
+
+        {/* FS割引（友達紹介割引）カード */}
+        {totalFsDiscount > 0 && (
+          <Card className="rounded-xl shadow-md mb-4 overflow-hidden">
+            <div className="bg-gradient-to-r from-green-600 to-green-700 text-white px-3 py-2.5">
+              <div className="flex items-center gap-2">
+                <Users className="h-4 w-4" />
+                <h2 className="font-bold text-sm">友達紹介割引（FS割引）</h2>
+              </div>
+              <div className="flex justify-between items-center mt-1.5">
+                <span className="text-[10px] opacity-80">割引額</span>
+                <div className="text-sm font-bold">
+                  -¥{totalFsDiscount.toLocaleString()}
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-white divide-y divide-gray-100">
+              {fsDiscounts.map((fs) => (
+                <div key={fs.id} className="px-3 py-2">
+                  <div className="flex items-center justify-between">
+                    <div className="flex-1">
+                      <div className="text-xs text-gray-700">
+                        {fs.discountType === 'percent'
+                          ? `${fs.discountValue}%割引`
+                          : `友達紹介割引`}
+                      </div>
+                      {(fs.validFrom || fs.validUntil) && (
+                        <div className="text-[10px] text-gray-500 mt-0.5">
+                          {fs.validFrom && `${fs.validFrom}〜`}
+                          {fs.validUntil && `${fs.validUntil}まで`}
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-xs font-bold text-gray-900 tabular-nums">
+                        -¥{fs.discountValue.toLocaleString()}
+                      </span>
+                      <div className="w-5 flex justify-center">
+                        <button
+                          onClick={() => handleOpenInquiry(
+                            profile?.fullName || '保護者',
+                            '友達紹介割引（FS割引）',
+                            `友達紹介割引 -¥${fs.discountValue.toLocaleString()}`,
+                            -fs.discountValue
+                          )}
+                          className="hover:bg-red-100 rounded p-0.5"
+                        >
+                          <X className="h-3.5 w-3.5 text-red-600" />
+                        </button>
+                      </div>
+                      <button
+                        onClick={() => handleOpenInquiry(
+                          profile?.fullName || '保護者',
+                          '友達紹介割引（FS割引）',
+                          `友達紹介割引 -¥${fs.discountValue.toLocaleString()}`,
+                          -fs.discountValue
+                        )}
+                        className="hover:bg-blue-100 rounded p-0.5"
+                      >
+                        <MessageCircle className="h-3.5 w-3.5 text-blue-600" />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
             </div>
           </Card>
         )}

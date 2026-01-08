@@ -251,4 +251,53 @@ class StudentItemsMixin:
                 'createdAt': item.created_at.isoformat() if item.created_at else None,
             })
 
-        return Response(result)
+        # マイル情報とFS割引情報を取得
+        mile_info = self._get_mile_info_for_customer(request.user)
+        fs_discounts = self._get_fs_discounts_for_customer(request.user)
+
+        return Response({
+            'items': result,
+            'mileInfo': mile_info,
+            'fsDiscounts': fs_discounts,
+        })
+
+    def _get_mile_info_for_customer(self, user):
+        """顧客用マイル情報を取得"""
+        mile_info = {
+            'balance': 0,
+            'potentialDiscount': 0,
+        }
+        try:
+            guardian = user.guardian
+            if not guardian:
+                return mile_info
+            from apps.billing.models import MileTransaction
+            mile_balance = MileTransaction.get_balance(guardian)
+            potential_discount = MileTransaction.calculate_discount(mile_balance) if mile_balance >= 4 else 0
+            mile_info = {
+                'balance': mile_balance,
+                'potentialDiscount': int(potential_discount),
+            }
+        except Exception:
+            pass
+        return mile_info
+
+    def _get_fs_discounts_for_customer(self, user):
+        """顧客用FS割引情報を取得"""
+        fs_discount_list = []
+        try:
+            guardian = user.guardian
+            if not guardian:
+                return fs_discount_list
+            fs_discounts = guardian.fs_discounts.filter(status='active')
+            for fs in fs_discounts:
+                fs_discount_list.append({
+                    'id': str(fs.id),
+                    'discountType': fs.discount_type,
+                    'discountValue': int(fs.discount_value),
+                    'validFrom': fs.valid_from.isoformat() if fs.valid_from else None,
+                    'validUntil': fs.valid_until.isoformat() if fs.valid_until else None,
+                })
+        except Exception:
+            pass
+        return fs_discount_list

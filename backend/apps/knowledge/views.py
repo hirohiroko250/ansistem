@@ -1,11 +1,16 @@
 """
 Knowledge Views
 """
+import os
+import uuid
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.parsers import MultiPartParser, FormParser
 from django.db.models import Q
+from django.conf import settings
+from django.core.files.storage import default_storage
 
 from .models import ManualCategory, Manual, TemplateCategory, ChatTemplate
 from .serializers import (
@@ -24,12 +29,12 @@ class ManualCategoryViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         return ManualCategory.objects.filter(
-            tenant_ref=self.request.user.tenant_id,
+            tenant_ref_id=self.request.user.tenant_id,
             is_active=True
         ).order_by('sort_order', 'name')
 
     def perform_create(self, serializer):
-        serializer.save(tenant_ref=self.request.user.tenant_id)
+        serializer.save(tenant_ref_id=self.request.user.tenant_id)
 
 
 class ManualViewSet(viewsets.ModelViewSet):
@@ -38,7 +43,7 @@ class ManualViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         queryset = Manual.objects.filter(
-            tenant_ref=self.request.user.tenant_id
+            tenant_ref_id=self.request.user.tenant_id
         ).select_related('category', 'author').order_by('-is_pinned', '-updated_at')
 
         # フィルター
@@ -75,7 +80,7 @@ class ManualViewSet(viewsets.ModelViewSet):
         return ManualDetailSerializer
 
     def perform_create(self, serializer):
-        serializer.save(tenant_ref=self.request.user.tenant_id)
+        serializer.save(tenant_ref_id=self.request.user.tenant_id)
 
     def retrieve(self, request, *args, **kwargs):
         instance = self.get_object()
@@ -105,6 +110,65 @@ class ManualViewSet(viewsets.ModelViewSet):
         serializer = ManualListSerializer(queryset, many=True)
         return Response(serializer.data)
 
+    @action(detail=False, methods=['post'], parser_classes=[MultiPartParser, FormParser])
+    def upload_image(self, request):
+        """マニュアル用の画像をアップロード
+
+        画像をアップロードしてURLを返す。
+        マニュアルのcontent内でMarkdown形式で参照可能:
+        ![説明](返されたURL)
+        """
+        file = request.FILES.get('image') or request.FILES.get('file')
+        if not file:
+            return Response(
+                {'error': '画像ファイルを指定してください'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # 拡張子チェック
+        allowed_extensions = {'.jpg', '.jpeg', '.png', '.gif', '.webp'}
+        _, ext = os.path.splitext(file.name.lower())
+        if ext not in allowed_extensions:
+            return Response(
+                {'error': f'許可されていないファイル形式です。対応形式: {", ".join(allowed_extensions)}'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # ファイルサイズチェック（10MB）
+        max_size = 10 * 1024 * 1024
+        if file.size > max_size:
+            return Response(
+                {'error': 'ファイルサイズが大きすぎます。最大10MBまでです'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # ユニークなファイル名を生成
+        unique_id = uuid.uuid4().hex[:12]
+        new_filename = f"{unique_id}{ext}"
+        file_path = f"manual_images/{new_filename}"
+
+        try:
+            # ファイルを保存
+            saved_path = default_storage.save(file_path, file)
+
+            # URLを生成
+            file_url = default_storage.url(saved_path)
+
+            # 相対パスの場合は絶対パスに変換
+            if not file_url.startswith('http'):
+                file_url = f"/{settings.MEDIA_URL}{saved_path}"
+
+            return Response({
+                'url': file_url,
+                'filename': file.name,
+                'markdown': f'![{file.name}]({file_url})',
+            })
+        except Exception as e:
+            return Response(
+                {'error': f'ファイルの保存に失敗しました: {str(e)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
 
 class TemplateCategoryViewSet(viewsets.ModelViewSet):
     """テンプレートカテゴリViewSet"""
@@ -113,12 +177,12 @@ class TemplateCategoryViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         return TemplateCategory.objects.filter(
-            tenant_ref=self.request.user.tenant_id,
+            tenant_ref_id=self.request.user.tenant_id,
             is_active=True
         ).order_by('sort_order', 'name')
 
     def perform_create(self, serializer):
-        serializer.save(tenant_ref=self.request.user.tenant_id)
+        serializer.save(tenant_ref_id=self.request.user.tenant_id)
 
 
 class ChatTemplateViewSet(viewsets.ModelViewSet):
@@ -127,7 +191,7 @@ class ChatTemplateViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         queryset = ChatTemplate.objects.filter(
-            tenant_ref=self.request.user.tenant_id
+            tenant_ref_id=self.request.user.tenant_id
         ).select_related('category').order_by('-is_default', '-use_count', 'title')
 
         # フィルター
@@ -168,7 +232,7 @@ class ChatTemplateViewSet(viewsets.ModelViewSet):
         return ChatTemplateDetailSerializer
 
     def perform_create(self, serializer):
-        serializer.save(tenant_ref=self.request.user.tenant_id)
+        serializer.save(tenant_ref_id=self.request.user.tenant_id)
 
     @action(detail=True, methods=['post'])
     def render(self, request, pk=None):

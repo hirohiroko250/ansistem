@@ -11,10 +11,17 @@ class ManualCategoryAdmin(admin.ModelAdmin):
 
 @admin.register(Manual)
 class ManualAdmin(admin.ModelAdmin):
-    list_display = ['title', 'category', 'is_published', 'is_pinned', 'view_count', 'updated_at']
-    list_filter = ['is_published', 'is_pinned', 'category']
+    list_display = ['title', 'tenant_ref', 'category', 'is_published', 'is_pinned', 'view_count', 'updated_at']
+    list_filter = ['is_published', 'is_pinned', 'category', 'tenant_ref']
     search_fields = ['title', 'content', 'summary']
     readonly_fields = ['view_count']
+
+    def get_queryset(self, request):
+        """全てのマニュアルを表示（テナントフィルタなし）"""
+        # deleted_at=Nullのものだけを取得（論理削除されていないもの）
+        qs = super().get_queryset(request).model.objects.filter(deleted_at__isnull=True)
+        print(f"[ManualAdmin] get_queryset called, count: {qs.count()}")
+        return qs
 
 
 @admin.register(TemplateCategory)

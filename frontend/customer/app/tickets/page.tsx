@@ -90,14 +90,14 @@ export default function TicketsPage() {
         setLoading(true);
 
         // コースチケット（StudentItems）と振替チケット（AbsenceTickets）を並行取得
-        const [items, absenceTickets] = await Promise.all([
+        const [itemsResponse, absenceTickets] = await Promise.all([
           getAllStudentItems(),
           getAbsenceTickets('issued').catch(() => [] as AbsenceTicket[]), // エラー時は空配列
         ]);
 
         // 授業料（tuition）のみをチケットとして表示
         // 月会費、教材費、入会金などは購入履歴ページで表示
-        const ticketItems = items.filter((item: PurchasedItem) => isTicketType(item.productType));
+        const ticketItems = itemsResponse.items.filter((item: PurchasedItem) => isTicketType(item.productType));
 
         // PurchasedItemをTicketTypeに変換
         const convertedTickets: TicketType[] = ticketItems.map((item: PurchasedItem) => {
@@ -225,11 +225,11 @@ export default function TicketsPage() {
       });
       setTransferSuccess(true);
       // チケット一覧を再取得
-      const [items, absenceTickets] = await Promise.all([
+      const [itemsResponse, absenceTickets] = await Promise.all([
         getAllStudentItems(),
         getAbsenceTickets('issued').catch(() => [] as AbsenceTicket[]),
       ]);
-      const ticketItems = items.filter((item: PurchasedItem) => isTicketType(item.productType));
+      const ticketItems = itemsResponse.items.filter((item: PurchasedItem) => isTicketType(item.productType));
       const convertedTickets: TicketType[] = ticketItems.map((item: PurchasedItem) => {
         const expiryDate = calculateExpiryDate(item.billingMonth);
         return {
