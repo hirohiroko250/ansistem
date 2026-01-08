@@ -278,8 +278,10 @@ export default function TrialPage() {
       try {
         const year = currentMonth.getFullYear();
         const month = currentMonth.getMonth() + 1;
+        // birth_dateパラメータを追加して学年フィルターを適用
+        const birthDateParam = selectedChild?.birthDate ? `&birth_date=${selectedChild.birthDate}` : '';
         const res = await fetch(
-          `${API_BASE_URL}/schools/public/trial-monthly-availability/?school_id=${selectedSchoolId}&brand_id=${selectedBrand.id}&year=${year}&month=${month}`
+          `${API_BASE_URL}/schools/public/trial-monthly-availability/?school_id=${selectedSchoolId}&brand_id=${selectedBrand.id}&year=${year}&month=${month}${birthDateParam}`
         );
         const data = await res.json();
         if (data.days) {
@@ -294,7 +296,7 @@ export default function TrialPage() {
       }
     };
     fetchMonthlyAvailability();
-  }, [selectedSchoolId, selectedBrand, currentMonth, step]);
+  }, [selectedSchoolId, selectedBrand, currentMonth, step, selectedChild?.birthDate]);
 
   // 選択中の校舎を取得
   const selectedSchool = schools.find(s => s.id === selectedSchoolId);

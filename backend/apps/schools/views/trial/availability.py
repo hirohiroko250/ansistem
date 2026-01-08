@@ -221,12 +221,13 @@ class PublicTrialMonthlyAvailabilityView(APIView):
 
     指定月の各日の体験枠空き状況を返す
     カレンダー上で体験可能な日を表示するために使用
+    birth_dateを指定すると、生徒の学年に応じたクラスのみカウント
     """
     permission_classes = [AllowAny]
 
     def get(self, request):
         """
-        ?school_id=xxx&brand_id=xxx&year=2025&month=12
+        ?school_id=xxx&brand_id=xxx&year=2025&month=12&birth_date=2014-05-15
         """
         from apps.students.models import TrialBooking
 
@@ -234,6 +235,7 @@ class PublicTrialMonthlyAvailabilityView(APIView):
         brand_id = request.query_params.get('brand_id')
         year = request.query_params.get('year')
         month = request.query_params.get('month')
+        birth_date_str = request.query_params.get('birth_date')
 
         if not all([school_id, brand_id, year, month]):
             return Response(
@@ -250,6 +252,15 @@ class PublicTrialMonthlyAvailabilityView(APIView):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
+        # 生年月日から生徒の学年を取得
+        student_school_year = None
+        if birth_date_str:
+            try:
+                birth_date = datetime.strptime(birth_date_str, '%Y-%m-%d').date()
+                student_school_year = get_school_year_from_birth_date(birth_date)
+            except ValueError:
+                pass
+
         first_day = date(year, month, 1)
         last_day = date(year, month, cal.monthrange(year, month)[1])
 
@@ -259,9 +270,22 @@ class PublicTrialMonthlyAvailabilityView(APIView):
             brand_id=brand_id,
             is_active=True,
             deleted_at__isnull=True
-        ).select_related('grade')
+        ).select_related('grade').prefetch_related('grade__school_years')
 
         if class_schedules.exists():
+            # 生徒の学年でフィルター（対象学年のクラスのみ残席をカウント）
+            if student_school_year:
+                filtered_schedules = []
+                for cs in class_schedules:
+                    if cs.grade:
+                        # gradeに紐づくschool_yearsに生徒の学年が含まれるかチェック
+                        if cs.grade.school_years.filter(id=student_school_year.id).exists():
+                            filtered_schedules.append(cs)
+                    else:
+                        # gradeが未設定のクラスは含める
+                        filtered_schedules.append(cs)
+                class_schedules = filtered_schedules
+
             schedules_by_day = {}
             for sched in class_schedules:
                 if sched.day_of_week not in schedules_by_day:
