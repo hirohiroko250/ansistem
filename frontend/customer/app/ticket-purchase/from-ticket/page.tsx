@@ -485,27 +485,22 @@ export default function FromTicketPurchasePage() {
       ? new Set(brands.filter(b => b.category?.id === selectedCategory.id).map(b => b.id))
       : new Set<string>();
 
-    console.log('[useEffect courses] brandIdsInCategory:', brandIdsInCategory.size, 'selectedSchoolId:', selectedSchoolId);
-    if (brandIdsInCategory.size === 0 || !selectedSchoolId) return;
+    const brandIdList = Array.from(brandIdsInCategory);
+    console.log('[useEffect courses] brandIdsInCategory:', brandIdList.length, 'selectedSchoolId:', selectedSchoolId);
+    if (brandIdList.length === 0 || !selectedSchoolId) return;
 
     const fetchCoursesAndPacks = async () => {
-      console.log('[fetchCoursesAndPacks] Fetching for school:', selectedSchoolId);
+      console.log('[fetchCoursesAndPacks] Fetching for school:', selectedSchoolId, 'brands:', brandIdList.length);
       setIsLoadingCourses(true);
       setCoursesError(null);
       try {
-        // 校舎フィルタのみで全コース・パックを取得（APIコール2回のみ）
-        const [allCourses, allPacks] = await Promise.all([
-          getPublicCourses({ schoolId: selectedSchoolId }),
-          getPublicPacks({ schoolId: selectedSchoolId }),
+        // ブランドIDと校舎IDでサーバーサイドフィルタリング
+        const [categoryCourses, categoryPacks] = await Promise.all([
+          getPublicCourses({ brandIds: brandIdList, schoolId: selectedSchoolId }),
+          getPublicPacks({ brandIds: brandIdList, schoolId: selectedSchoolId }),
         ]);
 
-        console.log('[fetchCoursesAndPacks] Fetched:', allCourses.length, 'courses,', allPacks.length, 'packs');
-
-        // カテゴリ内のブランドでフィルタ
-        const categoryCourses = allCourses.filter(c => c.brandId && brandIdsInCategory.has(c.brandId));
-        const categoryPacks = allPacks.filter(p => p.brandId && brandIdsInCategory.has(p.brandId));
-
-        console.log('[fetchCoursesAndPacks] After category filter:', categoryCourses.length, 'courses,', categoryPacks.length, 'packs');
+        console.log('[fetchCoursesAndPacks] Fetched:', categoryCourses.length, 'courses,', categoryPacks.length, 'packs');
 
         // パックに含まれるコースIDを収集
         const courseIdsInPacks = new Set<string>();

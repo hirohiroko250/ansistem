@@ -107,8 +107,8 @@ export default function FriendReferralPage() {
       const friendsList = await getFriendsList();
       setFriendsData(friendsList);
     } catch (error: unknown) {
-      const errorMessage = error && typeof error === 'object' && 'response' in error
-        ? (error as { response?: { data?: { error?: { message?: string } } } }).response?.data?.error?.message || '登録に失敗しました'
+      const errorMessage = error && typeof error === 'object' && 'message' in error
+        ? (error as { message: string }).message
         : '登録に失敗しました';
       setRegisterResult({ success: false, message: errorMessage });
     } finally {

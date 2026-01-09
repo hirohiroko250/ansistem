@@ -44,14 +44,18 @@ class PublicCourseListView(APIView):
         """
         有効なコース一覧を返す
         ?brand_id=xxx でブランドフィルタリング（UUIDまたはブランドコード）
+        ?brand_ids=xxx,yyy,zzz で複数ブランドフィルタリング（カンマ区切りUUID）
         ?school_id=xxx で校舎フィルタリング（UUIDまたは校舎コード）
         ?grade_name=xxx で学年フィルタリング
         """
+        import uuid as uuid_module
+
         # キャッシュキー生成
         brand_id = request.query_params.get('brand_id', '')
+        brand_ids = request.query_params.get('brand_ids', '')
         school_id = request.query_params.get('school_id', '')
         grade_name = request.query_params.get('grade_name', '')
-        cache_key = f"public_courses:{brand_id}:{school_id}:{grade_name}"
+        cache_key = f"public_courses:{brand_id}:{brand_ids}:{school_id}:{grade_name}"
 
         # キャッシュから取得
         cached_data = cache.get(cache_key)
@@ -60,18 +64,23 @@ class PublicCourseListView(APIView):
 
         queryset = Course.objects.filter(
             is_active=True,
+            is_visible=True,  # 保護者に表示するコースのみ
             deleted_at__isnull=True
         ).select_related('brand', 'school', 'grade').prefetch_related(
             'course_items__product__prices',
             'course_tickets__ticket'
         )
 
-        # ブランドでフィルタリング（UUIDまたはブランドコード）
-        if brand_id:
+        # 複数ブランドでフィルタリング（優先）
+        if brand_ids:
+            brand_id_list = [bid.strip() for bid in brand_ids.split(',') if bid.strip()]
+            if brand_id_list:
+                queryset = queryset.filter(brand_id__in=brand_id_list)
+        # 単一ブランドでフィルタリング
+        elif brand_id:
             # UUIDかブランドコードかを判定
             try:
-                import uuid
-                uuid.UUID(brand_id)
+                uuid_module.UUID(brand_id)
                 queryset = queryset.filter(brand_id=brand_id)
             except ValueError:
                 # ブランドコードとして処理
@@ -81,8 +90,7 @@ class PublicCourseListView(APIView):
         # school_id=NULLのコース（ブランド全体で利用可能）も含める
         if school_id:
             try:
-                import uuid
-                uuid.UUID(school_id)
+                uuid_module.UUID(school_id)
                 queryset = queryset.filter(Q(school_id=school_id) | Q(school_id__isnull=True))
             except ValueError:
                 # 校舎コードとして処理
@@ -133,14 +141,18 @@ class PublicPackListView(APIView):
         """
         有効なパック一覧を返す
         ?brand_id=xxx でブランドフィルタリング（UUIDまたはブランドコード）
+        ?brand_ids=xxx,yyy,zzz で複数ブランドフィルタリング（カンマ区切りUUID）
         ?school_id=xxx で校舎フィルタリング（UUIDまたは校舎コード）
         ?grade_name=xxx で学年フィルタリング
         """
+        import uuid as uuid_module
+
         # キャッシュキー生成
         brand_id = request.query_params.get('brand_id', '')
+        brand_ids = request.query_params.get('brand_ids', '')
         school_id = request.query_params.get('school_id', '')
         grade_name = request.query_params.get('grade_name', '')
-        cache_key = f"public_packs:{brand_id}:{school_id}:{grade_name}"
+        cache_key = f"public_packs:{brand_id}:{brand_ids}:{school_id}:{grade_name}"
 
         # キャッシュから取得
         cached_data = cache.get(cache_key)
@@ -156,11 +168,15 @@ class PublicPackListView(APIView):
             'pack_tickets__ticket'
         )
 
-        # ブランドでフィルタリング（UUIDまたはブランドコード）
-        if brand_id:
+        # 複数ブランドでフィルタリング（優先）
+        if brand_ids:
+            brand_id_list = [bid.strip() for bid in brand_ids.split(',') if bid.strip()]
+            if brand_id_list:
+                queryset = queryset.filter(brand_id__in=brand_id_list)
+        # 単一ブランドでフィルタリング
+        elif brand_id:
             try:
-                import uuid
-                uuid.UUID(brand_id)
+                uuid_module.UUID(brand_id)
                 queryset = queryset.filter(brand_id=brand_id)
             except ValueError:
                 # ブランドコードとして処理
@@ -170,8 +186,7 @@ class PublicPackListView(APIView):
         # school_id=NULLのパック（ブランド全体で利用可能）も含める
         if school_id:
             try:
-                import uuid
-                uuid.UUID(school_id)
+                uuid_module.UUID(school_id)
                 queryset = queryset.filter(Q(school_id=school_id) | Q(school_id__isnull=True))
             except ValueError:
                 # 校舎コードとして処理

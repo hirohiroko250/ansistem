@@ -21,10 +21,14 @@ export async function getPublicBrands(): Promise<PublicBrand[]> {
  */
 export async function getPublicCourses(params?: {
   brandId?: string;
+  brandIds?: string[];  // 複数ブランドIDでフィルタ
   schoolId?: string;
 }): Promise<PublicCourse[]> {
   const searchParams = new URLSearchParams();
   if (params?.brandId) searchParams.append('brand_id', params.brandId);
+  if (params?.brandIds && params.brandIds.length > 0) {
+    searchParams.append('brand_ids', params.brandIds.join(','));
+  }
   if (params?.schoolId) searchParams.append('school_id', params.schoolId);
 
   const query = searchParams.toString();
@@ -50,10 +54,14 @@ export async function getPublicCourse(courseId: string): Promise<PublicCourse> {
  */
 export async function getPublicPacks(params?: {
   brandId?: string;
+  brandIds?: string[];  // 複数ブランドIDでフィルタ
   schoolId?: string;
 }): Promise<PublicPack[]> {
   const searchParams = new URLSearchParams();
   if (params?.brandId) searchParams.append('brand_id', params.brandId);
+  if (params?.brandIds && params.brandIds.length > 0) {
+    searchParams.append('brand_ids', params.brandIds.join(','));
+  }
   if (params?.schoolId) searchParams.append('school_id', params.schoolId);
 
   const query = searchParams.toString();
