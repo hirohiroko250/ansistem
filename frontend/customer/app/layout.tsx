@@ -8,6 +8,28 @@ export const metadata: Metadata = {
   title: 'OZA - 保護者ページ',
   description: 'OZA保護者向けアプリ',
   manifest: '/manifest.json',
+  openGraph: {
+    title: 'OZA - 保護者ページ',
+    description: 'OZA保護者向けアプリ',
+    url: 'https://oz-a.jp',
+    siteName: 'OZA',
+    images: [
+      {
+        url: 'https://oz-a.jp/og-image.png',
+        width: 1200,
+        height: 630,
+        alt: 'OZA - 保護者ページ',
+      },
+    ],
+    locale: 'ja_JP',
+    type: 'website',
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: 'OZA - 保護者ページ',
+    description: 'OZA保護者向けアプリ',
+    images: ['https://oz-a.jp/og-image.png'],
+  },
   appleWebApp: {
     capable: true,
     statusBarStyle: 'default',
