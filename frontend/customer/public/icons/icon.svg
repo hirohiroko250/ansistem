@@ -1,11 +1,31 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
   <defs>
-    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" style="stop-color:#2563eb"/>
-      <stop offset="100%" style="stop-color:#1d4ed8"/>
+    <linearGradient id="crownGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#F9D71C"/>
+      <stop offset="100%" style="stop-color:#E8C61C"/>
     </linearGradient>
   </defs>
-  <rect width="512" height="512" rx="96" fill="url(#bg)"/>
-  <text x="256" y="320" font-family="Arial, sans-serif" font-size="200" font-weight="bold" fill="white" text-anchor="middle">O</text>
-  <circle cx="256" cy="140" r="40" fill="white" opacity="0.9"/>
+  <!-- Pink Background -->
+  <rect width="1024" height="1024" fill="#E84B8A"/>
+  <!-- Crown Shadow -->
+  <g transform="translate(5, 5)" opacity="0.1">
+    <path d="M170 600 L170 480 L270 360 L390 480 L512 240 L634 480 L754 360 L854 480 L854 600 Z" fill="black"/>
+    <rect x="170" y="560" width="684" height="60" fill="black"/>
+    <circle cx="270" cy="320" r="40" fill="black"/>
+    <circle cx="512" cy="200" r="50" fill="black"/>
+    <circle cx="754" cy="320" r="40" fill="black"/>
+  </g>
+  <!-- Crown -->
+  <g fill="url(#crownGrad)">
+    <!-- Crown main body -->
+    <path d="M170 600 L170 480 L270 360 L390 480 L512 240 L634 480 L754 360 L854 480 L854 600 Z"/>
+    <!-- Crown bottom band -->
+    <rect x="170" y="560" width="684" height="60" fill="#E5BA18"/>
+    <!-- Crown balls -->
+    <circle cx="270" cy="320" r="40" fill="#F9D71C"/>
+    <circle cx="512" cy="200" r="50" fill="#F9D71C"/>
+    <circle cx="754" cy="320" r="40" fill="#F9D71C"/>
+  </g>
+  <!-- OZA Text -->
+  <text x="512" y="820" font-family="Arial Black, Arial, sans-serif" font-size="200" font-weight="900" fill="white" text-anchor="middle">OZA</text>
 </svg>

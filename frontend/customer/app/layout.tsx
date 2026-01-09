@@ -5,13 +5,13 @@ import { Inter } from 'next/font/google';
 const inter = Inter({ subsets: ['latin'] });
 
 export const metadata: Metadata = {
-  title: 'OZA SYSTEM - 習い事チケット管理',
+  title: 'OZA - 習い事チケット管理',
   description: '習い事のチケット管理・予約・コミュニケーションアプリ',
   manifest: '/manifest.json',
   appleWebApp: {
     capable: true,
     statusBarStyle: 'default',
-    title: 'OZA SYSTEM',
+    title: 'OZA',
   },
   formatDetection: {
     telephone: false,
@@ -29,7 +29,7 @@ export const metadata: Metadata = {
 };
 
 export const viewport = {
-  themeColor: '#2563eb',
+  themeColor: '#E84B8A',
   width: 'device-width',
   initialScale: 1,
   maximumScale: 1,
@@ -46,12 +46,12 @@ export default function RootLayout({
     <html lang="ja">
       <head>
         {/* PWA関連のメタタグ */}
-        <meta name="application-name" content="OZA SYSTEM" />
+        <meta name="application-name" content="OZA" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-        <meta name="apple-mobile-web-app-title" content="OZA SYSTEM" />
+        <meta name="apple-mobile-web-app-title" content="OZA" />
         <meta name="mobile-web-app-capable" content="yes" />
-        <meta name="msapplication-TileColor" content="#2563eb" />
+        <meta name="msapplication-TileColor" content="#E84B8A" />
         <meta name="msapplication-tap-highlight" content="no" />
 
         {/* Apple Touch Icon */}

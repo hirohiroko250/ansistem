@@ -1,11 +1,11 @@
 {
-  "name": "OZA SYSTEM - 習い事チケット管理",
+  "name": "OZA - 習い事チケット管理",
   "short_name": "OZA",
   "description": "習い事のチケット管理・予約・コミュニケーションアプリ",
   "start_url": "/",
   "display": "standalone",
   "orientation": "portrait",
-  "theme_color": "#2563eb",
+  "theme_color": "#E84B8A",
   "background_color": "#ffffff",
   "icons": [
     {
