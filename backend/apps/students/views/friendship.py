@@ -35,10 +35,15 @@ class FriendshipViewSet(viewsets.GenericViewSet):
                 status=status.HTTP_404_NOT_FOUND
             )
 
+        # 紹介コードがない場合は生成
+        if not guardian.referral_code:
+            guardian.referral_code = Guardian.generate_referral_code()
+            guardian.save(update_fields=['referral_code'])
+
         return Response({
             'success': True,
             'data': {
-                'referral_code': guardian.guardian_no,
+                'referral_code': guardian.referral_code,
                 'name': guardian.full_name,
             }
         })
@@ -67,16 +72,16 @@ class FriendshipViewSet(viewsets.GenericViewSet):
             )
 
         # 自分のコードは登録不可
-        if referral_code == guardian.guardian_no:
+        if referral_code == guardian.referral_code:
             return Response(
                 {'success': False, 'error': {'message': '自分のコードは登録できません'}},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        # 紹介者を検索
+        # 紹介者を検索（referral_codeで検索）
         try:
             referrer = Guardian.objects.get(
-                guardian_no=referral_code,
+                referral_code=referral_code,
                 tenant_id=guardian.tenant_id
             )
         except Guardian.DoesNotExist:
@@ -103,6 +108,8 @@ class FriendshipViewSet(viewsets.GenericViewSet):
                 # 相手からの申請がある場合は自動承認
                 if existing.requester == referrer:
                     existing.accept()
+                    # 使用された紹介コードを再生成
+                    referrer.regenerate_referral_code()
                     return Response({
                         'success': True,
                         'data': {
@@ -233,6 +240,9 @@ class FriendshipViewSet(viewsets.GenericViewSet):
             )
 
         friendship.accept()
+
+        # 使用された紹介コードを再生成（申請者のコードが使われた）
+        friendship.requester.regenerate_referral_code()
 
         return Response({
             'success': True,

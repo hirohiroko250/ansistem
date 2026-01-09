@@ -37,6 +37,9 @@ class Guardian(TenantModel):
         # 新規作成時にguardian_noが空なら自動発番
         if not self.guardian_no:
             self.guardian_no = self.generate_guardian_no()
+        # 紹介コードがなければ自動生成
+        if not self.referral_code:
+            self.referral_code = self.generate_referral_code()
         super().save(*args, **kwargs)
 
     # 基本情報
@@ -111,6 +114,36 @@ class Guardian(TenantModel):
         related_name='guardian_profile',
         verbose_name='ユーザーアカウント'
     )
+
+    # 友達紹介コード
+    referral_code = models.CharField(
+        '紹介コード',
+        max_length=10,
+        blank=True,
+        unique=True,
+        null=True,
+        help_text='友達紹介用の10桁コード（英数字+記号）'
+    )
+
+    @classmethod
+    def generate_referral_code(cls):
+        """10桁の紹介コードを生成（英数字+記号）"""
+        import secrets
+        import string
+        # 英大文字、数字、一部の記号を使用（紛らわしい文字を除外）
+        chars = string.ascii_uppercase.replace('O', '').replace('I', '').replace('L', '')
+        chars += string.digits.replace('0', '').replace('1', '')
+        chars += '#$%&*+-=?@'
+        while True:
+            code = ''.join(secrets.choice(chars) for _ in range(10))
+            if not cls.objects.filter(referral_code=code).exists():
+                return code
+
+    def regenerate_referral_code(self):
+        """紹介コードを再生成"""
+        self.referral_code = self.generate_referral_code()
+        self.save(update_fields=['referral_code'])
+        return self.referral_code
 
     # 登録時追加情報
     nearest_school = models.ForeignKey(
