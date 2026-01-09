@@ -1,7 +1,13 @@
 /**
  * Friendship API - 友達紹介
  */
-import { apiClient } from './client';
+import api from './client';
+
+// APIレスポンスのラッパー型
+type ApiResponse<T> = {
+  success: boolean;
+  data: T;
+};
 
 // 自分の紹介コード取得
 export type MyCodeResponse = {
@@ -10,8 +16,8 @@ export type MyCodeResponse = {
 };
 
 export async function getMyReferralCode(): Promise<MyCodeResponse> {
-  const response = await apiClient.get('/students/friendship/my_code/');
-  return response.data.data;
+  const response = await api.get<ApiResponse<MyCodeResponse>>('/students/friendship/my_code/');
+  return response.data;
 }
 
 // 友達コードで登録
@@ -23,10 +29,10 @@ export type RegisterFriendResponse = {
 };
 
 export async function registerFriend(referralCode: string): Promise<RegisterFriendResponse> {
-  const response = await apiClient.post('/students/friendship/register/', {
+  const response = await api.post<ApiResponse<RegisterFriendResponse>>('/students/friendship/register/', {
     referral_code: referralCode,
   });
-  return response.data.data;
+  return response.data;
 }
 
 // 友達一覧取得
@@ -49,20 +55,20 @@ export type FriendsListResponse = {
 };
 
 export async function getFriendsList(): Promise<FriendsListResponse> {
-  const response = await apiClient.get('/students/friendship/list_friends/');
-  return response.data.data;
+  const response = await api.get<ApiResponse<FriendsListResponse>>('/students/friendship/list_friends/');
+  return response.data;
 }
 
 // 友達申請を承認
 export async function acceptFriendRequest(friendshipId: string): Promise<{ message: string; friend_name: string }> {
-  const response = await apiClient.post(`/students/friendship/${friendshipId}/accept/`);
-  return response.data.data;
+  const response = await api.post<ApiResponse<{ message: string; friend_name: string }>>(`/students/friendship/${friendshipId}/accept/`);
+  return response.data;
 }
 
 // 友達申請を拒否
 export async function rejectFriendRequest(friendshipId: string): Promise<{ message: string }> {
-  const response = await apiClient.post(`/students/friendship/${friendshipId}/reject/`);
-  return response.data.data;
+  const response = await api.post<ApiResponse<{ message: string }>>(`/students/friendship/${friendshipId}/reject/`);
+  return response.data;
 }
 
 // 割引一覧取得
@@ -82,6 +88,6 @@ export type DiscountsResponse = {
 };
 
 export async function getFSDiscounts(): Promise<DiscountsResponse> {
-  const response = await apiClient.get('/students/friendship/discounts/');
-  return response.data.data;
+  const response = await api.get<ApiResponse<DiscountsResponse>>('/students/friendship/discounts/');
+  return response.data;
 }
