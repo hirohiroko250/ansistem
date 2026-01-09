@@ -1137,12 +1137,8 @@ export default function FromTicketPurchasePage() {
   const availableItems: (PublicCourse | PublicPack)[] = (() => {
     let items: (PublicCourse | PublicPack)[] = [];
     if (courseType === 'single') {
-      // 単品コース: パック商品のような名前（週○回、Free等）を含むものを除外
-      const packNamePatterns = /[×x]週\d回|[×x]Free|[×x]月\d回/i;
-      items = courses.filter(course => {
-        const courseName = 'courseName' in course ? course.courseName : '';
-        return !packNamePatterns.test(courseName);
-      });
+      // 単品コース: パックに含まれているコースは既にバックエンドで除外済み
+      items = courses;
     } else if (courseType === 'pack') {
       items = [...courses, ...packs];
     }
