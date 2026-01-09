@@ -1,7 +1,7 @@
 {
-  "name": "OZA - 習い事チケット管理",
+  "name": "OZA - 保護者ページ",
   "short_name": "OZA",
-  "description": "習い事のチケット管理・予約・コミュニケーションアプリ",
+  "description": "OZA保護者向けアプリ",
   "start_url": "/",
   "display": "standalone",
   "orientation": "portrait",

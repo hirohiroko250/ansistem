@@ -5,8 +5,8 @@ import { Inter } from 'next/font/google';
 const inter = Inter({ subsets: ['latin'] });
 
 export const metadata: Metadata = {
-  title: 'OZA - 習い事チケット管理',
-  description: '習い事のチケット管理・予約・コミュニケーションアプリ',
+  title: 'OZA - 保護者ページ',
+  description: 'OZA保護者向けアプリ',
   manifest: '/manifest.json',
   appleWebApp: {
     capable: true,
