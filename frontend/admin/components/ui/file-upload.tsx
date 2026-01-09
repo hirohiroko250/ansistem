@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Upload, X, Image as ImageIcon, Film, Loader2, Pencil } from "lucide-react";
 import { getAccessToken } from "@/lib/api/client";
-import { ImageEditor } from "./image-editor";
+import { ImageEditorV2 } from "./image-editor-v2";
 
 interface UploadedFile {
   url: string;
@@ -230,7 +230,7 @@ export function FileUpload({
 
       {/* 画像編集ダイアログ */}
       {editingFile && (
-        <ImageEditor
+        <ImageEditorV2
           file={editingFile}
           onSave={handleImageEditSave}
           onCancel={handleImageEditCancel}

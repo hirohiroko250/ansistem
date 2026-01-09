@@ -42,6 +42,7 @@ import {
 } from "lucide-react";
 import { FileUpload } from "@/components/ui/file-upload";
 import { MultiSelect } from "@/components/ui/multi-select";
+import { ImageEditorV2 } from "@/components/ui/image-editor-v2";
 
 interface FeedPost {
   id: string;
@@ -90,6 +91,8 @@ export default function FeedPage() {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [editingMediaIndex, setEditingMediaIndex] = useState<number | null>(null);
+  const [editingMediaUrl, setEditingMediaUrl] = useState<string | null>(null);
 
   const [formData, setFormData] = useState({
     title: "",
@@ -273,6 +276,59 @@ export default function FeedPage() {
       console.error("Failed to delete post:", error);
       alert("削除に失敗しました");
     }
+  }
+
+  // 画像編集を開始
+  function handleEditMedia(index: number, url: string) {
+    setEditingMediaIndex(index);
+    setEditingMediaUrl(url);
+  }
+
+  // 画像編集完了 - アップロードして差し替え
+  async function handleMediaEditSave(editedFile: File) {
+    if (editingMediaIndex === null) return;
+
+    try {
+      const token = (await import("@/lib/api/client")).getAccessToken();
+      const baseUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1";
+      const formDataUpload = new FormData();
+      formDataUpload.append("file", editedFile);
+
+      const response = await fetch(`${baseUrl}/core/upload/`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+        body: formDataUpload,
+      });
+
+      if (!response.ok) {
+        throw new Error("アップロードに失敗しました");
+      }
+
+      const data = await response.json();
+
+      // mediaFilesの該当インデックスを更新
+      const newMediaFiles = [...formData.mediaFiles];
+      newMediaFiles[editingMediaIndex] = {
+        url: data.url,
+        type: data.type,
+        filename: data.filename,
+      };
+      setFormData({ ...formData, mediaFiles: newMediaFiles });
+    } catch (error) {
+      console.error("Failed to upload edited image:", error);
+      alert("画像のアップロードに失敗しました");
+    } finally {
+      setEditingMediaIndex(null);
+      setEditingMediaUrl(null);
+    }
+  }
+
+  // 画像編集キャンセル
+  function handleMediaEditCancel() {
+    setEditingMediaIndex(null);
+    setEditingMediaUrl(null);
   }
 
   function getVisibilityIcon(visibility: string) {
@@ -591,7 +647,7 @@ export default function FeedPage() {
               {formData.mediaFiles.length > 0 && (
                 <div className="mt-3 flex flex-wrap gap-2">
                   {formData.mediaFiles.map((file, idx) => (
-                    <div key={idx} className="relative">
+                    <div key={idx} className="relative group">
                       {file.type === "video" ? (
                         <video
                           src={getMediaUrl(file.url)}
@@ -604,6 +660,18 @@ export default function FeedPage() {
                           className="w-20 h-20 object-cover rounded border"
                         />
                       )}
+                      {/* 編集ボタン（画像のみ） */}
+                      {file.type === "image" && (
+                        <button
+                          type="button"
+                          onClick={() => handleEditMedia(idx, getMediaUrl(file.url))}
+                          className="absolute top-1 left-1 bg-blue-500 text-white rounded-full p-1 hover:bg-blue-600 opacity-0 group-hover:opacity-100 transition-opacity"
+                          title="編集"
+                        >
+                          <Pencil className="w-3 h-3" />
+                        </button>
+                      )}
+                      {/* 削除ボタン */}
                       <button
                         type="button"
                         onClick={() => setFormData({
@@ -681,6 +749,16 @@ export default function FeedPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* 画像編集ダイアログ */}
+      {editingMediaUrl && editingMediaIndex !== null && (
+        <ImageEditorV2
+          file={new File([], "edit.jpg")} // ダミーファイル - initialImageUrlを使用
+          initialImageUrl={editingMediaUrl}
+          onSave={handleMediaEditSave}
+          onCancel={handleMediaEditCancel}
+        />
+      )}
     </div>
   );
 }
