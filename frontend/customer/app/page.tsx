@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Bell, CreditCard, QrCode, Building2, MessageSquare, Receipt, Calendar, ChevronRight, Ticket, UserPlus, Star, Loader2, AlertCircle, Banknote } from 'lucide-react';
+import { Bell, CreditCard, QrCode, Building2, MessageSquare, Receipt, Calendar, ChevronRight, Ticket, UserPlus, Star, Loader2, AlertCircle, Banknote, Users } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { BottomTabBar } from '@/components/bottom-tab-bar';
@@ -12,6 +12,7 @@ import { getLatestNews, type NewsItem } from '@/lib/api/announcements';
 import { posts as fallbackPosts } from '@/lib/feed-data';
 import { isAuthenticated } from '@/lib/api/auth';
 import { getMyPayment, type PaymentInfo } from '@/lib/api/payment';
+import { getFriendsList } from '@/lib/api/friendship';
 // import { getMyContracts, type MyContract, type MyStudent } from '@/lib/api/contracts';
 
 const shortcuts = [
@@ -21,9 +22,10 @@ const shortcuts = [
   { id: 4, name: '選択・休退会', icon: Building2, href: '/class-registration', color: 'bg-teal-500' },
   { id: 5, name: '体験', icon: Star, href: '/trial', color: 'bg-yellow-500' },
   { id: 6, name: '子供追加', icon: UserPlus, href: '/children', color: 'bg-pink-500' },
-  { id: 7, name: 'チャット質問', icon: MessageSquare, href: '/chat', color: 'bg-cyan-500' },
-  { id: 8, name: '購入履歴', icon: Receipt, href: '/purchase-history', color: 'bg-emerald-500' },
-  { id: 9, name: 'カレンダー', icon: Calendar, href: '/calendar', color: 'bg-sky-500' },
+  { id: 7, name: '友達紹介', icon: Users, href: '/friend-referral', color: 'bg-purple-500' },
+  { id: 8, name: 'チャット質問', icon: MessageSquare, href: '/chat', color: 'bg-cyan-500' },
+  { id: 9, name: '購入履歴', icon: Receipt, href: '/purchase-history', color: 'bg-emerald-500' },
+  { id: 10, name: 'カレンダー', icon: Calendar, href: '/calendar', color: 'bg-sky-500' },
 ];
 
 // 作業一覧の項目型
@@ -73,6 +75,24 @@ export default function Home() {
           icon: Banknote,
           priority: 'high',
         });
+      }
+
+      // 友達申請を確認
+      try {
+        const friendsData = await getFriendsList();
+        if (friendsData.pending_received.length > 0) {
+          pendingTasks.push({
+            id: 'friend-requests',
+            title: `友達申請が${friendsData.pending_received.length}件あります`,
+            description: '承認すると相互に毎月500円割引が適用されます',
+            href: '/friend-referral',
+            icon: Users,
+            priority: 'medium',
+          });
+        }
+      } catch (e) {
+        // 友達申請の取得に失敗しても続行
+        console.error('Failed to fetch friend requests:', e);
       }
 
       setTasks(pendingTasks);

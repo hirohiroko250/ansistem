@@ -215,14 +215,15 @@ class FSDiscount(TenantModel):
     @classmethod
     def apply_discount(cls, guardian, friendship):
         """友達登録成立時にFS割引を付与"""
-        from datetime import date, timedelta
+        from datetime import date
 
         # デフォルト割引設定（将来的にはシステム設定から取得）
         discount_type = cls.DiscountType.FIXED
-        discount_value = 1000  # 1000円割引
+        discount_value = 500  # 500円割引（毎月）
 
         today = date.today()
-        valid_until = today + timedelta(days=90)  # 90日間有効
+        # 有効期限なし（どちらかが退会するまで継続）
+        valid_until = None
 
         return cls.objects.create(
             tenant_id=guardian.tenant_id,

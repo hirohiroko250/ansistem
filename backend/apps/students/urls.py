@@ -6,7 +6,8 @@ from rest_framework.routers import DefaultRouter
 from .views import (
     StudentViewSet, GuardianViewSet, StudentSchoolViewSet, StudentGuardianViewSet,
     SuspensionRequestViewSet, WithdrawalRequestViewSet,
-    BankAccountViewSet, BankAccountChangeRequestViewSet
+    BankAccountViewSet, BankAccountChangeRequestViewSet,
+    FriendshipViewSet
 )
 
 app_name = 'students'
@@ -20,6 +21,7 @@ router.register('suspension-requests', SuspensionRequestViewSet, basename='suspe
 router.register('withdrawal-requests', WithdrawalRequestViewSet, basename='withdrawal-request')
 router.register('bank-accounts', BankAccountViewSet, basename='bank-account')
 router.register('bank-account-requests', BankAccountChangeRequestViewSet, basename='bank-account-request')
+router.register('friendship', FriendshipViewSet, basename='friendship')
 # /api/v1/students/ で直接アクセスできるように空文字列で登録（最後に登録）
 router.register('', StudentViewSet, basename='student')
 

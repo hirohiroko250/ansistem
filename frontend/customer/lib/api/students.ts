@@ -4,26 +4,51 @@
  */
 
 import api from './client';
-import type { Child, ChildDetail, PaginatedResponse, TicketBalance, TicketLog } from './types';
+import type { Child, ChildDetail, PaginatedResponse, TicketBalance, TicketLog, StudentStatus } from './types';
+
+// snake_case から camelCase への変換ヘルパー
+function transformStudentToCamelCase(student: Record<string, unknown>): Child {
+  return {
+    id: String(student.id || ''),
+    userId: String(student.user_id || student.userId || ''),
+    studentNumber: String(student.student_no || student.studentNumber || ''),
+    lastName: String(student.last_name || student.lastName || ''),
+    firstName: String(student.first_name || student.firstName || ''),
+    lastNameKana: String(student.last_name_kana || student.lastNameKana || ''),
+    firstNameKana: String(student.first_name_kana || student.firstNameKana || ''),
+    fullName: String(student.full_name || student.fullName || ''),
+    grade: String(student.grade_name || student.grade_text || student.grade || ''),
+    schoolName: String(student.school_name || student.schoolName || ''),
+    enrollmentDate: student.enrollment_date as string | undefined || student.enrollmentDate as string | undefined,
+    status: (student.status as StudentStatus) || 'inquiry',
+    profileImageUrl: student.profile_image_url as string | undefined || student.profileImageUrl as string | undefined,
+    birthDate: student.birth_date as string | undefined || student.birthDate as string | undefined,
+    createdAt: String(student.created_at || student.createdAt || ''),
+    updatedAt: String(student.updated_at || student.updatedAt || ''),
+  };
+}
 
 /**
  * 子ども（生徒）一覧を取得
  * ログイン中の保護者に紐づく子ども一覧を返す
  */
 export async function getChildren(): Promise<Child[]> {
-  const response = await api.get<PaginatedResponse<Child> | Child[] | { data: Child[] }>('/students/');
+  const response = await api.get<PaginatedResponse<Record<string, unknown>> | Record<string, unknown>[] | { data: Record<string, unknown>[] }>('/students/');
+
+  let rawChildren: Record<string, unknown>[] = [];
+
   // APIがページネーション形式または配列形式で返す可能性に対応
   if (Array.isArray(response)) {
-    return response;
+    rawChildren = response;
+  } else if ('data' in response && Array.isArray(response.data)) {
+    // バックエンドが { data: [...] } 形式で返す場合
+    rawChildren = response.data;
+  } else if ('results' in response && Array.isArray(response.results)) {
+    rawChildren = response.results;
   }
-  // バックエンドが { data: [...] } 形式で返す場合
-  if ('data' in response && Array.isArray(response.data)) {
-    return response.data;
-  }
-  if ('results' in response && Array.isArray(response.results)) {
-    return response.results;
-  }
-  return [];
+
+  // snake_case から camelCase に変換
+  return rawChildren.map(transformStudentToCamelCase);
 }
 
 /**

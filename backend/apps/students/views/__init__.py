@@ -16,6 +16,9 @@ from .requests import SuspensionRequestViewSet, WithdrawalRequestViewSet
 # Bank Views
 from .bank import BankAccountViewSet, BankAccountChangeRequestViewSet
 
+# Friendship Views
+from .friendship import FriendshipViewSet
+
 __all__ = [
     # Student
     'StudentViewSet',
@@ -30,4 +33,6 @@ __all__ = [
     # Bank
     'BankAccountViewSet',
     'BankAccountChangeRequestViewSet',
+    # Friendship
+    'FriendshipViewSet',
 ]
