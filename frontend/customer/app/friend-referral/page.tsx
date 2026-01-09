@@ -44,17 +44,30 @@ export default function FriendReferralPage() {
   const fetchData = async () => {
     try {
       setLoading(true);
-      const [codeData, friendsList, discounts] = await Promise.all([
-        getMyReferralCode(),
-        getFriendsList(),
-        getFSDiscounts(),
-      ]);
-      setMyCode(codeData.referral_code);
-      setMyName(codeData.name);
-      setFriendsData(friendsList);
-      setDiscountsData(discounts);
-    } catch (error) {
-      console.error('Failed to fetch data:', error);
+      // 個別に取得してエラーをハンドリング
+      try {
+        const codeData = await getMyReferralCode();
+        if (codeData?.referral_code) {
+          setMyCode(codeData.referral_code);
+          setMyName(codeData.name || '');
+        }
+      } catch (e) {
+        console.error('Failed to fetch referral code:', e);
+      }
+
+      try {
+        const friendsList = await getFriendsList();
+        setFriendsData(friendsList);
+      } catch (e) {
+        console.error('Failed to fetch friends list:', e);
+      }
+
+      try {
+        const discounts = await getFSDiscounts();
+        setDiscountsData(discounts);
+      } catch (e) {
+        console.error('Failed to fetch discounts:', e);
+      }
     } finally {
       setLoading(false);
     }
@@ -71,7 +84,8 @@ export default function FriendReferralPage() {
   };
 
   const handleShare = async () => {
-    const shareText = `OZAスクールの友達紹介コードです！\n\n紹介コード: ${myCode}\n\nこのコードを使って登録すると、お互いに毎月500円割引が受けられます！`;
+    const code = myCode || '(コードを取得中...)';
+    const shareText = `OZAスクールの友達紹介コードです！\n\n紹介コード: ${code}\n\nこのコードを使って登録すると、お互いに毎月500円割引が受けられます！\n\n登録はこちら👇\nhttps://oz-a.jp/signup?ref=${encodeURIComponent(code)}`;
 
     if (navigator.share) {
       try {
@@ -248,7 +262,7 @@ export default function FriendReferralPage() {
                 </h3>
                 <div className="bg-purple-50 rounded-xl p-4 mb-4">
                   <p className="text-3xl font-bold text-purple-600 text-center tracking-widest">
-                    {myCode}
+                    {myCode || <span className="text-gray-400 text-lg">読み込み中...</span>}
                   </p>
                 </div>
                 <div className="flex gap-2">
