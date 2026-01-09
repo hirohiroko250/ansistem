@@ -47,9 +47,12 @@ export default function FriendReferralPage() {
       // 個別に取得してエラーをハンドリング
       try {
         const codeData = await getMyReferralCode();
+        console.log('getMyReferralCode response:', JSON.stringify(codeData));
         if (codeData?.referral_code) {
           setMyCode(codeData.referral_code);
           setMyName(codeData.name || '');
+        } else {
+          console.log('No referral_code in response');
         }
       } catch (e) {
         console.error('Failed to fetch referral code:', e);

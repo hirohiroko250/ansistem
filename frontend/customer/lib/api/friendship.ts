@@ -17,6 +17,8 @@ export type MyCodeResponse = {
 
 export async function getMyReferralCode(): Promise<MyCodeResponse> {
   const response = await api.get<ApiResponse<MyCodeResponse>>('/students/friendship/my_code/');
+  console.log('API raw response:', JSON.stringify(response));
+  console.log('response.data:', JSON.stringify(response.data));
   return response.data;
 }
 
