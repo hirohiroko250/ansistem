@@ -80,7 +80,7 @@ export default function Home() {
       // 友達申請を確認
       try {
         const friendsData = await getFriendsList();
-        if (friendsData.pending_received.length > 0) {
+        if (friendsData?.pending_received?.length > 0) {
           pendingTasks.push({
             id: 'friend-requests',
             title: `友達申請が${friendsData.pending_received.length}件あります`,

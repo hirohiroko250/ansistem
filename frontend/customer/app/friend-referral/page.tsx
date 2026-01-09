@@ -190,9 +190,9 @@ export default function FriendReferralPage() {
             }`}
           >
             友達一覧
-            {friendsData && friendsData.pending_received.length > 0 && (
+            {(friendsData?.pending_received?.length ?? 0) > 0 && (
               <span className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white text-xs rounded-full flex items-center justify-center">
-                {friendsData.pending_received.length}
+                {friendsData?.pending_received?.length}
               </span>
             )}
           </button>
@@ -328,18 +328,18 @@ export default function FriendReferralPage() {
         {activeTab === 'friends' && friendsData && (
           <>
             {/* 承認待ちの申請 */}
-            {friendsData.pending_received.length > 0 && (
+            {(friendsData.pending_received?.length ?? 0) > 0 && (
               <Card className="rounded-2xl shadow-lg mb-4">
                 <CardContent className="p-4">
                   <h3 className="font-semibold text-gray-800 mb-3 flex items-center gap-2">
                     <Clock className="h-5 w-5 text-orange-500" />
                     承認待ち
                     <span className="ml-auto bg-orange-100 text-orange-600 text-xs px-2 py-1 rounded-full">
-                      {friendsData.pending_received.length}件
+                      {friendsData.pending_received?.length ?? 0}件
                     </span>
                   </h3>
                   <div className="space-y-3">
-                    {friendsData.pending_received.map((request) => (
+                    {friendsData.pending_received?.map((request) => (
                       <div key={request.id} className="flex items-center justify-between p-3 bg-orange-50 rounded-lg">
                         <div>
                           <p className="font-medium text-gray-800">{request.name}</p>
@@ -378,7 +378,7 @@ export default function FriendReferralPage() {
             )}
 
             {/* 申請中 */}
-            {friendsData.pending_sent.length > 0 && (
+            {(friendsData.pending_sent?.length ?? 0) > 0 && (
               <Card className="rounded-2xl shadow-lg mb-4">
                 <CardContent className="p-4">
                   <h3 className="font-semibold text-gray-800 mb-3 flex items-center gap-2">
@@ -386,7 +386,7 @@ export default function FriendReferralPage() {
                     申請中
                   </h3>
                   <div className="space-y-2">
-                    {friendsData.pending_sent.map((request) => (
+                    {friendsData.pending_sent?.map((request) => (
                       <div key={request.id} className="flex items-center justify-between p-3 bg-blue-50 rounded-lg">
                         <div>
                           <p className="font-medium text-gray-800">{request.name}</p>
@@ -411,12 +411,12 @@ export default function FriendReferralPage() {
                   <Users className="h-5 w-5 text-purple-500" />
                   友達一覧
                   <span className="ml-auto text-sm text-gray-500">
-                    {friendsData.friends.length}人
+                    {friendsData.friends?.length ?? 0}人
                   </span>
                 </h3>
-                {friendsData.friends.length > 0 ? (
+                {(friendsData.friends?.length ?? 0) > 0 ? (
                   <div className="space-y-2">
-                    {friendsData.friends.map((friend) => (
+                    {friendsData.friends?.map((friend) => (
                       <div key={friend.id} className="flex items-center gap-3 p-3 bg-purple-50 rounded-lg">
                         <div className="w-10 h-10 bg-purple-200 rounded-full flex items-center justify-center">
                           <Users className="h-5 w-5 text-purple-600" />
@@ -452,13 +452,13 @@ export default function FriendReferralPage() {
               <div className="bg-gradient-to-r from-green-500 to-emerald-500 rounded-xl p-4 mb-4 text-white">
                 <p className="text-sm opacity-90">毎月の割引額</p>
                 <p className="text-3xl font-bold">
-                  ¥{discountsData.total_discount.toLocaleString()}
+                  ¥{(discountsData.total_discount ?? 0).toLocaleString()}
                 </p>
               </div>
 
-              {discountsData.discounts.length > 0 ? (
+              {(discountsData.discounts?.length ?? 0) > 0 ? (
                 <div className="space-y-3">
-                  {discountsData.discounts.map((discount) => (
+                  {discountsData.discounts?.map((discount) => (
                     <div key={discount.id} className="flex items-center justify-between p-3 bg-green-50 rounded-lg">
                       <div>
                         <p className="font-medium text-gray-800">{discount.friend_name}さんとの紹介割引</p>

@@ -49,23 +49,8 @@ export function BottomNav() {
         console.error('Failed to fetch unread count:', error);
       }
 
-      // 未完了タスク数を取得
-      try {
-        const taskResponse = await fetch(`${apiUrl}/communications/tasks/?status=pending`, {
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json',
-          },
-        });
-
-        if (taskResponse.ok) {
-          const data = await taskResponse.json();
-          const tasks = data.data || data.results || data || [];
-          setTaskCount(Array.isArray(tasks) ? tasks.length : 0);
-        }
-      } catch (error) {
-        console.error('Failed to fetch task count:', error);
-      }
+      // 未完了タスク数を取得（TODO: tasks APIが実装されたら有効化）
+      // setTaskCount(0);
     };
 
     fetchCounts();
