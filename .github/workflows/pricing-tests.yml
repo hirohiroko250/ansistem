@@ -1,0 +1,179 @@
+name: Pricing Tests
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - 'backend/apps/pricing/**'
+      - 'frontend/customer/app/ticket-purchase/**'
+      - 'frontend/customer/lib/api/pricing.ts'
+      - 'tests/**'
+      - 'e2e/**'
+  pull_request:
+    branches: [main, develop]
+  schedule:
+    # 毎日午前3時（JST）に実行
+    - cron: '0 18 * * *'
+
+jobs:
+  # ===========================================
+  # バックエンド単体テスト（料金計算ロジック）
+  # ===========================================
+  backend-unit-tests:
+    name: Backend Unit Tests
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: test_db
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          cd backend
+          pip install -r requirements.txt
+          pip install pytest pytest-django hypothesis
+
+      - name: Run pricing unit tests
+        env:
+          DATABASE_URL: postgres://postgres:postgres@localhost:5432/test_db
+          DJANGO_SETTINGS_MODULE: config.settings.test
+        run: |
+          cd backend
+          python -m pytest tests/pricing/ -v --tb=short
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-test-results
+          path: backend/test-results/
+
+  # ===========================================
+  # ゴールデンテスト（JSON期待値との比較）
+  # ===========================================
+  golden-tests:
+    name: Golden Tests
+    runs-on: ubuntu-latest
+    needs: backend-unit-tests
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          cd backend
+          pip install -r requirements.txt
+          pip install pytest
+
+      - name: Run golden tests
+        run: |
+          cd backend
+          python -m pytest tests/pricing/test_pricing_golden.py -v
+
+  # ===========================================
+  # E2Eテスト（Playwright）
+  # ===========================================
+  e2e-tests:
+    name: E2E Tests
+    runs-on: ubuntu-latest
+    needs: golden-tests
+    if: github.event_name == 'schedule' || contains(github.event.head_commit.message, '[e2e]')
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Install Playwright
+        run: |
+          cd e2e
+          npm ci
+          npx playwright install --with-deps chromium
+
+      - name: Start services
+        run: |
+          docker-compose up -d
+          sleep 30  # サービス起動待ち
+
+      - name: Run E2E tests
+        run: |
+          cd e2e
+          npx playwright test --project=chromium
+        env:
+          BASE_URL: http://localhost:3000
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-test-results
+          path: |
+            e2e/test-results/
+            e2e/playwright-report/
+
+      - name: Upload screenshots on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-screenshots
+          path: e2e/test-results/**/*.png
+
+  # ===========================================
+  # テスト失敗時の通知・分析
+  # ===========================================
+  notify-on-failure:
+    name: Notify on Failure
+    runs-on: ubuntu-latest
+    needs: [backend-unit-tests, golden-tests]
+    if: failure()
+
+    steps:
+      - name: Collect failure info
+        run: |
+          echo "## テスト失敗レポート" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- ワークフロー: ${{ github.workflow }}" >> $GITHUB_STEP_SUMMARY
+          echo "- コミット: ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "- ブランチ: ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 確認ポイント" >> $GITHUB_STEP_SUMMARY
+          echo "1. 料金計算ロジックの変更があったか" >> $GITHUB_STEP_SUMMARY
+          echo "2. 期待値（ゴールデンテスト）の更新が必要か" >> $GITHUB_STEP_SUMMARY
+          echo "3. フロントエンドの表示ロジックに変更があったか" >> $GITHUB_STEP_SUMMARY
+
+      # Slack通知（オプション）
+      # - name: Slack Notification
+      #   uses: 8398a7/action-slack@v3
+      #   with:
+      #     status: ${{ job.status }}
+      #     fields: repo,message,commit,author
+      #   env:
+      #     SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}

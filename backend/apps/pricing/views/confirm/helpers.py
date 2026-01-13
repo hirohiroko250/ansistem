@@ -210,7 +210,21 @@ def create_student_item(student, contract, product, billing_month, order_id,
                         brand, school, course, start_date,
                         schedule_day_of_week, schedule_start_time, schedule_end_time,
                         selected_class_schedule):
-    """StudentItemを作成"""
+    """StudentItemを作成（重複チェック付き）"""
+    # 重複チェック: 同じ生徒・コース・クラススケジュール・曜日・時間の組み合わせが存在するかチェック
+    existing = StudentItem.objects.filter(
+        student=student,
+        course=course,
+        class_schedule=selected_class_schedule,
+        day_of_week=schedule_day_of_week,
+        start_time=schedule_start_time,
+        deleted_at__isnull=True,
+    ).first()
+
+    if existing:
+        print(f"[PricingConfirm] StudentItem already exists, skipping: student={student.id}, course={course.id if course else None}", file=sys.stderr)
+        return existing
+
     return StudentItem.objects.create(
         tenant_id=student.tenant_id,
         student=student,

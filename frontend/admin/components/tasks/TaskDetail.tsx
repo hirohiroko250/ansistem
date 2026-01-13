@@ -66,8 +66,15 @@ export function TaskDetail({ task, onTaskUpdated }: TaskDetailProps) {
   const [showRejectDialog, setShowRejectDialog] = useState(false);
 
   const priorityInfo = priorityConfig[task.priority] || priorityConfig.normal;
+
+  // 日付の有効性チェック
+  const dueDate = task.due_date ? new Date(task.due_date) : null;
+  const isValidDueDate = dueDate && !isNaN(dueDate.getTime());
+  const createdDate = task.created_at ? new Date(task.created_at) : null;
+  const isValidCreatedDate = createdDate && !isNaN(createdDate.getTime());
+
   const isOverdue =
-    task.due_date && new Date(task.due_date) < new Date() && task.status !== "completed";
+    isValidDueDate && dueDate < new Date() && task.status !== "completed";
 
   // 社員登録承認タスクかどうか
   const isStaffRegistrationTask = task.task_type === "staff_registration" && task.source_type === "employee";
@@ -217,15 +224,13 @@ export function TaskDetail({ task, onTaskUpdated }: TaskDetailProps) {
       <div>
         <h3 className="text-sm font-semibold text-gray-700 mb-3">タスク情報</h3>
         <div className="space-y-3 text-sm">
-          {task.due_date && (
+          {isValidDueDate && dueDate && (
             <div className="flex items-center gap-3">
               <Calendar className="w-5 h-5 text-gray-400" />
               <div>
                 <p className="text-gray-600">期限</p>
                 <p className="font-medium text-gray-900">
-                  {format(new Date(task.due_date), "yyyy年M月d日 HH:mm", {
-                    locale: ja,
-                  })}
+                  {format(dueDate, "yyyy年M月d日 HH:mm", { locale: ja })}
                 </p>
               </div>
             </div>
@@ -280,9 +285,9 @@ export function TaskDetail({ task, onTaskUpdated }: TaskDetailProps) {
       <div>
         <h3 className="text-sm font-semibold text-gray-700 mb-2">作成日時</h3>
         <p className="text-sm text-gray-600">
-          {format(new Date(task.created_at), "yyyy年M月d日 HH:mm", {
-            locale: ja,
-          })}
+          {isValidCreatedDate && createdDate
+            ? format(createdDate, "yyyy年M月d日 HH:mm", { locale: ja })
+            : "---"}
         </p>
       </div>
 

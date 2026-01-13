@@ -148,12 +148,14 @@ class StudentCalendarView(APIView):
             key = (lc.lesson_date, str(lc.school_id), str(lc.brand_id) if lc.brand_id else None)
             calendar_map[key] = lc
 
-        # 欠席チケット（AbsenceTicket）を取得
+        # 欠席チケット（AbsenceTicket）を取得（キャンセル済みは除外）
         from ..models import AbsenceTicket
         absence_tickets = AbsenceTicket.objects.filter(
             student=student,
             absence_date__gte=date_from,
             absence_date__lte=date_to,
+        ).exclude(
+            status=AbsenceTicket.Status.CANCELLED
         ).select_related('class_schedule')
 
         absence_map = {}

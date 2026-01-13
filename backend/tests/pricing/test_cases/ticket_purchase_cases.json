@@ -1,0 +1,61 @@
+[
+  {
+    "name": "単体コース_週1回_月初入会",
+    "description": "月初（1日）入会は回数割なし",
+    "input": {
+      "course_id": "test-course-weekly-1",
+      "start_date": "2026-01-01",
+      "day_of_week": 3
+    },
+    "expected": {
+      "current_month_prorated": null,
+      "has_enrollment_fees": true
+    }
+  },
+  {
+    "name": "単体コース_週1回_月中入会",
+    "description": "月中（7日）入会は回数割あり",
+    "input": {
+      "course_id": "test-course-weekly-1",
+      "start_date": "2026-01-07",
+      "day_of_week": 3
+    },
+    "expected": {
+      "current_month_prorated": {
+        "remaining_count_gte": 1,
+        "total_count": 4,
+        "ratio_lt": 1.0
+      },
+      "has_enrollment_fees": true
+    }
+  },
+  {
+    "name": "単体コース_週5回_2曜日選択",
+    "description": "週5回コースで2曜日のみ選択",
+    "input": {
+      "course_id": "test-course-weekly-5",
+      "start_date": "2026-01-07",
+      "days_of_week": [3, 5]
+    },
+    "expected": {
+      "current_month_prorated": {
+        "remaining_count_gte": 2,
+        "ratio_lt": 1.0
+      },
+      "has_enrollment_fees": true
+    }
+  },
+  {
+    "name": "入会月別料金_1月入会",
+    "description": "1月入会者は入会月別料金が適用される",
+    "input": {
+      "course_id": "test-course-with-enrollment-price",
+      "start_date": "2026-01-15",
+      "day_of_week": 3
+    },
+    "expected": {
+      "enrollment_price_applied": true,
+      "enrollment_month": 1
+    }
+  }
+]

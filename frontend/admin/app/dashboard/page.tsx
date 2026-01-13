@@ -402,6 +402,7 @@ export default function DashboardPage() {
   function getElapsedHours(createdAt?: string): number {
     if (!createdAt) return 0;
     const created = new Date(createdAt);
+    if (isNaN(created.getTime())) return 0;
     const now = new Date();
     return (now.getTime() - created.getTime()) / (1000 * 60 * 60);
   }
@@ -653,6 +654,7 @@ export default function DashboardPage() {
   function formatDate(dateStr?: string) {
     if (!dateStr) return "";
     const date = new Date(dateStr);
+    if (isNaN(date.getTime())) return "";
     return date.toLocaleString("ja-JP", {
       year: "numeric",
       month: "2-digit",
@@ -666,6 +668,7 @@ export default function DashboardPage() {
   function formatRelativeTime(dateStr?: string) {
     if (!dateStr) return "";
     const date = new Date(dateStr);
+    if (isNaN(date.getTime())) return "";
     const now = new Date();
     const diffMs = now.getTime() - date.getTime();
     const diffMins = Math.floor(diffMs / (1000 * 60));
@@ -967,9 +970,13 @@ export default function DashboardPage() {
                           </td>
                           <td className="px-2 py-2 whitespace-nowrap text-gray-900">{index + 1}</td>
                         <td className="px-2 py-2 whitespace-nowrap text-gray-600">
-                          {task.created_at ? new Date(task.created_at).toLocaleDateString("ja-JP", { year: "numeric", month: "2-digit", day: "2-digit" }) : "---"}
+                          {task.created_at && !isNaN(new Date(task.created_at).getTime())
+                            ? new Date(task.created_at).toLocaleDateString("ja-JP", { year: "numeric", month: "2-digit", day: "2-digit" })
+                            : "---"}
                           {" "}
-                          {task.created_at ? new Date(task.created_at).toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" }) : ""}
+                          {task.created_at && !isNaN(new Date(task.created_at).getTime())
+                            ? new Date(task.created_at).toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" })
+                            : ""}
                         </td>
                         <td className="px-2 py-2 whitespace-nowrap">
                           <div className="flex items-center gap-1">
@@ -1141,9 +1148,11 @@ export default function DashboardPage() {
                                                 {comment.commented_by_name || "システム"}
                                               </span>
                                               <span className="text-gray-400">
-                                                {new Date(comment.created_at).toLocaleString("ja-JP", {
-                                                  month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit"
-                                                })}
+                                                {comment.created_at && !isNaN(new Date(comment.created_at).getTime())
+                                                  ? new Date(comment.created_at).toLocaleString("ja-JP", {
+                                                      month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit"
+                                                    })
+                                                  : ""}
                                               </span>
                                             </div>
                                             <div className={cn(
@@ -1365,12 +1374,14 @@ export default function DashboardPage() {
                                 <div className="text-xs opacity-70 mb-1">
                                   {msg.senderGuardianName || msg.senderName || "スタッフ"}
                                   <span className="ml-2">
-                                    {new Date(msg.createdAt).toLocaleString("ja-JP", {
-                                      month: "numeric",
-                                      day: "numeric",
-                                      hour: "2-digit",
-                                      minute: "2-digit",
-                                    })}
+                                    {msg.createdAt && !isNaN(new Date(msg.createdAt).getTime())
+                                      ? new Date(msg.createdAt).toLocaleString("ja-JP", {
+                                          month: "numeric",
+                                          day: "numeric",
+                                          hour: "2-digit",
+                                          minute: "2-digit",
+                                        })
+                                      : ""}
                                   </span>
                                 </div>
                                 <p className="text-sm whitespace-pre-wrap">{msg.content}</p>

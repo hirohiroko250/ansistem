@@ -198,7 +198,8 @@ export interface PricingPreviewRequest {
   additionalTickets?: number;
   promoCode?: string;
   startDate?: string;  // 入会時授業料計算用（YYYY-MM-DD形式）
-  dayOfWeek?: number;  // 曜日（1=月〜7=日）- 当月分回数割計算用
+  dayOfWeek?: number;  // 曜日（1=月〜7=日）- 当月分回数割計算用（単一曜日）
+  daysOfWeek?: number[];  // 複数曜日対応 - 当月分回数割計算用
 }
 
 export interface PricingItem {
@@ -324,7 +325,8 @@ export interface BillingByMonth {
   enrollment: BillingMonthGroup;    // 入会時費用（一回のみ）
   currentMonth: BillingMonthGroup;  // 当月分（回数割）
   month1: BillingMonthGroup;        // 翌月分
-  month2: BillingMonthGroup;        // 翌々月分〜
+  month2: BillingMonthGroup;        // 翌々月分
+  month3?: BillingMonthGroup;       // 3ヶ月目（締日後のみ）
 }
 
 export interface PricingPreviewResponse {

@@ -346,12 +346,12 @@ export async function requestMakeup(data: MakeupRequest): Promise<MakeupResponse
 }
 
 /**
- * 振替申請をキャンセル
+ * 振替申請をキャンセル（MakeupLessonモデル用）
  *
  * @param makeupId - 振替ID
  * @returns 更新された振替情報
  */
-export async function cancelMakeup(makeupId: string): Promise<MakeupResponse> {
+export async function cancelMakeupRequest(makeupId: string): Promise<MakeupResponse> {
   return api.patch<MakeupResponse>(`/lessons/makeups/${makeupId}/`, {
     status: 'cancelled',
   });
@@ -730,7 +730,7 @@ export interface AbsenceTicket {
   originalTicketName: string;
   consumptionSymbol: string;
   absenceDate: string | null;
-  status: 'issued' | 'used' | 'expired';
+  status: 'issued' | 'used' | 'expired' | 'cancelled';
   validUntil: string | null;
   usedDate: string | null;
   schoolId: string | null;
@@ -830,5 +830,57 @@ export async function useAbsenceTicket(
     absence_ticket_id: data.absenceTicketId,
     target_date: data.targetDate,
     target_class_schedule_id: data.targetClassScheduleId,
+  });
+}
+
+// ============================================
+// 欠席・振替キャンセル
+// ============================================
+
+/**
+ * 欠席キャンセルレスポンス型
+ */
+export interface CancelAbsenceResponse {
+  success: boolean;
+  message: string;
+  absenceTicketId: string;
+}
+
+/**
+ * 欠席キャンセル
+ * 欠席登録をキャンセルし、発行された欠席チケットを取り消す
+ *
+ * @param absenceTicketId - 欠席チケットID
+ * @returns キャンセル結果
+ */
+export async function cancelAbsence(
+  absenceTicketId: string
+): Promise<CancelAbsenceResponse> {
+  return api.post<CancelAbsenceResponse>('/lessons/cancel-absence/', {
+    absence_ticket_id: absenceTicketId,
+  });
+}
+
+/**
+ * 振替キャンセルレスポンス型
+ */
+export interface CancelMakeupResponse {
+  success: boolean;
+  message: string;
+  absenceTicketId: string;
+}
+
+/**
+ * 振替キャンセル
+ * 振替予約をキャンセルし、欠席チケットを再発行（発行済みに戻す）
+ *
+ * @param absenceTicketId - 欠席チケットID
+ * @returns キャンセル結果
+ */
+export async function cancelMakeup(
+  absenceTicketId: string
+): Promise<CancelMakeupResponse> {
+  return api.post<CancelMakeupResponse>('/lessons/cancel-makeup/', {
+    absence_ticket_id: absenceTicketId,
   });
 }

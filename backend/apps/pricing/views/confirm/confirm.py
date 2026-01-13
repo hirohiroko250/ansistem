@@ -74,6 +74,14 @@ class PricingConfirmView(APIView):
         # チケット取得
         ticket = get_ticket(data['ticket_id'])
 
+        # 重複購入チェック（べき等性）
+        duplicate_result = self._check_duplicate_purchase(
+            student, course, pack, selected_class_schedule, schedule_day_of_week, schedule_start_time
+        )
+        if duplicate_result:
+            print(f"[PricingConfirm] Duplicate purchase detected, returning existing order", file=sys.stderr)
+            return Response(duplicate_result)
+
         # 購入処理
         print(f"[PricingConfirm] student={student}, course={course}, pack={pack}, brand={brand}, school={school}, start_date={start_date}", file=sys.stderr)
 
@@ -123,6 +131,63 @@ class PricingConfirmView(APIView):
         print(f"[PricingConfirm] selected_textbook_ids={data['selected_textbook_ids']} (type={type(data['selected_textbook_ids']).__name__}, len={len(data['selected_textbook_ids']) if data['selected_textbook_ids'] else 0})", file=sys.stderr)
         print(f"[PricingConfirm] ===================================", file=sys.stderr)
 
+    def _check_duplicate_purchase(self, student, course, pack, selected_class_schedule,
+                                   schedule_day_of_week, schedule_start_time):
+        """重複購入チェック（べき等性のため）
+
+        同じ生徒・コース・クラスの組み合わせで既に購入済みの場合、
+        成功レスポンスを返して重複作成を防ぐ
+        """
+        from apps.contracts.models import StudentItem
+
+        if not student:
+            return None
+
+        # コース購入の重複チェック
+        if course:
+            existing = StudentItem.objects.filter(
+                student=student,
+                course=course,
+                class_schedule=selected_class_schedule,
+                day_of_week=schedule_day_of_week,
+                start_time=schedule_start_time,
+                deleted_at__isnull=True,
+            ).first()
+
+            if existing:
+                print(f"[PricingConfirm] Found existing StudentItem: {existing.id} for course={course.course_name}", file=sys.stderr)
+                return {
+                    'orderId': existing.notes.split('注文番号: ')[1].split(' /')[0] if '注文番号:' in (existing.notes or '') else 'EXISTING',
+                    'status': 'already_completed',
+                    'message': 'この購入は既に完了しています。',
+                    'mileDiscount': 0,
+                    'milesUsed': 0,
+                }
+
+        # パック購入の重複チェック
+        if pack:
+            # パックの場合はパック内のコースで確認
+            existing = StudentItem.objects.filter(
+                student=student,
+                class_schedule=selected_class_schedule,
+                day_of_week=schedule_day_of_week,
+                start_time=schedule_start_time,
+                deleted_at__isnull=True,
+                notes__contains=pack.pack_name,
+            ).first()
+
+            if existing:
+                print(f"[PricingConfirm] Found existing StudentItem: {existing.id} for pack={pack.pack_name}", file=sys.stderr)
+                return {
+                    'orderId': existing.notes.split('注文番号: ')[1].split(' /')[0] if '注文番号:' in (existing.notes or '') else 'EXISTING',
+                    'status': 'already_completed',
+                    'message': 'この購入は既に完了しています。',
+                    'mileDiscount': 0,
+                    'milesUsed': 0,
+                }
+
+        return None
+
     def _process_course_purchase(self, student, course, guardian, brand, school, start_date,
                                    schedule_day_of_week, schedule_start_time, schedule_end_time,
                                    selected_class_schedule, order_id, billing_month,
@@ -141,9 +206,17 @@ class PricingConfirmView(APIView):
                 print(f"[PricingConfirm] Skipping textbook from CourseItem: {product.product_name}", file=sys.stderr)
                 continue
 
+            # 入会月別料金を使用（start_dateがある場合）
+            if start_date and product:
+                unit_price = get_product_price_for_enrollment(product, start_date)
+                print(f"[PricingConfirm] Using enrollment month price for {product.product_name}: ¥{unit_price} (month={start_date.month})", file=sys.stderr)
+            else:
+                unit_price = course_item.get_price()
+                print(f"[PricingConfirm] Using base price for {product.product_name if product else 'unknown'}: ¥{unit_price}", file=sys.stderr)
+
             create_student_item(
                 student, contract, product, billing_month, order_id,
-                course_item.get_price(), course_item.quantity,
+                unit_price, course_item.quantity,
                 f'コース: {course.course_name}',
                 brand, school, course, start_date,
                 schedule_day_of_week, schedule_start_time, schedule_end_time,
@@ -218,9 +291,16 @@ class PricingConfirmView(APIView):
             course_items = pc_course.course_items.filter(is_active=True)
             for course_item in course_items:
                 product = course_item.product
+                # 入会月別料金を使用（start_dateがある場合）
+                if start_date and product:
+                    unit_price = get_product_price_for_enrollment(product, start_date)
+                    print(f"[PricingConfirm] Pack: Using enrollment month price for {product.product_name}: ¥{unit_price} (month={start_date.month})", file=sys.stderr)
+                else:
+                    unit_price = course_item.get_price()
+
                 create_student_item(
                     student, contract, product, billing_month, order_id,
-                    course_item.get_price(), course_item.quantity,
+                    unit_price, course_item.quantity,
                     f'パック: {pack.pack_name} / コース: {pc_course.course_name}',
                     brand or pc_course.brand, school or pc_course.school, pc_course, start_date,
                     schedule_day_of_week, schedule_start_time, schedule_end_time,
@@ -249,9 +329,16 @@ class PricingConfirmView(APIView):
         pack_items = pack.pack_items.filter(is_active=True).select_related('product')
         for pack_item in pack_items:
             product = pack_item.product
+            # 入会月別料金を使用（start_dateがある場合）
+            if start_date and product:
+                unit_price = get_product_price_for_enrollment(product, start_date)
+                print(f"[PricingConfirm] PackItem: Using enrollment month price for {product.product_name}: ¥{unit_price} (month={start_date.month})", file=sys.stderr)
+            else:
+                unit_price = pack_item.get_price()
+
             create_student_item(
                 student, contract, product, billing_month, order_id,
-                pack_item.get_price(), pack_item.quantity,
+                unit_price, pack_item.quantity,
                 f'パック: {pack.pack_name}',
                 brand or pack.brand, school or pack.school, None, start_date,
                 schedule_day_of_week, schedule_start_time, schedule_end_time,

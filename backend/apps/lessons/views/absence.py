@@ -331,6 +331,132 @@ class UseAbsenceTicketView(APIView):
         })
 
 
+class CancelAbsenceView(APIView):
+    """欠席キャンセルAPI
+
+    欠席登録をキャンセルし、発行された欠席チケットを取り消す。
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        from apps.students.models import Guardian, StudentGuardian
+        from ..models import AbsenceTicket, Attendance
+
+        absence_ticket_id = request.data.get('absence_ticket_id')
+        if not absence_ticket_id:
+            return Response({'error': '欠席チケットIDが必要です'}, status=400)
+
+        # 保護者の子供を取得
+        try:
+            guardian = Guardian.objects.get(user=request.user)
+            student_ids = list(StudentGuardian.objects.filter(
+                guardian=guardian
+            ).values_list('student_id', flat=True))
+        except Guardian.DoesNotExist:
+            return Response({'error': '保護者情報が見つかりません'}, status=404)
+
+        # 欠席チケットを取得
+        try:
+            absence_ticket = AbsenceTicket.objects.select_related(
+                'student', 'class_schedule'
+            ).get(
+                id=absence_ticket_id,
+                student_id__in=student_ids,
+                status=AbsenceTicket.Status.ISSUED
+            )
+        except AbsenceTicket.DoesNotExist:
+            return Response({'error': '有効な欠席チケットが見つかりません'}, status=404)
+
+        # 過去の欠席日はキャンセル不可
+        if absence_ticket.absence_date < date.today():
+            return Response({'error': '過去の欠席はキャンセルできません'}, status=400)
+
+        # 欠席チケットをキャンセル
+        absence_ticket.status = AbsenceTicket.Status.CANCELLED
+        absence_ticket.notes = (absence_ticket.notes or '') + '\n[キャンセル] 保護者より取り消し'
+        absence_ticket.save()
+
+        return Response({
+            'success': True,
+            'message': '欠席をキャンセルしました',
+            'absenceTicketId': str(absence_ticket.id),
+        })
+
+
+class CancelMakeupView(APIView):
+    """振替キャンセルAPI
+
+    振替予約をキャンセルし、欠席チケットを再発行（発行済みに戻す）。
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        from apps.students.models import Guardian, StudentGuardian
+        from ..models import AbsenceTicket, Attendance
+
+        absence_ticket_id = request.data.get('absence_ticket_id')
+        if not absence_ticket_id:
+            return Response({'error': '欠席チケットIDが必要です'}, status=400)
+
+        # 保護者の子供を取得
+        try:
+            guardian = Guardian.objects.get(user=request.user)
+            student_ids = list(StudentGuardian.objects.filter(
+                guardian=guardian
+            ).values_list('student_id', flat=True))
+        except Guardian.DoesNotExist:
+            return Response({'error': '保護者情報が見つかりません'}, status=404)
+
+        # 使用済みの欠席チケットを取得
+        try:
+            absence_ticket = AbsenceTicket.objects.select_related(
+                'student', 'used_class_schedule'
+            ).get(
+                id=absence_ticket_id,
+                student_id__in=student_ids,
+                status=AbsenceTicket.Status.USED
+            )
+        except AbsenceTicket.DoesNotExist:
+            return Response({'error': '振替予約が見つかりません'}, status=404)
+
+        # 過去の振替日はキャンセル不可
+        if absence_ticket.used_date and absence_ticket.used_date < date.today():
+            return Response({'error': '過去の振替はキャンセルできません'}, status=400)
+
+        # 当日の振替の場合、授業開始30分前までかチェック
+        if absence_ticket.used_date == date.today() and absence_ticket.used_class_schedule:
+            from datetime import datetime
+            now = datetime.now()
+            class_start = datetime.combine(
+                absence_ticket.used_date,
+                absence_ticket.used_class_schedule.start_time
+            )
+            if (class_start - now).total_seconds() < 30 * 60:
+                return Response({
+                    'error': '当日の振替キャンセルは授業開始30分前までです'
+                }, status=400)
+
+        # 振替先の出席記録を削除
+        Attendance.objects.filter(
+            student=absence_ticket.student,
+            status=Attendance.Status.MAKEUP,
+            schedule__date=absence_ticket.used_date,
+        ).delete()
+
+        # 欠席チケットを発行済みに戻す
+        absence_ticket.status = AbsenceTicket.Status.ISSUED
+        absence_ticket.used_date = None
+        absence_ticket.used_class_schedule = None
+        absence_ticket.notes = (absence_ticket.notes or '') + '\n[振替キャンセル] 保護者より取り消し'
+        absence_ticket.save()
+
+        return Response({
+            'success': True,
+            'message': '振替をキャンセルしました。欠席チケットが復活しました。',
+            'absenceTicketId': str(absence_ticket.id),
+        })
+
+
 class TransferAvailableClassesView(APIView):
     """振替可能クラス取得API
 

@@ -159,14 +159,22 @@ class MyStudentItemSerializer(serializers.ModelSerializer):
 
     def get_startTime(self, obj):
         if obj.start_time:
+            if isinstance(obj.start_time, str):
+                return obj.start_time
             return obj.start_time.strftime('%H:%M:%S')
         if obj.contract and obj.contract.start_time:
+            if isinstance(obj.contract.start_time, str):
+                return obj.contract.start_time
             return obj.contract.start_time.strftime('%H:%M:%S')
         return None
 
     def get_endTime(self, obj):
         if obj.end_time:
+            if isinstance(obj.end_time, str):
+                return obj.end_time
             return obj.end_time.strftime('%H:%M:%S')
         if obj.contract and obj.contract.end_time:
+            if isinstance(obj.contract.end_time, str):
+                return obj.contract.end_time
             return obj.contract.end_time.strftime('%H:%M:%S')
         return None

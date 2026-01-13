@@ -169,6 +169,147 @@ def calculate_prorated_by_day_of_week(start_date: date, day_of_week: int) -> dic
     }
 
 
+def calculate_prorated_by_multiple_days(start_date: date, days_of_week: list) -> dict:
+    """
+    複数曜日での回数割計算
+
+    Args:
+        start_date: 開始日
+        days_of_week: 曜日のリスト（1=月, 2=火, 3=水, 4=木, 5=金, 6=土, 7=日）
+
+    Returns:
+        {
+            'remaining_count': int,  # 開始日から月末までの合計回数
+            'total_count': int,      # 月全体の合計回数
+            'ratio': Decimal,        # 比率（remaining / total）
+            'dates': list[date],     # 対象日のリスト
+        }
+    """
+    if not start_date or not days_of_week:
+        return {
+            'remaining_count': 0,
+            'total_count': 0,
+            'ratio': Decimal('0'),
+            'dates': [],
+        }
+
+    total_remaining = 0
+    total_count = 0
+    all_dates = []
+
+    for day_of_week in days_of_week:
+        try:
+            dow_int = int(day_of_week) if day_of_week else None
+            if dow_int and 1 <= dow_int <= 7:
+                proration = calculate_prorated_by_day_of_week(start_date, dow_int)
+                total_remaining += proration['remaining_count']
+                total_count += proration['total_count']
+                all_dates.extend(proration['dates'])
+        except (ValueError, TypeError):
+            continue
+
+    ratio = Decimal(str(total_remaining)) / Decimal(str(total_count)) if total_count > 0 else Decimal('0')
+
+    return {
+        'remaining_count': total_remaining,
+        'total_count': total_count,
+        'ratio': ratio,
+        'dates': sorted(all_dates),
+    }
+
+
+def calculate_prorated_current_month_fees_multiple(
+    course: Course,
+    start_date: date,
+    days_of_week: list
+) -> dict:
+    """
+    複数曜日での当月分回数割料金を計算
+
+    Args:
+        course: コース
+        start_date: 開始日
+        days_of_week: 曜日のリスト（1=月, 2=火, 3=水, 4=木, 5=金, 6=土, 7=日）
+
+    Returns:
+        calculate_prorated_current_month_feesと同じ形式
+    """
+    from apps.contracts.models import CourseItem
+
+    result = {
+        'tuition': None,
+        'facility_fee': None,
+        'monthly_fee': None,
+        'total_prorated': 0,
+    }
+
+    if not course or not start_date or not days_of_week:
+        return result
+
+    # 複数曜日での回数割比率を計算
+    proration = calculate_prorated_by_multiple_days(start_date, days_of_week)
+
+    # 月初なら回数割不要
+    if proration['ratio'] >= Decimal('1'):
+        return result
+
+    # CourseItemから商品を取得
+    course_items = CourseItem.objects.filter(
+        course=course,
+        is_active=True
+    ).select_related('product').prefetch_related('product__prices')
+
+    for ci in course_items:
+        product = ci.product
+        if not product or not product.is_active:
+            continue
+
+        tax_rate = product.tax_rate or Decimal('0.1')
+        base_price = product.base_price or Decimal('0')
+
+        # ProductPriceから入会月別料金を取得
+        try:
+            product_price = product.prices.filter(is_active=True).first()
+            if product_price:
+                price = product_price.get_enrollment_price(start_date.month)
+                if price is not None:
+                    base_price = Decimal(str(price))
+        except Exception:
+            pass
+
+        full_price_with_tax = int(base_price * (1 + tax_rate))
+        prorated_price = int(Decimal(str(full_price_with_tax)) * proration['ratio'])
+
+        fee_info = {
+            'product': product,
+            'product_id': str(product.id),
+            'product_name': product.product_name,
+            'full_price': full_price_with_tax,
+            'prorated_price': prorated_price,
+            'remaining_count': proration['remaining_count'],
+            'total_count': proration['total_count'],
+            'ratio': float(proration['ratio']),
+            'dates': [d.isoformat() for d in proration['dates']],
+        }
+
+        # 授業料
+        if product.item_type == Product.ItemType.TUITION:
+            result['tuition'] = fee_info
+            result['total_prorated'] += prorated_price
+
+        # 設備費
+        elif product.item_type == Product.ItemType.FACILITY:
+            result['facility_fee'] = fee_info
+            result['total_prorated'] += prorated_price
+
+        # 月会費
+        elif product.item_type == Product.ItemType.MONTHLY_FEE:
+            result['monthly_fee'] = fee_info
+            result['total_prorated'] += prorated_price
+
+    return result
+
+
 def calculate_prorated_current_month_fees(
     course: Course,
     start_date: date,

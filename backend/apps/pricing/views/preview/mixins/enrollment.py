@@ -37,14 +37,65 @@ class EnrollmentFeesMixin:
 
         return course, pack, items, subtotal, enrollment_tuition_item
 
-    def _init_billing_by_month(self):
-        """月別料金グループを初期化"""
-        return {
+    def _init_billing_by_month(self, include_month3=False):
+        """月別料金グループを初期化
+
+        Args:
+            include_month3: 3ヶ月目を含めるかどうか（締日後の場合True）
+        """
+        billing = {
             'enrollment': {'label': '入会時費用', 'items': [], 'total': 0},
             'currentMonth': {'label': '', 'month': 0, 'items': [], 'total': 0},
             'month1': {'label': '', 'month': 0, 'items': [], 'total': 0},
             'month2': {'label': '', 'month': 0, 'items': [], 'total': 0},
         }
+        if include_month3:
+            billing['month3'] = {'label': '', 'month': 0, 'items': [], 'total': 0}
+        return billing
+
+    def _is_after_cutoff(self, cutoff_day=15):
+        """今日が締日を過ぎているかどうかを判定（非推奨：_is_billing_confirmed を使用）
+
+        Args:
+            cutoff_day: 締日（デフォルト15日）
+        Returns:
+            bool: 締日を過ぎている場合True
+        """
+        from datetime import date as date_module
+        today = date_module.today()
+        return today.day > cutoff_day
+
+    def _is_billing_confirmed(self, tenant_id=None):
+        """当月の請求が確定済みかどうかを判定
+
+        確定済みの場合、翌月分も請求に含める必要がある
+
+        Returns:
+            bool: 確定済みの場合True
+        """
+        from datetime import date as date_module
+        from apps.billing.models import MonthlyBillingDeadline
+
+        today = date_module.today()
+        current_year = today.year
+        current_month = today.month
+
+        try:
+            # テナントIDが指定されていない場合はデフォルトの1を使用
+            tid = tenant_id or 1
+            deadline = MonthlyBillingDeadline.objects.get(
+                tenant_id=tid,
+                year=current_year,
+                month=current_month
+            )
+            # is_closed プロパティで確定状態を判定
+            is_confirmed = deadline.is_closed
+            print(f"[PricingPreview] Billing deadline check: {current_year}/{current_month} is_closed={is_confirmed}", file=sys.stderr)
+            return is_confirmed
+        except MonthlyBillingDeadline.DoesNotExist:
+            # レコードがない場合は未確定とみなす
+            print(f"[PricingPreview] No deadline record for {current_year}/{current_month}, treating as not confirmed", file=sys.stderr)
+            return False
 
     def _calculate_enrollment_fees(self, course, start_date, day_of_week, student, guardian, billing_by_month, additional_fees):
         """入会時費用を計算"""

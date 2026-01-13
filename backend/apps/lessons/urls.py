@@ -15,6 +15,8 @@ from .views import (
     AbsenceTicketListView,
     UseAbsenceTicketView,
     TransferAvailableClassesView,
+    CancelAbsenceView,
+    CancelMakeupView,
 )
 
 app_name = 'lessons'
@@ -38,5 +40,9 @@ urlpatterns = [
     path('use-absence-ticket/', UseAbsenceTicketView.as_view(), name='use-absence-ticket'),
     # 振替可能クラス取得
     path('transfer-available-classes/', TransferAvailableClassesView.as_view(), name='transfer-available-classes'),
+    # 欠席キャンセル
+    path('cancel-absence/', CancelAbsenceView.as_view(), name='cancel-absence'),
+    # 振替キャンセル
+    path('cancel-makeup/', CancelMakeupView.as_view(), name='cancel-makeup'),
     path('', include(router.urls)),
 ]

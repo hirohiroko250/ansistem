@@ -7,6 +7,7 @@ from decimal import Decimal
 
 from apps.pricing.views.utils import (
     calculate_prorated_current_month_fees,
+    calculate_prorated_current_month_fees_multiple,
     get_monthly_tuition_prices,
 )
 
@@ -64,8 +65,18 @@ class BillingCalculationMixin:
             billing_by_month['currentMonth']['month'] = current_month
             billing_by_month['month1']['label'] = f'{monthly_tuition["month1"]}月分'
             billing_by_month['month1']['month'] = monthly_tuition['month1']
-            billing_by_month['month2']['label'] = f'{monthly_tuition["month2"]}月分〜'
+            # month3がある場合は「〜」なし
+            if 'month3' in billing_by_month:
+                billing_by_month['month2']['label'] = f'{monthly_tuition["month2"]}月分'
+            else:
+                billing_by_month['month2']['label'] = f'{monthly_tuition["month2"]}月分〜'
             billing_by_month['month2']['month'] = monthly_tuition['month2']
+
+            # month3のラベル設定
+            if 'month3' in billing_by_month:
+                month3_num = (monthly_tuition['month2'] % 12) + 1
+                billing_by_month['month3']['label'] = f'{month3_num}月分〜'
+                billing_by_month['month3']['month'] = month3_num
         else:
             today = date_type.today()
             current_month = today.month
@@ -75,22 +86,39 @@ class BillingCalculationMixin:
             billing_by_month['currentMonth']['month'] = current_month
             billing_by_month['month1']['label'] = f'{next_month}月分'
             billing_by_month['month1']['month'] = next_month
-            billing_by_month['month2']['label'] = f'{following_month}月分〜'
+            # month3がある場合は「〜」なし
+            if 'month3' in billing_by_month:
+                billing_by_month['month2']['label'] = f'{following_month}月分'
+            else:
+                billing_by_month['month2']['label'] = f'{following_month}月分〜'
             billing_by_month['month2']['month'] = following_month
+
+            # month3のラベル設定
+            if 'month3' in billing_by_month:
+                month3_num = (following_month % 12) + 1
+                billing_by_month['month3']['label'] = f'{month3_num}月分〜'
+                billing_by_month['month3']['month'] = month3_num
 
         return billing_by_month
 
-    def _calculate_current_month_prorated(self, course, start_date, day_of_week):
-        """当月分回数割料金を計算"""
-        if not course or not start_date or not day_of_week:
+    def _calculate_current_month_prorated(self, course, start_date, day_of_week, days_of_week=None):
+        """当月分回数割料金を計算（複数曜日対応）"""
+        if not course or not start_date:
             return None
 
         try:
-            dow_int = int(day_of_week)
-            if not (1 <= dow_int <= 7):
+            # 複数曜日がある場合はそちらを優先
+            if days_of_week and len(days_of_week) > 0:
+                prorated_data = calculate_prorated_current_month_fees_multiple(course, start_date, days_of_week)
+                print(f"[PricingPreview] Using multiple days proration: {days_of_week}", file=sys.stderr)
+            elif day_of_week:
+                dow_int = int(day_of_week)
+                if not (1 <= dow_int <= 7):
+                    return None
+                prorated_data = calculate_prorated_current_month_fees(course, start_date, dow_int)
+            else:
                 return None
 
-            prorated_data = calculate_prorated_current_month_fees(course, start_date, dow_int)
             if prorated_data['total_prorated'] <= 0:
                 return None
 
@@ -140,8 +168,12 @@ class BillingCalculationMixin:
             print(f"[PricingPreview] Error calculating prorated fees: {e}", file=sys.stderr)
             return None
 
-    def _calculate_grand_total(self, enrollment_tuition_item, additional_fees, monthly_tuition, discount_total):
-        """合計金額を計算"""
+    def _calculate_grand_total(self, enrollment_tuition_item, additional_fees, monthly_tuition, discount_total, include_month3=False):
+        """合計金額を計算
+
+        Args:
+            include_month3: 3ヶ月目を含めるかどうか（締日後の場合True）
+        """
         enrollment_tuition_total = enrollment_tuition_item['total'] if enrollment_tuition_item else 0
         enrollment_fee = additional_fees.get('enrollmentFee', {}).get('price', 0)
         materials_fee = additional_fees.get('materialsFee', {}).get('price', 0)
@@ -149,47 +181,80 @@ class BillingCalculationMixin:
         if monthly_tuition:
             month1_total = monthly_tuition['month1Price'] + monthly_tuition['facilityFee'] + monthly_tuition['monthlyFee']
             month2_total = monthly_tuition['month2Price'] + monthly_tuition['facilityFee'] + monthly_tuition['monthlyFee']
+            # month3はmonth2と同じ料金とする
+            month3_total = month2_total if include_month3 else 0
         else:
             month1_total = additional_fees.get('facilityFee', {}).get('price', 0) + additional_fees.get('monthlyFee', {}).get('price', 0)
             month2_total = month1_total
+            month3_total = month1_total if include_month3 else 0
 
         return (
             enrollment_tuition_total +
             enrollment_fee +
             materials_fee +
             month1_total +
-            month2_total -
+            month2_total +
+            month3_total -
             int(discount_total)
         )
 
     def _apply_prorated_fees(self, billing_by_month, current_month_prorated, enrollment_tuition_item):
         """回数割料金をbilling_by_monthに反映"""
         if current_month_prorated:
-            # 設備費の回数割を反映
-            if current_month_prorated.get('facilityFee'):
-                for item in billing_by_month['currentMonth']['items']:
-                    if item.get('itemType') == 'enrollment_facility':
-                        old_price = item['priceWithTax']
-                        new_price = current_month_prorated['facilityFee']['proratedPrice']
-                        item['priceWithTax'] = new_price
-                        item['unitPrice'] = int(new_price / 1.1)
-                        item['billingCategoryName'] = "設備費（回数割）"
-                        billing_by_month['currentMonth']['total'] -= old_price
-                        billing_by_month['currentMonth']['total'] += new_price
-                        print(f"[PricingPreview] Updated facility fee to prorated: ¥{old_price} -> ¥{new_price}", file=sys.stderr)
+            remaining_count = current_month_prorated.get('remainingCount', 0)
+            total_count = current_month_prorated.get('totalCount', 0)
+            ratio_text = f"（{remaining_count}/{total_count}回）" if total_count > 0 else ""
 
-            # 月会費の回数割を反映
+            # 授業料の回数割を追加
+            if current_month_prorated.get('tuition'):
+                tuition_data = current_month_prorated['tuition']
+                prorated_price = tuition_data['proratedPrice']
+                billing_by_month['currentMonth']['items'].append({
+                    'productId': tuition_data.get('productId'),
+                    'productName': tuition_data.get('productName', '授業料'),
+                    'billingCategoryName': f"当月分授業料{ratio_text}",
+                    'itemType': 'tuition_prorated',
+                    'quantity': 1,
+                    'unitPrice': int(prorated_price / 1.1),
+                    'priceWithTax': prorated_price,
+                    'taxRate': 0.1,
+                })
+                billing_by_month['currentMonth']['total'] += prorated_price
+                print(f"[PricingPreview] Added prorated tuition: ¥{prorated_price}", file=sys.stderr)
+
+            # 設備費の回数割を追加
+            if current_month_prorated.get('facilityFee'):
+                facility_data = current_month_prorated['facilityFee']
+                prorated_price = facility_data['proratedPrice']
+                billing_by_month['currentMonth']['items'].append({
+                    'productId': facility_data.get('productId'),
+                    'productName': facility_data.get('productName', '設備費'),
+                    'billingCategoryName': f"当月分設備費{ratio_text}",
+                    'itemType': 'facility_prorated',
+                    'quantity': 1,
+                    'unitPrice': int(prorated_price / 1.1),
+                    'priceWithTax': prorated_price,
+                    'taxRate': 0.1,
+                })
+                billing_by_month['currentMonth']['total'] += prorated_price
+                print(f"[PricingPreview] Added prorated facility fee: ¥{prorated_price}", file=sys.stderr)
+
+            # 月会費の回数割を追加
             if current_month_prorated.get('monthlyFee'):
-                for item in billing_by_month['currentMonth']['items']:
-                    if item.get('itemType') == 'enrollment_monthly_fee':
-                        old_price = item['priceWithTax']
-                        new_price = current_month_prorated['monthlyFee']['proratedPrice']
-                        item['priceWithTax'] = new_price
-                        item['unitPrice'] = int(new_price / 1.1)
-                        item['billingCategoryName'] = "月会費（回数割）"
-                        billing_by_month['currentMonth']['total'] -= old_price
-                        billing_by_month['currentMonth']['total'] += new_price
-                        print(f"[PricingPreview] Updated monthly fee to prorated: ¥{old_price} -> ¥{new_price}", file=sys.stderr)
+                monthly_data = current_month_prorated['monthlyFee']
+                prorated_price = monthly_data['proratedPrice']
+                billing_by_month['currentMonth']['items'].append({
+                    'productId': monthly_data.get('productId'),
+                    'productName': monthly_data.get('productName', '月会費'),
+                    'billingCategoryName': f"当月分月会費{ratio_text}",
+                    'itemType': 'monthly_fee_prorated',
+                    'quantity': 1,
+                    'unitPrice': int(prorated_price / 1.1),
+                    'priceWithTax': prorated_price,
+                    'taxRate': 0.1,
+                })
+                billing_by_month['currentMonth']['total'] += prorated_price
+                print(f"[PricingPreview] Added prorated monthly fee: ¥{prorated_price}", file=sys.stderr)
 
         # 入会時授業料をcurrentMonthに追加
         if enrollment_tuition_item:

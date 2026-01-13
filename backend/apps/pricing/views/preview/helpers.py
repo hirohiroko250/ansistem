@@ -233,7 +233,13 @@ def categorize_item_to_billing_month(item_data, item_type, billing_by_month):
         billing_by_month['month1']['total'] += price_with_tax
         billing_by_month['month2']['items'].append(item_data.copy())
         billing_by_month['month2']['total'] += price_with_tax
-        print(f"[PricingPreview]   -> Added to month1 and month2", file=sys.stderr)
+        # month3がある場合（締日後）は3ヶ月目も追加
+        if 'month3' in billing_by_month:
+            billing_by_month['month3']['items'].append(item_data.copy())
+            billing_by_month['month3']['total'] += price_with_tax
+            print(f"[PricingPreview]   -> Added to month1, month2, and month3", file=sys.stderr)
+        else:
+            print(f"[PricingPreview]   -> Added to month1 and month2", file=sys.stderr)
     else:
         print(f"[PricingPreview]   -> NOT MATCHED (item_type not in any group)", file=sys.stderr)
 

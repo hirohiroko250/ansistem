@@ -371,6 +371,7 @@ class AbsenceTicket(TenantModel):
         ISSUED = 'issued', '発行済'
         USED = 'used', '使用済'
         EXPIRED = 'expired', '期限切れ'
+        CANCELLED = 'cancelled', 'キャンセル'
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     student = models.ForeignKey(

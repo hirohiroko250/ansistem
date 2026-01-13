@@ -1,0 +1,20 @@
+{
+  "name": "oza-e2e-tests",
+  "version": "1.0.0",
+  "description": "E2E tests for OZA system",
+  "scripts": {
+    "test": "playwright test",
+    "test:customer": "playwright test --project=customer-chromium",
+    "test:admin": "playwright test --project=admin-chromium",
+    "test:mobile": "playwright test --project=customer-mobile",
+    "test:headed": "playwright test --headed",
+    "test:debug": "playwright test --debug",
+    "test:ui": "playwright test --ui",
+    "report": "playwright show-report"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.40.0",
+    "@types/node": "^20.10.0",
+    "dotenv": "^16.3.1"
+  }
+}

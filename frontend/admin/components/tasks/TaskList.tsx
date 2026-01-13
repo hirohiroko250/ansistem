@@ -60,8 +60,14 @@ export function TaskList({ tasks, selectedTaskId, onSelectTask }: TaskListProps)
         <tbody className="divide-y divide-gray-200 bg-white">
           {tasks.map((task, index) => {
             const statusInfo = statusConfig[task.status] || statusConfig.pending;
+
+            // 日付の有効性チェック
+            const createdDate = task.created_at ? new Date(task.created_at) : null;
+            const isValidCreatedDate = createdDate && !isNaN(createdDate.getTime());
+            const dueDate = task.due_date ? new Date(task.due_date) : null;
+            const isValidDueDate = dueDate && !isNaN(dueDate.getTime());
             const isOverdue =
-              task.due_date && new Date(task.due_date) < new Date() && task.status !== "completed";
+              isValidDueDate && dueDate < new Date() && task.status !== "completed";
 
             return (
               <tr
@@ -75,7 +81,9 @@ export function TaskList({ tasks, selectedTaskId, onSelectTask }: TaskListProps)
               >
                 <td className="px-2 py-2 whitespace-nowrap text-gray-900">{index + 1}</td>
                 <td className="px-2 py-2 whitespace-nowrap text-gray-600">
-                  {format(new Date(task.created_at), "yyyy/MM/dd HH:mm", { locale: ja })}
+                  {isValidCreatedDate && createdDate
+                    ? format(createdDate, "yyyy/MM/dd HH:mm", { locale: ja })
+                    : "---"}
                 </td>
                 <td className="px-2 py-2 whitespace-nowrap">
                   <Badge variant="outline" className={cn("text-xs", statusInfo.className)}>
@@ -113,10 +121,9 @@ export function TaskList({ tasks, selectedTaskId, onSelectTask }: TaskListProps)
                   {task.school_name || "---"}
                 </td>
                 <td className="px-2 py-2 whitespace-nowrap text-gray-600">
-                  {task.due_date
-                    ? format(new Date(task.due_date), "MM/dd HH:mm", { locale: ja })
-                    : "---"
-                  }
+                  {isValidDueDate && dueDate
+                    ? format(dueDate, "MM/dd HH:mm", { locale: ja })
+                    : "---"}
                 </td>
               </tr>
             );

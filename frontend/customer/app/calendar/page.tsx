@@ -13,7 +13,7 @@ import { format, startOfMonth, endOfMonth, addMonths, subMonths, getDate, getDay
 import { ja } from 'date-fns/locale';
 import { getChildren, getStudentItems } from '@/lib/api/students';
 import { getChildTicketBalance } from '@/lib/api/students';
-import { getCalendarEvents, markAbsent, requestMakeup, getMakeupAvailableDates, markAbsenceFromCalendar } from '@/lib/api/lessons';
+import { getCalendarEvents, markAbsent, requestMakeup, getMakeupAvailableDates, markAbsenceFromCalendar, getAbsenceTickets, cancelAbsence, cancelMakeup, type AbsenceTicket } from '@/lib/api/lessons';
 import { getLessonCalendar, getCalendarSeats, type LessonCalendarDay, type DailySeatInfo } from '@/lib/api/schools';
 import type { Child, CalendarEvent, TicketBalance, MakeupAvailableDate, ApiError } from '@/lib/api/types';
 
@@ -31,6 +31,7 @@ type DisplayEvent = {
   classScheduleId?: string;  // 欠席登録用
   brandName?: string;
   brandId?: string;
+  absenceTicketId?: string;  // 欠席チケットID（APIから取得）
 };
 
 // ブランド別の色設定
@@ -95,6 +96,15 @@ export default function CalendarPage() {
   const [isLoadingAvailableDates, setIsLoadingAvailableDates] = useState(false);
   const [isSubmittingMakeup, setIsSubmittingMakeup] = useState(false);
   const [makeupError, setMakeupError] = useState<string | null>(null);
+
+  // 欠席チケット（キャンセル用）
+  const [absenceTickets, setAbsenceTickets] = useState<AbsenceTicket[]>([]);
+
+  // キャンセル処理
+  const [isCancelling, setIsCancelling] = useState(false);
+  const [cancelError, setCancelError] = useState<string | null>(null);
+  const [showCancelSuccessDialog, setShowCancelSuccessDialog] = useState(false);
+  const [cancelSuccessMessage, setCancelSuccessMessage] = useState<string>('');
 
   // カレンダー計算
   const daysInMonth = getDaysInMonth(currentDate);
@@ -161,6 +171,7 @@ export default function CalendarPage() {
           courseId: event.resourceId,
           classScheduleId: event.classScheduleId,
           brandName: event.brandName,
+          absenceTicketId: event.absenceTicketId,
         };
       });
 
@@ -260,12 +271,40 @@ export default function CalendarPage() {
     }
   }, [selectedChild, fetchTicketBalance]);
 
+  // 欠席チケット一覧を取得
+  const fetchAbsenceTickets = useCallback(async () => {
+    try {
+      const tickets = await getAbsenceTickets();
+      setAbsenceTickets(tickets);
+    } catch {
+      setAbsenceTickets([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchAbsenceTickets();
+  }, [fetchAbsenceTickets]);
+
+  // イベントに対応する欠席チケットを取得するヘルパー（欠席キャンセル用）
+  const getAbsenceTicketForEvent = useCallback((event: DisplayEvent): AbsenceTicket | undefined => {
+    if (!event.classScheduleId || !event.fullDate) return undefined;
+    const eventDate = format(parseISO(event.fullDate), 'yyyy-MM-dd');
+    // issuedステータスのチケットを探す（欠席キャンセル用）
+    return absenceTickets.find(
+      t => t.classScheduleId === event.classScheduleId &&
+           t.absenceDate === eventDate &&
+           t.status === 'issued'
+    );
+  }, [absenceTickets]);
+
   const getEventsForDay = (day: number) => {
     return events.filter((event) => event.date === day);
   };
 
   const handleEventClick = (event: DisplayEvent) => {
     setSelectedEvent(event);
+    setCancelError(null);
+    setAbsentError(null);
   };
 
   // カレンダーの日付クリック（授業がある日のみ）
@@ -281,6 +320,8 @@ export default function CalendarPage() {
   const handleAbsentFromDayDialog = (event: DisplayEvent) => {
     setShowDayEventsDialog(false);
     setSelectedEvent(event);
+    setCancelError(null);
+    setAbsentError(null);
   };
 
   // 欠席登録（振替チケット自動発行）
@@ -374,6 +415,70 @@ export default function CalendarPage() {
       setMakeupError(apiError.message || '振替申請に失敗しました');
     } finally {
       setIsSubmittingMakeup(false);
+    }
+  };
+
+  // 欠席キャンセル
+  const handleCancelAbsence = async () => {
+    if (!selectedEvent) return;
+
+    // イベントから直接absenceTicketIdを使用
+    if (!selectedEvent.absenceTicketId) {
+      setCancelError('欠席チケットが見つかりません');
+      return;
+    }
+
+    setIsCancelling(true);
+    setCancelError(null);
+
+    try {
+      await cancelAbsence(selectedEvent.absenceTicketId);
+      setSelectedEvent(null);
+      setCancelSuccessMessage('欠席をキャンセルしました');
+      setShowCancelSuccessDialog(true);
+
+      // データを再取得
+      await Promise.all([fetchEvents(), fetchAbsenceTickets(), fetchTicketBalance()]);
+    } catch (err) {
+      const apiError = err as ApiError;
+      setCancelError(apiError.message || '欠席キャンセルに失敗しました');
+    } finally {
+      setIsCancelling(false);
+    }
+  };
+
+  // 振替キャンセル
+  const handleCancelMakeup = async () => {
+    if (!selectedEvent) return;
+
+    // 振替のイベントから欠席チケット（used状態）を探す
+    // usedDateが振替先の日付と一致するチケットを検索
+    const eventDate = format(parseISO(selectedEvent.fullDate), 'yyyy-MM-dd');
+    const ticket = absenceTickets.find(
+      t => t.status === 'used' && t.usedDate === eventDate
+    );
+
+    if (!ticket) {
+      setCancelError('振替チケットが見つかりません');
+      return;
+    }
+
+    setIsCancelling(true);
+    setCancelError(null);
+
+    try {
+      await cancelMakeup(ticket.id);
+      setSelectedEvent(null);
+      setCancelSuccessMessage('振替をキャンセルしました。欠席チケットが復活しました。');
+      setShowCancelSuccessDialog(true);
+
+      // データを再取得
+      await Promise.all([fetchEvents(), fetchAbsenceTickets(), fetchTicketBalance()]);
+    } catch (err) {
+      const apiError = err as ApiError;
+      setCancelError(apiError.message || '振替キャンセルに失敗しました');
+    } finally {
+      setIsCancelling(false);
     }
   };
 
@@ -784,6 +889,14 @@ export default function CalendarPage() {
                 </div>
               )}
 
+              {cancelError && (
+                <div className="flex items-center gap-2 p-3 rounded-lg bg-red-50 border border-red-200">
+                  <AlertCircle className="h-5 w-5 text-red-600 shrink-0" />
+                  <p className="text-sm text-red-800">{cancelError}</p>
+                </div>
+              )}
+
+              {/* 予約済み：欠席登録ボタン */}
               {(selectedEvent.status === 'scheduled' || selectedEvent.status === 'confirmed') && (
                 <div className="pt-2">
                   <Button
@@ -801,6 +914,56 @@ export default function CalendarPage() {
                       <X className="h-4 w-4 mr-2" />
                     )}
                     欠席登録
+                  </Button>
+                </div>
+              )}
+
+              {/* 欠席：欠席キャンセルボタン */}
+              {selectedEvent.status === 'absent' && (
+                <div className="pt-2 space-y-2">
+                  <p className="text-xs text-gray-500">
+                    欠席をキャンセルすると、発行された振替チケットも取り消されます。
+                  </p>
+                  <Button
+                    variant="outline"
+                    className="w-full rounded-xl border-red-300 text-red-600 hover:bg-red-50"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleCancelAbsence();
+                    }}
+                    disabled={isCancelling}
+                  >
+                    {isCancelling ? (
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    ) : (
+                      <X className="h-4 w-4 mr-2" />
+                    )}
+                    欠席をキャンセル
+                  </Button>
+                </div>
+              )}
+
+              {/* 振替：振替キャンセルボタン */}
+              {selectedEvent.status === 'makeup' && (
+                <div className="pt-2 space-y-2">
+                  <p className="text-xs text-gray-500">
+                    振替をキャンセルすると、使用した振替チケットが復活します。
+                  </p>
+                  <Button
+                    variant="outline"
+                    className="w-full rounded-xl border-purple-300 text-purple-600 hover:bg-purple-50"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleCancelMakeup();
+                    }}
+                    disabled={isCancelling}
+                  >
+                    {isCancelling ? (
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    ) : (
+                      <X className="h-4 w-4 mr-2" />
+                    )}
+                    振替をキャンセル
                   </Button>
                 </div>
               )}
@@ -915,6 +1078,29 @@ export default function CalendarPage() {
               振替チケット使用
             </Button>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* キャンセル成功ダイアログ */}
+      <Dialog open={showCancelSuccessDialog} onOpenChange={setShowCancelSuccessDialog}>
+        <DialogContent className="max-w-[340px] rounded-2xl">
+          <DialogHeader>
+            <div className="flex items-center gap-2">
+              <AlertCircle className="h-5 w-5 text-green-600" />
+              <DialogTitle>キャンセル完了</DialogTitle>
+            </div>
+          </DialogHeader>
+          <div className="space-y-3">
+            <p className="text-sm text-gray-700">
+              {cancelSuccessMessage}
+            </p>
+          </div>
+          <Button
+            className="w-full rounded-xl bg-blue-600 hover:bg-blue-700"
+            onClick={() => setShowCancelSuccessDialog(false)}
+          >
+            閉じる
+          </Button>
         </DialogContent>
       </Dialog>
 

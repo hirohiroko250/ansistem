@@ -30,6 +30,8 @@ from .absence import (
     AbsenceTicketListView,
     UseAbsenceTicketView,
     TransferAvailableClassesView,
+    CancelAbsenceView,
+    CancelMakeupView,
 )
 
 
@@ -52,4 +54,6 @@ __all__ = [
     'AbsenceTicketListView',
     'UseAbsenceTicketView',
     'TransferAvailableClassesView',
+    'CancelAbsenceView',
+    'CancelMakeupView',
 ]

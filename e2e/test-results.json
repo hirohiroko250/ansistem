@@ -1,0 +1,201 @@
+{
+  "config": {
+    "configFile": "/Users/hirosesuzu/Desktop/アンシステム/e2e/playwright.config.ts",
+    "rootDir": "/Users/hirosesuzu/Desktop/アンシステム/e2e/tests",
+    "forbidOnly": false,
+    "fullyParallel": false,
+    "globalSetup": null,
+    "globalTeardown": null,
+    "globalTimeout": 0,
+    "grep": {},
+    "grepInvert": null,
+    "maxFailures": 0,
+    "metadata": {
+      "actualWorkers": 1
+    },
+    "preserveOutput": "always",
+    "reporter": [
+      [
+        "html",
+        {
+          "open": "never"
+        }
+      ],
+      [
+        "json",
+        {
+          "outputFile": "test-results.json"
+        }
+      ],
+      [
+        "list",
+        null
+      ]
+    ],
+    "reportSlowTests": {
+      "max": 5,
+      "threshold": 300000
+    },
+    "quiet": false,
+    "projects": [
+      {
+        "outputDir": "/Users/hirosesuzu/Desktop/アンシステム/e2e/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "customer-chromium",
+        "name": "customer-chromium",
+        "testDir": "/Users/hirosesuzu/Desktop/アンシステム/e2e/tests",
+        "testIgnore": [],
+        "testMatch": [
+          "**/customer-journey.spec.ts",
+          "**/ticket-purchase.spec.ts"
+        ],
+        "timeout": 60000
+      },
+      {
+        "outputDir": "/Users/hirosesuzu/Desktop/アンシステム/e2e/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "admin-chromium",
+        "name": "admin-chromium",
+        "testDir": "/Users/hirosesuzu/Desktop/アンシステム/e2e/tests",
+        "testIgnore": [],
+        "testMatch": [
+          "**/admin-verification.spec.ts"
+        ],
+        "timeout": 60000
+      },
+      {
+        "outputDir": "/Users/hirosesuzu/Desktop/アンシステム/e2e/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "customer-mobile",
+        "name": "customer-mobile",
+        "testDir": "/Users/hirosesuzu/Desktop/アンシステム/e2e/tests",
+        "testIgnore": [],
+        "testMatch": [
+          "**/customer-journey.spec.ts"
+        ],
+        "timeout": 60000
+      }
+    ],
+    "shard": null,
+    "tags": [],
+    "updateSnapshots": "missing",
+    "updateSourceMethod": "patch",
+    "version": "1.57.0",
+    "workers": 1,
+    "webServer": null
+  },
+  "suites": [
+    {
+      "title": "customer-journey.spec.ts",
+      "file": "customer-journey.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "Customer Journey - 完全フロー",
+          "file": "customer-journey.spec.ts",
+          "line": 31,
+          "column": 6,
+          "specs": [
+            {
+              "title": "1. ログインができる",
+              "ok": false,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "customer-chromium",
+                  "projectName": "customer-chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "failed",
+                      "duration": 11145,
+                      "error": {
+                        "message": "TimeoutError: page.waitForSelector: Timeout 10000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('input[type=\"email\"], input[name=\"email\"]') to be visible\u001b[22m\n",
+                        "stack": "TimeoutError: page.waitForSelector: Timeout 10000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('input[type=\"email\"], input[name=\"email\"]') to be visible\u001b[22m\n\n    at login (/Users/hirosesuzu/Desktop/アンシステム/e2e/tests/customer-journey.spec.ts:21:14)\n    at /Users/hirosesuzu/Desktop/アンシステム/e2e/tests/customer-journey.spec.ts:40:7",
+                        "location": {
+                          "file": "/Users/hirosesuzu/Desktop/アンシステム/e2e/tests/customer-journey.spec.ts",
+                          "column": 14,
+                          "line": 21
+                        },
+                        "snippet": "  19 |\n  20 |   // ログインフォームが表示されるまで待機\n> 21 |   await page.waitForSelector('input[type=\"email\"], input[name=\"email\"]', { timeout: 10000 });\n     |              ^\n  22 |\n  23 |   await page.fill('input[type=\"email\"], input[name=\"email\"]', TEST_USER.email);\n  24 |   await page.fill('input[type=\"password\"], input[name=\"password\"]', TEST_USER.password);"
+                      },
+                      "errors": [
+                        {
+                          "location": {
+                            "file": "/Users/hirosesuzu/Desktop/アンシステム/e2e/tests/customer-journey.spec.ts",
+                            "column": 14,
+                            "line": 21
+                          },
+                          "message": "TimeoutError: page.waitForSelector: Timeout 10000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('input[type=\"email\"], input[name=\"email\"]') to be visible\u001b[22m\n\n\n  19 |\n  20 |   // ログインフォームが表示されるまで待機\n> 21 |   await page.waitForSelector('input[type=\"email\"], input[name=\"email\"]', { timeout: 10000 });\n     |              ^\n  22 |\n  23 |   await page.fill('input[type=\"email\"], input[name=\"email\"]', TEST_USER.email);\n  24 |   await page.fill('input[type=\"password\"], input[name=\"password\"]', TEST_USER.password);\n    at login (/Users/hirosesuzu/Desktop/アンシステム/e2e/tests/customer-journey.spec.ts:21:14)\n    at /Users/hirosesuzu/Desktop/アンシステム/e2e/tests/customer-journey.spec.ts:40:7"
+                        }
+                      ],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-01-13T12:09:45.793Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "screenshot",
+                          "contentType": "image/png",
+                          "path": "/Users/hirosesuzu/Desktop/アンシステム/e2e/test-results/customer-journey-Customer-Journey---完全フロー-1-ログインができる-customer-chromium/test-failed-1.png"
+                        },
+                        {
+                          "name": "video",
+                          "contentType": "video/webm",
+                          "path": "/Users/hirosesuzu/Desktop/アンシステム/e2e/test-results/customer-journey-Customer-Journey---完全フロー-1-ログインができる-customer-chromium/video.webm"
+                        },
+                        {
+                          "name": "error-context",
+                          "contentType": "text/markdown",
+                          "path": "/Users/hirosesuzu/Desktop/アンシステム/e2e/test-results/customer-journey-Customer-Journey---完全フロー-1-ログインができる-customer-chromium/error-context.md"
+                        }
+                      ],
+                      "errorLocation": {
+                        "file": "/Users/hirosesuzu/Desktop/アンシステム/e2e/tests/customer-journey.spec.ts",
+                        "column": 14,
+                        "line": 21
+                      }
+                    }
+                  ],
+                  "status": "unexpected"
+                }
+              ],
+              "id": "d02c3ad9dd9290a81fec-e3a139e9f109a2747177",
+              "file": "customer-journey.spec.ts",
+              "line": 44,
+              "column": 7
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "stats": {
+    "startTime": "2026-01-13T12:09:45.478Z",
+    "duration": 11551.334,
+    "expected": 0,
+    "skipped": 0,
+    "unexpected": 1,
+    "flaky": 0
+  }
+}

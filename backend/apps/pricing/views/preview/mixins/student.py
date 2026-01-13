@@ -14,12 +14,19 @@ class StudentInfoMixin:
 
     def _parse_request_data(self, request):
         """リクエストデータを解析"""
+        # days_of_week（複数曜日）を優先、なければday_of_week（単一曜日）を使用
+        days_of_week = request.data.get('days_of_week', [])
+        day_of_week = request.data.get('day_of_week')
+        if not days_of_week and day_of_week:
+            days_of_week = [day_of_week]
+
         return {
             'student_id': request.data.get('student_id'),
             'product_ids': request.data.get('product_ids', []),
             'course_id': request.data.get('course_id'),
             'start_date_str': request.data.get('start_date'),
-            'day_of_week': request.data.get('day_of_week'),
+            'day_of_week': day_of_week,  # 後方互換性のため維持
+            'days_of_week': days_of_week,  # 複数曜日対応
         }
 
     def _get_student_info(self, student_id):

@@ -45,8 +45,12 @@ class PricingPreviewView(StudentInfoMixin, EnrollmentFeesMixin, BillingCalculati
         # 商品ID処理
         items, subtotal = process_product_ids(data['product_ids'], data['course_id'], items, subtotal)
 
+        # 請求確定判定（当月分が確定済みなら3ヶ月目も含める）
+        include_month3 = self._is_billing_confirmed()
+        print(f"[PricingPreview] include_month3={include_month3} (based on billing confirmation)", file=sys.stderr)
+
         # 月別料金グループ初期化
-        billing_by_month = self._init_billing_by_month()
+        billing_by_month = self._init_billing_by_month(include_month3=include_month3)
         textbook_options = []
         course_items_list = []
         additional_fees = {}
@@ -74,14 +78,14 @@ class PricingPreviewView(StudentInfoMixin, EnrollmentFeesMixin, BillingCalculati
         # 月別ラベルを設定
         billing_by_month = self._setup_billing_labels(billing_by_month, start_date, monthly_tuition)
 
-        # 当月分回数割料金を計算
+        # 当月分回数割料金を計算（複数曜日対応）
         current_month_prorated = self._calculate_current_month_prorated(
-            course, start_date, data['day_of_week']
+            course, start_date, data['day_of_week'], data.get('days_of_week')
         )
 
         # 合計金額を計算
         grand_total = self._calculate_grand_total(
-            enrollment_tuition_item, additional_fees, monthly_tuition, discount_total
+            enrollment_tuition_item, additional_fees, monthly_tuition, discount_total, include_month3
         )
 
         # 回数割料金をbilling_by_monthに反映
