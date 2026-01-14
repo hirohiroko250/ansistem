@@ -34,23 +34,11 @@ type DisplayEvent = {
   absenceTicketId?: string;  // 欠席チケットID（APIから取得）
 };
 
-// ブランド別の色設定
-const BRAND_COLORS: Record<string, { bg: string; text: string; badge: string }> = {
-  // アンイングリッシュクラブ
-  'アンイングリッシュクラブ': { bg: 'bg-blue-500', text: 'text-white', badge: 'bg-blue-100 text-blue-700' },
-  // あんそろばんクラブ
-  'アンそろばんクラブ': { bg: 'bg-orange-500', text: 'text-white', badge: 'bg-orange-100 text-orange-700' },
-  // サンシャインキッズ
-  'サンシャインキッズ': { bg: 'bg-yellow-500', text: 'text-white', badge: 'bg-yellow-100 text-yellow-700' },
-  // デフォルト
-  'default': { bg: 'bg-blue-500', text: 'text-white', badge: 'bg-gray-100 text-gray-700' },
-};
-
-// ブランド名から色を取得するヘルパー
-const getBrandColor = (brandName?: string): { bg: string; text: string; badge: string } => {
-  if (!brandName) return BRAND_COLORS['default'];
-  return BRAND_COLORS[brandName] || BRAND_COLORS['default'];
-};
+// 状態別の色設定（シンプル化：科目ごとの色分けは不要）
+// - 受講日（通常）: 青
+// - 欠席: ピンク
+// - 振替: 紫
+// - 休校日: グレー
 
 export default function CalendarPage() {
   const router = useRouter();
@@ -656,14 +644,6 @@ export default function CalendarPage() {
                   const holidayName = holidayDates.get(day);
                   const seats = seatInfo.get(day);
 
-                  // ブランド別の色を取得（最初のイベントのブランドを使用）
-                  const primaryEvent = dayEvents[0];
-                  const brandColor = getBrandColor(primaryEvent?.brandName);
-
-                  // 複数ブランドがある場合はマルチカラー表示
-                  const uniqueBrands = Array.from(new Set(dayEvents.map(e => e.brandName).filter(Boolean)));
-                  const hasMultipleBrands = uniqueBrands.length > 1;
-
                   return (
                     <div
                       key={day}
@@ -671,7 +651,7 @@ export default function CalendarPage() {
                       className={`aspect-square flex flex-col items-center justify-center rounded-lg text-sm ${isClosed ? 'bg-gray-200 text-gray-500' :
                         hasAbsent ? 'bg-pink-400 text-white font-semibold' :
                           hasMakeup ? 'bg-purple-500 text-white font-semibold' :
-                            hasScheduled || hasEvents ? `${brandColor.bg} ${brandColor.text} font-semibold` :
+                            hasScheduled || hasEvents ? 'bg-blue-500 text-white font-semibold' :
                               'text-gray-700 hover:bg-gray-100'
                         } ${hasEvents && !isClosed ? 'cursor-pointer hover:opacity-80' : 'cursor-default'} transition-colors relative`}
                       title={holidayName || (isClosed ? '休校日' : seats?.isOpen ? `受講${seats.enrolledCount}人 / 残${seats.availableSeats}席` : undefined)}
@@ -684,22 +664,9 @@ export default function CalendarPage() {
                       )}
                       {hasEvents && !isClosed && (
                         <div className="flex gap-0.5 mt-0.5">
-                          {hasMultipleBrands ? (
-                            // 複数ブランドの場合、各ブランドの色でドットを表示
-                            uniqueBrands.slice(0, 3).map((brand, i) => {
-                              const color = getBrandColor(brand);
-                              return (
-                                <div
-                                  key={i}
-                                  className={`w-1.5 h-1.5 rounded-full ${color.bg} border border-white/50`}
-                                />
-                              );
-                            })
-                          ) : (
-                            dayEvents.slice(0, 3).map((_, i) => (
-                              <div key={i} className="w-1 h-1 rounded-full bg-current opacity-70" />
-                            ))
-                          )}
+                          {dayEvents.slice(0, 3).map((_, i) => (
+                            <div key={i} className="w-1 h-1 rounded-full bg-current opacity-70" />
+                          ))}
                         </div>
                       )}
                       {isClosed && (
@@ -714,18 +681,10 @@ export default function CalendarPage() {
         </Card>
 
         {/* カレンダー凡例 */}
-        <div className="flex flex-wrap gap-3 mb-4 text-xs">
+        <div className="flex flex-wrap gap-4 mb-4 text-xs">
           <div className="flex items-center gap-1.5">
             <div className="w-4 h-4 rounded bg-blue-500" />
-            <span className="text-gray-600">アンイングリッシュ</span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <div className="w-4 h-4 rounded bg-orange-500" />
-            <span className="text-gray-600">アンそろばんクラブ</span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <div className="w-4 h-4 rounded bg-gray-200" />
-            <span className="text-gray-600">休校日</span>
+            <span className="text-gray-600">受講日</span>
           </div>
           <div className="flex items-center gap-1.5">
             <div className="w-4 h-4 rounded bg-pink-400" />
@@ -734,6 +693,10 @@ export default function CalendarPage() {
           <div className="flex items-center gap-1.5">
             <div className="w-4 h-4 rounded bg-purple-500" />
             <span className="text-gray-600">振替</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <div className="w-4 h-4 rounded bg-gray-200" />
+            <span className="text-gray-600">休校日</span>
           </div>
         </div>
 
