@@ -50,7 +50,7 @@ jobs:
       - name: Install dependencies
         run: |
           cd backend
-          pip install -r requirements.txt
+          pip install -r requirements/base.txt
           pip install pytest pytest-django hypothesis
 
       - name: Run pricing unit tests
@@ -87,7 +87,7 @@ jobs:
       - name: Install dependencies
         run: |
           cd backend
-          pip install -r requirements.txt
+          pip install -r requirements/base.txt
           pip install pytest
 
       - name: Run golden tests
