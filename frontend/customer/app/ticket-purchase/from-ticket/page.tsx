@@ -1178,14 +1178,30 @@ export default function FromTicketPurchasePage() {
     .filter(c => selectedCertifications.includes(c.id))
     .reduce((sum, c) => sum + c.exam_fee, 0);
 
-  // 合計金額: APIのgrandTotalを使用（入会金、設備費、教材費、割引を全て含む）
+  // 合計金額: APIのgrandTotalを使用（入会金、教材費、割引を含む）
+  // 設備費は既存契約で請求済みのため除外
   // マイル割引はフロントエンドで計算して引く
+  const facilityFeeTotal = (() => {
+    if (!pricingPreview?.billingByMonth) return 0;
+    const months = [
+      pricingPreview.billingByMonth.currentMonth,
+      pricingPreview.billingByMonth.month1,
+      pricingPreview.billingByMonth.month2,
+      pricingPreview.billingByMonth.month3,
+    ].filter(Boolean);
+    return months.reduce((total, month) => {
+      if (!month?.items) return total;
+      const facilityItems = month.items.filter((item: any) => item.itemType?.includes('facility'));
+      return total + facilityItems.reduce((sum: number, item: any) => sum + (item.priceWithTax || 0), 0);
+    }, 0);
+  })();
+
   const totalAmount = itemType === 'seminar'
     ? seminarTotalAmount
     : itemType === 'certification'
     ? certificationTotalAmount
     : pricingPreview?.grandTotal
-    ? pricingPreview.grandTotal - mileDiscountAmount  // APIで全て計算済み（マイル割引を引く）
+    ? pricingPreview.grandTotal - mileDiscountAmount - facilityFeeTotal  // APIで全て計算済み（マイル割引・設備費を引く）
     : (selectedCourse?.price || 0) - mileDiscountAmount;  // フォールバック: コース価格のみ
 
   // コース名を取得するヘルパー関数
@@ -2900,69 +2916,106 @@ export default function FromTicketPurchasePage() {
                         );
                       })()}
 
-                      {/* 当月分（回数割） */}
-                      {pricingPreview.billingByMonth.currentMonth.items.length > 0 && (
-                        <div className="bg-amber-50 rounded-lg p-3 space-y-2">
-                          <div className="flex justify-between items-center border-b border-amber-200 pb-2 mb-2">
-                            <span className="font-semibold text-amber-800">{pricingPreview.billingByMonth.currentMonth.label}</span>
-                            <span className="font-semibold text-amber-800">¥{pricingPreview.billingByMonth.currentMonth.total.toLocaleString()}</span>
-                          </div>
-                          {pricingPreview.billingByMonth.currentMonth.items.map((item, index) => (
-                            <div key={index} className="flex justify-between text-sm">
-                              <span className="text-gray-700">{item.billingCategoryName || item.productName}</span>
-                              <span className="text-gray-800">¥{item.priceWithTax.toLocaleString()}</span>
+                      {/* 当月分（回数割） - 設備費は既存契約で請求済みのため除外 */}
+                      {(() => {
+                        const filteredItems = pricingPreview.billingByMonth.currentMonth.items.filter(
+                          (item: any) => !item.itemType?.includes('facility')
+                        );
+                        const filteredTotal = filteredItems.reduce(
+                          (sum: number, item: any) => sum + (item.priceWithTax || 0), 0
+                        );
+                        if (filteredItems.length === 0) return null;
+                        return (
+                          <div className="bg-amber-50 rounded-lg p-3 space-y-2">
+                            <div className="flex justify-between items-center border-b border-amber-200 pb-2 mb-2">
+                              <span className="font-semibold text-amber-800">{pricingPreview.billingByMonth.currentMonth.label}</span>
+                              <span className="font-semibold text-amber-800">¥{filteredTotal.toLocaleString()}</span>
                             </div>
-                          ))}
-                        </div>
-                      )}
+                            {filteredItems.map((item: any, index: number) => (
+                              <div key={index} className="flex justify-between text-sm">
+                                <span className="text-gray-700">{item.billingCategoryName || item.productName}</span>
+                                <span className="text-gray-800">¥{item.priceWithTax.toLocaleString()}</span>
+                              </div>
+                            ))}
+                          </div>
+                        );
+                      })()}
 
-                      {/* 翌月分 */}
-                      {pricingPreview.billingByMonth.month1.items.length > 0 && (
-                        <div className="bg-green-50 rounded-lg p-3 space-y-2">
-                          <div className="flex justify-between items-center border-b border-green-200 pb-2 mb-2">
-                            <span className="font-semibold text-green-800">{pricingPreview.billingByMonth.month1.label}</span>
-                            <span className="font-semibold text-green-800">¥{pricingPreview.billingByMonth.month1.total.toLocaleString()}</span>
-                          </div>
-                          {pricingPreview.billingByMonth.month1.items.map((item, index) => (
-                            <div key={index} className="flex justify-between text-sm">
-                              <span className="text-gray-700">{item.billingCategoryName || item.productName}</span>
-                              <span className="text-gray-800">¥{item.priceWithTax.toLocaleString()}</span>
+                      {/* 翌月分 - 設備費は既存契約で請求済みのため除外 */}
+                      {(() => {
+                        const filteredItems = pricingPreview.billingByMonth.month1.items.filter(
+                          (item: any) => !item.itemType?.includes('facility')
+                        );
+                        const filteredTotal = filteredItems.reduce(
+                          (sum: number, item: any) => sum + (item.priceWithTax || 0), 0
+                        );
+                        if (filteredItems.length === 0) return null;
+                        return (
+                          <div className="bg-green-50 rounded-lg p-3 space-y-2">
+                            <div className="flex justify-between items-center border-b border-green-200 pb-2 mb-2">
+                              <span className="font-semibold text-green-800">{pricingPreview.billingByMonth.month1.label}</span>
+                              <span className="font-semibold text-green-800">¥{filteredTotal.toLocaleString()}</span>
                             </div>
-                          ))}
-                        </div>
-                      )}
+                            {filteredItems.map((item: any, index: number) => (
+                              <div key={index} className="flex justify-between text-sm">
+                                <span className="text-gray-700">{item.billingCategoryName || item.productName}</span>
+                                <span className="text-gray-800">¥{item.priceWithTax.toLocaleString()}</span>
+                              </div>
+                            ))}
+                          </div>
+                        );
+                      })()}
 
-                      {/* 翌々月分 */}
-                      {pricingPreview.billingByMonth.month2.items.length > 0 && (
-                        <div className="bg-purple-50 rounded-lg p-3 space-y-2">
-                          <div className="flex justify-between items-center border-b border-purple-200 pb-2 mb-2">
-                            <span className="font-semibold text-purple-800">{pricingPreview.billingByMonth.month2.label}</span>
-                            <span className="font-semibold text-purple-800">¥{pricingPreview.billingByMonth.month2.total.toLocaleString()}</span>
-                          </div>
-                          {pricingPreview.billingByMonth.month2.items.map((item, index) => (
-                            <div key={index} className="flex justify-between text-sm">
-                              <span className="text-gray-700">{item.billingCategoryName || item.productName}</span>
-                              <span className="text-gray-800">¥{item.priceWithTax.toLocaleString()}</span>
+                      {/* 翌々月分 - 設備費は既存契約で請求済みのため除外 */}
+                      {(() => {
+                        const filteredItems = pricingPreview.billingByMonth.month2.items.filter(
+                          (item: any) => !item.itemType?.includes('facility')
+                        );
+                        const filteredTotal = filteredItems.reduce(
+                          (sum: number, item: any) => sum + (item.priceWithTax || 0), 0
+                        );
+                        if (filteredItems.length === 0) return null;
+                        return (
+                          <div className="bg-purple-50 rounded-lg p-3 space-y-2">
+                            <div className="flex justify-between items-center border-b border-purple-200 pb-2 mb-2">
+                              <span className="font-semibold text-purple-800">{pricingPreview.billingByMonth.month2.label}</span>
+                              <span className="font-semibold text-purple-800">¥{filteredTotal.toLocaleString()}</span>
                             </div>
-                          ))}
-                        </div>
-                      )}
+                            {filteredItems.map((item: any, index: number) => (
+                              <div key={index} className="flex justify-between text-sm">
+                                <span className="text-gray-700">{item.billingCategoryName || item.productName}</span>
+                                <span className="text-gray-800">¥{item.priceWithTax.toLocaleString()}</span>
+                              </div>
+                            ))}
+                          </div>
+                        );
+                      })()}
 
-                      {/* 3ヶ月目〜（締日後のみ） */}
-                      {pricingPreview.billingByMonth.month3 && pricingPreview.billingByMonth.month3.items.length > 0 && (
-                        <div className="bg-pink-50 rounded-lg p-3 space-y-2">
-                          <div className="flex justify-between items-center border-b border-pink-200 pb-2 mb-2">
-                            <span className="font-semibold text-pink-800">{pricingPreview.billingByMonth.month3.label}</span>
-                            <span className="font-semibold text-pink-800">¥{pricingPreview.billingByMonth.month3.total.toLocaleString()}</span>
-                          </div>
-                          {pricingPreview.billingByMonth.month3.items.map((item, index) => (
-                            <div key={index} className="flex justify-between text-sm">
-                              <span className="text-gray-700">{item.billingCategoryName || item.productName}</span>
-                              <span className="text-gray-800">¥{item.priceWithTax.toLocaleString()}</span>
+                      {/* 3ヶ月目〜（締日後のみ） - 設備費は既存契約で請求済みのため除外 */}
+                      {(() => {
+                        if (!pricingPreview.billingByMonth.month3) return null;
+                        const filteredItems = pricingPreview.billingByMonth.month3.items.filter(
+                          (item: any) => !item.itemType?.includes('facility')
+                        );
+                        const filteredTotal = filteredItems.reduce(
+                          (sum: number, item: any) => sum + (item.priceWithTax || 0), 0
+                        );
+                        if (filteredItems.length === 0) return null;
+                        return (
+                          <div className="bg-pink-50 rounded-lg p-3 space-y-2">
+                            <div className="flex justify-between items-center border-b border-pink-200 pb-2 mb-2">
+                              <span className="font-semibold text-pink-800">{pricingPreview.billingByMonth.month3.label}</span>
+                              <span className="font-semibold text-pink-800">¥{filteredTotal.toLocaleString()}</span>
                             </div>
-                          ))}
-                        </div>
-                      )}
+                            {filteredItems.map((item: any, index: number) => (
+                              <div key={index} className="flex justify-between text-sm">
+                                <span className="text-gray-700">{item.billingCategoryName || item.productName}</span>
+                                <span className="text-gray-800">¥{item.priceWithTax.toLocaleString()}</span>
+                              </div>
+                            ))}
+                          </div>
+                        );
+                      })()}
                     </>
                   ) : (
                     /* フォールバック: courseItemsを表示 */

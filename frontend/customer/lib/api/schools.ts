@@ -338,3 +338,33 @@ export async function getCalendarSeats(
     { skipAuth: true }
   );
 }
+
+// ============================================
+// 認証済みユーザー向け校舎API
+// ============================================
+
+/**
+ * 校舎情報型（認証済みユーザー向け）
+ */
+export interface School {
+  id: string;
+  school_code: string;
+  school_name: string;
+  school_name_short?: string;
+  prefecture?: string;
+  city?: string;
+  address1?: string;
+  phone?: string;
+}
+
+/**
+ * 校舎一覧を取得（認証済みユーザー向け）
+ * スタッフ/講師がアクセス可能な校舎一覧を返す
+ */
+export async function getSchools(): Promise<School[]> {
+  const response = await api.get<{ results?: School[] } | School[]>('/schools/');
+  if (Array.isArray(response)) {
+    return response;
+  }
+  return response.results || [];
+}

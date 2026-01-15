@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Bell, CreditCard, QrCode, Building2, MessageSquare, Receipt, Calendar, ChevronRight, Ticket, UserPlus, Star, Loader2, AlertCircle, Banknote, Users } from 'lucide-react';
+import { Bell, CreditCard, QrCode, Building2, MessageSquare, ClipboardList, Calendar, ChevronRight, Ticket, UserPlus, Star, Loader2, AlertCircle, Banknote, Users } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { BottomTabBar } from '@/components/bottom-tab-bar';
@@ -24,7 +24,7 @@ const shortcuts = [
   { id: 6, name: '子供追加', icon: UserPlus, href: '/children', color: 'bg-pink-500' },
   { id: 7, name: '友達紹介', icon: Users, href: '/friend-referral', color: 'bg-purple-500' },
   { id: 8, name: 'チャット質問', icon: MessageSquare, href: '/chat', color: 'bg-cyan-500' },
-  { id: 9, name: '購入履歴', icon: Receipt, href: '/purchase-history', color: 'bg-emerald-500' },
+  { id: 9, name: '履歴', icon: ClipboardList, href: '/history', color: 'bg-emerald-500' },
   { id: 10, name: 'カレンダー', icon: Calendar, href: '/calendar', color: 'bg-sky-500' },
 ];
 

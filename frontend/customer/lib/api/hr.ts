@@ -6,6 +6,28 @@
 import api from './client';
 import type { PaginatedResponse } from './types';
 
+// QRコード情報型
+export interface StaffQRCodeInfo {
+  qr_code: string;
+  user_no: string;
+  user_name: string;
+  user_type: string;
+}
+
+/**
+ * 講師/スタッフの自分のQRコードを取得
+ */
+export async function getMyQRCode(): Promise<StaffQRCodeInfo> {
+  return api.get<StaffQRCodeInfo>('/users/my-qr/');
+}
+
+/**
+ * QRコードを再発行
+ */
+export async function regenerateMyQRCode(): Promise<StaffQRCodeInfo & { message: string }> {
+  return api.post<StaffQRCodeInfo & { message: string }>('/users/regenerate-qr/');
+}
+
 // 勤怠ステータス型
 export type HRAttendanceStatus = 'working' | 'completed' | 'absent' | 'leave' | 'holiday';
 

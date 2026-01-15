@@ -16,6 +16,8 @@ import {
   getMyMonthlyAttendances,
   formatWorkTime,
   AttendanceRecord,
+  getMyQRCode,
+  StaffQRCodeInfo,
 } from '@/lib/api/hr';
 import { getTodayLessons, StaffLessonSchedule } from '@/lib/api/lessons';
 import {
@@ -28,9 +30,11 @@ import {
   Calendar,
   ChevronRight,
   AlertCircle,
+  RefreshCw,
 } from 'lucide-react';
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay } from 'date-fns';
 import { ja } from 'date-fns/locale';
+import { QRCodeCanvas } from 'qrcode.react';
 
 type WorkStatus = {
   label: string;
@@ -52,6 +56,8 @@ export default function AttendancePage() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [currentDate] = useState(new Date());
+  const [qrCodeInfo, setQrCodeInfo] = useState<StaffQRCodeInfo | null>(null);
+  const [qrLoading, setQrLoading] = useState(false);
 
   // 認証チェック
   useEffect(() => {
@@ -87,15 +93,17 @@ export default function AttendancePage() {
       setLoading(true);
       setError(null);
 
-      const [attendance, lessons, monthly] = await Promise.all([
+      const [attendance, lessons, monthly, qrCode] = await Promise.all([
         getTodayAttendance(),
         getTodayLessons(),
         getMyMonthlyAttendances(),
+        getMyQRCode().catch(() => null),
       ]);
 
       setTodayRecord(attendance);
       setTodayLessons(lessons);
       setMonthlyRecords(monthly);
+      setQrCodeInfo(qrCode);
 
       if (attendance?.dailyReport) {
         setDailyReport(attendance.dailyReport);
@@ -275,16 +283,47 @@ export default function AttendancePage() {
                 <div className="pt-2">
                   {workStatus.canClockIn && (
                     <div className="space-y-3">
-                      <div className="flex justify-center p-8 bg-gradient-to-br from-green-50 to-green-100 rounded-xl">
-                        <QrCode className="w-32 h-32 text-green-600" />
+                      <div className="flex flex-col items-center justify-center p-6 bg-gradient-to-br from-green-50 to-green-100 rounded-xl">
+                        {qrCodeInfo ? (
+                          <>
+                            <QRCodeCanvas
+                              value={qrCodeInfo.qr_code}
+                              size={180}
+                              level="H"
+                              includeMargin={true}
+                              bgColor="#f0fdf4"
+                            />
+                            <p className="mt-2 text-sm text-gray-600 font-medium">
+                              {qrCodeInfo.user_name}
+                            </p>
+                            {qrCodeInfo.user_no && (
+                              <p className="text-xs text-gray-500">
+                                ID: {qrCodeInfo.user_no}
+                              </p>
+                            )}
+                          </>
+                        ) : qrLoading ? (
+                          <div className="flex items-center gap-2 py-8">
+                            <RefreshCw className="w-6 h-6 animate-spin text-green-600" />
+                            <span className="text-gray-600">読み込み中...</span>
+                          </div>
+                        ) : (
+                          <div className="flex flex-col items-center py-4">
+                            <QrCode className="w-24 h-24 text-green-600 mb-2" />
+                            <p className="text-sm text-gray-500">QRコードが取得できません</p>
+                          </div>
+                        )}
                       </div>
+                      <p className="text-center text-xs text-gray-500">
+                        このQRコードをタブレットにかざして出勤打刻
+                      </p>
                       <Button
                         onClick={handleClockIn}
                         disabled={submitting}
                         className="w-full h-12 bg-green-600 hover:bg-green-700"
                       >
                         <Camera className="w-4 h-4 mr-2" />
-                        {submitting ? '処理中...' : '出勤打刻'}
+                        {submitting ? '処理中...' : '手動で出勤打刻'}
                       </Button>
                     </div>
                   )}

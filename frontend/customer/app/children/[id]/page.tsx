@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { ChevronLeft, User, Calendar, School, Phone, Mail, Loader2, Edit2, Save, X, Ticket } from 'lucide-react';
+import { ChevronLeft, User, Calendar, School, Phone, Mail, Loader2, Edit2, Save, X, Ticket, QrCode, Download } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -11,8 +11,9 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { BottomTabBar } from '@/components/bottom-tab-bar';
 import Link from 'next/link';
-import { getChildDetail, updateStudent } from '@/lib/api/students';
+import { getChildDetail, updateStudent, getStudentQRCode, QRCodeInfo } from '@/lib/api/students';
 import { useToast } from '@/hooks/use-toast';
+import { QRCodeCanvas } from 'qrcode.react';
 
 type ChildDetail = {
   id: string;
@@ -60,6 +61,7 @@ export default function ChildDetailPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
+  const [qrCodeInfo, setQrCodeInfo] = useState<QRCodeInfo | null>(null);
 
   // 編集用のstate
   const [editLastName, setEditLastName] = useState('');
@@ -78,7 +80,11 @@ export default function ChildDetailPage() {
   const fetchChildDetail = async () => {
     try {
       setLoading(true);
-      const response = await getChildDetail(childId);
+      const [response, qrCode] = await Promise.all([
+        getChildDetail(childId),
+        getStudentQRCode(childId).catch(() => null),
+      ]);
+      setQrCodeInfo(qrCode);
       // Map API response
       const data: any = response;
       const childData: ChildDetail = {
@@ -334,6 +340,46 @@ export default function ChildDetailPage() {
                   </>
                 )}
               </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* QRコード */}
+        <Card className="rounded-xl shadow-md">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base font-semibold text-gray-700 flex items-center gap-2">
+              <QrCode className="h-5 w-5 text-blue-600" />
+              出席用QRコード
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex flex-col items-center">
+              {qrCodeInfo ? (
+                <>
+                  <div className="p-4 bg-white rounded-xl border-2 border-blue-100">
+                    <QRCodeCanvas
+                      value={qrCodeInfo.qr_code}
+                      size={160}
+                      level="H"
+                      includeMargin={true}
+                    />
+                  </div>
+                  <p className="mt-3 text-sm text-gray-600 font-medium">
+                    {qrCodeInfo.student_name}
+                  </p>
+                  <p className="text-xs text-gray-500">
+                    生徒番号: {qrCodeInfo.student_no}
+                  </p>
+                  <p className="mt-3 text-xs text-gray-400 text-center">
+                    このQRコードを校舎のタブレットにかざして出席
+                  </p>
+                </>
+              ) : (
+                <div className="py-6 text-center">
+                  <QrCode className="h-12 w-12 text-gray-300 mx-auto mb-2" />
+                  <p className="text-sm text-gray-500">QRコードを取得できません</p>
+                </div>
+              )}
             </div>
           </CardContent>
         </Card>

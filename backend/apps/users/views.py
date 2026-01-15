@@ -1,6 +1,7 @@
 """
 Users Views
 """
+import uuid
 from rest_framework import viewsets, status
 from rest_framework.views import APIView
 from rest_framework.decorators import action
@@ -258,4 +259,51 @@ class SwitchAccountView(APIView):
             'access': str(refresh.access_token),
             'refresh': str(refresh),
             'user': ChildAccountSerializer(target_user).data
+        })
+
+
+class MyQRCodeView(APIView):
+    """自分のQRコード取得（講師/スタッフ向け）"""
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        """QRコード情報を取得"""
+        user = request.user
+        # 講師/スタッフのみ
+        if user.user_type not in [User.UserType.TEACHER, User.UserType.STAFF, User.UserType.ADMIN]:
+            return Response(
+                {'error': 'この機能は講師・スタッフ専用です'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        return Response({
+            'qr_code': str(user.qr_code),
+            'user_no': user.user_no or '',
+            'user_name': user.full_name,
+            'user_type': user.user_type,
+        })
+
+
+class RegenerateQRCodeView(APIView):
+    """QRコード再発行（講師/スタッフ向け）"""
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        """QRコードを再発行"""
+        user = request.user
+        # 講師/スタッフのみ
+        if user.user_type not in [User.UserType.TEACHER, User.UserType.STAFF, User.UserType.ADMIN]:
+            return Response(
+                {'error': 'この機能は講師・スタッフ専用です'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        user.qr_code = uuid.uuid4()
+        user.save(update_fields=['qr_code'])
+
+        return Response({
+            'qr_code': str(user.qr_code),
+            'user_no': user.user_no or '',
+            'user_name': user.full_name,
+            'message': 'QRコードを再発行しました',
         })

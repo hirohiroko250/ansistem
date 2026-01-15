@@ -529,3 +529,39 @@ export async function downloadAndSaveReceipt(year: number, month: number): Promi
   document.body.removeChild(link);
   window.URL.revokeObjectURL(url);
 }
+
+// ============================================
+// QRコード関連API
+// ============================================
+
+/**
+ * QRコード情報型
+ */
+export interface QRCodeInfo {
+  qr_code: string;
+  student_no: string;
+  student_name: string;
+}
+
+/**
+ * 自分のQRコード情報を取得（生徒向け）
+ */
+export async function getMyQRCode(): Promise<QRCodeInfo> {
+  return api.get<QRCodeInfo>('/students/my-qr/');
+}
+
+/**
+ * 生徒のQRコード情報を取得（管理者/講師向け）
+ * @param studentId - 生徒ID
+ */
+export async function getStudentQRCode(studentId: string): Promise<QRCodeInfo> {
+  return api.get<QRCodeInfo>(`/students/${studentId}/qr-code/`);
+}
+
+/**
+ * 生徒のQRコードを再発行（管理者向け）
+ * @param studentId - 生徒ID
+ */
+export async function regenerateStudentQRCode(studentId: string): Promise<QRCodeInfo & { message: string }> {
+  return api.post<QRCodeInfo & { message: string }>(`/students/${studentId}/regenerate-qr/`, {});
+}

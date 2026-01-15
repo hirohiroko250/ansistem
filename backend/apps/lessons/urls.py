@@ -17,6 +17,8 @@ from .views import (
     TransferAvailableClassesView,
     CancelAbsenceView,
     CancelMakeupView,
+    QRCheckInView,
+    QRCheckOutView,
 )
 
 app_name = 'lessons'
@@ -44,5 +46,8 @@ urlpatterns = [
     path('cancel-absence/', CancelAbsenceView.as_view(), name='cancel-absence'),
     # 振替キャンセル
     path('cancel-makeup/', CancelMakeupView.as_view(), name='cancel-makeup'),
+    # QRコード出席打刻
+    path('qr-check-in/', QRCheckInView.as_view(), name='qr-check-in'),
+    path('qr-check-out/', QRCheckOutView.as_view(), name='qr-check-out'),
     path('', include(router.urls)),
 ]

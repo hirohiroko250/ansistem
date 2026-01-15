@@ -203,6 +203,14 @@ class CertificationEnrollmentViewSet(CSVMixin, viewsets.ModelViewSet):
         return CertificationEnrollmentDetailSerializer
 
     def perform_create(self, serializer):
+        # 検定の購入締切チェック
+        certification = serializer.validated_data.get('certification')
+        if certification:
+            can_purchase, error_message = certification.can_purchase()
+            if not can_purchase:
+                from rest_framework.exceptions import ValidationError
+                raise ValidationError({'certification': error_message})
+
         serializer.save(tenant_id=self.request.tenant_id)
 
     def perform_destroy(self, instance):

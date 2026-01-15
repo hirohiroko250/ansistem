@@ -114,7 +114,11 @@ class PublicCourseSerializer(serializers.Serializer):
 
     def get_isMonthly(self, obj):
         course_name = obj.course_name or ''
-        monthly_patterns = ['週1回', '週2回', '週3回', '週4回', '週5回', '週6回', 'Free', '月2回', '月4回']
+        monthly_patterns = [
+            '週1回', '週2回', '週3回', '週4回', '週5回', '週6回',
+            '週1コマ', '週2コマ', '週3コマ', '週4コマ', '週5コマ', '週6コマ',
+            'Free', '月2回', '月4回'
+        ]
         return any(pattern in course_name for pattern in monthly_patterns)
 
     def get_ticketId(self, obj):

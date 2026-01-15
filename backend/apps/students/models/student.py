@@ -43,6 +43,15 @@ class Student(TenantModel):
             self.student_no = self.generate_student_no()
         super().save(*args, **kwargs)
 
+    # QRコード識別子（出席管理用）
+    qr_code = models.UUIDField(
+        'QRコード識別子',
+        default=uuid.uuid4,
+        unique=True,
+        editable=False,
+        db_index=True
+    )
+
     # 基本情報
     last_name = models.CharField('姓', max_length=50)
     first_name = models.CharField('名', max_length=50)

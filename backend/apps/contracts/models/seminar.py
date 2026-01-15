@@ -176,6 +176,8 @@ class Certification(TenantModel):
         EIKEN = 'eiken', '英検'
         KANKEN = 'kanken', '漢検'
         SUKEN = 'suken', '数検'
+        SOROBAN = 'soroban', '珠算検定'
+        ANZAN = 'anzan', '暗算検定'
         OTHER = 'other', 'その他'
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -207,6 +209,21 @@ class Certification(TenantModel):
     # 価格
     exam_fee = models.DecimalField('検定料', max_digits=10, decimal_places=0, default=0)
 
+    # 購入締切（検定開始日の何日前まで購入可能か）
+    purchase_deadline_days = models.IntegerField(
+        '購入締切日数',
+        default=7,
+        help_text='検定開始日の何日前まで購入可能か（デフォルト: 7日前）'
+    )
+
+    # カレンダーコード（検定期間をカレンダーから取得する場合）
+    calendar_code = models.CharField(
+        'カレンダーコード',
+        max_length=50,
+        blank=True,
+        help_text='検定期間をカレンダーから取得する場合に指定（例: 1021_SOR）'
+    )
+
     description = models.TextField('説明', blank=True)
     sort_order = models.IntegerField('表示順', default=0)
     is_active = models.BooleanField('有効', default=True)
@@ -220,6 +237,78 @@ class Certification(TenantModel):
 
     def __str__(self):
         return f"{self.certification_name} {self.level} ({self.year})"
+
+    def get_next_exam_period(self, from_date=None):
+        """次の検定期間を取得（カレンダーから）
+
+        Returns:
+            tuple: (開始日, 終了日) or (None, None)
+        """
+        from datetime import date, timedelta
+        from apps.schools.models import LessonCalendar
+
+        if from_date is None:
+            from_date = date.today()
+
+        # カレンダーコードが設定されている場合、カレンダーから検定日を取得
+        if self.calendar_code:
+            # カレンダーはテナント横断で検索（カレンダーコードでユニーク）
+            exam_days = LessonCalendar.objects.filter(
+                calendar_code=self.calendar_code,
+                display_label='検',
+                lesson_date__gte=from_date
+            ).order_by('lesson_date').values_list('lesson_date', flat=True)
+
+            if exam_days:
+                exam_dates = list(exam_days)
+                # 連続する日付をグループ化して最初の検定期間を取得
+                start_date = exam_dates[0]
+                end_date = start_date
+                for i in range(1, len(exam_dates)):
+                    if exam_dates[i] == end_date + timedelta(days=1):
+                        end_date = exam_dates[i]
+                    elif exam_dates[i] > end_date + timedelta(days=2):
+                        # 2日以上離れていたら別の検定期間
+                        break
+                    else:
+                        end_date = exam_dates[i]
+                return (start_date, end_date)
+
+        # exam_dateが設定されている場合はそれを使用
+        if self.exam_date and self.exam_date >= from_date:
+            return (self.exam_date, self.exam_date)
+
+        return (None, None)
+
+    def can_purchase(self, purchase_date=None):
+        """購入可能かどうかをチェック
+
+        Returns:
+            tuple: (購入可能かどうか, エラーメッセージ)
+        """
+        from datetime import date, timedelta
+
+        if purchase_date is None:
+            purchase_date = date.today()
+
+        start_date, end_date = self.get_next_exam_period(from_date=purchase_date)
+
+        if start_date is None:
+            # 検定期間が見つからない場合は購入可能
+            return (True, None)
+
+        # 購入締切日を計算
+        deadline = start_date - timedelta(days=self.purchase_deadline_days)
+
+        if purchase_date > deadline:
+            remaining_days = (start_date - purchase_date).days
+            return (
+                False,
+                f'検定開始日（{start_date}）の{self.purchase_deadline_days}日前を過ぎているため購入できません。'
+                f'（残り{remaining_days}日）'
+            )
+
+        return (True, None)
 
 
 class CourseRequiredSeminar(TenantModel):

@@ -2,6 +2,7 @@
 Student Views - 生徒管理関連
 StudentViewSet
 """
+import uuid
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -295,3 +296,42 @@ class StudentViewSet(StudentItemsMixin, CSVMixin, viewsets.ModelViewSet):
             ).count()
 
         return Response(stats)
+
+    @action(detail=True, methods=['get'], url_path='qr-code')
+    def qr_code(self, request, pk=None):
+        """生徒のQRコード情報を取得"""
+        student = self.get_object()
+        return Response({
+            'qr_code': str(student.qr_code),
+            'student_no': student.student_no,
+            'student_name': student.full_name,
+        })
+
+    @action(detail=True, methods=['post'], url_path='regenerate-qr')
+    def regenerate_qr(self, request, pk=None):
+        """QRコードを再発行"""
+        student = self.get_object()
+        student.qr_code = uuid.uuid4()
+        student.save(update_fields=['qr_code'])
+        return Response({
+            'qr_code': str(student.qr_code),
+            'student_no': student.student_no,
+            'student_name': student.full_name,
+            'message': 'QRコードを再発行しました',
+        })
+
+    @action(detail=False, methods=['get'], url_path='my-qr')
+    def my_qr(self, request):
+        """ログイン中の生徒自身のQRコード情報を取得"""
+        user = request.user
+        if not hasattr(user, 'student_profile') or not user.student_profile:
+            return Response(
+                {'error': '生徒アカウントでログインしてください'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        student = user.student_profile
+        return Response({
+            'qr_code': str(student.qr_code),
+            'student_no': student.student_no,
+            'student_name': student.full_name,
+        })

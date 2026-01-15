@@ -71,6 +71,14 @@ class User(AbstractBaseUser, PermissionsMixin):
         blank=True,
         verbose_name='会社ID'
     )
+    # QRコード識別子（出退勤管理用）
+    qr_code = models.UUIDField(
+        default=uuid.uuid4,
+        unique=True,
+        editable=False,
+        db_index=True,
+        verbose_name='QRコード識別子'
+    )
 
     # 認証情報
     email = models.EmailField(

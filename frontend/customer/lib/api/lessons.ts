@@ -884,3 +884,71 @@ export async function cancelMakeup(
     absence_ticket_id: absenceTicketId,
   });
 }
+
+// ============================================
+// QRコード出席打刻（タブレット用）
+// ============================================
+
+/**
+ * QRチェックインレスポンス型
+ */
+export interface QRCheckInResponse {
+  success: boolean;
+  student_name: string;
+  student_no: string;
+  check_in_time: string;
+  schedule_info: string;
+  class_name: string;
+  status: string;
+  message: string;
+}
+
+/**
+ * QRチェックアウトレスポンス型
+ */
+export interface QRCheckOutResponse {
+  success: boolean;
+  student_name: string;
+  student_no: string;
+  check_in_time: string;
+  check_out_time: string;
+  schedule_info: string;
+  class_name: string;
+  message: string;
+}
+
+/**
+ * QRコードで出席打刻（入室）
+ * タブレット用：生徒のQRコードをスキャンして出席記録
+ *
+ * @param qrCode - 生徒のQRコード（UUID）
+ * @param schoolId - 校舎ID
+ * @returns チェックイン結果
+ */
+export async function qrCheckIn(
+  qrCode: string,
+  schoolId: string
+): Promise<QRCheckInResponse> {
+  return api.post<QRCheckInResponse>('/lessons/qr-check-in/', {
+    qr_code: qrCode,
+    school_id: schoolId,
+  });
+}
+
+/**
+ * QRコードで退出打刻
+ * タブレット用：生徒のQRコードをスキャンして退出記録
+ *
+ * @param qrCode - 生徒のQRコード（UUID）
+ * @param schoolId - 校舎ID
+ * @returns チェックアウト結果
+ */
+export async function qrCheckOut(
+  qrCode: string,
+  schoolId: string
+): Promise<QRCheckOutResponse> {
+  return api.post<QRCheckOutResponse>('/lessons/qr-check-out/', {
+    qr_code: qrCode,
+    school_id: schoolId,
+  });
+}

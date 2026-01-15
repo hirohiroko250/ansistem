@@ -68,19 +68,21 @@ export function MapSchoolSelector({
     };
   }, [schools]);
 
-  // MapLibre GL JSを動的に読み込み
+  // MapLibre GL JSを動的に読み込み（CDNから）
   useEffect(() => {
     if (!mapContainer.current || schools.length === 0) return;
 
     let mapInstance: any = null;
     let isMounted = true;
 
-    const initMap = async () => {
-      try {
-        // MapLibre GL JSを動的インポート
-        const maplibregl = (await import('maplibre-gl')).default;
-
-        if (!isMounted || !mapContainer.current) return;
+    // CDNからMapLibre GLをロード
+    const loadMapLibreGL = (): Promise<any> => {
+      return new Promise((resolve, reject) => {
+        // 既にロード済みの場合
+        if ((window as any).maplibregl) {
+          resolve((window as any).maplibregl);
+          return;
+        }
 
         // CSSを追加
         if (!document.querySelector('link[href*="maplibre-gl"]')) {
@@ -89,6 +91,29 @@ export function MapSchoolSelector({
           link.href = 'https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css';
           document.head.appendChild(link);
         }
+
+        // JSを追加
+        const script = document.createElement('script');
+        script.src = 'https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js';
+        script.async = true;
+        script.onload = () => {
+          if ((window as any).maplibregl) {
+            resolve((window as any).maplibregl);
+          } else {
+            reject(new Error('maplibregl not found after script load'));
+          }
+        };
+        script.onerror = () => reject(new Error('Failed to load MapLibre GL script'));
+        document.head.appendChild(script);
+      });
+    };
+
+    const initMap = async () => {
+      try {
+        // CDNからMapLibre GLをロード
+        const maplibregl = await loadMapLibreGL();
+
+        if (!isMounted || !mapContainer.current) return;
 
         const bounds = getBounds();
         const initialSchool = getInitialSchool();

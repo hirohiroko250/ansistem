@@ -34,6 +34,12 @@ from .absence import (
     CancelMakeupView,
 )
 
+# QR Attendance
+from .qr_attendance import (
+    QRCheckInView,
+    QRCheckOutView,
+)
+
 
 __all__ = [
     # TimeSlot
@@ -56,4 +62,7 @@ __all__ = [
     'TransferAvailableClassesView',
     'CancelAbsenceView',
     'CancelMakeupView',
+    # QR Attendance
+    'QRCheckInView',
+    'QRCheckOutView',
 ]
