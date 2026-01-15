@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { Suspense, useState, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { ChevronLeft, Calendar, Loader2, AlertCircle, CheckCircle2, Users } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
@@ -27,7 +27,7 @@ interface Seminar {
   is_active: boolean;
 }
 
-export default function SeminarPurchasePage() {
+function SeminarPurchaseContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const childId = searchParams.get('childId');
@@ -359,5 +359,17 @@ export default function SeminarPurchasePage() {
 
       <BottomTabBar />
     </div>
+  );
+}
+
+export default function SeminarPurchasePage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-gradient-to-br from-purple-50 via-white to-purple-50 flex items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-purple-500" />
+      </div>
+    }>
+      <SeminarPurchaseContent />
+    </Suspense>
   );
 }

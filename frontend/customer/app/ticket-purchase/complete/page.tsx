@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { CheckCircle2, Ticket, Calendar, Home, GraduationCap, Trophy } from 'lucide-react';
@@ -31,7 +31,7 @@ interface PurchaseResult {
   type?: 'regular' | 'seminar' | 'certification';
 }
 
-export default function PurchaseCompletePage() {
+function PurchaseCompleteContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [purchaseResult, setPurchaseResult] = useState<PurchaseResult | null>(null);
@@ -245,5 +245,17 @@ export default function PurchaseCompletePage() {
 
       <BottomTabBar />
     </div>
+  );
+}
+
+export default function PurchaseCompletePage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-blue-50 flex items-center justify-center">
+        <div className="animate-pulse text-gray-500">読み込み中...</div>
+      </div>
+    }>
+      <PurchaseCompleteContent />
+    </Suspense>
   );
 }
