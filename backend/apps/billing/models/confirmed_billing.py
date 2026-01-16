@@ -210,7 +210,9 @@ class ConfirmedBilling(TenantModel):
     def create_from_student_items(cls, tenant_id, student, guardian, year, month, user=None):
         """StudentItem（生徒商品）から請求確定データを作成
 
-        インポート済みのStudentItemデータから明細を生成
+        インポート済みのStudentItemデータから明細を生成。
+        未請求（is_billed=False）のStudentItemを全て集計し、
+        確定後にis_billed=Trueに更新する。
         """
         from .billing_creation import (
             build_student_items_snapshot,
@@ -219,6 +221,7 @@ class ConfirmedBilling(TenantModel):
             get_withdrawal_info,
             update_confirmed_data,
         )
+        from apps.contracts.models import StudentItem
 
         # 既存の確定データがあれば取得（更新用）
         confirmed, created = cls.objects.get_or_create(
@@ -232,8 +235,10 @@ class ConfirmedBilling(TenantModel):
         if not created and confirmed.status == cls.Status.PAID:
             return confirmed, False
 
-        # StudentItemから明細スナップショットを作成
-        items_snapshot, subtotal = build_student_items_snapshot(tenant_id, student, year, month)
+        # StudentItemから明細スナップショットを作成（未請求アイテムのみ）
+        items_snapshot, subtotal, student_item_ids = build_student_items_snapshot(
+            tenant_id, student, year, month
+        )
 
         # 講習申込を追加
         seminar_items, seminar_subtotal = build_seminar_items_snapshot(tenant_id, student, year, month)
@@ -256,6 +261,13 @@ class ConfirmedBilling(TenantModel):
             confirmed, guardian, subtotal, discount_total,
             items_snapshot, discounts_snapshot, withdrawal_info, carry_over, user
         )
+
+        # StudentItemを請求済みとしてマーク
+        if student_item_ids:
+            StudentItem.objects.filter(id__in=student_item_ids).update(
+                is_billed=True,
+                confirmed_billing=confirmed
+            )
 
         return confirmed, created
 

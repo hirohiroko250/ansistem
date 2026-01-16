@@ -254,22 +254,30 @@ def get_withdrawal_info(tenant_id, student):
 
 
 def build_student_items_snapshot(tenant_id, student, year, month):
-    """StudentItem（生徒商品）から明細スナップショットを作成"""
+    """StudentItem（生徒商品）から明細スナップショットを作成
+
+    未請求（is_billed=False）のStudentItemを全て集計する。
+    確定ボタン〜確定ボタン間のアイテムが対象となる。
+
+    Returns:
+        tuple: (items_snapshot, subtotal, student_item_ids)
+            - items_snapshot: 明細データのリスト
+            - subtotal: 小計
+            - student_item_ids: 対象StudentItemのIDリスト（請求確定後にis_billed=Trueにする用）
+    """
     from apps.contracts.models import StudentItem
 
-    billing_month_hyphen = f"{year}-{str(month).zfill(2)}"
-    billing_month_compact = f"{year}{str(month).zfill(2)}"
-
+    # 未請求のStudentItemを全て取得（billing_monthに関係なく）
     student_items = StudentItem.objects.filter(
         tenant_id=tenant_id,
         student=student,
+        is_billed=False,  # 未請求のもののみ
         deleted_at__isnull=True
-    ).filter(
-        models.Q(billing_month=billing_month_hyphen) | models.Q(billing_month=billing_month_compact)
     ).select_related('product', 'brand', 'school', 'course', 'contract')
 
     items_snapshot = []
     subtotal = Decimal('0')
+    student_item_ids = []
 
     for item in student_items:
         product = item.product
@@ -298,11 +306,13 @@ def build_student_items_snapshot(tenant_id, student, year, month):
             'discount_amount': str(discount_amount),
             'final_price': str(final_price),
             'notes': item.notes or '',
+            'billing_month': item.billing_month or '',  # サービス提供月（表示用）
         }
         items_snapshot.append(item_data)
         subtotal += final_price
+        student_item_ids.append(item.id)
 
-    return items_snapshot, subtotal
+    return items_snapshot, subtotal, student_item_ids
 
 
 def build_contract_items_snapshot(tenant_id, student, year, month):

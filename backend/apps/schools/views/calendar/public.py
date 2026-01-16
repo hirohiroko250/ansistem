@@ -14,22 +14,46 @@ class PublicLessonCalendarView(APIView):
     """開講カレンダーAPI（認証不要・保護者向け）"""
     permission_classes = [AllowAny]
 
+    @staticmethod
+    def extract_brand_code_from_calendar_code(calendar_code: str) -> str | None:
+        """calendar_codeからブランドコードを抽出
+        例: 1003_AEC_P → AEC, Int_24 → Int
+        """
+        if not calendar_code or '_' not in calendar_code:
+            return None
+        parts = calendar_code.split('_')
+        if len(parts) >= 2:
+            # 最初が数字なら2番目がブランドコード、そうでなければ最初
+            return parts[1] if parts[0].isdigit() else parts[0]
+        return None
+
     def get(self, request):
         """
         指定月の開講カレンダーを返す
-        ?brand_id=xxx&school_id=xxx&year=2024&month=12
+        ?brand_id=xxx&year=2024&month=12
+        ?calendar_code=1011_AEC_A&year=2024&month=12
+        school_idは後方互換性のため残すがオプション
         """
         from datetime import date
         import calendar as cal
+        from apps.schools.models import Brand
 
         brand_id = request.query_params.get('brand_id')
-        school_id = request.query_params.get('school_id')
+        school_id = request.query_params.get('school_id')  # オプション（後方互換性）
+        calendar_code = request.query_params.get('calendar_code')
         year = request.query_params.get('year')
         month = request.query_params.get('month')
 
-        if not all([brand_id, school_id, year, month]):
+        # calendar_code または brand_id のどちらかが必要
+        if not calendar_code and not brand_id:
             return Response(
-                {'error': 'brand_id, school_id, year, month are required'},
+                {'error': 'brand_id or calendar_code is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        if not all([year, month]):
+            return Response(
+                {'error': 'year and month are required'},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
@@ -46,12 +70,40 @@ class PublicLessonCalendarView(APIView):
         first_day = date(year, month, 1)
         last_day = date(year, month, cal.monthrange(year, month)[1])
 
+        # クエリ構築
         calendars = LessonCalendar.objects.filter(
-            brand_id=brand_id,
-            school_id=school_id,
             lesson_date__gte=first_day,
             lesson_date__lte=last_day
-        ).order_by('lesson_date')
+        )
+
+        if calendar_code:
+            # calendar_codeで直接検索
+            calendars = calendars.filter(calendar_code=calendar_code)
+        elif brand_id:
+            # まずbrand_idで直接検索
+            brand_calendars = calendars.filter(brand_id=brand_id)
+
+            if brand_calendars.exists():
+                calendars = brand_calendars
+            else:
+                # brand_idからbrand_codeを取得して、calendar_codeで検索
+                try:
+                    brand = Brand.objects.get(id=brand_id)
+                    brand_code = brand.brand_code
+                    # calendar_codeに_{brand_code}_を含むものを検索
+                    calendars = calendars.filter(
+                        calendar_code__icontains=f'_{brand_code}_'
+                    ) | calendars.filter(
+                        calendar_code__startswith=f'{brand_code}_'
+                    )
+                except Brand.DoesNotExist:
+                    calendars = calendars.none()
+
+            if school_id:
+                # school_idが指定されていれば追加でフィルタ（後方互換性）
+                calendars = calendars.filter(school_id=school_id)
+
+        calendars = calendars.order_by('lesson_date')
 
         calendar_data = []
         for item in calendars:

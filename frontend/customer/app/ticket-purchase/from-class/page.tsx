@@ -424,7 +424,7 @@ export default function FromClassPurchasePage() {
         const now = new Date();
         const year = now.getFullYear();
         const month = now.getMonth() + 1;
-        const data = await getLessonCalendar(selectedBrand.id, selectedSchoolId, year, month);
+        const data = await getLessonCalendar({ brandId: selectedBrand.id, schoolId: selectedSchoolId, year, month });
         setLessonCalendar(data.calendar || []);
       } catch (err) {
         console.error('Failed to load calendar:', err);

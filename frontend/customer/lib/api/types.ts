@@ -754,9 +754,12 @@ export interface CalendarEvent {
   color?: string;
   resourceId?: string;
   classScheduleId?: string;
+  brandId?: string;  // ブランドID（休校日取得用）
   brandName?: string;
+  schoolId?: string;  // 校舎ID（休校日取得用）
   className?: string;
   schoolName?: string;
+  calendarPattern?: string;  // カレンダーパターン（例: 1011_AEC_A）
   isNativeDay?: boolean;
   isAbsent?: boolean;  // 欠席フラグ
   absenceTicketId?: string;  // 欠席チケットID

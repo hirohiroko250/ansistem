@@ -74,8 +74,30 @@ class PublicTicketsBySchoolView(APIView):
     """校舎で開講しているチケット一覧API（認証不要）
 
     特定の校舎IDに対して、開講時間割が存在するチケットIDの一覧を返す
+    フロントエンドと一致させるため、ticket_idを「T」プレフィックス形式に正規化して返す
     """
     permission_classes = [AllowAny]
+
+    @staticmethod
+    def normalize_ticket_id(ticket_id: str) -> str:
+        """チケットIDを正規化（T形式に統一）
+
+        ClassSchedule.ticket_idは「Ti」または「Ch」プレフィックスを持つ場合がある
+        Ticket.ticket_codeは「T」プレフィックス形式
+        これらを統一して比較できるようにする
+
+        例:
+        - Ti10000063 → T10000063
+        - Ch10000063 → T10000063
+        - T10000063 → T10000063
+        """
+        if not ticket_id:
+            return ticket_id
+        if ticket_id.startswith('Ti'):
+            return f'T{ticket_id[2:]}'
+        if ticket_id.startswith('Ch'):
+            return f'T{ticket_id[2:]}'
+        return ticket_id
 
     def get(self, request):
         """
@@ -96,9 +118,12 @@ class PublicTicketsBySchoolView(APIView):
             deleted_at__isnull=True
         ).values_list('ticket_id', flat=True).distinct()
 
-        result = list(set(ticket_ids))
+        # チケットIDを正規化して重複を除去
+        normalized_ids = list(set(
+            self.normalize_ticket_id(tid) for tid in ticket_ids if tid
+        ))
 
         return Response({
             'schoolId': school_id,
-            'ticketIds': result
+            'ticketIds': normalized_ids
         })

@@ -2,7 +2,8 @@
 
 import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { Student, Guardian, Contract, Invoice, StudentDiscount } from "@/lib/api/types";
-import { ContactLog, ChatLog, ChatMessage, createContactLog, ContactLogCreateData, getStudentContactLogs } from "@/lib/api/staff";
+import { ContactLog, ChatLog, ChatMessage, createContactLog, ContactLogCreateData, getStudentContactLogs, getStudentQRCode, type QRCodeInfo } from "@/lib/api/staff";
+import { QRCodeCanvas } from "qrcode.react";
 import { getChannels, getMessages, sendMessage, getOrCreateChannelForGuardian, uploadFile, type Channel, type Message } from "@/lib/api/chat";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -38,6 +39,7 @@ import {
   Image as ImageIcon,
   Paperclip,
   X,
+  QrCode,
 } from "lucide-react";
 import { ContractEditDialog } from "./ContractEditDialog";
 import { NewContractDialog } from "./NewContractDialog";
@@ -230,10 +232,21 @@ export function StudentDetail({ student, parents, contracts, invoices, contactLo
   const [isSubmittingContactLog, setIsSubmittingContactLog] = useState(false);
   const [localContactLogs, setLocalContactLogs] = useState<ContactLog[]>(contactLogs);
 
+  // QRコード情報
+  const [qrCodeInfo, setQrCodeInfo] = useState<QRCodeInfo | null>(null);
+  const [qrCodeDialogOpen, setQrCodeDialogOpen] = useState(false);
+
   // contactLogs propが変わったらlocalContactLogsを更新
   useEffect(() => {
     setLocalContactLogs(contactLogs);
   }, [contactLogs]);
+
+  // 生徒が変わったらQRコードを取得
+  useEffect(() => {
+    if (student?.id) {
+      getStudentQRCode(student.id).then(setQrCodeInfo);
+    }
+  }, [student?.id]);
 
   // 対応履歴を追加
   const handleCreateContactLog = async () => {
@@ -1059,6 +1072,29 @@ export function StudentDetail({ student, parents, contracts, invoices, contactLo
                     </tr>
                   </tbody>
                 </table>
+
+                {/* QRコード */}
+                <div className="mt-2">
+                  <h3 className="text-xs font-semibold text-gray-700 mb-1 flex items-center gap-1">
+                    <QrCode className="w-3 h-3" />
+                    出席用QRコード
+                  </h3>
+                  {qrCodeInfo ? (
+                    <div
+                      className="flex items-center gap-2 p-2 bg-gray-50 border rounded cursor-pointer hover:bg-gray-100 transition-colors"
+                      onClick={() => setQrCodeDialogOpen(true)}
+                    >
+                      <div className="bg-white p-1 rounded border">
+                        <QRCodeCanvas value={qrCodeInfo.qr_code} size={48} level="M" />
+                      </div>
+                      <p className="text-[10px] text-gray-500">クリックで拡大表示</p>
+                    </div>
+                  ) : (
+                    <div className="p-2 bg-gray-50 border rounded text-xs text-gray-400">
+                      QRコードを取得できません
+                    </div>
+                  )}
+                </div>
               </div>
 
               {/* 在籍情報 */}
@@ -3420,6 +3456,37 @@ export function StudentDetail({ student, parents, contracts, invoices, contactLo
               ) : (
                 '保存'
               )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* QRコード拡大ダイアログ */}
+      <Dialog open={qrCodeDialogOpen} onOpenChange={setQrCodeDialogOpen}>
+        <DialogContent className="max-w-xs">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <QrCode className="w-5 h-5" />
+              出席用QRコード
+            </DialogTitle>
+            <DialogDescription>
+              このQRコードを校舎のタブレットにかざして出席
+            </DialogDescription>
+          </DialogHeader>
+          {qrCodeInfo && (
+            <div className="flex flex-col items-center py-4">
+              <div className="bg-white p-4 rounded-xl border-2 border-gray-200">
+                <QRCodeCanvas value={qrCodeInfo.qr_code} size={200} level="H" includeMargin={true} />
+              </div>
+              <div className="mt-4 text-center">
+                <p className="font-bold text-gray-800">{qrCodeInfo.student_name}</p>
+                <p className="text-sm text-gray-500">生徒番号: {qrCodeInfo.student_no}</p>
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setQrCodeDialogOpen(false)}>
+              閉じる
             </Button>
           </DialogFooter>
         </DialogContent>

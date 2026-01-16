@@ -938,7 +938,10 @@ export default function FromTicketPurchasePage() {
 
     // 校舎で開講しているチケットを取得
     try {
+      console.log('[getTicketsBySchool] Calling API with schoolId:', schoolId);
       const ticketData = await getTicketsBySchool(schoolId);
+      console.log('[getTicketsBySchool] API response:', ticketData);
+      console.log('[getTicketsBySchool] ticketIds:', ticketData.ticketIds);
       setSchoolTicketIds(ticketData.ticketIds);
     } catch (err) {
       console.error('チケット取得エラー:', err);
@@ -1111,6 +1114,9 @@ export default function FromTicketPurchasePage() {
 
   // 校舎で開講しているチケットでコースをフィルタ
   const filterBySchoolTickets = (items: (PublicCourse | PublicPack)[]): (PublicCourse | PublicPack)[] => {
+    console.log('[filterBySchoolTickets] schoolTicketIds:', schoolTicketIds);
+    console.log('[filterBySchoolTickets] items count:', items.length);
+
     // 校舎チケットIDがない場合はフィルタしない
     if (schoolTicketIds.length === 0) return items;
 
@@ -1129,12 +1135,15 @@ export default function FromTicketPurchasePage() {
 
     // schoolTicketIdsを正規化
     const normalizedSchoolTicketIds = schoolTicketIds.map(normalizeTicketCode);
+    console.log('[filterBySchoolTickets] normalizedSchoolTicketIds:', normalizedSchoolTicketIds);
 
     return items.filter(item => {
       // PublicCourseの場合、ticketCodeをチェック
       if ('ticketCode' in item && item.ticketCode) {
         const normalizedCode = normalizeTicketCode(item.ticketCode);
-        return normalizedSchoolTicketIds.includes(normalizedCode);
+        const included = normalizedSchoolTicketIds.includes(normalizedCode);
+        console.log('[filterBySchoolTickets] Course:', item.courseName, 'ticketCode:', item.ticketCode, '→', normalizedCode, 'included:', included);
+        return included;
       }
       // パックの場合
       if ('tickets' in item || 'courses' in item) {

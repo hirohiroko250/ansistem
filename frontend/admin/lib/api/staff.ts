@@ -2498,3 +2498,36 @@ export async function getDepartments(): Promise<string[]> {
     return [];
   }
 }
+
+// ============================================================================
+// QRコード関連
+// ============================================================================
+
+/**
+ * QRコード情報型
+ */
+export type QRCodeInfo = {
+  qr_code: string;
+  student_no: string;
+  student_name: string;
+};
+
+/**
+ * 生徒のQRコード情報を取得
+ * @param studentId - 生徒ID
+ */
+export async function getStudentQRCode(studentId: string): Promise<QRCodeInfo | null> {
+  try {
+    return await apiClient.get<QRCodeInfo>(`/students/${studentId}/qr-code/`);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 生徒のQRコードを再発行
+ * @param studentId - 生徒ID
+ */
+export async function regenerateStudentQRCode(studentId: string): Promise<QRCodeInfo & { message: string }> {
+  return apiClient.post<QRCodeInfo & { message: string }>(`/students/${studentId}/regenerate-qr/`, {});
+}

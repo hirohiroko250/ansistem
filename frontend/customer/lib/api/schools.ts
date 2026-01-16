@@ -153,19 +153,31 @@ export interface LessonCalendarResponse {
 /**
  * 開講カレンダーを取得
  * 認証不要
- * @param brandId - ブランドID
- * @param schoolId - 校舎ID
- * @param year - 年
- * @param month - 月
+ * @param options - 検索オプション（calendarCode または brandId が必要）
  */
-export async function getLessonCalendar(
-  brandId: string,
-  schoolId: string,
-  year: number,
-  month: number
-): Promise<LessonCalendarResponse> {
+export async function getLessonCalendar(options: {
+  calendarCode?: string;  // カレンダーコード（例: 1011_AEC_A）
+  brandId?: string;       // ブランドID（calendarCodeがない場合のフォールバック）
+  schoolId?: string;      // 校舎ID（オプション）
+  year: number;
+  month: number;
+}): Promise<LessonCalendarResponse> {
+  const params = new URLSearchParams({
+    year: options.year.toString(),
+    month: options.month.toString(),
+  });
+
+  if (options.calendarCode) {
+    params.append('calendar_code', options.calendarCode);
+  } else if (options.brandId) {
+    params.append('brand_id', options.brandId);
+    if (options.schoolId) {
+      params.append('school_id', options.schoolId);
+    }
+  }
+
   return api.get<LessonCalendarResponse>(
-    `/schools/public/lesson-calendar/?brand_id=${brandId}&school_id=${schoolId}&year=${year}&month=${month}`,
+    `/schools/public/lesson-calendar/?${params.toString()}`,
     { skipAuth: true }
   );
 }

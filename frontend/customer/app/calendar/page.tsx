@@ -30,7 +30,9 @@ type DisplayEvent = {
   courseId?: string;
   classScheduleId?: string;  // 欠席登録用
   brandName?: string;
-  brandId?: string;
+  brandId?: string;  // 休校日取得用
+  schoolId?: string;  // 休校日取得用
+  calendarPattern?: string;  // カレンダーパターン（例: 1011_AEC_A）
   absenceTicketId?: string;  // 欠席チケットID（APIから取得）
 };
 
@@ -159,6 +161,9 @@ export default function CalendarPage() {
           courseId: event.resourceId,
           classScheduleId: event.classScheduleId,
           brandName: event.brandName,
+          brandId: event.brandId,
+          schoolId: event.schoolId,
+          calendarPattern: event.calendarPattern,
           absenceTicketId: event.absenceTicketId,
         };
       });
@@ -184,22 +189,23 @@ export default function CalendarPage() {
   }, [selectedChild, currentDate, fetchEvents]);
 
   // 開講カレンダー（休校日）を取得
-  const fetchLessonCalendar = useCallback(async () => {
-    if (!selectedChild) return;
-
+  const fetchLessonCalendar = useCallback(async (options: { calendarPattern?: string; brandId?: string; schoolId?: string }) => {
     try {
-      // 子どもの購入アイテムからブランドと校舎を取得
-      const items = await getStudentItems(selectedChild.id);
-      if (items.length === 0) return;
-
-      // 最初のアイテムのブランドと校舎を使用
-      const item = items.find(i => i.brandId && i.schoolId);
-      if (!item?.brandId || !item?.schoolId) return;
-
       const year = currentDate.getFullYear();
       const month = currentDate.getMonth() + 1;
 
-      const calendarData = await getLessonCalendar(item.brandId, item.schoolId, year, month);
+      console.log('[Calendar] fetchLessonCalendar:', { ...options, year, month });
+      const calendarData = await getLessonCalendar({
+        calendarCode: options.calendarPattern,
+        brandId: options.brandId,
+        schoolId: options.schoolId,
+        year,
+        month,
+      });
+      console.log('[Calendar] API response:', {
+        calendarLength: calendarData.calendar?.length,
+        closedDays: calendarData.calendar?.filter(d => !d.isOpen).map(d => d.date)
+      });
       setLessonCalendar(calendarData.calendar || []);
 
       // 休校日のセットを作成
@@ -221,7 +227,7 @@ export default function CalendarPage() {
 
       // 座席状況を取得
       try {
-        const seatsData = await getCalendarSeats(item.brandId, item.schoolId, year, month);
+        const seatsData = await getCalendarSeats(options.brandId || '', options.schoolId || '', year, month);
         const seatsMap = new Map<number, DailySeatInfo>();
         (seatsData.days || []).forEach(day => {
           const dayNum = parseInt(day.date.split('-')[2], 10);
@@ -234,13 +240,49 @@ export default function CalendarPage() {
     } catch (error) {
       console.error('Failed to fetch lesson calendar:', error);
     }
-  }, [selectedChild, currentDate]);
+  }, [currentDate]);
 
+  // イベントまたは購入アイテムから休校日を取得
   useEffect(() => {
-    if (selectedChild) {
-      fetchLessonCalendar();
-    }
-  }, [selectedChild, currentDate, fetchLessonCalendar]);
+    const loadLessonCalendar = async () => {
+      if (!selectedChild) return;
+
+      console.log('[Calendar] loadLessonCalendar called, events:', events.length);
+
+      // 1. まずイベントからcalendarPatternを取得（最優先）
+      const eventWithPattern = events.find(e => e.calendarPattern);
+      if (eventWithPattern?.calendarPattern) {
+        console.log('[Calendar] Using calendarPattern from event:', eventWithPattern.calendarPattern);
+        await fetchLessonCalendar({ calendarPattern: eventWithPattern.calendarPattern });
+        return;
+      }
+
+      // 2. calendarPatternがなければbrandIdで検索
+      const eventWithBrand = events.find(e => e.brandId);
+      if (eventWithBrand?.brandId) {
+        console.log('[Calendar] Using brandId from event:', eventWithBrand.brandId);
+        await fetchLessonCalendar({ brandId: eventWithBrand.brandId, schoolId: eventWithBrand.schoolId });
+        return;
+      }
+
+      // 3. イベントにない場合は購入アイテムから取得
+      try {
+        console.log('[Calendar] No event data, trying student items');
+        const items = await getStudentItems(selectedChild.id);
+        const item = items.find(i => i.brandId);
+        if (item?.brandId) {
+          console.log('[Calendar] Using brandId from student items:', item.brandId);
+          await fetchLessonCalendar({ brandId: item.brandId, schoolId: item.schoolId });
+        } else {
+          console.log('[Calendar] No valid brandId found');
+        }
+      } catch (error) {
+        console.error('Failed to get student items for calendar:', error);
+      }
+    };
+
+    loadLessonCalendar();
+  }, [selectedChild, currentDate, events, fetchLessonCalendar]);
 
   // 振替チケット残高を取得
   const fetchTicketBalance = useCallback(async () => {

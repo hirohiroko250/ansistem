@@ -10,7 +10,7 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 
-from apps.contracts.models import Product
+from apps.contracts.models import Product, CourseItem
 from apps.pricing.calculations import calculate_enrollment_fees
 
 from apps.pricing.views.utils import (
@@ -19,6 +19,7 @@ from apps.pricing.views.utils import (
     get_enrollment_tuition_product,
     calculate_prorated_by_day_of_week,
     calculate_prorated_current_month_fees,
+    get_monthly_tuition_prices,
 )
 from .helpers import (
     parse_request_data,
@@ -42,15 +43,94 @@ class PricingConfirmView(APIView):
     """購入確定"""
     permission_classes = [IsAuthenticated]
 
+    def _calculate_billing_months(self, start_date):
+        """前払い制の請求月を計算
+
+        締日ロジック：
+        - 各月の請求締日は前月15日前後
+        - 例: 2月請求の締め = 1月15日
+        - 締日を過ぎた場合、その月の請求には含められない
+
+        Args:
+            start_date: 入会開始日
+
+        Returns:
+            dict: {
+                'billingMonth': str,       # 実際の請求月 (2026-03形式) - 全アイテムに使用
+                'serviceMonths': list,     # サービス提供月のリスト (notes用)
+                'currentMonthLabel': str,  # 当月ラベル (例: "1月")
+                'month1Label': str,        # 翌月ラベル (例: "2月")
+                'month2Label': str,        # 翌々月ラベル (例: "3月")
+            }
+        """
+        from apps.billing.models import BillingPeriod
+
+        today = date.today()
+        if start_date:
+            base_date = start_date
+        else:
+            base_date = today
+
+        # サービス提供月を計算
+        current_month = base_date.month
+        current_year = base_date.year
+
+        month1_num = (current_month % 12) + 1
+        year1 = current_year if month1_num > current_month else current_year + 1
+
+        month2_num = ((current_month + 1) % 12) + 1
+        year2 = current_year if month2_num > current_month else current_year + 1
+
+        # 次の未確定の請求月を探す
+        # 今月から順番にチェックして、最初の未確定月を見つける
+        billing_month = None
+        billing_year = today.year
+        billing_month_num = today.month
+
+        for offset in range(6):  # 最大6ヶ月先まで確認
+            check_month = ((today.month - 1 + offset) % 12) + 1
+            check_year = today.year + ((today.month - 1 + offset) // 12)
+
+            is_confirmed = BillingPeriod.objects.filter(
+                billing_year=check_year,
+                billing_month=check_month,
+                is_confirmed=True,
+            ).exists()
+
+            if not is_confirmed:
+                billing_year = check_year
+                billing_month_num = check_month
+                billing_month = f'{check_year}-{check_month:02d}'
+                print(f"[PricingConfirm] Found next open billing period: {billing_month}", file=sys.stderr)
+                break
+
+        # 見つからない場合は3ヶ月後をデフォルトにする
+        if not billing_month:
+            fallback_month = ((today.month + 1) % 12) + 1
+            fallback_year = today.year if fallback_month > today.month else today.year + 1
+            billing_month = f'{fallback_year}-{fallback_month:02d}'
+            print(f"[PricingConfirm] No open billing period found, using fallback: {billing_month}", file=sys.stderr)
+
+        return {
+            'billingMonth': billing_month,  # 全アイテムで使用する請求月
+            'serviceMonths': [
+                {'month': current_month, 'year': current_year, 'label': f'{current_month}月分（当月）'},
+                {'month': month1_num, 'year': year1, 'label': f'{month1_num}月分'},
+                {'month': month2_num, 'year': year2, 'label': f'{month2_num}月分'},
+            ],
+            'currentMonthLabel': f'{current_month}月',
+            'month1Label': f'{month1_num}月',
+            'month2Label': f'{month2_num}月',
+        }
+
     def post(self, request):
         """購入を確定する"""
         # リクエスト解析
         data = parse_request_data(request)
         self._log_request(data)
 
-        # 注文ID・請求月
+        # 注文ID
         order_id = f"ORD-{uuid.uuid4().hex[:8].upper()}"
-        billing_month = date.today().strftime('%Y-%m')
 
         # 生徒・保護者取得
         student, guardian = get_student_and_guardian(data['student_id'])
@@ -82,6 +162,10 @@ class PricingConfirmView(APIView):
             print(f"[PricingConfirm] Duplicate purchase detected, returning existing order", file=sys.stderr)
             return Response(duplicate_result)
 
+        # 前払い制の請求月を計算
+        billing_months = self._calculate_billing_months(start_date)
+        print(f"[PricingConfirm] billing_months={billing_months}", file=sys.stderr)
+
         # 購入処理
         print(f"[PricingConfirm] student={student}, course={course}, pack={pack}, brand={brand}, school={school}, start_date={start_date}", file=sys.stderr)
 
@@ -94,7 +178,7 @@ class PricingConfirmView(APIView):
                 self._process_course_purchase(
                     student, course, guardian, brand, school, start_date,
                     schedule_day_of_week, schedule_start_time, schedule_end_time,
-                    selected_class_schedule, order_id, billing_month,
+                    selected_class_schedule, order_id, billing_months,
                     data['payment_method'], data['selected_textbook_ids'],
                     data['miles_to_use'], mile_discount
                 )
@@ -104,7 +188,7 @@ class PricingConfirmView(APIView):
                 self._process_pack_purchase(
                     student, pack, guardian, brand, school, start_date,
                     schedule_day_of_week, schedule_start_time, schedule_end_time,
-                    selected_class_schedule, order_id, billing_month,
+                    selected_class_schedule, order_id, billing_months,
                     data['payment_method'], data['miles_to_use'], mile_discount
                 )
 
@@ -190,15 +274,38 @@ class PricingConfirmView(APIView):
 
     def _process_course_purchase(self, student, course, guardian, brand, school, start_date,
                                    schedule_day_of_week, schedule_start_time, schedule_end_time,
-                                   selected_class_schedule, order_id, billing_month,
+                                   selected_class_schedule, order_id, billing_months,
                                    payment_method, selected_textbook_ids, miles_to_use, mile_discount):
-        """コース購入処理"""
+        """コース購入処理（前払い制対応・合算請求）
+
+        全てのアイテムを同じ請求月（次の未確定請求期間）に合算する。
+        例: 1月16日入会で1月・2月請求確定済の場合
+            → 1月分（日割）+ 2月分 + 3月分 を全て「3月請求」に合算
+
+        Args:
+            billing_months: {
+                'billingMonth': str,       # 実際の請求月（全アイテム共通）
+                'serviceMonths': list,     # サービス提供月のリスト
+                'currentMonthLabel': str,
+                'month1Label': str,
+                'month2Label': str,
+            }
+        """
         # 契約作成
         contract = create_contract(student, school, brand, course, start_date)
+
+        # 全アイテムに使用する請求月
+        billing_month = billing_months['billingMonth']
+        service_months = billing_months['serviceMonths']
+
+        print(f"[PricingConfirm] All items will use billing_month: {billing_month}", file=sys.stderr)
 
         # コースアイテムからStudentItem作成
         course_items = course.course_items.filter(is_active=True)
         print(f"[PricingConfirm] Found {course_items.count()} course_items", file=sys.stderr)
+
+        # 月額料金のタイプ
+        recurring_types = ['tuition', 'monthly_fee', 'facility']
 
         for course_item in course_items:
             product = course_item.product
@@ -214,14 +321,41 @@ class PricingConfirmView(APIView):
                 unit_price = course_item.get_price()
                 print(f"[PricingConfirm] Using base price for {product.product_name if product else 'unknown'}: ¥{unit_price}", file=sys.stderr)
 
-            create_student_item(
-                student, contract, product, billing_month, order_id,
-                unit_price, course_item.quantity,
-                f'コース: {course.course_name}',
-                brand, school, course, start_date,
-                schedule_day_of_week, schedule_start_time, schedule_end_time,
-                selected_class_schedule
-            )
+            # 月額料金（tuition, monthly_fee, facility）の場合は各サービス月分を作成
+            if product and product.item_type in recurring_types:
+                # 翌月分（2月）
+                month1_label = service_months[1]['label'] if len(service_months) > 1 else '翌月分'
+                create_student_item(
+                    student, contract, product, billing_month, order_id,
+                    unit_price, course_item.quantity,
+                    f'コース: {course.course_name} / {month1_label}',
+                    brand, school, course, start_date,
+                    schedule_day_of_week, schedule_start_time, schedule_end_time,
+                    selected_class_schedule
+                )
+                print(f"[PricingConfirm] Created StudentItem for {month1_label}: {product.product_name}", file=sys.stderr)
+
+                # 翌々月分（3月）
+                month2_label = service_months[2]['label'] if len(service_months) > 2 else '翌々月分'
+                create_student_item(
+                    student, contract, product, billing_month, order_id,
+                    unit_price, course_item.quantity,
+                    f'コース: {course.course_name} / {month2_label}',
+                    brand, school, course, start_date,
+                    schedule_day_of_week, schedule_start_time, schedule_end_time,
+                    selected_class_schedule
+                )
+                print(f"[PricingConfirm] Created StudentItem for {month2_label}: {product.product_name}", file=sys.stderr)
+            else:
+                # 入会金等の一回のみの費用
+                create_student_item(
+                    student, contract, product, billing_month, order_id,
+                    unit_price, course_item.quantity,
+                    f'コース: {course.course_name}',
+                    brand, school, course, start_date,
+                    schedule_day_of_week, schedule_start_time, schedule_end_time,
+                    selected_class_schedule
+                )
 
         # 選択された教材費
         self._create_selected_textbooks(
@@ -241,7 +375,7 @@ class PricingConfirmView(APIView):
             schedule_day_of_week, schedule_start_time, schedule_end_time
         )
 
-        # 入会時費用計算・作成
+        # 入会時費用計算・作成（当月日割分）
         enrollment_tuition_info = None
         if start_date and schedule_day_of_week:
             enrollment_tuition_info = self._create_enrollment_fees(
@@ -250,18 +384,22 @@ class PricingConfirmView(APIView):
                 schedule_start_time, schedule_end_time, selected_class_schedule
             )
 
-        # 当月分回数割
+        # 当月分回数割（日割）
         current_month_prorated_info = None
         if start_date and schedule_day_of_week and start_date.day > 1:
+            current_month_label = service_months[0]['label'] if service_months else '当月分'
             current_month_prorated_info = self._create_prorated_fees(
                 student, contract, course, start_date, schedule_day_of_week,
                 billing_month, order_id, brand, school,
-                schedule_start_time, schedule_end_time, selected_class_schedule
+                schedule_start_time, schedule_end_time, selected_class_schedule,
+                current_month_label
             )
 
         # タスク作成
+        service_month_labels = ' / '.join([m['label'] for m in service_months])
+        billing_summary = f"請求月: {billing_month} ({service_month_labels})"
         create_purchase_task(
-            student, course.course_name, order_id, payment_method, billing_month,
+            student, course.course_name, order_id, payment_method, billing_summary,
             enrollment_tuition_info, current_month_prorated_info,
             miles_to_use, mile_discount, course=course, school=school, brand=brand
         )
@@ -270,14 +408,25 @@ class PricingConfirmView(APIView):
 
     def _process_pack_purchase(self, student, pack, guardian, brand, school, start_date,
                                 schedule_day_of_week, schedule_start_time, schedule_end_time,
-                                selected_class_schedule, order_id, billing_month,
+                                selected_class_schedule, order_id, billing_months,
                                 payment_method, miles_to_use, mile_discount):
-        """パック購入処理"""
+        """パック購入処理（前払い制対応・合算請求）
+
+        全てのアイテムを同じ請求月（次の未確定請求期間）に合算する。
+        """
         # 契約作成
         contract = create_contract(student, school, brand, None, start_date)
         print(f"[PricingConfirm] Created Contract for Pack: {contract.contract_no}", file=sys.stderr)
 
+        # 全アイテムに使用する請求月
+        billing_month = billing_months['billingMonth']
+        service_months = billing_months['serviceMonths']
         enrollment_tuition_info = None
+
+        print(f"[PricingConfirm] All pack items will use billing_month: {billing_month}", file=sys.stderr)
+
+        # 月額料金のタイプ
+        recurring_types = ['tuition', 'monthly_fee', 'facility']
 
         # パック内コース処理
         pack_courses = pack.pack_courses.filter(is_active=True).select_related('course')
@@ -298,26 +447,50 @@ class PricingConfirmView(APIView):
                 else:
                     unit_price = course_item.get_price()
 
-                create_student_item(
-                    student, contract, product, billing_month, order_id,
-                    unit_price, course_item.quantity,
-                    f'パック: {pack.pack_name} / コース: {pc_course.course_name}',
-                    brand or pc_course.brand, school or pc_course.school, pc_course, start_date,
-                    schedule_day_of_week, schedule_start_time, schedule_end_time,
-                    selected_class_schedule
-                )
+                # 月額料金は各サービス月分を作成（全て同じ請求月billing_monthに合算）
+                if product and product.item_type in recurring_types:
+                    # 翌月分
+                    month1_label = service_months[1]['label'] if len(service_months) > 1 else '翌月分'
+                    create_student_item(
+                        student, contract, product, billing_month, order_id,
+                        unit_price, course_item.quantity,
+                        f'パック: {pack.pack_name} / コース: {pc_course.course_name} / {month1_label}',
+                        brand or pc_course.brand, school or pc_course.school, pc_course, start_date,
+                        schedule_day_of_week, schedule_start_time, schedule_end_time,
+                        selected_class_schedule
+                    )
+                    # 翌々月分
+                    month2_label = service_months[2]['label'] if len(service_months) > 2 else '翌々月分'
+                    create_student_item(
+                        student, contract, product, billing_month, order_id,
+                        unit_price, course_item.quantity,
+                        f'パック: {pack.pack_name} / コース: {pc_course.course_name} / {month2_label}',
+                        brand or pc_course.brand, school or pc_course.school, pc_course, start_date,
+                        schedule_day_of_week, schedule_start_time, schedule_end_time,
+                        selected_class_schedule
+                    )
+                else:
+                    create_student_item(
+                        student, contract, product, billing_month, order_id,
+                        unit_price, course_item.quantity,
+                        f'パック: {pack.pack_name} / コース: {pc_course.course_name}',
+                        brand or pc_course.brand, school or pc_course.school, pc_course, start_date,
+                        schedule_day_of_week, schedule_start_time, schedule_end_time,
+                        selected_class_schedule
+                    )
 
-            # 入会時授業料
+            # 入会時授業料（日割分）
             if start_date and start_date.day > 1:
                 tickets = calculate_enrollment_tuition_tickets(start_date)
                 enrollment_product = get_enrollment_tuition_product(pc_course, tickets)
 
                 if enrollment_product:
+                    current_month_label = service_months[0]['label'] if service_months else '当月分'
                     enrollment_price = get_product_price_for_enrollment(enrollment_product, start_date)
                     create_student_item(
                         student, contract, enrollment_product, billing_month, order_id,
                         enrollment_price, 1,
-                        f'入会時授業料（{tickets}回分）/ コース: {pc_course.course_name}',
+                        f'入会時授業料（{tickets}回分）/ コース: {pc_course.course_name} / {current_month_label}',
                         brand or pc_course.brand, school or pc_course.school, pc_course, start_date,
                         schedule_day_of_week, schedule_start_time, schedule_end_time,
                         selected_class_schedule
@@ -336,14 +509,35 @@ class PricingConfirmView(APIView):
             else:
                 unit_price = pack_item.get_price()
 
-            create_student_item(
-                student, contract, product, billing_month, order_id,
-                unit_price, pack_item.quantity,
-                f'パック: {pack.pack_name}',
-                brand or pack.brand, school or pack.school, None, start_date,
-                schedule_day_of_week, schedule_start_time, schedule_end_time,
-                selected_class_schedule
-            )
+            # 月額料金は各サービス月分を作成
+            if product and product.item_type in recurring_types:
+                month1_label = service_months[1]['label'] if len(service_months) > 1 else '翌月分'
+                create_student_item(
+                    student, contract, product, billing_month, order_id,
+                    unit_price, pack_item.quantity,
+                    f'パック: {pack.pack_name} / {month1_label}',
+                    brand or pack.brand, school or pack.school, None, start_date,
+                    schedule_day_of_week, schedule_start_time, schedule_end_time,
+                    selected_class_schedule
+                )
+                month2_label = service_months[2]['label'] if len(service_months) > 2 else '翌々月分'
+                create_student_item(
+                    student, contract, product, billing_month, order_id,
+                    unit_price, pack_item.quantity,
+                    f'パック: {pack.pack_name} / {month2_label}',
+                    brand or pack.brand, school or pack.school, None, start_date,
+                    schedule_day_of_week, schedule_start_time, schedule_end_time,
+                    selected_class_schedule
+                )
+            else:
+                create_student_item(
+                    student, contract, product, billing_month, order_id,
+                    unit_price, pack_item.quantity,
+                    f'パック: {pack.pack_name}',
+                    brand or pack.brand, school or pack.school, None, start_date,
+                    schedule_day_of_week, schedule_start_time, schedule_end_time,
+                    selected_class_schedule
+                )
 
         # StudentSchool・Enrollment作成
         use_brand = brand or pack.brand
@@ -356,8 +550,10 @@ class PricingConfirmView(APIView):
         )
 
         # タスク作成
+        service_month_labels = ' / '.join([m['label'] for m in service_months])
+        billing_summary = f"請求月: {billing_month} ({service_month_labels})"
         create_purchase_task(
-            student, pack.pack_name, order_id, payment_method, billing_month,
+            student, pack.pack_name, order_id, payment_method, billing_summary,
             enrollment_tuition_info, None,
             miles_to_use, mile_discount, pack=pack, school=use_school, brand=use_brand
         )
@@ -368,7 +564,7 @@ class PricingConfirmView(APIView):
                                     billing_month, order_id, brand, school, course, start_date,
                                     schedule_day_of_week, schedule_start_time, schedule_end_time,
                                     selected_class_schedule):
-        """選択された教材費のStudentItemを作成"""
+        """選択された教材費のStudentItemを作成し、Contractに保存"""
         print(f"[PricingConfirm] _create_selected_textbooks called with: selected_textbook_ids={selected_textbook_ids}", file=sys.stderr)
         if not selected_textbook_ids:
             print(f"[PricingConfirm] No textbook IDs provided, skipping textbook creation", file=sys.stderr)
@@ -376,9 +572,14 @@ class PricingConfirmView(APIView):
 
         enrollment_month = start_date.month if start_date else None
         print(f"[PricingConfirm] Creating textbooks with enrollment_month={enrollment_month}", file=sys.stderr)
+
+        # 選択された教材を取得してContractに保存
+        selected_products = []
         for textbook_id in selected_textbook_ids:
             try:
                 textbook_product = Product.objects.get(id=textbook_id)
+                selected_products.append(textbook_product)
+
                 if enrollment_month:
                     unit_price = Decimal(str(textbook_product.get_price_for_enrollment_month(enrollment_month)))
                 else:
@@ -396,6 +597,11 @@ class PricingConfirmView(APIView):
 
             except Product.DoesNotExist:
                 print(f"[PricingConfirm] Selected textbook not found: {textbook_id}", file=sys.stderr)
+
+        # Contract.selected_textbooksに保存
+        if selected_products and contract:
+            contract.selected_textbooks.set(selected_products)
+            print(f"[PricingConfirm] Saved {len(selected_products)} textbooks to Contract.selected_textbooks", file=sys.stderr)
 
     def _create_enrollment_fees(self, student, contract, course, guardian, start_date,
                                  schedule_day_of_week, billing_month, order_id,
@@ -449,7 +655,7 @@ class PricingConfirmView(APIView):
     def _create_prorated_fees(self, student, contract, course, start_date,
                                schedule_day_of_week, billing_month, order_id,
                                brand, school, schedule_start_time, schedule_end_time,
-                               selected_class_schedule):
+                               selected_class_schedule, current_month_label='当月分'):
         """当月分回数割料金を作成"""
         prorated_data = calculate_prorated_current_month_fees(course, start_date, schedule_day_of_week)
         if prorated_data['total_prorated'] <= 0:
@@ -463,7 +669,7 @@ class PricingConfirmView(APIView):
                 student, contract, prorated_data['tuition'], '授業料',
                 billing_month, order_id, brand, school, course, start_date,
                 schedule_day_of_week, schedule_start_time, schedule_end_time,
-                selected_class_schedule
+                selected_class_schedule, current_month_label
             )
             prorated_items.append(f'授業料 ¥{prorated_data["tuition"]["prorated_price"]:,}')
 
@@ -473,7 +679,7 @@ class PricingConfirmView(APIView):
                 student, contract, prorated_data['facility_fee'], '設備費',
                 billing_month, order_id, brand, school, course, start_date,
                 schedule_day_of_week, schedule_start_time, schedule_end_time,
-                selected_class_schedule
+                selected_class_schedule, current_month_label
             )
             prorated_items.append(f'設備費 ¥{prorated_data["facility_fee"]["prorated_price"]:,}')
 
@@ -483,7 +689,7 @@ class PricingConfirmView(APIView):
                 student, contract, prorated_data['monthly_fee'], '月会費',
                 billing_month, order_id, brand, school, course, start_date,
                 schedule_day_of_week, schedule_start_time, schedule_end_time,
-                selected_class_schedule
+                selected_class_schedule, current_month_label
             )
             prorated_items.append(f'月会費 ¥{prorated_data["monthly_fee"]["prorated_price"]:,}')
 
@@ -494,9 +700,9 @@ class PricingConfirmView(APIView):
     def _create_prorated_item(self, student, contract, item_data, fee_name,
                                billing_month, order_id, brand, school, course, start_date,
                                schedule_day_of_week, schedule_start_time, schedule_end_time,
-                               selected_class_schedule):
+                               selected_class_schedule, month_label='当月分'):
         """回数割アイテムを作成"""
-        notes = f'当月分{fee_name}（回数割 {item_data["remaining_count"]}/{item_data["total_count"]}回）'
+        notes = f'{month_label}{fee_name}（回数割 {item_data["remaining_count"]}/{item_data["total_count"]}回）'
         create_student_item(
             student, contract, item_data['product'], billing_month, order_id,
             item_data['prorated_price'], 1, notes,

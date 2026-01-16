@@ -46,6 +46,10 @@ def calculate_mile_discount(
     Returns:
         (割引額, 合計マイル数, 割引名)
     """
+    # guardianがNoneの場合は早期リターン
+    if not guardian:
+        return (Decimal('0'), 0, '')
+
     # 兄弟全員（保護者配下の全生徒）の有効な契約からマイル数を集計
     active_contracts = Contract.objects.filter(
         guardian=guardian,

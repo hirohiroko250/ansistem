@@ -212,11 +212,31 @@ class StudentItem(TenantModel):
     )
 
     # 請求情報
-    billing_month = models.CharField('請求月', max_length=7, help_text='例: 2025-04')
+    billing_month = models.CharField(
+        '対象月',
+        max_length=7,
+        help_text='サービス提供月（例: 2025-04）。表示用。'
+    )
     quantity = models.IntegerField('数量', default=1)
     unit_price = models.DecimalField('単価', max_digits=10, decimal_places=0)
     discount_amount = models.DecimalField('割引額', max_digits=10, decimal_places=0, default=0)
     final_price = models.DecimalField('確定金額', max_digits=10, decimal_places=0)
+
+    # 請求確定状態
+    is_billed = models.BooleanField(
+        '請求済み',
+        default=False,
+        help_text='確定ボタンで請求に含まれたらTrue'
+    )
+    confirmed_billing = models.ForeignKey(
+        'billing.ConfirmedBilling',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='student_items',
+        verbose_name='請求確定',
+        help_text='どの請求確定に含まれたか'
+    )
 
     notes = models.TextField('備考', blank=True)
 

@@ -138,6 +138,10 @@ export async function getCalendarEvents(
     status: event.status || (event.isAbsent ? 'absent' : event.isClosed ? 'closed' : 'scheduled'),
     resourceId: event.schoolId,
     classScheduleId: event.classScheduleId,
+    // ブランド・校舎情報（休校日取得用）
+    brandId: event.brandId ?? undefined,
+    schoolId: event.schoolId,
+    calendarPattern: event.calendarPattern,  // カレンダーパターン（例: 1011_AEC_A）
     // 追加情報
     isNativeDay: event.isNativeDay,
     isAbsent: event.isAbsent,  // 欠席フラグ
@@ -145,6 +149,7 @@ export async function getCalendarEvents(
     holidayName: event.holidayName,
     noticeMessage: event.noticeMessage,
     brandName: event.brandName,
+    schoolName: event.schoolName,
     className: event.className,
   }));
 }
