@@ -1,4 +1,4 @@
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'https://api.oz-a.jp/api';
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'https://oz-a.jp/api/v1';
 
 interface RequestOptions {
   method?: string;
