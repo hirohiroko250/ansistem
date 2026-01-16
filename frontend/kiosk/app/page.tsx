@@ -310,7 +310,7 @@ export default function KioskPage() {
       <div className="bg-blue-600 text-white px-6 py-4 flex items-center justify-between">
         <div className="flex items-center gap-3">
           <MapPin className="h-6 w-6" />
-          <span className="font-bold text-xl">{selectedSchool.school_name}</span>
+          <span className="font-bold text-xl">{selectedSchool.schoolName}</span>
         </div>
         <div className="flex items-center gap-2 text-2xl font-mono">
           <Clock className="h-6 w-6" />
