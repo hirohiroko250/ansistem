@@ -48,6 +48,7 @@ import {
   Download,
   Search,
   Building2,
+  Plus,
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { ja } from 'date-fns/locale';
@@ -512,6 +513,14 @@ export default function ConfirmedBillingPage() {
                 <SelectItem value="chukyo_finance">中京ファイナンス</SelectItem>
               </SelectContent>
             </Select>
+
+            <Button
+              variant="outline"
+              onClick={() => router.push('/billing/add-item')}
+            >
+              <Plus className="w-4 h-4 mr-2" />
+              追加請求登録
+            </Button>
 
             <Button
               onClick={handleGenerateConfirmedBilling}

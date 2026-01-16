@@ -3,6 +3,8 @@ Student Item Views - 生徒商品・割引管理
 StudentItemViewSet, StudentDiscountViewSet
 """
 from rest_framework import viewsets
+from rest_framework.decorators import action
+from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.parsers import MultiPartParser, FormParser
 from django.db import models
@@ -75,6 +77,143 @@ class StudentItemViewSet(CSVMixin, viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         serializer.save(tenant_id=self.request.tenant_id)
+
+    @action(detail=False, methods=['post'], url_path='import')
+    def import_items(self, request):
+        """追加請求の一括インポート
+
+        期待するCSVフォーマット:
+        - student_old_id: 生徒ID（旧ID）
+        - billing_month: 請求月（YYYY-MM形式）
+        - product_name: 商品名
+        - unit_price: 単価
+        - quantity: 数量（省略可、デフォルト1）
+        - discount_amount: 割引額（省略可、デフォルト0）
+        - brand_code: ブランドコード（省略可）
+        - notes: 備考（省略可）
+        """
+        from apps.students.models import Student
+        from apps.master.models import Brand
+        from decimal import Decimal
+        import csv
+        import io
+
+        file = request.FILES.get('file')
+        if not file:
+            return Response({'error': 'ファイルが指定されていません'}, status=400)
+
+        tenant_id = getattr(request, 'tenant_id', None)
+        if not tenant_id:
+            from apps.tenants.models import Tenant
+            default_tenant = Tenant.objects.first()
+            if default_tenant:
+                tenant_id = default_tenant.id
+
+        # ファイル読み込み
+        try:
+            content = file.read()
+            if isinstance(content, bytes):
+                content = content.decode('utf-8-sig')
+            reader = csv.DictReader(io.StringIO(content))
+            rows = list(reader)
+        except Exception as e:
+            return Response({'error': f'ファイル読み込みエラー: {str(e)}'}, status=400)
+
+        # 生徒・ブランドのキャッシュ
+        students_cache = {}
+        brands_cache = {}
+
+        created_count = 0
+        updated_count = 0
+        errors = []
+
+        for idx, row in enumerate(rows, start=2):  # 2行目から（ヘッダーが1行目）
+            try:
+                # 生徒IDから生徒を取得
+                student_old_id = row.get('student_old_id', '').strip()
+                if not student_old_id:
+                    errors.append({'row': idx, 'error': '生徒IDが空です'})
+                    continue
+
+                if student_old_id not in students_cache:
+                    student = Student.objects.filter(
+                        tenant_id=tenant_id,
+                        old_id=student_old_id,
+                        deleted_at__isnull=True
+                    ).first()
+                    students_cache[student_old_id] = student
+
+                student = students_cache[student_old_id]
+                if not student:
+                    errors.append({'row': idx, 'error': f'生徒が見つかりません: {student_old_id}'})
+                    continue
+
+                # 請求月
+                billing_month = row.get('billing_month', '').strip()
+                if not billing_month:
+                    errors.append({'row': idx, 'error': '請求月が空です'})
+                    continue
+
+                # 金額
+                unit_price_str = row.get('unit_price', '0').strip().replace(',', '')
+                try:
+                    unit_price = Decimal(unit_price_str) if unit_price_str else Decimal('0')
+                except:
+                    errors.append({'row': idx, 'error': f'単価が不正です: {unit_price_str}'})
+                    continue
+
+                quantity_str = row.get('quantity', '1').strip()
+                try:
+                    quantity = int(quantity_str) if quantity_str else 1
+                except:
+                    quantity = 1
+
+                discount_str = row.get('discount_amount', '0').strip().replace(',', '')
+                try:
+                    discount_amount = Decimal(discount_str) if discount_str else Decimal('0')
+                except:
+                    discount_amount = Decimal('0')
+
+                final_price = unit_price * quantity - discount_amount
+
+                # ブランド（オプション）
+                brand = None
+                brand_code = row.get('brand_code', '').strip()
+                if brand_code:
+                    if brand_code not in brands_cache:
+                        brands_cache[brand_code] = Brand.objects.filter(
+                            tenant_id=tenant_id,
+                            brand_code=brand_code
+                        ).first()
+                    brand = brands_cache[brand_code]
+
+                # 商品名・備考
+                product_name = row.get('product_name', '').strip()
+                notes = row.get('notes', '').strip() or product_name
+
+                # StudentItem作成
+                StudentItem.objects.create(
+                    tenant_id=tenant_id,
+                    student=student,
+                    billing_month=billing_month,
+                    unit_price=unit_price,
+                    quantity=quantity,
+                    discount_amount=discount_amount,
+                    final_price=final_price,
+                    brand=brand,
+                    notes=notes,
+                )
+                created_count += 1
+
+            except Exception as e:
+                errors.append({'row': idx, 'error': str(e)})
+
+        return Response({
+            'success': True,
+            'created_count': created_count,
+            'error_count': len(errors),
+            'errors': errors[:20],  # 最初の20件のエラーのみ返す
+        })
 
     def _check_billing_permission(self, instance, action='編集'):
         """請求データの編集権限をチェック
