@@ -1386,7 +1386,7 @@ export function StudentDetail({ student, parents, contracts, invoices, contactLo
                             onClick={() => {
                               const guardianId = g?.id;
                               if (guardianId) {
-                                window.location.href = `/parents?id=${guardianId}`;
+                                window.location.href = `/admin/parents?id=${guardianId}`;
                               }
                             }}
                           >
