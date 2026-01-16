@@ -196,6 +196,23 @@ services:
     networks:
       - oza_network
 
+  # Frontend Kiosk (Next.js) - 教室チェックイン用
+  frontend-kiosk:
+    build:
+      context: ./frontend/kiosk
+      dockerfile: Dockerfile
+      args:
+        - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://162.43.33.37:8000/api/v1}
+    container_name: oza_frontend_kiosk
+    ports:
+      - "3003:3003"
+    environment:
+      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://162.43.33.37:8000/api/v1}
+    depends_on:
+      - backend
+    networks:
+      - oza_network
+
 volumes:
   postgres_data:
   redis_data:

@@ -40,6 +40,14 @@ from .qr_attendance import (
     QRCheckOutView,
 )
 
+# Kiosk (Public API)
+from .kiosk import (
+    KioskSchoolListView,
+    KioskCheckInView,
+    KioskCheckOutView,
+    KioskAttendanceView,
+)
+
 
 __all__ = [
     # TimeSlot
@@ -65,4 +73,9 @@ __all__ = [
     # QR Attendance
     'QRCheckInView',
     'QRCheckOutView',
+    # Kiosk (Public API)
+    'KioskSchoolListView',
+    'KioskCheckInView',
+    'KioskCheckOutView',
+    'KioskAttendanceView',
 ]

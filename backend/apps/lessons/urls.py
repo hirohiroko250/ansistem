@@ -19,6 +19,11 @@ from .views import (
     CancelMakeupView,
     QRCheckInView,
     QRCheckOutView,
+    # Kiosk (Public API)
+    KioskSchoolListView,
+    KioskCheckInView,
+    KioskCheckOutView,
+    KioskAttendanceView,
 )
 
 app_name = 'lessons'
@@ -49,5 +54,10 @@ urlpatterns = [
     # QRコード出席打刻
     path('qr-check-in/', QRCheckInView.as_view(), name='qr-check-in'),
     path('qr-check-out/', QRCheckOutView.as_view(), name='qr-check-out'),
+    # キオスク用公開API（認証不要）
+    path('kiosk/schools/', KioskSchoolListView.as_view(), name='kiosk-schools'),
+    path('kiosk/check-in/', KioskCheckInView.as_view(), name='kiosk-check-in'),
+    path('kiosk/check-out/', KioskCheckOutView.as_view(), name='kiosk-check-out'),
+    path('kiosk/attendance/', KioskAttendanceView.as_view(), name='kiosk-attendance'),
     path('', include(router.urls)),
 ]
