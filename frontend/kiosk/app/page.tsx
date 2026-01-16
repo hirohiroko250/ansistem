@@ -9,10 +9,10 @@ import api from '@/lib/api/client';
 
 interface School {
   id: string;
-  school_name: string;
+  schoolName: string;
   latitude?: number;
   longitude?: number;
-  geofence_range?: number;
+  geofenceRange?: number;
 }
 
 interface CheckInResult {
@@ -294,7 +294,7 @@ export default function KioskPage() {
                 onClick={() => setSelectedSchool(school)}
                 className="w-full bg-white/20 backdrop-blur text-white font-semibold text-lg py-4 px-6 rounded-xl hover:bg-white/30 transition-all text-left"
               >
-                {school.school_name}
+                {school.schoolName}
               </button>
             ))}
           </div>
