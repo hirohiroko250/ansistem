@@ -382,6 +382,13 @@ export default function DashboardPage() {
       assigned_to_id: t.assigned_to_id || (t as any).assignedToId,
       assigned_to_name: t.assigned_to_name || (t as any).assignedToName,
       created_by_id: t.created_by_id || (t as any).createdById,
+      student_no: t.student_no || (t as any).studentNo,
+      student_name: t.student_name || (t as any).studentName,
+      guardian_no: t.guardian_no || (t as any).guardianNo,
+      guardian_name: t.guardian_name || (t as any).guardianName,
+      created_at: t.created_at || (t as any).createdAt,
+      school_name: t.school_name || (t as any).schoolName,
+      brand_name: t.brand_name || (t as any).brandName,
     }));
     // 割り当て済みタスクを確認
     const assignedTasks = data.filter(t => t.assigned_to_id);
