@@ -11,7 +11,7 @@ from datetime import date
 logger = get_task_logger(__name__)
 
 
-@shared_task(bind=True, soft_time_limit=600, time_limit=900)
+@shared_task(bind=True, soft_time_limit=1800, time_limit=2400)
 def generate_confirmed_billing_task(self, tenant_id, year, month, user_id=None):
     """請求確定データを生成するCeleryタスク
 
