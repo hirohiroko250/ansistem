@@ -31,69 +31,41 @@ class BillingCreationMixin:
     @extend_schema(summary='請求確定データを生成')
     @action(detail=False, methods=['post'])
     def create_confirmed_billing(self, request):
-        """指定月の請求確定データを生成"""
+        """指定月の請求確定データを生成
+
+        Celeryタスクをバックグラウンドで起動し、即座にレスポンスを返す
+        """
         serializer = ConfirmedBillingCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
 
         year = data['year']
         month = data['month']
-        student_ids = data.get('student_ids')
 
         tenant_id = _get_tenant_id(request)
+        user_id = str(request.user.id) if request.user and request.user.is_authenticated else None
 
-        from apps.students.models import Student
-        from apps.contracts.models import StudentItem, Contract
+        from apps.billing.tasks import generate_confirmed_billing_task
 
-        # billing_month形式
-        billing_month_hyphen = f"{year}-{str(month).zfill(2)}"
-        billing_month_compact = f"{year}{str(month).zfill(2)}"
-
-        # 対象月の開始日・終了日
-        billing_start = date(year, month, 1)
-        if month == 12:
-            billing_end = date(year + 1, 1, 1)
-        else:
-            billing_end = date(year, month + 1, 1)
-
-        # 対象生徒を取得
-        students = self._get_target_students(
-            tenant_id, student_ids, billing_month_hyphen, billing_month_compact,
-            billing_start, billing_end, Student, StudentItem, Contract
+        # Celeryタスクをバックグラウンドで開始
+        task = generate_confirmed_billing_task.delay(
+            tenant_id=str(tenant_id),
+            year=year,
+            month=month,
+            user_id=user_id
         )
-
-        created_count = 0
-        updated_count = 0
-        skipped_count = 0
-        errors = []
-
-        with transaction.atomic():
-            for student in students:
-                result = self._process_student_billing(
-                    student, tenant_id, year, month, request.user
-                )
-                if result['error']:
-                    errors.append(result['error'])
-                    skipped_count += 1
-                elif result['created']:
-                    created_count += 1
-                elif result['updated']:
-                    updated_count += 1
-                else:
-                    skipped_count += 1
-
-            # マイル割引を適用
-            self._apply_mile_discounts(tenant_id, year, month)
 
         return Response({
             'success': True,
+            'message': '請求確定データの生成を開始しました。処理完了後、ページを更新してください。',
+            'task_id': task.id,
             'year': year,
             'month': month,
-            'created_count': created_count,
-            'updated_count': updated_count,
-            'skipped_count': skipped_count,
-            'error_count': len(errors),
-            'errors': errors[:10],
+            'created_count': 0,
+            'updated_count': 0,
+            'skipped_count': 0,
+            'error_count': 0,
+            'errors': [],
         })
 
     def _get_target_students(self, tenant_id, student_ids, billing_month_hyphen,
@@ -313,3 +285,60 @@ class BillingCreationMixin:
             'deadline_closed': close_deadline,
             'is_closed': deadline.is_closed,
         })
+
+    @extend_schema(summary='請求確定データを非同期で生成')
+    @action(detail=False, methods=['post'], url_path='create_confirmed_billing_async')
+    def create_confirmed_billing_async(self, request):
+        """請求確定データを非同期で生成（Celeryタスク）
+
+        長時間かかる処理をバックグラウンドで実行し、タスクIDを返す
+        """
+        serializer = ConfirmedBillingCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        year = data['year']
+        month = data['month']
+
+        tenant_id = _get_tenant_id(request)
+        user_id = str(request.user.id) if request.user and request.user.is_authenticated else None
+
+        from apps.billing.tasks import generate_confirmed_billing_task
+
+        # Celeryタスクを開始
+        task = generate_confirmed_billing_task.delay(
+            tenant_id=str(tenant_id),
+            year=year,
+            month=month,
+            user_id=user_id
+        )
+
+        return Response({
+            'success': True,
+            'message': '請求確定データの生成を開始しました',
+            'task_id': task.id,
+            'year': year,
+            'month': month,
+        })
+
+    @extend_schema(summary='タスク状態を確認')
+    @action(detail=False, methods=['get'], url_path='task_status/(?P<task_id>[^/.]+)')
+    def task_status(self, request, task_id=None):
+        """Celeryタスクの状態を確認"""
+        from celery.result import AsyncResult
+
+        task = AsyncResult(task_id)
+
+        response = {
+            'task_id': task_id,
+            'status': task.status,
+        }
+
+        if task.status == 'SUCCESS':
+            response['result'] = task.result
+        elif task.status == 'FAILURE':
+            response['error'] = str(task.result)
+        elif task.status == 'PROGRESS':
+            response['progress'] = task.info
+
+        return Response(response)
