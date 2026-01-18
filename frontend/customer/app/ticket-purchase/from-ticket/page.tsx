@@ -1004,6 +1004,16 @@ export default function FromTicketPurchasePage() {
         return childGradeOrder >= fromOrder && childGradeOrder <= toOrder;
       }
 
+      // 「小1~」「年長～」のような「〇〇~」パターンをパース（「以上」と同じ意味）
+      // 全角チルダ（～）と半角チルダ（~）両方に対応
+      const tildeEndMatch = item.gradeName.match(/^(.+?)[~～]$/);
+      if (tildeEndMatch) {
+        const minGrade = tildeEndMatch[1].trim();
+        const minOrder = getGradeOrder(minGrade);
+        // 子どもの学年が最小学年以上かチェック
+        return childGradeOrder >= minOrder;
+      }
+
       // 「小1以上」「年長以上」のような「〇〇以上」パターンをパース
       const aboveMatch = item.gradeName.match(/^(.+?)以上$/);
       if (aboveMatch) {
