@@ -2531,3 +2531,63 @@ export async function getStudentQRCode(studentId: string): Promise<QRCodeInfo | 
 export async function regenerateStudentQRCode(studentId: string): Promise<QRCodeInfo & { message: string }> {
   return apiClient.post<QRCodeInfo & { message: string }>(`/students/${studentId}/regenerate-qr/`, {});
 }
+
+// ============================================================================
+// 承認待ち社員管理
+// ============================================================================
+
+/**
+ * 承認待ち社員の型定義
+ */
+export type PendingEmployee = {
+  id: string;
+  employee_no: string | null;
+  last_name: string;
+  first_name: string;
+  full_name: string;
+  email: string | null;
+  phone: string | null;
+  department: string | null;
+  position_name: string | null;
+  hire_date: string | null;
+  schools: { id: string; name: string }[];
+  brands: { id: string; name: string }[];
+  user_id: string | null;
+  user_email: string | null;
+  created_at: string | null;
+};
+
+/**
+ * 承認待ち社員一覧を取得
+ */
+export async function getPendingEmployees(): Promise<PendingEmployee[]> {
+  try {
+    const response = await apiClient.get<PendingEmployee[]>("/tenants/employees/pending/");
+    return response || [];
+  } catch (error) {
+    console.error("Error fetching pending employees:", error);
+    return [];
+  }
+}
+
+/**
+ * 社員を承認（有効化）
+ */
+export async function approveEmployee(employeeId: string): Promise<{
+  success: boolean;
+  message: string;
+  employee_id?: string;
+  user_id?: string | null;
+}> {
+  return apiClient.post(`/tenants/employees/${employeeId}/approve/`, {});
+}
+
+/**
+ * 社員登録を却下
+ */
+export async function rejectEmployee(employeeId: string, reason?: string): Promise<{
+  success: boolean;
+  message: string;
+}> {
+  return apiClient.post(`/tenants/employees/${employeeId}/reject/`, { reason: reason || '' });
+}

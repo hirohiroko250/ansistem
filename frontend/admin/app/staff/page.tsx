@@ -51,6 +51,12 @@ import {
   Loader2,
   Briefcase,
   Building2,
+  Check,
+  X,
+  Clock,
+  UserPlus,
+  Mail,
+  Phone,
 } from "lucide-react";
 import {
   getStaffList,
@@ -64,6 +70,10 @@ import {
   getCampuses,
   getRoles,
   getDepartments,
+  getPendingEmployees,
+  approveEmployee,
+  rejectEmployee,
+  type PendingEmployee,
 } from "@/lib/api/staff";
 import apiClient from "@/lib/api/client";
 import type { StaffDetail as StaffDetailType, StaffFilters, StaffGroup, Brand, School, PaginatedResult } from "@/lib/api/types";
@@ -78,7 +88,7 @@ const avatarColors = [
 ];
 
 type GroupByType = 'none' | 'role' | 'company';
-type TabType = 'list' | 'groups';
+type TabType = 'list' | 'groups' | 'pending';
 
 export default function StaffPage() {
   const router = useRouter();
@@ -120,6 +130,15 @@ export default function StaffPage() {
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set(['all']));
   const [error, setError] = useState<string | null>(null);
 
+  // 承認待ち社員関連の状態
+  const [pendingEmployees, setPendingEmployees] = useState<PendingEmployee[]>([]);
+  const [pendingLoading, setPendingLoading] = useState(false);
+  const [approveDialogOpen, setApproveDialogOpen] = useState(false);
+  const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
+  const [selectedPendingEmployee, setSelectedPendingEmployee] = useState<PendingEmployee | null>(null);
+  const [rejectReason, setRejectReason] = useState("");
+  const [approving, setApproving] = useState(false);
+
   useEffect(() => {
     const token = apiClient.getToken();
     if (!token) {
@@ -148,14 +167,21 @@ export default function StaffPage() {
     }
   }, [selectedStaffId]);
 
+  useEffect(() => {
+    if (activeTab === 'pending') {
+      loadPendingEmployees();
+    }
+  }, [activeTab]);
+
   async function loadInitialData() {
-    const [brandsData, schoolsData, rolesData, departmentsData, groupsData, allStaffData] = await Promise.all([
+    const [brandsData, schoolsData, rolesData, departmentsData, groupsData, allStaffData, pendingData] = await Promise.all([
       getBrands(),
       getCampuses(),
       getRoles(),
       getDepartments(),
       getStaffGroups(),
       getStaffList({ page_size: 500 }),
+      getPendingEmployees(),
     ]);
     setBrands(brandsData);
     setSchools(schoolsData);
@@ -163,6 +189,7 @@ export default function StaffPage() {
     setDepartments(departmentsData);
     setGroups(groupsData);
     setAllStaff(allStaffData.data);
+    setPendingEmployees(pendingData);
     await loadStaffList();
   }
 
@@ -181,6 +208,56 @@ export default function StaffPage() {
   async function loadStaffDetail(staffId: string) {
     const staff = await getStaffDetail(staffId);
     setSelectedStaff(staff);
+  }
+
+  async function loadPendingEmployees() {
+    setPendingLoading(true);
+    const data = await getPendingEmployees();
+    setPendingEmployees(data);
+    setPendingLoading(false);
+  }
+
+  function openApproveDialog(employee: PendingEmployee) {
+    setSelectedPendingEmployee(employee);
+    setApproveDialogOpen(true);
+  }
+
+  function openRejectDialog(employee: PendingEmployee) {
+    setSelectedPendingEmployee(employee);
+    setRejectReason("");
+    setRejectDialogOpen(true);
+  }
+
+  async function handleApprove() {
+    if (!selectedPendingEmployee) return;
+
+    setApproving(true);
+    try {
+      await approveEmployee(selectedPendingEmployee.id);
+      setApproveDialogOpen(false);
+      setSelectedPendingEmployee(null);
+      await loadPendingEmployees();
+      await loadStaffList(); // 承認された社員を一覧に反映
+    } catch (err) {
+      console.error("Failed to approve employee:", err);
+    }
+    setApproving(false);
+  }
+
+  async function handleReject() {
+    if (!selectedPendingEmployee) return;
+
+    setApproving(true);
+    try {
+      await rejectEmployee(selectedPendingEmployee.id, rejectReason);
+      setRejectDialogOpen(false);
+      setSelectedPendingEmployee(null);
+      setRejectReason("");
+      await loadPendingEmployees();
+    } catch (err) {
+      console.error("Failed to reject employee:", err);
+    }
+    setApproving(false);
   }
 
   function handleSelectStaff(staffId: string) {
@@ -658,6 +735,24 @@ export default function StaffPage() {
                 グループ ({groups.length})
               </span>
             </button>
+            <button
+              onClick={() => setActiveTab('pending')}
+              className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+                activeTab === 'pending'
+                  ? 'border-blue-500 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              <span className="flex items-center gap-2">
+                <Clock className="w-4 h-4" />
+                承認待ち
+                {pendingEmployees.length > 0 && (
+                  <Badge variant="destructive" className="h-5 min-w-5 px-1.5">
+                    {pendingEmployees.length}
+                  </Badge>
+                )}
+              </span>
+            </button>
           </div>
         </div>
 
@@ -884,8 +979,209 @@ export default function StaffPage() {
               )}
             </div>
           </>
-        )}
+        ) : activeTab === 'pending' ? (
+          <>
+            {/* 承認待ちタブの内容 */}
+            <div className="flex-1 overflow-auto">
+              {pendingLoading ? (
+                <div className="text-center text-gray-500 py-8">
+                  <Loader2 className="w-8 h-8 mx-auto animate-spin mb-2" />
+                  読み込み中...
+                </div>
+              ) : pendingEmployees.length === 0 ? (
+                <div className="bg-white rounded-lg border p-12 text-center">
+                  <UserPlus className="w-16 h-16 mx-auto mb-4 text-gray-300" />
+                  <p className="text-gray-500 mb-2">承認待ちの社員はいません</p>
+                  <p className="text-sm text-gray-400">
+                    社員アプリから新規登録があると、ここに表示されます
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {pendingEmployees.map((employee) => {
+                    const colorIndex = employee.full_name.charCodeAt(0) % avatarColors.length;
+                    return (
+                      <div
+                        key={employee.id}
+                        className="bg-white rounded-lg border p-4 hover:shadow-md transition-shadow"
+                      >
+                        <div className="flex items-start gap-4">
+                          <Avatar className="w-12 h-12">
+                            <AvatarFallback className={`bg-gradient-to-br ${avatarColors[colorIndex]} text-white`}>
+                              {employee.full_name.substring(0, 2)}
+                            </AvatarFallback>
+                          </Avatar>
+
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 mb-1">
+                              <h3 className="font-semibold text-gray-900">{employee.full_name}</h3>
+                              <Badge variant="secondary" className="bg-amber-100 text-amber-800 border-amber-200">
+                                <Clock className="w-3 h-3 mr-1" />
+                                承認待ち
+                              </Badge>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-2 text-sm text-gray-600 mb-3">
+                              {employee.email && (
+                                <div className="flex items-center gap-1">
+                                  <Mail className="w-4 h-4 text-gray-400" />
+                                  <span className="truncate">{employee.email}</span>
+                                </div>
+                              )}
+                              {employee.phone && (
+                                <div className="flex items-center gap-1">
+                                  <Phone className="w-4 h-4 text-gray-400" />
+                                  <span>{employee.phone}</span>
+                                </div>
+                              )}
+                              {employee.department && (
+                                <div className="flex items-center gap-1">
+                                  <Building2 className="w-4 h-4 text-gray-400" />
+                                  <span>{employee.department}</span>
+                                </div>
+                              )}
+                              {employee.position_name && (
+                                <div className="flex items-center gap-1">
+                                  <Briefcase className="w-4 h-4 text-gray-400" />
+                                  <span>{employee.position_name}</span>
+                                </div>
+                              )}
+                            </div>
+
+                            {(employee.schools.length > 0 || employee.brands.length > 0) && (
+                              <div className="flex flex-wrap gap-1 mb-3">
+                                {employee.brands.map((brand) => (
+                                  <Badge key={brand.id} variant="outline" className="text-xs">
+                                    {brand.name}
+                                  </Badge>
+                                ))}
+                                {employee.schools.map((school) => (
+                                  <Badge key={school.id} variant="secondary" className="text-xs">
+                                    {school.name}
+                                  </Badge>
+                                ))}
+                              </div>
+                            )}
+
+                            {employee.created_at && (
+                              <p className="text-xs text-gray-400">
+                                登録日時: {new Date(employee.created_at).toLocaleString('ja-JP')}
+                              </p>
+                            )}
+                          </div>
+
+                          <div className="flex flex-col gap-2">
+                            <Button
+                              size="sm"
+                              className="bg-green-600 hover:bg-green-700"
+                              onClick={() => openApproveDialog(employee)}
+                            >
+                              <Check className="w-4 h-4 mr-1" />
+                              承認
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                              onClick={() => openRejectDialog(employee)}
+                            >
+                              <X className="w-4 h-4 mr-1" />
+                              却下
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </>
+        ) : null}
       </div>
+
+      {/* 承認確認ダイアログ */}
+      <AlertDialog open={approveDialogOpen} onOpenChange={setApproveDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>社員を承認しますか？</AlertDialogTitle>
+            <AlertDialogDescription>
+              「{selectedPendingEmployee?.full_name}」さんを社員として承認します。
+              承認後、この社員はシステムにログインできるようになります。
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={approving}>キャンセル</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleApprove}
+              disabled={approving}
+              className="bg-green-600 hover:bg-green-700"
+            >
+              {approving ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  承認中...
+                </>
+              ) : (
+                <>
+                  <Check className="w-4 h-4 mr-2" />
+                  承認する
+                </>
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* 却下確認ダイアログ */}
+      <Dialog open={rejectDialogOpen} onOpenChange={setRejectDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>社員登録を却下</DialogTitle>
+            <DialogDescription>
+              「{selectedPendingEmployee?.full_name}」さんの登録を却下します。
+              却下理由を入力してください（任意）。
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4">
+            <Label htmlFor="reject-reason">却下理由</Label>
+            <Textarea
+              id="reject-reason"
+              value={rejectReason}
+              onChange={(e) => setRejectReason(e.target.value)}
+              placeholder="却下理由を入力..."
+              rows={3}
+              className="mt-2"
+            />
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setRejectDialogOpen(false)}
+              disabled={approving}
+            >
+              キャンセル
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleReject}
+              disabled={approving}
+            >
+              {approving ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  処理中...
+                </>
+              ) : (
+                <>
+                  <X className="w-4 h-4 mr-2" />
+                  却下する
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* 新規作成ダイアログ */}
       <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
