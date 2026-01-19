@@ -507,22 +507,8 @@ export default function FromTicketPurchasePage() {
 
         console.log('[fetchCoursesAndPacks] Fetched:', categoryCourses.length, 'courses,', categoryPacks.length, 'packs');
 
-        // パックに含まれるコースIDを収集
-        const courseIdsInPacks = new Set<string>();
-        categoryPacks.forEach((pack) => {
-          if (pack.courses) {
-            pack.courses.forEach((pc) => {
-              courseIdsInPacks.add(pc.courseId);
-            });
-          }
-        });
-
-        // パックに含まれるコースを除外
-        const filteredCourses = categoryCourses.filter(
-          (course) => !courseIdsInPacks.has(course.id)
-        );
-
-        setCourses(filteredCourses);
+        // パックに含まれるコースも単品として表示する（¥0除外は後で行う）
+        setCourses(categoryCourses);
         setPacks(categoryPacks);
       } catch (err) {
         const apiError = err as ApiError;
