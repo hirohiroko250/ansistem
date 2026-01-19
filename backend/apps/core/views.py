@@ -90,8 +90,8 @@ def upload_file(request):
     # ファイルを保存
     try:
         saved_path = default_storage.save(file_path, uploaded_file)
-        # 相対URLを生成（ブラウザが現在のプロトコルを使用）
-        file_url = f"/{settings.MEDIA_URL}{saved_path}"
+        # API経由のURLを生成（クラウドプロキシで/api/がバックエンドに転送される）
+        file_url = f"/api/v1/core/media/{saved_path}"
 
         return Response({
             'url': file_url,
@@ -162,8 +162,8 @@ def upload_multiple_files(request):
 
         try:
             saved_path = default_storage.save(file_path, uploaded_file)
-            # 相対URLを生成（ブラウザが現在のプロトコルを使用）
-            file_url = f"/{settings.MEDIA_URL}{saved_path}"
+            # API経由のURLを生成（クラウドプロキシで/api/がバックエンドに転送される）
+            file_url = f"/api/v1/core/media/{saved_path}"
 
             results.append({
                 'url': file_url,
