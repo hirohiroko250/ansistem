@@ -316,7 +316,10 @@ def build_student_items_snapshot(tenant_id, student, year, month):
 
 
 def build_contract_items_snapshot(tenant_id, student, year, month):
-    """Contract（契約）から明細スナップショットを作成"""
+    """Contract（契約）から明細スナップショットを作成
+
+    同じコースを参照する複数の契約がある場合、重複を排除する。
+    """
     from apps.contracts.models import Contract, Product
     from datetime import date
 
@@ -351,6 +354,9 @@ def build_contract_items_snapshot(tenant_id, student, year, month):
         Product.ItemType.TEXTBOOK,
     ]
 
+    # 重複排除用: (course_id, product_id) のセット
+    added_items = set()
+
     for contract in contracts:
         course = contract.course
         if not course:
@@ -371,6 +377,12 @@ def build_contract_items_snapshot(tenant_id, student, year, month):
             if product.item_type == Product.ItemType.TEXTBOOK:
                 if product.id not in selected_textbook_ids:
                     continue
+
+            # 重複チェック: 同じコース＋商品の組み合わせはスキップ
+            item_key = (str(course.id), str(product.id))
+            if item_key in added_items:
+                continue
+            added_items.add(item_key)
 
             unit_price = course_item.price_override if course_item.price_override is not None else (product.base_price or Decimal('0'))
             quantity = course_item.quantity or 1
