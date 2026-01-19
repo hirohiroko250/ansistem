@@ -18,6 +18,8 @@ import {
   AttendanceRecord,
 } from '@/lib/api/hr';
 import { getTodayLessons, LessonSchedule } from '@/lib/api/lessons';
+import { getMyQRCode, MyQRCodeResponse } from '@/lib/api/auth';
+import { QRCodeSVG } from 'qrcode.react';
 import {
   QrCode,
   LogIn,
@@ -53,6 +55,7 @@ export default function AttendancePage() {
   const [todayRecord, setTodayRecord] = useState<AttendanceRecord | null>(null);
   const [monthlyRecords, setMonthlyRecords] = useState<AttendanceRecord[]>([]);
   const [todayLessons, setTodayLessons] = useState<LessonSchedule[]>([]);
+  const [myQRCode, setMyQRCode] = useState<MyQRCodeResponse | null>(null);
   const [dailyReport, setDailyReport] = useState('');
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -67,15 +70,17 @@ export default function AttendancePage() {
       setLoading(true);
       setError(null);
 
-      const [attendance, lessons, monthly] = await Promise.all([
+      const [attendance, lessons, monthly, qrCode] = await Promise.all([
         getTodayAttendance(),
         getTodayLessons(),
         getMyMonthlyAttendances(),
+        getMyQRCode().catch(() => null),
       ]);
 
       setTodayRecord(attendance);
       setTodayLessons(lessons);
       setMonthlyRecords(monthly);
+      setMyQRCode(qrCode);
 
       if (attendance?.dailyReport) {
         setDailyReport(attendance.dailyReport);
@@ -298,8 +303,30 @@ export default function AttendancePage() {
                 <div className="pt-2">
                   {workStatus.canClockIn && (
                     <div className="space-y-3">
-                      <div className="flex justify-center p-8 bg-gradient-to-br from-green-50 to-green-100 rounded-xl">
-                        <QrCode className="w-32 h-32 text-green-600" />
+                      <div className="flex justify-center p-4 bg-gradient-to-br from-green-50 to-green-100 rounded-xl">
+                        {myQRCode ? (
+                          <div className="bg-white p-3 rounded-lg shadow-inner">
+                            <QRCodeSVG
+                              value={myQRCode.qr_code}
+                              size={160}
+                              level="M"
+                              includeMargin={false}
+                              imageSettings={{
+                                src: "/favicon-32.png",
+                                x: undefined,
+                                y: undefined,
+                                height: 28,
+                                width: 28,
+                                excavate: true,
+                              }}
+                            />
+                            <p className="text-center text-xs text-gray-500 mt-2">
+                              {myQRCode.user_name}
+                            </p>
+                          </div>
+                        ) : (
+                          <QrCode className="w-32 h-32 text-green-600" />
+                        )}
                       </div>
                       <Button
                         onClick={() => startQrScan('clockin')}

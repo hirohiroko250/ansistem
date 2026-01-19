@@ -20,8 +20,9 @@ class HRAttendanceViewSet(viewsets.ModelViewSet):
     serializer_class = HRAttendanceSerializer
 
     def get_queryset(self):
+        tenant_id = getattr(self.request, 'tenant_id', None) or getattr(self.request.user, 'tenant_id', None)
         queryset = HRAttendance.objects.filter(
-            tenant_id=getattr(self.request, 'tenant_id', None),
+            tenant_id=tenant_id,
             user=self.request.user
         )
 
@@ -44,9 +45,10 @@ class HRAttendanceViewSet(viewsets.ModelViewSet):
     def today(self, request):
         """今日の勤怠記録を取得"""
         today = timezone.localdate()
+        tenant_id = getattr(request, 'tenant_id', None) or getattr(request.user, 'tenant_id', None)
         try:
             attendance = HRAttendance.objects.get(
-                tenant_id=getattr(request, 'tenant_id', None),
+                tenant_id=tenant_id,
                 user=request.user,
                 date=today
             )
@@ -62,7 +64,7 @@ class HRAttendanceViewSet(viewsets.ModelViewSet):
         """出勤打刻"""
         today = timezone.localdate()
         now = timezone.now()
-        tenant_id = getattr(request, 'tenant_id', None)
+        tenant_id = getattr(request, 'tenant_id', None) or getattr(request.user, 'tenant_id', None)
 
         # 既存の記録をチェック
         existing = HRAttendance.objects.filter(
@@ -112,7 +114,7 @@ class HRAttendanceViewSet(viewsets.ModelViewSet):
         """退勤打刻"""
         today = timezone.localdate()
         now = timezone.now()
-        tenant_id = getattr(request, 'tenant_id', None)
+        tenant_id = getattr(request, 'tenant_id', None) or getattr(request.user, 'tenant_id', None)
 
         try:
             attendance = HRAttendance.objects.get(
@@ -171,7 +173,7 @@ class HRAttendanceViewSet(viewsets.ModelViewSet):
         """月別勤怠サマリー"""
         year = request.query_params.get('year', timezone.localdate().year)
         month = request.query_params.get('month', timezone.localdate().month)
-        tenant_id = getattr(request, 'tenant_id', None)
+        tenant_id = getattr(request, 'tenant_id', None) or getattr(request.user, 'tenant_id', None)
 
         queryset = HRAttendance.objects.filter(
             tenant_id=tenant_id,

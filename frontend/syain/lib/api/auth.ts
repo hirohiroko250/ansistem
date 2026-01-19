@@ -147,3 +147,28 @@ export function getUserFromToken(): LoginResponse['user'] | null {
     return null;
   }
 }
+
+// ============================================
+// QRコードAPI
+// ============================================
+
+export interface MyQRCodeResponse {
+  qr_code: string;
+  user_no: string;
+  user_name: string;
+  user_type: string;
+}
+
+/**
+ * 自分のQRコード情報を取得
+ */
+export async function getMyQRCode(): Promise<MyQRCodeResponse> {
+  return api.get<MyQRCodeResponse>('/users/my-qr/');
+}
+
+/**
+ * QRコードを再発行
+ */
+export async function regenerateMyQRCode(): Promise<MyQRCodeResponse & { message: string }> {
+  return api.post<MyQRCodeResponse & { message: string }>('/users/regenerate-qr/');
+}
