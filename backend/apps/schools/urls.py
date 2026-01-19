@@ -42,6 +42,7 @@ urlpatterns = [
     path('public/trial-schedule/', PublicTrialScheduleView.as_view(), name='public-trial-schedule'),
     path('public/trial-availability/', PublicTrialAvailabilityView.as_view(), name='public-trial-availability'),
     path('public/trial-booking/', PublicTrialBookingView.as_view(), name='public-trial-booking'),
+    path('public/trial-booking', PublicTrialBookingView.as_view(), name='public-trial-booking-no-slash'),  # trailing slashなしも対応
     path('public/class-schedules/', PublicClassScheduleView.as_view(), name='public-class-schedules'),
     path('public/schools-by-ticket/', PublicSchoolsByTicketView.as_view(), name='public-schools-by-ticket'),
     path('public/tickets-by-school/', PublicTicketsBySchoolView.as_view(), name='public-tickets-by-school'),
