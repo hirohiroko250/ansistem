@@ -354,6 +354,9 @@ export default function ChildrenPage() {
           <div className="space-y-3">
             {children.map((child) => {
               const age = child.birth_date ? calculateAge(child.birth_date) : null;
+              // 学年: データがあればそれを使用、なければ生年月日から計算
+              const gradeDisplay = child.grade_name || child.grade ||
+                (child.birth_date ? calculateGradeFromBirthDate(child.birth_date) : '');
               return (
                 <Card
                   key={child.id}
@@ -373,8 +376,8 @@ export default function ChildrenPage() {
                         </div>
                         <p className="text-sm text-gray-600 mb-2">
                           {age !== null && `${age}歳`}
-                          {age !== null && (child.grade_name || child.grade) && ' / '}
-                          {child.grade_name || child.grade || ''}
+                          {age !== null && gradeDisplay && ' / '}
+                          {gradeDisplay}
                         </p>
                         {child.school_name && (
                           <p className="text-xs text-gray-500">{child.school_name}</p>
