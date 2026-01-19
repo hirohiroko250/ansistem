@@ -126,22 +126,31 @@ def _calculate_single_enrollment_fee(
         calculated_price = (per_ticket * additional_tickets).quantize(Decimal('1'), rounding=ROUND_HALF_UP)
         calculation_detail = f'単価¥{per_ticket} × {additional_tickets}回 = ¥{calculated_price}'
 
-    elif item_type in [Product.ItemType.ENROLLMENT_MONTHLY_FEE, Product.ItemType.ENROLLMENT_FACILITY]:
+    elif item_type in [Product.ItemType.ENROLLMENT_MONTHLY_FEE, Product.ItemType.ENROLLMENT_FACILITY, Product.ItemType.FACILITY]:
         # 入会時月会費/設備費: 通常商品の月額 ÷ 月内授業回数 × 追加チケット数
-        regular_item_type = Product.ItemType.MONTHLY_FEE if item_type == Product.ItemType.ENROLLMENT_MONTHLY_FEE else Product.ItemType.FACILITY
-        regular_product = Product.objects.filter(
-            tenant_id=tenant_id,
-            product_code__startswith=f"{course.course_code}_",
-            item_type=regular_item_type,
-            is_active=True,
-            deleted_at__isnull=True
-        ).first()
-        monthly_price = regular_product.base_price if regular_product else base_price
+        # FACILITY タイプの場合は入会時設備費として処理
+        if item_type == Product.ItemType.ENROLLMENT_MONTHLY_FEE:
+            regular_item_type = Product.ItemType.MONTHLY_FEE
+        else:
+            regular_item_type = Product.ItemType.FACILITY
+
+        # 通常商品の価格を取得（FACILITYタイプの場合は自身を使用）
+        if item_type == Product.ItemType.FACILITY:
+            monthly_price = base_price
+        else:
+            regular_product = Product.objects.filter(
+                tenant_id=tenant_id,
+                product_code__startswith=f"{course.course_code}_",
+                item_type=regular_item_type,
+                is_active=True,
+                deleted_at__isnull=True
+            ).first()
+            monthly_price = regular_product.base_price if regular_product else base_price
 
         if total_classes_in_month > 0 and additional_tickets > 0:
             per_class = monthly_price / Decimal(str(total_classes_in_month))
             calculated_price = (per_class * additional_tickets).quantize(Decimal('1'), rounding=ROUND_HALF_UP)
-            calculation_detail = f'¥{monthly_price} ÷ {total_classes_in_month}回 × {additional_tickets}回 = ¥{calculated_price}'
+            calculation_detail = f'入会時設備費: ¥{monthly_price} ÷ {total_classes_in_month}回 × {additional_tickets}回 = ¥{calculated_price}'
         else:
             calculated_price = Decimal('0')
             calculation_detail = '追加チケットなし'

@@ -130,18 +130,31 @@ def get_enrollment_products_for_course(course: Course, tenant_id: str) -> List[P
                 products_list.append(enrollment_product)
                 print(f"[get_enrollment_products] Added brand-level enrollment fee: {enrollment_product.product_name}", file=sys.stderr)
 
-        # 入会時設備費がなければ通常の設備費から計算用に追加（設備費商品を取得）
-        # Note: 入会時設備費は calculate_enrollment_fees で通常設備費から計算される
+        # 入会時設備費がなければ通常の設備費を入会時設備費として追加
         if Product.ItemType.ENROLLMENT_FACILITY not in found_types:
+            # まずコースレベルの設備費を検索
             facility_product = Product.objects.filter(
                 tenant_id=tenant_id,
-                brand=brand,
+                product_code__startswith=f"{course_code}_",
                 item_type=Product.ItemType.FACILITY,
                 is_active=True,
                 deleted_at__isnull=True
             ).first()
+
+            # コースレベルになければブランドレベルを検索
+            if not facility_product:
+                facility_product = Product.objects.filter(
+                    tenant_id=tenant_id,
+                    brand=brand,
+                    item_type=Product.ItemType.FACILITY,
+                    is_active=True,
+                    deleted_at__isnull=True
+                ).first()
+
             if facility_product:
-                # 入会時設備費用の仮想商品を作成（設備費を元に計算）
-                print(f"[get_enrollment_products] Facility fee for enrollment calculation: {facility_product.product_name}", file=sys.stderr)
+                # 通常設備費を入会時設備費の代わりとして追加（item_typeを変更した仮想商品）
+                # Note: calculate_enrollment_fees でitem_typeをチェックして計算する
+                products_list.append(facility_product)
+                print(f"[get_enrollment_products] Added facility fee (as enrollment_facility): {facility_product.product_name}", file=sys.stderr)
 
     return products_list
