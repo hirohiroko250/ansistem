@@ -405,6 +405,22 @@ export default function ChildrenPage() {
             </Button>
           </div>
         )}
+
+        {/* アクションボタン */}
+        <div className="mt-8 space-y-3">
+          <Button
+            className="w-full h-14 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-bold text-lg"
+            onClick={() => router.push('/trial')}
+          >
+            体験授業はこちら
+          </Button>
+          <Button
+            className="w-full h-14 rounded-xl bg-green-600 hover:bg-green-700 text-white font-bold text-lg"
+            onClick={() => router.push('/ticket-purchase/from-ticket')}
+          >
+            チケット購入はこちら
+          </Button>
+        </div>
       </main>
 
       <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>

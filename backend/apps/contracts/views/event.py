@@ -92,6 +92,11 @@ class CertificationViewSet(CSVMixin, viewsets.ModelViewSet):
         if is_active is not None:
             queryset = queryset.filter(is_active=is_active.lower() == 'true')
 
+        # brand_id フィルター
+        brand_id = self.request.query_params.get('brand_id')
+        if brand_id:
+            queryset = queryset.filter(brand_id=brand_id)
+
         return queryset
 
     def get_serializer_class(self):

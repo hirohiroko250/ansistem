@@ -23,25 +23,35 @@ class PublicTrialBookingView(APIView):
             "student_id": "xxx",
             "school_id": "xxx",
             "brand_id": "xxx",
-            "schedule_id": "xxx",
+            "schedule_id": "xxx",  # SchoolSchedule ID または ClassSchedule ID
+            "class_schedule_id": "xxx",  # ClassSchedule ID（オプション）
             "trial_date": "2024-12-25",
             "notes": "備考"
         }
         """
         from apps.students.models import Student, TrialBooking
         from apps.tasks.models import Task
+        from apps.schools.models import School, ClassSchedule
+        from apps.schools.models import Brand
 
         student_id = request.data.get('student_id')
         school_id = request.data.get('school_id')
         brand_id = request.data.get('brand_id')
         schedule_id = request.data.get('schedule_id')
+        class_schedule_id = request.data.get('class_schedule_id')
         date_str = request.data.get('trial_date')
         notes = request.data.get('notes', '')
 
         # バリデーション
-        if not all([student_id, school_id, brand_id, schedule_id, date_str]):
+        if not all([student_id, school_id, brand_id, date_str]):
             return Response(
-                {'error': 'student_id, school_id, brand_id, schedule_id, trial_date are required'},
+                {'error': 'student_id, school_id, brand_id, trial_date are required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        if not schedule_id and not class_schedule_id:
+            return Response(
+                {'error': 'schedule_id or class_schedule_id is required'},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
@@ -59,11 +69,57 @@ class PublicTrialBookingView(APIView):
         except Student.DoesNotExist:
             return Response({'error': 'Student not found'}, status=status.HTTP_404_NOT_FOUND)
 
-        # スケジュールを取得
-        try:
-            schedule = SchoolSchedule.objects.select_related('school', 'brand', 'time_slot').get(id=schedule_id)
-        except SchoolSchedule.DoesNotExist:
-            return Response({'error': 'Schedule not found'}, status=status.HTTP_404_NOT_FOUND)
+        # スケジュールを取得（SchoolSchedule または ClassSchedule）
+        schedule = None
+        class_schedule = None
+        school = None
+        brand = None
+        time_slot = None
+        start_time = None
+        end_time = None
+        trial_capacity = 2
+
+        # まずSchoolScheduleを試す
+        if schedule_id:
+            try:
+                schedule = SchoolSchedule.objects.select_related('school', 'brand', 'time_slot').get(id=schedule_id)
+                school = schedule.school
+                brand = schedule.brand
+                time_slot = schedule.time_slot
+                start_time = time_slot.start_time
+                end_time = time_slot.end_time
+                trial_capacity = schedule.trial_capacity or 2
+            except SchoolSchedule.DoesNotExist:
+                # SchoolScheduleが見つからない場合、ClassScheduleを試す
+                try:
+                    class_schedule = ClassSchedule.objects.select_related('school', 'brand').get(id=schedule_id)
+                    school = class_schedule.school
+                    brand = class_schedule.brand
+                    start_time = class_schedule.start_time
+                    end_time = class_schedule.end_time
+                    trial_capacity = class_schedule.trial_capacity or 2
+                except ClassSchedule.DoesNotExist:
+                    pass
+
+        # class_schedule_idが指定されている場合
+        if not schedule and not class_schedule and class_schedule_id:
+            try:
+                class_schedule = ClassSchedule.objects.select_related('school', 'brand').get(id=class_schedule_id)
+                school = class_schedule.school
+                brand = class_schedule.brand
+                start_time = class_schedule.start_time
+                end_time = class_schedule.end_time
+                trial_capacity = class_schedule.trial_capacity or 2
+            except ClassSchedule.DoesNotExist:
+                pass
+
+        # どちらも見つからない場合は、school_idとbrand_idから取得
+        if not school and not brand:
+            try:
+                school = School.objects.get(id=school_id)
+                brand = Brand.objects.get(id=brand_id)
+            except (School.DoesNotExist, Brand.DoesNotExist):
+                return Response({'error': 'School or Brand not found'}, status=status.HTTP_404_NOT_FOUND)
 
         # LessonCalendarで休校日かチェック
         calendar_entry = LessonCalendar.objects.filter(
@@ -78,21 +134,26 @@ class PublicTrialBookingView(APIView):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        # 空き状況チェック
-        trial_capacity = schedule.trial_capacity or 2
-        if not TrialBooking.is_available(schedule_id, trial_date, trial_capacity):
+        # 空き状況チェック（ClassScheduleの場合はschedule_idの代わりにclass_schedule_idを使用）
+        check_id = schedule.id if schedule else (class_schedule.id if class_schedule else schedule_id)
+        if check_id and not TrialBooking.is_available(check_id, trial_date, trial_capacity):
             return Response(
                 {'error': 'この日時は満席です'},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
         # 既に予約済みかチェック
-        existing = TrialBooking.objects.filter(
-            student_id=student_id,
-            trial_date=trial_date,
-            schedule_id=schedule_id,
-            status__in=[TrialBooking.Status.PENDING, TrialBooking.Status.CONFIRMED]
-        ).exists()
+        existing_filter = {
+            'student_id': student_id,
+            'trial_date': trial_date,
+            'status__in': [TrialBooking.Status.PENDING, TrialBooking.Status.CONFIRMED]
+        }
+        if schedule:
+            existing_filter['schedule_id'] = schedule.id
+        elif class_schedule:
+            existing_filter['class_schedule_id'] = class_schedule.id
+
+        existing = TrialBooking.objects.filter(**existing_filter).exists()
 
         if existing:
             return Response(
@@ -117,26 +178,27 @@ class PublicTrialBookingView(APIView):
             tenant_id=tenant_id,
             student=student,
             guardian=guardian,
-            school=schedule.school,
-            brand=schedule.brand,
+            school=school,
+            brand=brand,
             trial_date=trial_date,
-            schedule=schedule,
-            time_slot=schedule.time_slot,
+            schedule=schedule,  # SchoolScheduleがある場合のみセット
+            class_schedule=class_schedule,  # ClassScheduleがある場合のみセット
+            time_slot=time_slot,  # SchoolScheduleがある場合のみセット
             status=TrialBooking.Status.PENDING,
             notes=notes,
         )
 
         # 作業一覧にタスクを作成
-        time_str = f"{schedule.time_slot.start_time.strftime('%H:%M')}-{schedule.time_slot.end_time.strftime('%H:%M')}"
+        time_str = f"{start_time.strftime('%H:%M')}-{end_time.strftime('%H:%M')}" if start_time and end_time else "時間未定"
         task = Task.objects.create(
             tenant_id=tenant_id,
             task_type='trial_registration',
             title=f'体験予約: {student.full_name} ({trial_date} {time_str})',
-            description=f'生徒: {student.full_name}\n校舎: {schedule.school.school_name}\nブランド: {schedule.brand.brand_name}\n日時: {trial_date} {time_str}\n備考: {notes}',
+            description=f'生徒: {student.full_name}\n校舎: {school.school_name}\nブランド: {brand.brand_name}\n日時: {trial_date} {time_str}\n備考: {notes}',
             status='new',
             priority='normal',
-            school=schedule.school,
-            brand=schedule.brand,
+            school=school,
+            brand=brand,
             student=student,
             guardian=guardian,
             source_type='trial_booking',
@@ -180,8 +242,8 @@ class PublicTrialBookingView(APIView):
                     content=f'体験授業のご予約ありがとうございます。\n\n'
                            f'【予約内容】\n'
                            f'お子様: {student.full_name}\n'
-                           f'校舎: {schedule.school.school_name}\n'
-                           f'ブランド: {schedule.brand.brand_name}\n'
+                           f'校舎: {school.school_name}\n'
+                           f'ブランド: {brand.brand_name}\n'
                            f'日時: {trial_date.strftime("%Y年%m月%d日")} {time_str}\n\n'
                            f'当日お待ちしております。',
                     is_bot_message=True,
@@ -193,10 +255,10 @@ class PublicTrialBookingView(APIView):
             'id': str(booking.id),
             'studentId': str(student.id),
             'studentName': student.full_name,
-            'schoolId': str(schedule.school.id),
-            'schoolName': schedule.school.school_name,
-            'brandId': str(schedule.brand.id),
-            'brandName': schedule.brand.brand_name,
+            'schoolId': str(school.id),
+            'schoolName': school.school_name,
+            'brandId': str(brand.id),
+            'brandName': brand.brand_name,
             'trialDate': trial_date.isoformat(),
             'time': time_str,
             'status': booking.status,

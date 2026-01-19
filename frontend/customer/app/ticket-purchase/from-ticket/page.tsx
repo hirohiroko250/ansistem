@@ -605,7 +605,42 @@ export default function FromTicketPurchasePage() {
         params.append('brand_id', selectedBrand.id);
         const response = await api.get<{ results?: typeof certifications } | typeof certifications>(`/contracts/certifications/?${params.toString()}`);
         const data = Array.isArray(response) ? response : (response.results || []);
-        setCertifications(data);
+
+        // 購入制限フィルター: 検定週と1週間前は購入不可
+        // exam_dateから14日以内（検定週 + 1週間前）は除外
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+
+        const filteredData = data.filter(cert => {
+          if (!cert.exam_date) return true; // exam_dateが未設定の場合は表示
+
+          const examDate = new Date(cert.exam_date);
+          examDate.setHours(0, 0, 0, 0);
+
+          // 検定週の開始日（日曜日）を計算
+          const examWeekStart = new Date(examDate);
+          const dayOfWeek = examDate.getDay(); // 0=日曜, 6=土曜
+          examWeekStart.setDate(examDate.getDate() - dayOfWeek);
+
+          // 1週間前の開始日
+          const restrictionStart = new Date(examWeekStart);
+          restrictionStart.setDate(examWeekStart.getDate() - 7);
+
+          // 検定週の終了日（土曜日）
+          const examWeekEnd = new Date(examWeekStart);
+          examWeekEnd.setDate(examWeekStart.getDate() + 6);
+
+          // 今日が制限期間内（1週間前〜検定週末）かチェック
+          const isRestricted = today >= restrictionStart && today <= examWeekEnd;
+
+          if (isRestricted) {
+            console.log(`[Certification] ${cert.certification_name} は購入制限期間中（${restrictionStart.toLocaleDateString()}〜${examWeekEnd.toLocaleDateString()}）`);
+          }
+
+          return !isRestricted;
+        });
+
+        setCertifications(filteredData);
       } catch (err) {
         setCertificationsError('検定情報の取得に失敗しました');
       } finally {
@@ -1192,9 +1227,33 @@ export default function FromTicketPurchasePage() {
     console.log('[availableItems] After grade filter:', afterGradeFilter.length, 'items');
     const afterTicketFilter = filterBySchoolTickets(afterGradeFilter);
     console.log('[availableItems] After ticket filter:', afterTicketFilter.length, 'items');
-    // 学年でフィルタリング → 校舎チケットでフィルタリング → 複数条件でソート
+
+    // ¥0のコース/パックを除外（表示ロジックと同じ方法で価格を判定）
+    const afterPriceFilter = afterTicketFilter.filter((item) => {
+      // 表示と同じロジック: tuitionPriceがあればそれを使用、なければitemsからtuitionを探す
+      let displayPrice = 0;
+      if ('tuitionPrice' in item && item.tuitionPrice) {
+        displayPrice = item.tuitionPrice;
+      } else if ('items' in item && item.items) {
+        const tuitionItem = item.items.find(
+          (i: { productType?: string }) => i.productType === 'tuition'
+        );
+        if (tuitionItem && 'price' in tuitionItem) {
+          displayPrice = (tuitionItem as { price: number }).price || 0;
+        }
+      }
+      // 表示価格が0より大きい場合のみ表示
+      const included = displayPrice > 0;
+      if (!included) {
+        console.log('[availableItems] Excluding ¥0 item:', 'courseName' in item ? item.courseName : (item as any).packName);
+      }
+      return included;
+    });
+    console.log('[availableItems] After price filter (excluding ¥0):', afterPriceFilter.length, 'items');
+
+    // 学年でフィルタリング → 校舎チケットでフィルタリング → 価格フィルタ → 複数条件でソート
     // ソート順: 校舎 → ブランド → 学年 → チケット
-    return sortByMultipleCriteria(afterTicketFilter);
+    return sortByMultipleCriteria(afterPriceFilter);
   })();
 
   // 料金計算（API レスポンスがあればそれを使用）
@@ -1215,31 +1274,14 @@ export default function FromTicketPurchasePage() {
     .filter(c => selectedCertifications.includes(c.id))
     .reduce((sum, c) => sum + c.exam_fee, 0);
 
-  // 合計金額: APIのgrandTotalを使用（入会金、教材費、割引を含む）
-  // 設備費は既存契約で請求済みのため除外
-  // マイル割引はフロントエンドで計算して引く
-  const facilityFeeTotal = (() => {
-    if (!pricingPreview?.billingByMonth) return 0;
-    const months = [
-      pricingPreview.billingByMonth.currentMonth,
-      pricingPreview.billingByMonth.month1,
-      pricingPreview.billingByMonth.month2,
-      pricingPreview.billingByMonth.month3,
-    ].filter(Boolean);
-    return months.reduce((total, month) => {
-      if (!month?.items) return total;
-      const facilityItems = month.items.filter((item: any) => item.itemType?.includes('facility'));
-      return total + facilityItems.reduce((sum: number, item: any) => sum + (item.priceWithTax || 0), 0);
-    }, 0);
-  })();
-
+  // 合計金額: APIのgrandTotalをそのまま使用
+  // grandTotalには入会金、設備費、教材費、当月分回数割、2〜3ヶ月目の月謝、割引が全て含まれている
+  // 注意: APIの割引（discounts）にはマイル割引が含まれているため、フロントエンドで再度引かない
   const totalAmount = itemType === 'seminar'
     ? seminarTotalAmount
     : itemType === 'certification'
     ? certificationTotalAmount
-    : pricingPreview?.grandTotal
-    ? pricingPreview.grandTotal - mileDiscountAmount - facilityFeeTotal  // APIで全て計算済み（マイル割引・設備費を引く）
-    : (selectedCourse?.price || 0) - mileDiscountAmount;  // フォールバック: コース価格のみ
+    : pricingPreview?.grandTotal ?? (selectedCourse?.price || 0);
 
   // コース名を取得するヘルパー関数
   const getCourseName = (course: PublicCourse | PublicPack): string => {

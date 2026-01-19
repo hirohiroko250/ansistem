@@ -59,6 +59,13 @@ class TrialBooking(TenantModel):
         related_name='trial_bookings',
         verbose_name='スケジュール枠'
     )
+    class_schedule = models.ForeignKey(
+        'schools.ClassSchedule',
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='trial_bookings',
+        verbose_name='クラススケジュール'
+    )
     time_slot = models.ForeignKey(
         'schools.TimeSlot',
         on_delete=models.SET_NULL,
@@ -97,9 +104,12 @@ class TrialBooking(TenantModel):
 
     @classmethod
     def get_booked_count(cls, schedule_id, trial_date):
-        """指定スケジュール・日付の予約数を取得"""
+        """指定スケジュール・日付の予約数を取得
+        schedule_idはSchoolSchedule.idまたはClassSchedule.idのどちらでも対応
+        """
+        from django.db.models import Q
         return cls.objects.filter(
-            schedule_id=schedule_id,
+            Q(schedule_id=schedule_id) | Q(class_schedule_id=schedule_id),
             trial_date=trial_date,
             status__in=[cls.Status.PENDING, cls.Status.CONFIRMED]
         ).count()

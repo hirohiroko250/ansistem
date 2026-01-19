@@ -300,8 +300,8 @@ export default function SignupPage() {
           expectations: formData.expectations || undefined,
         });
 
-        // 登録成功後、ホーム画面へ遷移
-        router.push('/');
+        // 登録成功後、子供追加画面へ遷移
+        router.push('/children');
       } catch (err) {
         let errorMessage = '登録に失敗しました。入力内容をご確認ください。';
 
@@ -383,7 +383,10 @@ export default function SignupPage() {
           {step === 1 && (
             <Card className="rounded-2xl shadow-lg mb-6">
               <CardContent className="p-6 space-y-5">
-                <h2 className="text-lg font-bold text-gray-800 mb-4">保護者情報</h2>
+                <div>
+                  <h2 className="text-lg font-bold text-gray-800">保護者情報</h2>
+                  <p className="text-sm text-orange-600 mt-1">※ 保護者名で登録してください</p>
+                </div>
 
                 <div className="grid grid-cols-2 gap-3">
                   <div>
