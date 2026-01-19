@@ -1146,6 +1146,8 @@ export type CalendarEvent = {
   roomName: string | null;
   calendarPattern: string | null;
   ticketName: string | null;
+  presentCount: number;
+  absentCount: number;
 };
 
 export type CalendarDay = {

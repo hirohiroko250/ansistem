@@ -1051,8 +1051,14 @@ export default function CalendarPage() {
                                       {event.lessonType}
                                     </Badge>
                                   )}
-                                  <span className="text-gray-500 flex-shrink-0 text-[9px]">
-                                    {event.enrolledCount}/{event.capacity}
+                                  <span className="flex-shrink-0 text-[9px] flex items-center gap-0.5">
+                                    {event.absentCount > 0 && (
+                                      <span className="text-red-600 font-medium">✗{event.absentCount}</span>
+                                    )}
+                                    {event.presentCount > 0 && (
+                                      <span className="text-green-600">✓{event.presentCount}</span>
+                                    )}
+                                    <span className="text-gray-400">/{event.capacity}</span>
                                   </span>
                                 </button>
                               );
@@ -1255,7 +1261,15 @@ export default function CalendarPage() {
                                   <div className="text-gray-600 flex items-center gap-1">
                                     <span>{event.startTime}</span>
                                     <span className="text-gray-400">|</span>
-                                    <span>{event.enrolledCount}/{event.capacity}</span>
+                                    <span className="flex items-center gap-0.5">
+                                      {event.absentCount > 0 && (
+                                        <span className="text-red-600 font-medium">✗{event.absentCount}</span>
+                                      )}
+                                      {event.presentCount > 0 && (
+                                        <span className="text-green-600">✓{event.presentCount}</span>
+                                      )}
+                                      <span className="text-gray-400">/{event.capacity}</span>
+                                    </span>
                                   </div>
                                 </button>
                               );

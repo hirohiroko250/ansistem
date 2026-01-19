@@ -9,6 +9,7 @@ from django.db.models import Count, Q
 
 from apps.core.permissions import IsTenantUser
 from apps.schools.models import LessonCalendar, ClassSchedule, SchoolClosure
+from apps.lessons.models import AbsenceTicket
 
 
 class AdminCalendarView(APIView):
@@ -103,6 +104,21 @@ class AdminCalendarView(APIView):
         ).values('class_schedule_id').annotate(count=Count('id'))
         enrollment_counts = {e['class_schedule_id']: e['count'] for e in enrollments}
 
+        # AbsenceTicketを取得（日別・スケジュール別の欠席数）
+        schedule_ids = [s.id for s in schedules_qs]
+        absence_tickets = AbsenceTicket.objects.filter(
+            class_schedule_id__in=schedule_ids,
+            absence_date__gte=first_day,
+            absence_date__lte=last_day,
+            status='issued',
+            deleted_at__isnull=True
+        ).values('class_schedule_id', 'absence_date').annotate(count=Count('id'))
+        # (schedule_id, date) -> absent_count のマッピング
+        absence_counts = {}
+        for at in absence_tickets:
+            key = (at['class_schedule_id'], at['absence_date'])
+            absence_counts[key] = at['count']
+
         # 日付ごとのカレンダーデータを生成
         calendar_data = []
         current_date = first_day
@@ -152,6 +168,12 @@ class AdminCalendarView(APIView):
                 # 受講者数
                 enrolled_count = enrollment_counts.get(sched.id, 0)
 
+                # 欠席数（当日のAbsenceTicket数）
+                absence_key = (sched.id, current_date)
+                absent_count = absence_counts.get(absence_key, 0)
+                # 出席数（受講者 - 欠席者）
+                present_count = max(0, enrolled_count - absent_count)
+
                 event_data = {
                     'id': str(sched.id),
                     'scheduleCode': sched.schedule_code,
@@ -176,6 +198,8 @@ class AdminCalendarView(APIView):
                     'roomName': sched.room.classroom_name if sched.room else sched.room_name,
                     'calendarPattern': sched.calendar_pattern,
                     'ticketName': sched.ticket_name,
+                    'presentCount': present_count,
+                    'absentCount': absent_count,
                 }
                 day_data['events'].append(event_data)
 
