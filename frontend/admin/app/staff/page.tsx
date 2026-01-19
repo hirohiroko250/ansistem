@@ -896,7 +896,7 @@ export default function StaffPage() {
               </div>
             )}
           </>
-        ) : (
+        ) : activeTab === 'groups' ? (
           <>
             {/* グループタブの内容 */}
             <div className="flex justify-end mb-4">
