@@ -66,12 +66,13 @@ def get_materials_fee_product(brand: Brand, course: Course, tenant_id: str, is_e
 def get_enrollment_products_for_course(course: Course, tenant_id: str) -> List[Product]:
     """コースに対応する入会時商品を自動取得
 
-    コースコードから入会時商品を検索して返す。
+    コースコードから入会時商品を検索し、見つからない場合はブランドレベルにフォールバック。
     例: コース 24AEC_1000007 の場合
         → 24AEC_1000007_50 (入会時授業料)
         → 24AEC_1000007_54 (入会時月会費)
         → 24AEC_1000007_55 (入会時設備費)
         → 24AEC_1000007_60 (入会時教材費)
+        → ブランドの入会金（コースレベルになければ）
 
     Args:
         course: コース
@@ -108,6 +109,39 @@ def get_enrollment_products_for_course(course: Course, tenant_id: str) -> List[P
         deleted_at__isnull=True
     ).order_by('product_code')
 
-    print(f"[get_enrollment_products] Course: {course_code}, Found: {products.count()} enrollment products", file=sys.stderr)
+    products_list = list(products)
+    found_types = {p.item_type for p in products_list}
 
-    return list(products)
+    print(f"[get_enrollment_products] Course: {course_code}, Found: {len(products_list)} enrollment products", file=sys.stderr)
+
+    # ブランドレベルの商品にフォールバック（コースレベルになければ）
+    brand = course.brand
+    if brand:
+        # 入会金がなければブランドの入会金を追加
+        if Product.ItemType.ENROLLMENT not in found_types:
+            enrollment_product = Product.objects.filter(
+                tenant_id=tenant_id,
+                brand=brand,
+                item_type=Product.ItemType.ENROLLMENT,
+                is_active=True,
+                deleted_at__isnull=True
+            ).first()
+            if enrollment_product:
+                products_list.append(enrollment_product)
+                print(f"[get_enrollment_products] Added brand-level enrollment fee: {enrollment_product.product_name}", file=sys.stderr)
+
+        # 入会時設備費がなければ通常の設備費から計算用に追加（設備費商品を取得）
+        # Note: 入会時設備費は calculate_enrollment_fees で通常設備費から計算される
+        if Product.ItemType.ENROLLMENT_FACILITY not in found_types:
+            facility_product = Product.objects.filter(
+                tenant_id=tenant_id,
+                brand=brand,
+                item_type=Product.ItemType.FACILITY,
+                is_active=True,
+                deleted_at__isnull=True
+            ).first()
+            if facility_product:
+                # 入会時設備費用の仮想商品を作成（設備費を元に計算）
+                print(f"[get_enrollment_products] Facility fee for enrollment calculation: {facility_product.product_name}", file=sys.stderr)
+
+    return products_list

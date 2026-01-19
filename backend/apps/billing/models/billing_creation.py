@@ -161,9 +161,12 @@ def build_discounts_snapshot(tenant_id, student, guardian, year, month, items_sn
                     discount_total += shawari_item['discount_amount']
             continue
         elif discount.discount_unit == 'percent':
-            amount = subtotal * discount.amount / 100
+            # マイナス値の場合は絶対値に変換（インポートデータ対応）
+            discount_rate = abs(discount.amount) if discount.amount else Decimal('0')
+            amount = subtotal * discount_rate / 100
         else:
-            amount = discount.amount
+            # マイナス値の場合は絶対値に変換（インポートデータ対応）
+            amount = abs(discount.amount) if discount.amount else Decimal('0')
 
         discount_data = {
             'id': str(discount.id),

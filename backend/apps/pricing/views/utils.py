@@ -307,6 +307,63 @@ def calculate_prorated_current_month_fees_multiple(
             result['monthly_fee'] = fee_info
             result['total_prorated'] += prorated_price
 
+    # CourseItemsに設備費・月会費がない場合、ブランドレベルにフォールバック
+    brand = course.brand
+    if brand and course.tenant_id:
+        # 設備費のフォールバック
+        if result['facility_fee'] is None:
+            facility_product = Product.objects.filter(
+                tenant_id=course.tenant_id,
+                brand=brand,
+                item_type=Product.ItemType.FACILITY,
+                is_active=True,
+                deleted_at__isnull=True
+            ).first()
+            if facility_product:
+                tax_rate = facility_product.tax_rate or Decimal('0.1')
+                base_price = facility_product.base_price or Decimal('0')
+                full_price_with_tax = int(base_price * (1 + tax_rate))
+                prorated_price = int(Decimal(str(full_price_with_tax)) * proration['ratio'])
+                result['facility_fee'] = {
+                    'product': facility_product,
+                    'product_id': str(facility_product.id),
+                    'product_name': facility_product.product_name,
+                    'full_price': full_price_with_tax,
+                    'prorated_price': prorated_price,
+                    'remaining_count': proration['remaining_count'],
+                    'total_count': proration['total_count'],
+                    'ratio': float(proration['ratio']),
+                    'dates': [d.isoformat() for d in proration['dates']],
+                }
+                result['total_prorated'] += prorated_price
+
+        # 月会費のフォールバック
+        if result['monthly_fee'] is None:
+            monthly_product = Product.objects.filter(
+                tenant_id=course.tenant_id,
+                brand=brand,
+                item_type=Product.ItemType.MONTHLY_FEE,
+                is_active=True,
+                deleted_at__isnull=True
+            ).first()
+            if monthly_product:
+                tax_rate = monthly_product.tax_rate or Decimal('0.1')
+                base_price = monthly_product.base_price or Decimal('0')
+                full_price_with_tax = int(base_price * (1 + tax_rate))
+                prorated_price = int(Decimal(str(full_price_with_tax)) * proration['ratio'])
+                result['monthly_fee'] = {
+                    'product': monthly_product,
+                    'product_id': str(monthly_product.id),
+                    'product_name': monthly_product.product_name,
+                    'full_price': full_price_with_tax,
+                    'prorated_price': prorated_price,
+                    'remaining_count': proration['remaining_count'],
+                    'total_count': proration['total_count'],
+                    'ratio': float(proration['ratio']),
+                    'dates': [d.isoformat() for d in proration['dates']],
+                }
+                result['total_prorated'] += prorated_price
+
     return result
 
 
@@ -409,6 +466,65 @@ def calculate_prorated_current_month_fees(
         elif product.item_type == Product.ItemType.MONTHLY_FEE:
             result['monthly_fee'] = fee_info
             result['total_prorated'] += prorated_price
+
+    # CourseItemsに設備費・月会費がない場合、ブランドレベルにフォールバック
+    brand = course.brand
+    if brand and course.tenant_id:
+        # 設備費のフォールバック
+        if result['facility_fee'] is None:
+            facility_product = Product.objects.filter(
+                tenant_id=course.tenant_id,
+                brand=brand,
+                item_type=Product.ItemType.FACILITY,
+                is_active=True,
+                deleted_at__isnull=True
+            ).first()
+            if facility_product:
+                tax_rate = facility_product.tax_rate or Decimal('0.1')
+                base_price = facility_product.base_price or Decimal('0')
+                full_price_with_tax = int(base_price * (1 + tax_rate))
+                prorated_price = int(Decimal(str(full_price_with_tax)) * proration['ratio'])
+                result['facility_fee'] = {
+                    'product': facility_product,
+                    'product_id': str(facility_product.id),
+                    'product_name': facility_product.product_name,
+                    'full_price': full_price_with_tax,
+                    'prorated_price': prorated_price,
+                    'remaining_count': proration['remaining_count'],
+                    'total_count': proration['total_count'],
+                    'ratio': float(proration['ratio']),
+                    'dates': [d.isoformat() for d in proration['dates']],
+                }
+                result['total_prorated'] += prorated_price
+                print(f"[calculate_prorated] Added brand-level facility fee: ¥{prorated_price}", file=sys.stderr)
+
+        # 月会費のフォールバック
+        if result['monthly_fee'] is None:
+            monthly_product = Product.objects.filter(
+                tenant_id=course.tenant_id,
+                brand=brand,
+                item_type=Product.ItemType.MONTHLY_FEE,
+                is_active=True,
+                deleted_at__isnull=True
+            ).first()
+            if monthly_product:
+                tax_rate = monthly_product.tax_rate or Decimal('0.1')
+                base_price = monthly_product.base_price or Decimal('0')
+                full_price_with_tax = int(base_price * (1 + tax_rate))
+                prorated_price = int(Decimal(str(full_price_with_tax)) * proration['ratio'])
+                result['monthly_fee'] = {
+                    'product': monthly_product,
+                    'product_id': str(monthly_product.id),
+                    'product_name': monthly_product.product_name,
+                    'full_price': full_price_with_tax,
+                    'prorated_price': prorated_price,
+                    'remaining_count': proration['remaining_count'],
+                    'total_count': proration['total_count'],
+                    'ratio': float(proration['ratio']),
+                    'dates': [d.isoformat() for d in proration['dates']],
+                }
+                result['total_prorated'] += prorated_price
+                print(f"[calculate_prorated] Added brand-level monthly fee: ¥{prorated_price}", file=sys.stderr)
 
     return result
 
@@ -515,5 +631,38 @@ def get_monthly_tuition_prices(course: Course, start_date: date) -> dict:
         elif product.item_type == Product.ItemType.MONTHLY_FEE:
             base_price = product.base_price or Decimal('0')
             result['monthlyFee'] = int(base_price * (1 + tax_rate))
+
+    # CourseItemsに設備費・月会費がない場合、ブランドレベルにフォールバック
+    brand = course.brand
+    if brand and course.tenant_id:
+        # 設備費のフォールバック
+        if result['facilityFee'] == 0:
+            facility_product = Product.objects.filter(
+                tenant_id=course.tenant_id,
+                brand=brand,
+                item_type=Product.ItemType.FACILITY,
+                is_active=True,
+                deleted_at__isnull=True
+            ).first()
+            if facility_product:
+                tax_rate = facility_product.tax_rate or Decimal('0.1')
+                base_price = facility_product.base_price or Decimal('0')
+                result['facilityFee'] = int(base_price * (1 + tax_rate))
+                print(f"[get_monthly_tuition_prices] Added brand-level facility fee: {facility_product.product_name} = ¥{result['facilityFee']}", file=sys.stderr)
+
+        # 月会費のフォールバック
+        if result['monthlyFee'] == 0:
+            monthly_product = Product.objects.filter(
+                tenant_id=course.tenant_id,
+                brand=brand,
+                item_type=Product.ItemType.MONTHLY_FEE,
+                is_active=True,
+                deleted_at__isnull=True
+            ).first()
+            if monthly_product:
+                tax_rate = monthly_product.tax_rate or Decimal('0.1')
+                base_price = monthly_product.base_price or Decimal('0')
+                result['monthlyFee'] = int(base_price * (1 + tax_rate))
+                print(f"[get_monthly_tuition_prices] Added brand-level monthly fee: {monthly_product.product_name} = ¥{result['monthlyFee']}", file=sys.stderr)
 
     return result
