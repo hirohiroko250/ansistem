@@ -44,7 +44,10 @@ class StudentItemSerializer(serializers.ModelSerializer):
         return obj.student.student_no if obj.student else None
 
     def get_product_name(self, obj):
-        return obj.product.product_name if obj.product else None
+        if obj.product:
+            return obj.product.product_name
+        # productがない場合はnotesをフォールバック（インポートデータ用）
+        return obj.notes or None
 
     def get_product_code(self, obj):
         return obj.product.product_code if obj.product else None
