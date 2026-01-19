@@ -217,7 +217,7 @@ class PublicTrialBookingView(APIView):
 
         # チャット通知を送信
         try:
-            from apps.communications.models import Channel, Message
+            from apps.communications.models import Channel, ChannelMember, Message
 
             channel = None
             if guardian:
@@ -233,6 +233,23 @@ class PublicTrialBookingView(APIView):
                         name=f'{guardian.full_name}',
                         guardian=guardian,
                     )
+                    # チャンネルメンバーを作成（保護者がチャンネルを見れるようにする）
+                    if guardian.user:
+                        ChannelMember.objects.create(
+                            channel=channel,
+                            user=guardian.user,
+                            guardian=guardian,
+                            role=ChannelMember.Role.MEMBER,
+                        )
+                else:
+                    # 既存チャンネルの場合もメンバーが存在するか確認
+                    if guardian.user and not channel.members.filter(user=guardian.user).exists():
+                        ChannelMember.objects.create(
+                            channel=channel,
+                            user=guardian.user,
+                            guardian=guardian,
+                            role=ChannelMember.Role.MEMBER,
+                        )
 
             if channel:
                 Message.objects.create(

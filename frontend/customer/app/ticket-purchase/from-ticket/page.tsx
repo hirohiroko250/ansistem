@@ -773,7 +773,7 @@ export default function FromTicketPurchasePage() {
         selectedClassesPerTicket.forEach((selection) => {
           schedules.push({
             id: selection.schedule.id,
-            dayOfWeek: selection.dayOfWeek + '曜日',  // "火" -> "火曜日" に変換
+            dayOfWeek: selection.dayOfWeek,  // 既に "火曜日" 形式で保存されている
             startTime: selection.time,
             endTime: selection.schedule.endTime || '',
             className: selection.schedule.className,
@@ -785,7 +785,7 @@ export default function FromTicketPurchasePage() {
         for (const selection of selectedWeeklySchedules) {
           schedules.push({
             id: selection.schedule.id,
-            dayOfWeek: selection.dayOfWeek + '曜日',  // "火" -> "火曜日" に変換
+            dayOfWeek: selection.dayOfWeek,  // 既に "火曜日" 形式で保存されている
             startTime: selection.time,
             endTime: selection.schedule.endTime || '',
             className: selection.schedule.className,
@@ -2508,8 +2508,18 @@ export default function FromTicketPurchasePage() {
                               {dayLabels.map((label, dayIdx) => {
                                 const dayData = timeSlot.days[label];
                                 const status = dayData?.status || 'none';
-                                const canSelect = status !== 'none' && status !== 'full';
                                 const dayOfWeekName = label + '曜日';
+                                // 既に選択済みかどうかチェック（同じ曜日・時間帯の重複選択を防止）
+                                // 単体コースの複数週次選択と、パックの複数チケット選択の両方をチェック
+                                // dayOfWeekは「水曜日」形式で保存されているため、dayOfWeekNameと比較する
+                                const isAlreadySelectedWeekly = selectedWeeklySchedules.some(
+                                  s => s.time === timeSlot.time && s.dayOfWeek === dayOfWeekName
+                                );
+                                const isAlreadySelectedPack = Array.from(selectedClassesPerTicket.values()).some(
+                                  s => s.time === timeSlot.time && s.dayOfWeek === dayOfWeekName
+                                );
+                                const isAlreadySelected = isAlreadySelectedWeekly || isAlreadySelectedPack;
+                                const canSelect = status !== 'none' && status !== 'full' && !isAlreadySelected;
                                 const isSelected = selectedTime === timeSlot.time && selectedDayOfWeek === dayOfWeekName;
 
                                 return (
@@ -2517,6 +2527,7 @@ export default function FromTicketPurchasePage() {
                                     key={dayIdx}
                                     className={`text-center py-3 px-2 ${canSelect ? 'cursor-pointer hover:bg-blue-50' : ''
                                       } ${isSelected ? 'bg-blue-100' : ''
+                                      } ${isAlreadySelected ? 'bg-green-100' : ''
                                       }`}
                                     onClick={() => {
                                       if (canSelect) {
@@ -2524,7 +2535,7 @@ export default function FromTicketPurchasePage() {
                                       }
                                     }}
                                   >
-                                    {getStatusIcon(status)}
+                                    {isAlreadySelected ? <CheckCircle2 className="h-4 w-4 text-green-600 mx-auto" /> : getStatusIcon(status)}
                                   </td>
                                 );
                               })}
