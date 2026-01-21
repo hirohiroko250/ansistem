@@ -18,7 +18,7 @@ from rest_framework.parsers import MultiPartParser, FormParser
 
 ALLOWED_IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.gif', '.webp']
 ALLOWED_VIDEO_EXTENSIONS = ['.mp4', '.webm', '.mov', '.avi']
-MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB
+MAX_FILE_SIZE = 150 * 1024 * 1024  # 150MB
 
 
 @api_view(['POST'])
