@@ -1022,19 +1022,72 @@ export function StudentDetail({ student, parents, contracts, invoices, contactLo
 
   return (
     <div className="h-full flex flex-col bg-white">
-      {/* ヘッダー */}
+      {/* ヘッダー - ファーストビューで重要情報を表示 */}
       <div className="bg-gradient-to-r from-blue-600 to-blue-700 text-white p-4">
-        <div className="flex items-start justify-between">
+        <div className="flex items-start justify-between mb-3">
           <div>
             <h2 className="text-xl font-bold">{lastName} {firstName}</h2>
             <p className="text-blue-100 text-sm">{lastNameKana} {firstNameKana}</p>
-            <p className="text-blue-200 text-xs mt-1">No. {studentNo}</p>
           </div>
-          <div className="flex items-center gap-2">
-            <Badge className={getStatusColor(student.status)}>
-              {getStatusLabel(student.status)}
-            </Badge>
-{/* 保護者画面ボタン - ユーザーアカウント作成後に有効化予定 */}
+          <Badge className={getStatusColor(student.status)}>
+            {getStatusLabel(student.status)}
+          </Badge>
+        </div>
+
+        {/* 生徒・保護者の主要情報 */}
+        <div className="grid grid-cols-2 gap-4 text-sm">
+          {/* 生徒情報 */}
+          <div className="bg-white/10 rounded p-2">
+            <div className="grid grid-cols-2 gap-x-3 gap-y-1">
+              <div>
+                <span className="text-blue-200 text-xs">生徒ID</span>
+                <p className="font-mono">{studentNo}</p>
+              </div>
+              <div>
+                <span className="text-blue-200 text-xs">学年</span>
+                <p>{gradeText || "-"}</p>
+              </div>
+              <div>
+                <span className="text-blue-200 text-xs">性別</span>
+                <p>{gender === "male" ? "男" : gender === "female" ? "女" : "-"}</p>
+              </div>
+              <div>
+                <span className="text-blue-200 text-xs">校舎</span>
+                <p className="truncate">{schoolName || "-"}</p>
+              </div>
+            </div>
+          </div>
+
+          {/* 保護者情報 */}
+          <div className="bg-white/10 rounded p-2">
+            <div className="space-y-1">
+              <div className="flex justify-between items-center">
+                <div>
+                  <span className="text-blue-200 text-xs">保護者</span>
+                  <p>{guardianName || "-"}</p>
+                </div>
+                {guardian && (
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    className="h-6 text-xs bg-white/20 hover:bg-white/30 text-white border-0"
+                    onClick={() => guardian && openGuardianView(guardian)}
+                    disabled={isOpeningGuardianView}
+                  >
+                    <ExternalLink className="w-3 h-3 mr-1" />
+                    保護者画面
+                  </Button>
+                )}
+              </div>
+              <div>
+                <span className="text-blue-200 text-xs">TEL</span>
+                <p className="font-mono text-xs">{guardianPhone || "-"}</p>
+              </div>
+              <div>
+                <span className="text-blue-200 text-xs">Mail</span>
+                <p className="text-xs truncate">{guardianEmail || "-"}</p>
+              </div>
+            </div>
           </div>
         </div>
       </div>

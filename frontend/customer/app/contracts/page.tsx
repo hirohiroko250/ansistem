@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { ja } from 'date-fns/locale';
+import { AuthGuard } from '@/components/auth';
 
 const STATUS_LABELS: Record<string, { label: string; color: string }> = {
   draft: { label: '下書き', color: 'bg-gray-100 text-gray-800' },
@@ -41,7 +42,7 @@ const STATUS_OPTIONS = [
   { value: 'expired', label: '期限切れ' },
 ];
 
-export default function ContractsPage() {
+function ContractsContent() {
   const router = useRouter();
   const [authChecking, setAuthChecking] = useState(true);
   const [isStaff, setIsStaff] = useState(false);
@@ -343,5 +344,14 @@ export default function ContractsPage() {
 
       <BottomTabBar />
     </div>
+  );
+}
+
+
+export default function ContractsPage() {
+  return (
+    <AuthGuard>
+      <ContractsContent />
+    </AuthGuard>
   );
 }

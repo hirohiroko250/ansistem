@@ -325,3 +325,7 @@ npm install @tanstack/react-query
 | 2026-01-21 | Phase 4: React Query導入（Providers, カスタムフック5種類作成）完了 | - |
 | 2026-01-21 | Phase 5: SSR最適化（middleware, AuthGuard, メタデータ設定）完了 | - |
 | 2026-01-21 | Phase 4&5実装: AuthGuard/GuestGuard適用、React Queryフック移行、ビルド確認完了 | - |
+| 2026-01-21 | 追加実装: childrenページをuseStudents/useAddStudentフックに移行、最終ビルド確認完了 | - |
+| 2026-01-21 | Phase 3: signupフォームを新onboarding APIに接続完了 | - |
+| 2026-01-21 | Phase 2: signupフォームにバリデーションフック（blur時重複チェック）適用完了 | - |
+| 2026-01-21 | Phase 5: 追加ページへのAuthGuard適用（settings/*, chat/[id], children/[id], contracts, schedule, history, students）完了 | - |

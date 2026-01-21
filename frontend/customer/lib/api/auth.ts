@@ -57,20 +57,33 @@ export async function login(credentials: LoginRequest): Promise<LoginResponse> {
 }
 
 /**
- * 新規登録
+ * 新規登録（Onboarding API使用）
  * @param data - 登録情報（メール、パスワード、氏名）
- * @returns 登録レスポンス（トークン + ユーザー情報）
+ * @returns 登録レスポンス（トークン + ユーザー・保護者情報）
  */
 export async function register(data: RegisterRequest): Promise<RegisterResponse> {
-  const response = await api.post<RegisterResponse>('/auth/register/', data, {
+  // camelCase → snake_case 変換
+  const payload = {
+    email: data.email,
+    password: data.password,
+    full_name: data.fullName,
+    full_name_kana: data.fullNameKana,
+    phone: data.phone,
+    postal_code: data.postalCode,
+    prefecture: data.prefecture,
+    city: data.city,
+    address1: data.address1,
+    address2: data.address2,
+    nearest_school_id: data.nearestSchoolId,
+    interested_brands: data.interestedBrands,
+    referral_source: data.referralSource,
+    expectations: data.expectations,
+  };
+
+  const response = await api.post<RegisterResponse>('/onboarding/register/', payload, {
     skipAuth: true,
   });
   setTokens({ access: response.tokens.access, refresh: response.tokens.refresh });
-
-  // テナントIDを保存
-  if (response.user.tenantId) {
-    setTenantId(response.user.tenantId);
-  }
 
   return response;
 }

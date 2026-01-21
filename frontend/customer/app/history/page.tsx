@@ -1,5 +1,7 @@
 'use client';
 
+import { AuthGuard } from '@/components/auth';
+
 import { useState, useEffect, useCallback } from 'react';
 import { ChevronLeft, Loader2, Calendar, Ticket, X, RefreshCw, CreditCard, UserMinus, PartyPopper, Filter } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
@@ -80,7 +82,7 @@ const FILTER_OPTIONS = [
   { value: 'event', label: 'イベント' },
 ];
 
-export default function HistoryPage() {
+function HistoryContent() {
   const router = useRouter();
   const [historyItems, setHistoryItems] = useState<HistoryItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -324,5 +326,13 @@ export default function HistoryPage() {
 
       <BottomTabBar />
     </div>
+  );
+}
+
+export default function HistoryPage() {
+  return (
+    <AuthGuard>
+      <HistoryContent />
+    </AuthGuard>
   );
 }

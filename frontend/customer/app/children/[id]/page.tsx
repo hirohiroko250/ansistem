@@ -14,6 +14,7 @@ import Link from 'next/link';
 import { getChildDetail, updateStudent, getStudentQRCode, QRCodeInfo } from '@/lib/api/students';
 import { useToast } from '@/hooks/use-toast';
 import { QRCodeCanvas } from 'qrcode.react';
+import { AuthGuard } from '@/components/auth';
 
 type ChildDetail = {
   id: string;
@@ -53,7 +54,7 @@ type ChildDetail = {
   updated_at?: string;
 };
 
-export default function ChildDetailPage() {
+function ChildDetailContent() {
   const params = useParams();
   const router = useRouter();
   const { toast } = useToast();
@@ -619,5 +620,14 @@ export default function ChildDetailPage() {
 
       <BottomTabBar />
     </div>
+  );
+}
+
+
+export default function ChildDetailPage() {
+  return (
+    <AuthGuard>
+      <ChildDetailContent />
+    </AuthGuard>
   );
 }

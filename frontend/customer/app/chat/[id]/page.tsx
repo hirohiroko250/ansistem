@@ -11,6 +11,7 @@ import Image from 'next/image';
 import { useParams, useSearchParams } from 'next/navigation';
 import { getChannel, getMessages, sendMessage, markChannelAsRead, chatWithBot, deleteMessage } from '@/lib/api/chat';
 import type { Channel, Message } from '@/lib/api/types';
+import { AuthGuard } from '@/components/auth';
 
 // AIアシスタントのID
 const AI_ASSISTANT_ID = 'ai-assistant';
@@ -147,7 +148,7 @@ function getCurrentUserId(): string {
   return '';
 }
 
-export default function ChatConversationPage() {
+function ChatConversationContent() {
   const params = useParams();
   const searchParams = useSearchParams();
   const channelId = params.id as string;
@@ -775,5 +776,14 @@ export default function ChatConversationPage() {
 
       <BottomTabBar />
     </div>
+  );
+}
+
+
+export default function ChatConversationPage() {
+  return (
+    <AuthGuard>
+      <ChatConversationContent />
+    </AuthGuard>
   );
 }

@@ -1,5 +1,7 @@
 'use client';
 
+import { AuthGuard } from '@/components/auth';
+
 import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -38,7 +40,7 @@ const STATUS_LABELS: Record<string, { label: string; color: string }> = {
 
 type ViewMode = 'list' | 'calendar';
 
-export default function SchedulePage() {
+function ScheduleContent() {
   const router = useRouter();
   const [authChecking, setAuthChecking] = useState(true);
   const [isStaff, setIsStaff] = useState(false);
@@ -454,5 +456,13 @@ export default function SchedulePage() {
 
       <BottomTabBar />
     </div>
+  );
+}
+
+export default function SchedulePage() {
+  return (
+    <AuthGuard>
+      <ScheduleContent />
+    </AuthGuard>
   );
 }

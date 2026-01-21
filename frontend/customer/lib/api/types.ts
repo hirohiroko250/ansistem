@@ -95,11 +95,24 @@ export interface LoginResponse {
 }
 
 export interface RegisterResponse {
+  success: boolean;
+  message: string;
   tokens: {
     access: string;
     refresh: string;
   };
-  user: Profile;
+  user: {
+    id: string;
+    email: string;
+    fullName: string;
+  };
+  guardian: {
+    id: string;
+    guardianNo: string;
+  };
+  channel?: {
+    id: string;
+  } | null;
 }
 
 export interface RefreshRequest {

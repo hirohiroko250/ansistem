@@ -10,7 +10,8 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { ChevronLeft, Loader2 } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { register, checkEmail, checkPhone } from '@/lib/api/auth';
+import { register } from '@/lib/api/auth';
+import { useEmailValidation, usePhoneValidation } from '@/hooks/use-field-validation';
 import { getPrefectures, getAreas, getSchoolsByArea } from '@/lib/api/schools';
 import type { ApiError, Area, PublicSchool } from '@/lib/api/types';
 import { GuestGuard } from '@/components/auth';
@@ -80,6 +81,10 @@ function SignupContent() {
   });
   const [errors, setErrors] = useState({ email: '', phone: '', password: '', api: '' });
   const [isLoading, setIsLoading] = useState(false);
+
+  // バリデーションフック（blur時に非同期バリデーション）
+  const emailValidation = useEmailValidation(() => formData.email);
+  const phoneValidation = usePhoneValidation(() => formData.phone);
 
   // IME入力追跡用
   const lastNameCompositionRef = useRef<string>('');
@@ -241,34 +246,22 @@ function SignupContent() {
         newErrors.password = 'パスワードが一致しません';
       }
 
-      if (newErrors.email || newErrors.password) {
-        setErrors(newErrors);
+      // バリデーションフックからのエラーをチェック
+      if (emailValidation.error) {
+        newErrors.email = emailValidation.error;
+      }
+      if (phoneValidation.error) {
+        newErrors.phone = phoneValidation.error;
+      }
+
+      // バリデーション中の場合は待機
+      if (emailValidation.isValidating || phoneValidation.isValidating) {
         return;
       }
 
-      // メールアドレスと電話番号の重複チェック
-      setIsLoading(true);
-      try {
-        // メールアドレスチェック
-        const emailResult = await checkEmail(formData.email);
-        if (!emailResult.available) {
-          setErrors({ email: emailResult.message, phone: '', password: '', api: '' });
-          setIsLoading(false);
-          return;
-        }
-
-        // 電話番号チェック
-        const phoneResult = await checkPhone(formData.phone);
-        if (!phoneResult.available) {
-          setErrors({ email: '', phone: phoneResult.message, password: '', api: '' });
-          setIsLoading(false);
-          return;
-        }
-      } catch (err) {
-        // APIエラーの場合は次のステップへ進める（登録時に再チェック）
-        console.error('Validation check failed:', err);
-      } finally {
-        setIsLoading(false);
+      if (newErrors.email || newErrors.phone || newErrors.password) {
+        setErrors(newErrors);
+        return;
       }
 
       setErrors({ email: '', phone: '', password: '', api: '' });
@@ -461,14 +454,21 @@ function SignupContent() {
                     inputMode="numeric"
                     placeholder="09012345678"
                     value={formData.phone}
-                    onChange={handlePhoneChange}
-                    className={`rounded-xl h-12 ${errors.phone ? 'border-red-500' : ''}`}
+                    onChange={(e) => {
+                      handlePhoneChange(e);
+                      phoneValidation.onChange();
+                    }}
+                    onBlur={phoneValidation.onBlur}
+                    className={`rounded-xl h-12 ${errors.phone || phoneValidation.error ? 'border-red-500' : ''}`}
                     maxLength={11}
                     required
                   />
                   <p className="text-xs text-gray-500 mt-1">ハイフンなしで入力してください</p>
-                  {errors.phone && (
-                    <p className="text-xs text-red-600 mt-1">{errors.phone}</p>
+                  {phoneValidation.isValidating && (
+                    <p className="text-xs text-blue-600 mt-1">確認中...</p>
+                  )}
+                  {(errors.phone || phoneValidation.error) && (
+                    <p className="text-xs text-red-600 mt-1">{errors.phone || phoneValidation.error}</p>
                   )}
                 </div>
 
@@ -481,10 +481,20 @@ function SignupContent() {
                     type="email"
                     placeholder="example@mail.com"
                     value={formData.email}
-                    onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                    className="rounded-xl h-12"
+                    onChange={(e) => {
+                      setFormData({ ...formData, email: e.target.value });
+                      emailValidation.onChange();
+                    }}
+                    onBlur={emailValidation.onBlur}
+                    className={`rounded-xl h-12 ${emailValidation.error ? 'border-red-500' : ''}`}
                     required
                   />
+                  {emailValidation.isValidating && (
+                    <p className="text-xs text-blue-600 mt-1">確認中...</p>
+                  )}
+                  {emailValidation.error && (
+                    <p className="text-xs text-red-600 mt-1">{emailValidation.error}</p>
+                  )}
                 </div>
 
                 <div>

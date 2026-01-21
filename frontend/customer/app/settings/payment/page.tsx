@@ -21,8 +21,9 @@ import {
   type PaymentInfo,
   type PassbookData
 } from '@/lib/api/payment';
+import { AuthGuard } from '@/components/auth';
 
-export default function PaymentPage() {
+function PaymentContent() {
   const [payment, setPayment] = useState<PaymentInfo | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -316,5 +317,13 @@ export default function PaymentPage() {
 
       <BottomTabBar />
     </div>
+  );
+}
+
+export default function PaymentPage() {
+  return (
+    <AuthGuard>
+      <PaymentContent />
+    </AuthGuard>
   );
 }

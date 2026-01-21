@@ -143,15 +143,19 @@ class StudentViewSet(StudentItemsMixin, CSVMixin, viewsets.ModelViewSet):
         if guardian_id:
             queryset = queryset.filter(guardian_id=guardian_id)
 
-        # 検索
+        # ID検索（完全一致）
+        student_no = self.request.query_params.get('student_no')
+        if student_no:
+            queryset = queryset.filter(student_no=student_no.strip())
+
+        # 名前・電話番号検索（曖昧一致）
         search = self.request.query_params.get('search')
         if search:
             # 電話番号検索用に数字のみを抽出
             search_digits = ''.join(filter(str.isdigit, search))
 
-            # ID検索は完全一致、名前・電話番号は曖昧一致
+            # 名前・電話番号は曖昧一致
             q_filter = (
-                Q(student_no=search) |  # 生徒番号は完全一致
                 Q(last_name__icontains=search) |
                 Q(first_name__icontains=search) |
                 Q(last_name_kana__icontains=search) |

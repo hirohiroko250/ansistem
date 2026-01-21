@@ -11,8 +11,9 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { getMe, updateProfile } from '@/lib/api/auth';
 import type { Profile, ApiError } from '@/lib/api/types';
+import { AuthGuard } from '@/components/auth';
 
-export default function ProfileEditPage() {
+function ProfileEditContent() {
   const router = useRouter();
   const [profile, setProfile] = useState<Profile | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -366,5 +367,13 @@ export default function ProfileEditPage() {
 
       <BottomTabBar />
     </div>
+  );
+}
+
+export default function ProfileEditPage() {
+  return (
+    <AuthGuard>
+      <ProfileEditContent />
+    </AuthGuard>
   );
 }

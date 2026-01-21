@@ -723,6 +723,7 @@ export interface DashboardData {
 
 export interface StudentFilters {
   search?: string;
+  student_no?: string;
   brand_category_id?: string;
   brand_id?: string;
   school_id?: string;

@@ -10,8 +10,9 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { changePassword, requestPasswordReset } from '@/lib/api/auth';
 import type { ApiError } from '@/lib/api/types';
+import { AuthGuard } from '@/components/auth';
 
-export default function SettingsPasswordPage() {
+function SettingsPasswordContent() {
   const router = useRouter();
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -376,5 +377,13 @@ export default function SettingsPasswordPage() {
         </Card>
       </main>
     </div>
+  );
+}
+
+export default function SettingsPasswordPage() {
+  return (
+    <AuthGuard>
+      <SettingsPasswordContent />
+    </AuthGuard>
   );
 }

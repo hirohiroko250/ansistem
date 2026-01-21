@@ -56,6 +56,7 @@ export default function StudentsPage() {
     page_size: 50,
   });
   const [searchQuery, setSearchQuery] = useState("");
+  const [idSearchQuery, setIdSearchQuery] = useState("");
   const [hasSearched, setHasSearched] = useState(false);
   const [selectedStudentId, setSelectedStudentId] = useState<string>();
   const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
@@ -256,6 +257,7 @@ export default function StudentsPage() {
     setFilters((prev) => ({
       ...prev,
       search: searchQuery || undefined,
+      student_no: idSearchQuery || undefined,
       page: 1,
     }));
   }
@@ -351,11 +353,26 @@ export default function StudentsPage() {
 
         <div className="space-y-4 mb-6">
           <div className="flex gap-3">
+            <div className="flex gap-2 items-center">
+              <span className="text-sm text-gray-600 whitespace-nowrap">ID</span>
+              <Input
+                type="text"
+                placeholder="生徒番号"
+                value={idSearchQuery}
+                onChange={(e) => setIdSearchQuery(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    handleSearch();
+                  }
+                }}
+                className="w-32"
+              />
+            </div>
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
               <Input
                 type="text"
-                placeholder="生徒名・生徒番号で検索..."
+                placeholder="名前・電話番号で検索..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 onKeyDown={(e) => {

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useRef } from 'react';
 import { ChevronLeft, User, Plus, ChevronRight, Loader2 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -13,8 +13,9 @@ import { BottomTabBar } from '@/components/bottom-tab-bar';
 import { AuthGuard } from '@/components/auth';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { getChildren, createStudent, CreateStudentRequest, CreateStudentResponse } from '@/lib/api/students';
+import { useStudents, useAddStudent } from '@/lib/hooks';
 import { useToast } from '@/hooks/use-toast';
+import type { Child } from '@/lib/api/types';
 
 // ひらがなをカタカナに変換
 const hiraganaToKatakana = (str: string): string => {
@@ -28,29 +29,14 @@ const isKana = (str: string): boolean => {
   return /^[\u3040-\u309F\u30A0-\u30FF\u30FC]+$/.test(str);
 };
 
-type Child = {
-  id: string;
-  student_no: string;
-  last_name: string;
-  first_name: string;
-  full_name: string;
-  birth_date?: string;
-  gender?: string;
-  grade?: string;
-  grade_name?: string;
-  school_name?: string;
-  status: string;
-  enrollment_date?: string;
-  guardian_id?: string;
-  guardian_name?: string;
-};
-
 function ChildrenContent() {
   const router = useRouter();
   const { toast } = useToast();
-  const [children, setChildren] = useState<Child[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [creating, setCreating] = useState(false);
+
+  // React Query hooks
+  const { data: children = [], isLoading: loading, error } = useStudents();
+  const addStudentMutation = useAddStudent();
+
   const [showAddDialog, setShowAddDialog] = useState(false);
 
   // Form state
@@ -97,44 +83,14 @@ function ChildrenContent() {
     firstNameCompositionRef.current = '';
   };
 
-  // Fetch children on mount
-  useEffect(() => {
-    fetchChildren();
-  }, []);
-
-  const fetchChildren = async () => {
-    try {
-      setLoading(true);
-      const data = await getChildren();
-      // Map API response to our Child type
-      const mappedChildren: Child[] = data.map((child: any) => ({
-        id: child.id,
-        student_no: child.student_no || child.studentNo || '',
-        last_name: child.last_name || child.lastName || '',
-        first_name: child.first_name || child.firstName || '',
-        full_name: child.full_name || child.fullName || `${child.last_name || child.lastName || ''} ${child.first_name || child.firstName || ''}`,
-        birth_date: child.birth_date || child.birthDate,
-        gender: child.gender,
-        grade: child.grade || child.gradeText || '',
-        grade_name: child.grade_name || child.gradeName || child.grade || child.gradeText || '',
-        school_name: child.school_name || child.schoolName,
-        status: child.status || 'active',
-        enrollment_date: child.enrollment_date || child.enrollmentDate,
-        guardian_id: child.guardian_id || child.guardianId,
-        guardian_name: child.guardian_name || child.guardianName,
-      }));
-      setChildren(mappedChildren);
-    } catch (error: any) {
-      console.error('Failed to fetch children:', error);
-      toast({
-        title: 'エラー',
-        description: error.message || 'お子様情報の取得に失敗しました',
-        variant: 'destructive',
-      });
-    } finally {
-      setLoading(false);
-    }
-  };
+  // エラー時にトースト表示
+  if (error) {
+    toast({
+      title: 'エラー',
+      description: error instanceof Error ? error.message : 'お子様情報の取得に失敗しました',
+      variant: 'destructive',
+    });
+  }
 
   const calculateAge = (birthDate: string): number | null => {
     if (!birthDate) return null;
@@ -240,58 +196,35 @@ function ChildrenContent() {
       return;
     }
 
-    try {
-      setCreating(true);
-
-      const requestData: CreateStudentRequest = {
-        last_name: newChildLastName,
-        first_name: newChildFirstName,
-        last_name_kana: newChildLastNameKana || undefined,
-        first_name_kana: newChildFirstNameKana || undefined,
-        birth_date: newChildBirthDate || undefined,
-        gender: newChildGender as 'male' | 'female' | 'other' | undefined,
-        school_name: newChildSchoolName || undefined,
-        grade: newChildGrade || undefined,
-      };
-
-      const response = await createStudent(requestData);
-
-      // Add new child to list
-      const newChild: Child = {
-        id: response.id,
-        student_no: response.student_no,
-        last_name: response.last_name,
-        first_name: response.first_name,
-        full_name: response.full_name,
-        birth_date: response.birth_date,
-        gender: response.gender,
-        grade: response.grade,
-        grade_name: response.grade_name,
-        school_name: response.school_name,
-        status: response.status,
-        enrollment_date: response.enrollment_date,
-        guardian_id: response.guardian_id,
-        guardian_name: response.guardian_name,
-      };
-
-      setChildren([...children, newChild]);
-      setShowAddDialog(false);
-      resetForm();
-
-      toast({
-        title: '登録が完了しました',
-        description: `${newChild.full_name}さんをお子様として登録しました`,
-      });
-    } catch (error: any) {
-      console.error('Failed to create student:', error);
-      toast({
-        title: 'エラー',
-        description: error.message || 'お子様の登録に失敗しました',
-        variant: 'destructive',
-      });
-    } finally {
-      setCreating(false);
-    }
+    addStudentMutation.mutate(
+      {
+        lastName: newChildLastName,
+        firstName: newChildFirstName,
+        lastNameKana: newChildLastNameKana || undefined,
+        firstNameKana: newChildFirstNameKana || undefined,
+        birthDate: newChildBirthDate || undefined,
+        gender: newChildGender || undefined,
+        gradeText: newChildGrade || undefined,
+      },
+      {
+        onSuccess: (newChild) => {
+          setShowAddDialog(false);
+          resetForm();
+          toast({
+            title: '登録が完了しました',
+            description: `${newChild.fullName}さんをお子様として登録しました`,
+          });
+        },
+        onError: (error) => {
+          console.error('Failed to create student:', error);
+          toast({
+            title: 'エラー',
+            description: error instanceof Error ? error.message : 'お子様の登録に失敗しました',
+            variant: 'destructive',
+          });
+        },
+      }
+    );
   };
 
   const getStatusBadge = (status: string) => {
@@ -354,10 +287,10 @@ function ChildrenContent() {
         ) : (
           <div className="space-y-3">
             {children.map((child) => {
-              const age = child.birth_date ? calculateAge(child.birth_date) : null;
+              const age = child.birthDate ? calculateAge(child.birthDate) : null;
               // 学年: データがあればそれを使用、なければ生年月日から計算
-              const gradeDisplay = child.grade_name || child.grade ||
-                (child.birth_date ? calculateGradeFromBirthDate(child.birth_date) : '');
+              const gradeDisplay = child.grade ||
+                (child.birthDate ? calculateGradeFromBirthDate(child.birthDate) : '');
               return (
                 <Card
                   key={child.id}
@@ -372,7 +305,7 @@ function ChildrenContent() {
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 mb-1">
                           <h3 className="font-semibold text-gray-800 text-lg">
-                            {child.student_no} {child.full_name}
+                            {child.studentNumber && `${child.studentNumber} `}{child.fullName}
                           </h3>
                         </div>
                         <p className="text-sm text-gray-600 mb-2">
@@ -380,8 +313,8 @@ function ChildrenContent() {
                           {age !== null && gradeDisplay && ' / '}
                           {gradeDisplay}
                         </p>
-                        {child.school_name && (
-                          <p className="text-xs text-gray-500">{child.school_name}</p>
+                        {child.schoolName && (
+                          <p className="text-xs text-gray-500">{child.schoolName}</p>
                         )}
                       </div>
                       <ChevronRight className="h-5 w-5 text-gray-400 mt-3" />
@@ -533,16 +466,16 @@ function ChildrenContent() {
                   setShowAddDialog(false);
                   resetForm();
                 }}
-                disabled={creating}
+                disabled={addStudentMutation.isPending}
               >
                 キャンセル
               </Button>
               <Button
                 className="flex-1 rounded-xl bg-blue-600 hover:bg-blue-700"
                 onClick={handleAddChild}
-                disabled={!newChildLastName || !newChildFirstName || creating}
+                disabled={!newChildLastName || !newChildFirstName || addStudentMutation.isPending}
               >
-                {creating ? (
+                {addStudentMutation.isPending ? (
                   <>
                     <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                     登録中...

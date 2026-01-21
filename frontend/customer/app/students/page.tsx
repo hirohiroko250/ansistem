@@ -1,5 +1,7 @@
 'use client';
 
+import { AuthGuard } from '@/components/auth';
+
 import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { Card, CardContent } from '@/components/ui/card';
@@ -46,7 +48,7 @@ const STATUS_OPTIONS = [
   { value: 'withdrawn', label: '退会' },
 ];
 
-export default function StudentsPage() {
+function StudentsContent() {
   const router = useRouter();
   const [authChecking, setAuthChecking] = useState(true);
   const [isStaff, setIsStaff] = useState(false);
@@ -347,5 +349,13 @@ export default function StudentsPage() {
 
       <BottomTabBar />
     </div>
+  );
+}
+
+export default function StudentsPage() {
+  return (
+    <AuthGuard>
+      <StudentsContent />
+    </AuthGuard>
   );
 }
