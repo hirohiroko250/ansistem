@@ -351,6 +351,15 @@ export interface PricingPreviewResponse {
   courseItems?: CourseItem[];  // コース商品一覧（そのまま表示用）
   billingByMonth?: BillingByMonth;  // 月別料金グループ
   textbookOptions?: TextbookOption[];  // 教材費選択肢（半年払い/月払いなど）
+  existingFacilityFee?: {  // 既存契約の設備費情報
+    maxFee: number;  // 最大設備費（税込）
+    maxFeeExcludingTax: number;  // 最大設備費（税抜）
+    courses: Array<{
+      courseName: string;
+      facilityFee: number;
+      facilityFeeExcludingTax: number;
+    }>;
+  };
 }
 
 // 教材費選択肢
