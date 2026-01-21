@@ -276,7 +276,7 @@ npm install @tanstack/react-query
 - [x] 一括バリデーションAPI作成（POST /api/v1/auth/validation/check/）
 - [x] フロントエンドのバリデーションユーティリティ作成（lib/validation/index.ts）
 - [x] フィールドバリデーション用フック作成（hooks/use-field-validation.ts）
-- [ ] 既存フォームへの適用
+- [x] 既存フォームへの適用（signupフォームにblur時重複チェック適用）
 - [ ] テスト・動作確認
 
 ### Phase 3: ユースケースAPI統合
@@ -284,13 +284,14 @@ npm install @tanstack/react-query
 - [x] `/api/v1/onboarding/add-student/` 実装
 - [x] `/api/v1/onboarding/purchase/complete/` 実装
 - [x] signals.py との整合性確保（signalsでTask自動作成を活用）
-- [ ] フロントエンドの呼び出し箇所修正
+- [x] フロントエンドの呼び出し箇所修正（signup → onboarding API接続）
 - [ ] テスト・動作確認
 
 ### Phase 4: React Query導入
 - [x] パッケージインストール・設定（package.json, providers.tsx）
 - [x] カスタムフック作成（useUser, useStudents, useSchools, useBrands, useTickets）
-- [x] 既存コードの置換（feed, settings各ページでuseUserフック使用）
+- [x] 追加フック作成（useContracts, useSchedules, useHistory, useStaffStudents）
+- [x] 既存コードの置換（feed, settings, contracts, students, schedule, history）
 - [x] テスト・動作確認（ビルド成功）
 
 ### Phase 5: SSR最適化
@@ -329,3 +330,4 @@ npm install @tanstack/react-query
 | 2026-01-21 | Phase 3: signupフォームを新onboarding APIに接続完了 | - |
 | 2026-01-21 | Phase 2: signupフォームにバリデーションフック（blur時重複チェック）適用完了 | - |
 | 2026-01-21 | Phase 5: 追加ページへのAuthGuard適用（settings/*, chat/[id], children/[id], contracts, schedule, history, students）完了 | - |
+| 2026-01-21 | Phase 4: 追加React Queryフック作成（useContracts, useSchedules, useHistory, useStaffStudents）、4ページ移行完了 | - |

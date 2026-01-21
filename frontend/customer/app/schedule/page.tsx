@@ -2,20 +2,14 @@
 
 import { AuthGuard } from '@/components/auth';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { BottomTabBar } from '@/components/bottom-tab-bar';
-import { isAuthenticated, getMe } from '@/lib/api/auth';
-import {
-  getStaffLessonSchedules,
-  getStaffCalendarSchedules,
-  StaffLessonSchedule,
-  StaffCalendarEvent,
-  StaffScheduleSearchParams,
-} from '@/lib/api/lessons';
+import { useUser } from '@/lib/hooks/use-user';
+import { useStaffSchedules } from '@/lib/hooks/use-schedules';
 import {
   Calendar,
   Clock,
@@ -42,101 +36,27 @@ type ViewMode = 'list' | 'calendar';
 
 function ScheduleContent() {
   const router = useRouter();
-  const [authChecking, setAuthChecking] = useState(true);
-  const [isStaff, setIsStaff] = useState(false);
-
-  const [lessons, setLessons] = useState<StaffLessonSchedule[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>('list');
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
 
-  // 認証チェック
-  useEffect(() => {
-    const checkAuth = async () => {
-      if (!isAuthenticated()) {
-        router.push('/login');
-        return;
-      }
+  // ユーザー情報を取得
+  const { data: user, isLoading: userLoading } = useUser();
+  const isStaff = user?.userType === 'staff' || user?.userType === 'teacher';
 
-      try {
-        const profile = await getMe();
-        const userType = profile.userType;
-        if (userType === 'staff' || userType === 'teacher') {
-          setIsStaff(true);
-        } else {
-          // 保護者・生徒はこのページにアクセス不可
-          router.push('/feed');
-          return;
-        }
-      } catch {
-        router.push('/login');
-        return;
-      }
+  // スケジュールパラメータをメモ化
+  const scheduleParams = useMemo(() => ({
+    startDate: format(startOfMonth(currentDate), 'yyyy-MM-dd'),
+    endDate: format(endOfMonth(currentDate), 'yyyy-MM-dd'),
+    pageSize: 100,
+  }), [currentDate]);
 
-      setAuthChecking(false);
-    };
+  // スケジュール一覧を取得
+  const { data: schedulesData, isLoading: schedulesLoading, error: schedulesError, refetch } = useStaffSchedules(scheduleParams);
 
-    checkAuth();
-  }, [router]);
-
-  const fetchListData = useCallback(async () => {
-    try {
-      setLoading(true);
-      setError(null);
-
-      const startDate = format(startOfMonth(currentDate), 'yyyy-MM-dd');
-      const endDate = format(endOfMonth(currentDate), 'yyyy-MM-dd');
-
-      const params: StaffScheduleSearchParams = {
-        startDate,
-        endDate,
-        pageSize: 100,
-      };
-
-      const response = await getStaffLessonSchedules(params);
-      setLessons(response.results || []);
-    } catch (err) {
-      console.error('Failed to fetch lessons:', err);
-      setError('スケジュールの取得に失敗しました');
-    } finally {
-      setLoading(false);
-    }
-  }, [currentDate]);
-
-  const fetchCalendarData = useCallback(async () => {
-    try {
-      setLoading(true);
-      setError(null);
-
-      // カレンダービューでもリストデータを使用（表示用）
-      const startDate = format(startOfMonth(currentDate), 'yyyy-MM-dd');
-      const endDate = format(endOfMonth(currentDate), 'yyyy-MM-dd');
-
-      const response = await getStaffLessonSchedules({
-        startDate,
-        endDate,
-        pageSize: 100,
-      });
-      setLessons(response.results || []);
-    } catch (err) {
-      console.error('Failed to fetch calendar:', err);
-      setError('カレンダーデータの取得に失敗しました');
-    } finally {
-      setLoading(false);
-    }
-  }, [currentDate]);
-
-  useEffect(() => {
-    if (!authChecking && isStaff) {
-      if (viewMode === 'list') {
-        fetchListData();
-      } else {
-        fetchCalendarData();
-      }
-    }
-  }, [authChecking, isStaff, viewMode, fetchListData, fetchCalendarData]);
+  const lessons = schedulesData?.schedules || [];
+  const loading = userLoading || schedulesLoading;
+  const error = schedulesError ? 'スケジュールの取得に失敗しました' : null;
 
   const handlePrevMonth = () => {
     setCurrentDate(subMonths(currentDate, 1));
@@ -178,11 +98,11 @@ function ScheduleContent() {
   // 選択された日の授業
   const selectedDateLessons = selectedDate ? getEventsForDate(selectedDate) : [];
 
-  if (authChecking) {
+  if (userLoading) {
     return <div className="min-h-screen bg-gradient-to-b from-blue-50 to-blue-100" />;
   }
 
-  if (!isStaff) {
+  if (user && !isStaff) {
     return (
       <div className="min-h-screen bg-gradient-to-b from-blue-50 to-blue-100 flex items-center justify-center">
         <Card className="max-w-md mx-4">
@@ -268,7 +188,7 @@ function ScheduleContent() {
                   variant="outline"
                   size="sm"
                   className="mt-2"
-                  onClick={viewMode === 'list' ? fetchListData : fetchCalendarData}
+                  onClick={() => refetch()}
                 >
                   再読み込み
                 </Button>

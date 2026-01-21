@@ -224,6 +224,9 @@ export async function getStudents(filters?: StudentFilters): Promise<PaginatedRe
     if (filters?.search) {
       params.search = filters.search;
     }
+    if (filters?.student_no) {
+      params.student_no = filters.student_no;
+    }
     if (filters?.brand_category_id) {
       params.brand_category_id = filters.brand_category_id;
     }

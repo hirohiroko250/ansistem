@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -8,9 +8,9 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { BottomTabBar } from '@/components/bottom-tab-bar';
-import { isAuthenticated, getMe } from '@/lib/api/auth';
-import { getContracts, ContractSearchParams, Contract } from '@/lib/api/contracts';
-import type { PaginatedResponse } from '@/lib/api/types';
+import { useUser } from '@/lib/hooks/use-user';
+import { useContracts } from '@/lib/hooks/use-contracts';
+import type { ContractSearchParams } from '@/lib/api/contracts';
 import {
   Search,
   FileText,
@@ -44,76 +44,28 @@ const STATUS_OPTIONS = [
 
 function ContractsContent() {
   const router = useRouter();
-  const [authChecking, setAuthChecking] = useState(true);
-  const [isStaff, setIsStaff] = useState(false);
-
-  const [contracts, setContracts] = useState<Contract[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [searchParams, setSearchParams] = useState<ContractSearchParams>({
     page: 1,
     pageSize: 20,
     search: '',
     status: '',
   });
-  const [pagination, setPagination] = useState({
-    count: 0,
-    hasNext: false,
-    hasPrev: false,
-  });
 
-  // 認証チェック
-  useEffect(() => {
-    const checkAuth = async () => {
-      if (!isAuthenticated()) {
-        router.push('/login');
-        return;
-      }
+  // ユーザー情報を取得
+  const { data: user, isLoading: userLoading } = useUser();
+  const isStaff = user?.userType === 'staff' || user?.userType === 'teacher';
 
-      try {
-        const profile = await getMe();
-        const userType = profile.userType;
-        if (userType === 'staff' || userType === 'teacher') {
-          setIsStaff(true);
-        } else {
-          router.push('/feed');
-          return;
-        }
-      } catch {
-        router.push('/login');
-        return;
-      }
+  // 契約一覧を取得
+  const { data: contractsData, isLoading: contractsLoading, error: contractsError, refetch } = useContracts(searchParams);
 
-      setAuthChecking(false);
-    };
-
-    checkAuth();
-  }, [router]);
-
-  const fetchContracts = useCallback(async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      const response: PaginatedResponse<Contract> = await getContracts(searchParams);
-      setContracts(response.results || []);
-      setPagination({
-        count: response.count || 0,
-        hasNext: !!response.next,
-        hasPrev: !!response.previous,
-      });
-    } catch (err) {
-      console.error('Failed to fetch contracts:', err);
-      setError('契約情報の取得に失敗しました');
-    } finally {
-      setLoading(false);
-    }
-  }, [searchParams]);
-
-  useEffect(() => {
-    if (!authChecking && isStaff) {
-      fetchContracts();
-    }
-  }, [authChecking, isStaff, fetchContracts]);
+  const contracts = contractsData?.contracts || [];
+  const pagination = {
+    count: contractsData?.count || 0,
+    hasNext: contractsData?.hasNext || false,
+    hasPrev: contractsData?.hasPrev || false,
+  };
+  const loading = userLoading || contractsLoading;
+  const error = contractsError ? '契約情報の取得に失敗しました' : null;
 
   const handleSearchChange = (value: string) => {
     setSearchParams((prev) => ({ ...prev, search: value, page: 1 }));
@@ -150,11 +102,11 @@ function ContractsContent() {
     return `¥${num.toLocaleString()}`;
   };
 
-  if (authChecking) {
+  if (userLoading) {
     return <div className="min-h-screen bg-gradient-to-b from-blue-50 to-blue-100" />;
   }
 
-  if (!isStaff) {
+  if (user && !isStaff) {
     return (
       <div className="min-h-screen bg-gradient-to-b from-blue-50 to-blue-100 flex items-center justify-center">
         <Card className="max-w-md mx-4">
@@ -236,7 +188,7 @@ function ContractsContent() {
                   variant="outline"
                   size="sm"
                   className="mt-2"
-                  onClick={fetchContracts}
+                  onClick={() => refetch()}
                 >
                   再読み込み
                 </Button>

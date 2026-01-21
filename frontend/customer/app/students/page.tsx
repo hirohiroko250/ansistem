@@ -2,7 +2,7 @@
 
 import { AuthGuard } from '@/components/auth';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -10,9 +10,9 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { BottomTabBar } from '@/components/bottom-tab-bar';
-import { isAuthenticated, getMe } from '@/lib/api/auth';
-import { getStudents, StudentSearchParams, StaffStudent } from '@/lib/api/students';
-import type { PaginatedResponse } from '@/lib/api/types';
+import { useUser } from '@/lib/hooks/use-user';
+import { useStaffStudents } from '@/lib/hooks/use-staff-students';
+import type { StudentSearchParams } from '@/lib/api/students';
 import { Search, Users, ChevronLeft, ChevronRight, GraduationCap, Phone, Mail, AlertCircle } from 'lucide-react';
 
 const STATUS_LABELS: Record<string, { label: string; color: string }> = {
@@ -50,12 +50,6 @@ const STATUS_OPTIONS = [
 
 function StudentsContent() {
   const router = useRouter();
-  const [authChecking, setAuthChecking] = useState(true);
-  const [isStaff, setIsStaff] = useState(false);
-
-  const [students, setStudents] = useState<StaffStudent[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [searchParams, setSearchParams] = useState<StudentSearchParams>({
     page: 1,
     pageSize: 20,
@@ -63,64 +57,22 @@ function StudentsContent() {
     status: '',
     grade: '',
   });
-  const [pagination, setPagination] = useState({
-    count: 0,
-    hasNext: false,
-    hasPrev: false,
-  });
 
-  // 認証チェック
-  useEffect(() => {
-    const checkAuth = async () => {
-      if (!isAuthenticated()) {
-        router.push('/login');
-        return;
-      }
+  // ユーザー情報を取得
+  const { data: user, isLoading: userLoading } = useUser();
+  const isStaff = user?.userType === 'staff' || user?.userType === 'teacher';
 
-      try {
-        const profile = await getMe();
-        const userType = profile.userType;
-        if (userType === 'staff' || userType === 'teacher') {
-          setIsStaff(true);
-        } else {
-          router.push('/feed');
-          return;
-        }
-      } catch {
-        router.push('/login');
-        return;
-      }
+  // 生徒一覧を取得
+  const { data: studentsData, isLoading: studentsLoading, error: studentsError, refetch } = useStaffStudents(searchParams);
 
-      setAuthChecking(false);
-    };
-
-    checkAuth();
-  }, [router]);
-
-  const fetchStudents = useCallback(async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      const response: PaginatedResponse<StaffStudent> = await getStudents(searchParams);
-      setStudents(response.results || []);
-      setPagination({
-        count: response.count || 0,
-        hasNext: !!response.next,
-        hasPrev: !!response.previous,
-      });
-    } catch (err) {
-      console.error('Failed to fetch students:', err);
-      setError('生徒情報の取得に失敗しました');
-    } finally {
-      setLoading(false);
-    }
-  }, [searchParams]);
-
-  useEffect(() => {
-    if (!authChecking && isStaff) {
-      fetchStudents();
-    }
-  }, [authChecking, isStaff, fetchStudents]);
+  const students = studentsData?.students || [];
+  const pagination = {
+    count: studentsData?.count || 0,
+    hasNext: studentsData?.hasNext || false,
+    hasPrev: studentsData?.hasPrev || false,
+  };
+  const loading = userLoading || studentsLoading;
+  const error = studentsError ? '生徒情報の取得に失敗しました' : null;
 
   const handleSearchChange = (value: string) => {
     setSearchParams((prev) => ({ ...prev, search: value, page: 1 }));
@@ -147,11 +99,11 @@ function StudentsContent() {
     );
   };
 
-  if (authChecking) {
+  if (userLoading) {
     return <div className="min-h-screen bg-gradient-to-b from-blue-50 to-blue-100" />;
   }
 
-  if (!isStaff) {
+  if (user && !isStaff) {
     return (
       <div className="min-h-screen bg-gradient-to-b from-blue-50 to-blue-100 flex items-center justify-center">
         <Card className="max-w-md mx-4">
@@ -246,7 +198,7 @@ function StudentsContent() {
                   variant="outline"
                   size="sm"
                   className="mt-2"
-                  onClick={fetchStudents}
+                  onClick={() => refetch()}
                 >
                   再読み込み
                 </Button>

@@ -2,30 +2,16 @@
 
 import { AuthGuard } from '@/components/auth';
 
-import { useState, useEffect, useCallback } from 'react';
-import { ChevronLeft, Loader2, Calendar, Ticket, X, RefreshCw, CreditCard, UserMinus, PartyPopper, Filter } from 'lucide-react';
+import { useState, useMemo } from 'react';
+import { ChevronLeft, Loader2, Calendar, X, RefreshCw, CreditCard, UserMinus, PartyPopper, Filter } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import { BottomTabBar } from '@/components/bottom-tab-bar';
 import Link from 'next/link';
 import { format, parseISO } from 'date-fns';
 import { ja } from 'date-fns/locale';
-import { useRouter } from 'next/navigation';
-import { isAuthenticated } from '@/lib/api/auth';
-import { getAbsenceTickets, type AbsenceTicket } from '@/lib/api/lessons';
-import { getAllStudentItems, type PurchasedItem } from '@/lib/api/students';
+import { useAbsenceTickets, usePurchaseHistory, type HistoryItem } from '@/lib/hooks/use-history';
+import type { AbsenceTicket } from '@/lib/api/lessons';
 
-// 操作履歴の型
-type HistoryItem = {
-  id: string;
-  type: 'absence' | 'makeup' | 'ticket_purchase' | 'event' | 'withdrawal' | 'suspension';
-  title: string;
-  description: string;
-  date: string;
-  status?: string;
-  childName?: string;
-};
 
 // 履歴タイプの設定
 const HISTORY_TYPE_CONFIG = {
@@ -83,101 +69,79 @@ const FILTER_OPTIONS = [
 ];
 
 function HistoryContent() {
-  const router = useRouter();
-  const [historyItems, setHistoryItems] = useState<HistoryItem[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<string>('all');
   const [showFilter, setShowFilter] = useState(false);
 
-  // 履歴データを取得
-  const fetchHistory = useCallback(async () => {
-    try {
-      setLoading(true);
-      setError(null);
+  // 欠席チケットを取得
+  const { data: absenceTickets, isLoading: ticketsLoading, error: ticketsError } = useAbsenceTickets();
 
-      const items: HistoryItem[] = [];
+  // 購入履歴を取得
+  const { data: purchaseData, isLoading: purchaseLoading, error: purchaseError } = usePurchaseHistory();
 
-      // 欠席・振替チケットを取得
-      try {
-        const absenceTickets = await getAbsenceTickets();
+  // 履歴データを統合
+  const historyItems = useMemo(() => {
+    const items: HistoryItem[] = [];
 
-        absenceTickets.forEach((ticket: AbsenceTicket) => {
-          // 欠席履歴
-          if (ticket.absenceDate) {
-            items.push({
-              id: `absence-${ticket.id}`,
-              type: 'absence',
-              title: '欠席登録',
-              description: ticket.originalTicketName || ticket.brandName || '授業',
-              date: ticket.absenceDate,
-              status: ticket.status === 'issued' ? '振替チケット発行済' :
-                      ticket.status === 'used' ? '振替済' :
-                      ticket.status === 'expired' ? '期限切れ' : '',
-              childName: ticket.studentName,
-            });
-          }
+    // 欠席・振替チケットから履歴を作成
+    if (absenceTickets) {
+      absenceTickets.forEach((ticket: AbsenceTicket) => {
+        // 欠席履歴
+        if (ticket.absenceDate) {
+          items.push({
+            id: `absence-${ticket.id}`,
+            type: 'absence',
+            title: '欠席登録',
+            description: ticket.originalTicketName || ticket.brandName || '授業',
+            date: ticket.absenceDate,
+            status: ticket.status === 'issued' ? '振替チケット発行済' :
+                    ticket.status === 'used' ? '振替済' :
+                    ticket.status === 'expired' ? '期限切れ' : '',
+            childName: ticket.studentName,
+          });
+        }
 
-          // 振替履歴
-          if (ticket.status === 'used' && ticket.usedDate) {
-            items.push({
-              id: `makeup-${ticket.id}`,
-              type: 'makeup',
-              title: '振替受講',
-              description: ticket.originalTicketName || ticket.brandName || '授業',
-              date: ticket.usedDate,
-              childName: ticket.studentName,
-            });
-          }
-        });
-      } catch (e) {
-        console.error('Failed to fetch absence tickets:', e);
-      }
-
-      // チケット購入履歴を取得
-      try {
-        const purchaseData = await getAllStudentItems();
-        // チケット関連の購入のみフィルター
-        purchaseData.items.forEach((item: PurchasedItem) => {
-          // チケット購入のみを抽出
-          if (item.productType === 'ticket' || item.productName.includes('チケット')) {
-            items.push({
-              id: `purchase-${item.id}`,
-              type: 'ticket_purchase',
-              title: 'チケット購入',
-              description: item.productName,
-              date: item.billingMonth + '-01', // 請求月の1日を日付として使用
-              childName: item.studentName,
-            });
-          }
-        });
-      } catch (e) {
-        console.error('Failed to fetch purchase history:', e);
-      }
-
-      // 日付で降順ソート
-      items.sort((a, b) => {
-        const dateA = new Date(a.date);
-        const dateB = new Date(b.date);
-        return dateB.getTime() - dateA.getTime();
+        // 振替履歴
+        if (ticket.status === 'used' && ticket.usedDate) {
+          items.push({
+            id: `makeup-${ticket.id}`,
+            type: 'makeup',
+            title: '振替受講',
+            description: ticket.originalTicketName || ticket.brandName || '授業',
+            date: ticket.usedDate,
+            childName: ticket.studentName,
+          });
+        }
       });
-
-      setHistoryItems(items);
-    } catch (err) {
-      console.error('Failed to fetch history:', err);
-      setError('履歴の取得に失敗しました');
-    } finally {
-      setLoading(false);
     }
-  }, []);
 
-  useEffect(() => {
-    if (!isAuthenticated()) {
-      router.push('/login');
-      return;
+    // チケット購入履歴を追加
+    if (purchaseData?.items) {
+      purchaseData.items.forEach((item) => {
+        if (item.productType === 'ticket' || item.productName.includes('チケット')) {
+          items.push({
+            id: `purchase-${item.id}`,
+            type: 'ticket_purchase',
+            title: 'チケット購入',
+            description: item.productName,
+            date: item.billingMonth + '-01',
+            childName: item.studentName,
+          });
+        }
+      });
     }
-    fetchHistory();
-  }, [router, fetchHistory]);
+
+    // 日付で降順ソート
+    items.sort((a, b) => {
+      const dateA = new Date(a.date);
+      const dateB = new Date(b.date);
+      return dateB.getTime() - dateA.getTime();
+    });
+
+    return items;
+  }, [absenceTickets, purchaseData]);
+
+  const loading = ticketsLoading || purchaseLoading;
+  const error = (ticketsError || purchaseError) ? '履歴の取得に失敗しました' : null;
 
   // フィルター適用
   const filteredItems = filter === 'all'

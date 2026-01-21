@@ -55,6 +55,8 @@ export function StudentList({ result, selectedStudentId, onSelectStudent, unread
         const gradeText = student.gradeText || student.grade_text || student.gradeName || "";
         // 生徒番号
         const studentNo = student.studentNo || student.student_no || "";
+        // 保護者番号（家族ID）
+        const guardianNo = student.guardianNo || student.guardian_no || "";
         // 未読件数
         const unreadCount = unreadCounts[student.id] || 0;
 
@@ -86,8 +88,9 @@ export function StudentList({ result, selectedStudentId, onSelectStudent, unread
                     </span>
                   )}
                 </div>
-                <div className="text-xs text-gray-400">
-                  {studentNo && <span>No.{studentNo}</span>}
+                <div className="text-xs text-gray-400 flex gap-3">
+                  {guardianNo && <span>家族ID {guardianNo}</span>}
+                  {studentNo && <span>生徒ID {studentNo}</span>}
                 </div>
               </div>
             </div>
