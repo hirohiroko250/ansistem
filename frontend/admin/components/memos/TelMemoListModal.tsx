@@ -18,7 +18,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Trash2, RefreshCw, PhoneIncoming, PhoneOutgoing } from "lucide-react";
-import { useToast } from "@/components/ui/use-toast";
+import { useToast } from "@/hooks/use-toast";
 import apiClient from "@/lib/api/client";
 
 interface TelMemo {

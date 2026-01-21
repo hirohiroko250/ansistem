@@ -28,7 +28,7 @@ import {
 } from "@/components/ui/table";
 import { Search, X, Check, Phone } from "lucide-react";
 import { getStudents, type Student } from "@/lib/api/staff";
-import { useToast } from "@/components/ui/use-toast";
+import { useToast } from "@/hooks/use-toast";
 import apiClient from "@/lib/api/client";
 
 interface TelMemoModalProps {

@@ -253,7 +253,7 @@ export default function ClassManagementPage() {
       setClassSchedules(response);
     } catch (err) {
       console.error('Failed to fetch class schedules:', err);
-      setError('開講時間割の取得に失敗しました');
+      setLocalError('開講時間割の取得に失敗しました');
     } finally {
       setLoadingSchedules(false);
     }
@@ -285,7 +285,7 @@ export default function ClassManagementPage() {
       setAvailableSchools(sortSchools(filteredSchools));
     } catch (err) {
       console.error('Failed to fetch schools:', err);
-      setError('校舎情報の取得に失敗しました');
+      setLocalError('校舎情報の取得に失敗しました');
     } finally {
       setLoadingSchools(false);
     }
@@ -304,7 +304,7 @@ export default function ClassManagementPage() {
       setNewSchoolSchedules(response);
     } catch (err) {
       console.error('Failed to fetch new school schedules:', err);
-      setError('開講時間割の取得に失敗しました');
+      setLocalError('開講時間割の取得に失敗しました');
     } finally {
       setLoadingSchedules(false);
     }
@@ -438,7 +438,7 @@ export default function ClassManagementPage() {
       setAbsenceTickets(tickets);
     } catch (err) {
       console.error('Failed to fetch absence tickets:', err);
-      setError('欠席チケットの取得に失敗しました');
+      setLocalError('欠席チケットの取得に失敗しました');
     } finally {
       setLoadingTickets(false);
     }
@@ -452,7 +452,7 @@ export default function ClassManagementPage() {
       setTransferAvailableClasses(classes);
     } catch (err) {
       console.error('Failed to fetch transfer classes:', err);
-      setError('振替可能クラスの取得に失敗しました');
+      setLocalError('振替可能クラスの取得に失敗しました');
     } finally {
       setLoadingTransferClasses(false);
     }
