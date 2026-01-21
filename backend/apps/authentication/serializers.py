@@ -230,54 +230,7 @@ class RegisterSerializer(serializers.Serializer):
             )
             guardian.user = user
             guardian.save()
-
-            # 3. 作業一覧にタスクを作成
-            from apps.tasks.models import Task
-            from apps.schools.models import School, Brand
-
-            # 希望校舎を取得
-            school = None
-            if guardian_fields.get('nearest_school_id'):
-                try:
-                    school = School.objects.get(id=guardian_fields['nearest_school_id'])
-                except School.DoesNotExist:
-                    pass
-
-            # 興味のあるブランドから最初のブランドを取得
-            brand = None
-            interested_brands = guardian_fields.get('interested_brands') or []
-            if interested_brands:
-                # brand_idまたはbrand_nameで検索
-                first_brand = interested_brands[0]
-                try:
-                    # UUIDの場合
-                    import uuid
-                    brand_uuid = uuid.UUID(first_brand)
-                    brand = Brand.objects.filter(id=brand_uuid).first()
-                except (ValueError, TypeError):
-                    # 名前の場合
-                    brand = Brand.objects.filter(
-                        brand_name__icontains=first_brand,
-                        tenant_ref=tenant_id
-                    ).first()
-
-            Task.objects.create(
-                tenant_id=tenant_id,
-                task_type='guardian_registration',
-                title=f'新規登録: {guardian.last_name} {guardian.first_name}',
-                description=f'保護者「{guardian.last_name} {guardian.first_name}」が新規登録されました。確認をお願いします。\n\n'
-                           f'メール: {guardian.email}\n'
-                           f'電話: {guardian.phone_mobile or "未設定"}\n'
-                           f'希望校舎: {school.school_name if school else "未選択"}\n'
-                           f'興味のあるブランド: {", ".join(interested_brands) if interested_brands else "未選択"}',
-                status='new',
-                priority='normal',
-                guardian=guardian,
-                school=school,
-                brand=brand,
-                source_type='guardian',
-                source_id=guardian.id,
-            )
+            # タスクはsignalsで自動作成される
 
         return user
 

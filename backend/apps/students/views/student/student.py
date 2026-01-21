@@ -184,23 +184,7 @@ class StudentViewSet(StudentItemsMixin, CSVMixin, viewsets.ModelViewSet):
             tenant_id = guardian.tenant_id
 
         student = serializer.save(tenant_id=tenant_id, guardian=guardian)
-
-        # 作業一覧にタスクを作成
-        from apps.tasks.models import Task
-        Task.objects.create(
-            tenant_id=tenant_id,
-            task_type='student_registration',
-            title=f'生徒登録: {student.full_name}',
-            description=f'生徒「{student.full_name}」が登録されました。確認をお願いします。',
-            status='new',
-            priority='normal',
-            student=student,
-            guardian=guardian,
-            school=student.primary_school,
-            brand=student.primary_brand,
-            source_type='student',
-            source_id=student.id,
-        )
+        # タスクはsignalsで自動作成される
 
     def perform_destroy(self, instance):
         instance.deleted_at = timezone.now()

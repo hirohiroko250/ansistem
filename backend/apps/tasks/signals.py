@@ -15,6 +15,7 @@ def create_task_for_event(
     description='',
     priority='normal',
     school=None,
+    brand=None,
     student=None,
     guardian=None,
     source_type='',
@@ -30,6 +31,7 @@ def create_task_for_event(
         status='new',
         priority=priority,
         school=school,
+        brand=brand,
         student=student,
         guardian=guardian,
         source_type=source_type,
@@ -52,6 +54,8 @@ def create_task_on_student_registration(sender, instance, created, **kwargs):
             description=f'新しい生徒が登録されました',
             student=instance,
             guardian=instance.guardian if hasattr(instance, 'guardian') else None,
+            school=instance.primary_school,
+            brand=instance.primary_brand,
             source_type='student',
             source_id=instance.id,
         )
@@ -64,12 +68,32 @@ def create_task_on_student_registration(sender, instance, created, **kwargs):
 def create_task_on_guardian_registration(sender, instance, created, **kwargs):
     """保護者が新規登録されたらタスクを作成"""
     if created:
+        # 興味のあるブランドから最初のブランドを取得
+        brand = None
+        interested_brands = getattr(instance, 'interested_brands', None) or []
+        if interested_brands:
+            from apps.schools.models import Brand
+            import uuid as uuid_module
+            first_brand = interested_brands[0]
+            try:
+                # UUIDの場合
+                brand_uuid = uuid_module.UUID(first_brand)
+                brand = Brand.objects.filter(id=brand_uuid).first()
+            except (ValueError, TypeError):
+                # 名前の場合
+                brand = Brand.objects.filter(
+                    brand_name__icontains=first_brand,
+                    tenant_ref=instance.tenant_id
+                ).first()
+
         create_task_for_event(
             tenant_id=instance.tenant_id,
             task_type='guardian_registration',
             title=f'保護者登録: {instance.last_name}{instance.first_name}',
             description=f'新しい保護者が登録されました',
             guardian=instance,
+            school=getattr(instance, 'nearest_school', None),
+            brand=brand,
             source_type='guardian',
             source_id=instance.id,
         )
@@ -146,7 +170,8 @@ def create_task_on_suspension_request(sender, instance, created, **kwargs):
         priority='high',
         student=student,
         guardian=getattr(instance, 'guardian', None),
-        school=getattr(student, 'school', None) if student else None,
+        school=getattr(student, 'primary_school', None) if student else None,
+        brand=getattr(student, 'primary_brand', None) if student else None,
         source_type='suspension_request',
         source_id=instance.id,
         metadata={
@@ -178,7 +203,8 @@ def create_task_on_withdrawal_request(sender, instance, created, **kwargs):
         priority='high',
         student=student,
         guardian=getattr(instance, 'guardian', None),
-        school=getattr(student, 'school', None) if student else None,
+        school=getattr(student, 'primary_school', None) if student else None,
+        brand=getattr(student, 'primary_brand', None) if student else None,
         source_type='withdrawal_request',
         source_id=instance.id,
     )
@@ -204,6 +230,7 @@ def create_task_on_trial_registration(sender, instance, created, **kwargs):
         student=student,
         guardian=getattr(student, 'guardian', None) if student else None,
         school=getattr(instance, 'school', None),
+        brand=getattr(instance, 'brand', None),
         source_type='trial_booking',
         source_id=instance.id,
     )
@@ -246,7 +273,8 @@ def create_task_on_enrollment(sender, instance, created, **kwargs):
         priority='high',
         student=student,
         guardian=getattr(student, 'guardian', None),
-        school=getattr(instance, 'school', None),
+        school=getattr(instance, 'school', None) or getattr(student, 'primary_school', None),
+        brand=getattr(instance, 'brand', None) or getattr(student, 'primary_brand', None),
         source_type='student_item',
         source_id=instance.id,
     )

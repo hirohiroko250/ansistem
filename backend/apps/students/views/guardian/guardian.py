@@ -178,20 +178,7 @@ class GuardianViewSet(
 
     def perform_create(self, serializer):
         guardian = serializer.save(tenant_id=self.request.tenant_id)
-
-        # 作業一覧にタスクを作成
-        from apps.tasks.models import Task
-        Task.objects.create(
-            tenant_id=self.request.tenant_id,
-            task_type='guardian_registration',
-            title=f'保護者登録: {guardian.last_name} {guardian.first_name}',
-            description=f'保護者「{guardian.last_name} {guardian.first_name}」が登録されました。確認をお願いします。',
-            status='new',
-            priority='normal',
-            guardian=guardian,
-            source_type='guardian',
-            source_id=guardian.id,
-        )
+        # タスクはsignalsで自動作成される
 
     def perform_destroy(self, instance):
         instance.deleted_at = timezone.now()
