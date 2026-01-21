@@ -1,8 +1,5 @@
 """
-HR Models - 勤怠管理モデル
-
-このファイルは後方互換性のために残しています。
-新しいインポートは apps.hr.models パッケージから行ってください。
+HR Models - 人事関連モデル
 """
 from apps.hr.models.attendance import HRAttendance
 from apps.hr.models.staff_schedule import (

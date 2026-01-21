@@ -14,7 +14,12 @@ import {
   Calendar,
   Edit,
   Users,
+  Clock,
+  FileUser,
 } from "lucide-react";
+import { StaffProfileTab } from "./StaffProfileTab";
+import { StaffScheduleTab } from "./StaffScheduleTab";
+import { StaffAttendanceTab } from "./StaffAttendanceTab";
 
 interface StaffDetailProps {
   staff: StaffDetailType;
@@ -84,10 +89,22 @@ export function StaffDetail({ staff, groups = [], onEdit }: StaffDetailProps) {
 
       {/* タブ */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col overflow-hidden">
-        <TabsList className="px-4 pt-2 justify-start">
+        <TabsList className="px-4 pt-2 justify-start flex-wrap">
           <TabsTrigger value="basic">基本情報</TabsTrigger>
           <TabsTrigger value="assignment">所属情報</TabsTrigger>
           <TabsTrigger value="groups">グループ ({memberGroups.length})</TabsTrigger>
+          <TabsTrigger value="profile" className="flex items-center gap-1">
+            <FileUser className="w-3.5 h-3.5" />
+            プロフィール
+          </TabsTrigger>
+          <TabsTrigger value="schedule" className="flex items-center gap-1">
+            <Calendar className="w-3.5 h-3.5" />
+            スケジュール
+          </TabsTrigger>
+          <TabsTrigger value="attendance" className="flex items-center gap-1">
+            <Clock className="w-3.5 h-3.5" />
+            勤怠
+          </TabsTrigger>
         </TabsList>
 
         <div className="flex-1 overflow-auto">
@@ -222,6 +239,18 @@ export function StaffDetail({ staff, groups = [], onEdit }: StaffDetailProps) {
                 <p className="text-sm text-gray-500">グループに所属していません</p>
               )}
             </div>
+          </TabsContent>
+
+          <TabsContent value="profile" className="p-4 m-0">
+            <StaffProfileTab staffId={staff.id} />
+          </TabsContent>
+
+          <TabsContent value="schedule" className="p-4 m-0">
+            <StaffScheduleTab staffId={staff.id} />
+          </TabsContent>
+
+          <TabsContent value="attendance" className="p-4 m-0">
+            <StaffAttendanceTab staffId={staff.id} />
           </TabsContent>
         </div>
       </Tabs>
