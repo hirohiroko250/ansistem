@@ -9,6 +9,14 @@ from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.views import APIView
 
+from apps.core.exceptions import (
+    ValidationException,
+    StudentNotFoundError,
+    SchoolNotFoundError,
+    ClosedDayError,
+    BookingFullError,
+    AlreadyBookedError,
+)
 from ...models import SchoolSchedule, LessonCalendar
 
 
@@ -44,30 +52,21 @@ class PublicTrialBookingView(APIView):
 
         # バリデーション
         if not all([student_id, school_id, brand_id, date_str]):
-            return Response(
-                {'error': 'student_id, school_id, brand_id, trial_date are required'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            raise ValidationException('student_id, school_id, brand_id, trial_date は必須です')
 
         if not schedule_id and not class_schedule_id:
-            return Response(
-                {'error': 'schedule_id or class_schedule_id is required'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            raise ValidationException('schedule_id または class_schedule_id は必須です')
 
         try:
             trial_date = datetime.strptime(date_str, '%Y-%m-%d').date()
         except ValueError:
-            return Response(
-                {'error': 'Invalid date format. Use YYYY-MM-DD'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            raise ValidationException('日付の形式が正しくありません（YYYY-MM-DD）')
 
         # 生徒を取得
         try:
             student = Student.objects.get(id=student_id)
         except Student.DoesNotExist:
-            return Response({'error': 'Student not found'}, status=status.HTTP_404_NOT_FOUND)
+            raise StudentNotFoundError()
 
         # スケジュールを取得（SchoolSchedule または ClassSchedule）
         schedule = None
@@ -119,7 +118,7 @@ class PublicTrialBookingView(APIView):
                 school = School.objects.get(id=school_id)
                 brand = Brand.objects.get(id=brand_id)
             except (School.DoesNotExist, Brand.DoesNotExist):
-                return Response({'error': 'School or Brand not found'}, status=status.HTTP_404_NOT_FOUND)
+                raise SchoolNotFoundError('校舎またはブランドが見つかりません')
 
         # LessonCalendarで休校日かチェック
         calendar_entry = LessonCalendar.objects.filter(
@@ -129,18 +128,12 @@ class PublicTrialBookingView(APIView):
         ).first()
 
         if calendar_entry and not calendar_entry.is_open:
-            return Response(
-                {'error': f'{trial_date}は休講日です'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            raise ClosedDayError(f'{trial_date}は休講日です')
 
         # 空き状況チェック（ClassScheduleの場合はschedule_idの代わりにclass_schedule_idを使用）
         check_id = schedule.id if schedule else (class_schedule.id if class_schedule else schedule_id)
         if check_id and not TrialBooking.is_available(check_id, trial_date, trial_capacity):
-            return Response(
-                {'error': 'この日時は満席です'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            raise BookingFullError()
 
         # 既に予約済みかチェック
         existing_filter = {
@@ -156,10 +149,7 @@ class PublicTrialBookingView(APIView):
         existing = TrialBooking.objects.filter(**existing_filter).exists()
 
         if existing:
-            return Response(
-                {'error': 'この日時は既に予約済みです'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            raise AlreadyBookedError()
 
         # 保護者を取得
         guardian = None

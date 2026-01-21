@@ -15,6 +15,7 @@ from apps.billing.models import ConfirmedBilling
 from apps.billing.serializers import ConfirmedBillingSerializer, ConfirmedBillingListSerializer
 from apps.billing.services.receipt_service import generate_receipt_response
 from .mixins import BillingCreationMixin, BillingExportMixin
+from apps.core.exceptions import ValidationException
 
 
 def _get_tenant_id(request):
@@ -126,15 +127,15 @@ class ConfirmedBillingViewSet(
         amount = request.data.get('amount')
 
         if not amount:
-            return Response({'error': '金額を指定してください'}, status=400)
+            raise ValidationException('金額を指定してください')
 
         try:
             amount = Decimal(str(amount))
         except (InvalidOperation, ValueError, TypeError):
-            return Response({'error': '金額の形式が不正です'}, status=400)
+            raise ValidationException('金額の形式が不正です')
 
         if amount <= 0:
-            return Response({'error': '金額は正の数で指定してください'}, status=400)
+            raise ValidationException('金額は正の数で指定してください')
 
         confirmed.paid_amount += amount
         confirmed.update_payment_status()
@@ -155,7 +156,7 @@ class ConfirmedBillingViewSet(
         month = request.query_params.get('month')
 
         if not year or not month:
-            return Response({'error': 'year と month を指定してください'}, status=400)
+            raise ValidationException('year と month を指定してください')
 
         tenant_id = _get_tenant_id(request)
 

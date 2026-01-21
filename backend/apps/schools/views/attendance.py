@@ -7,6 +7,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.views import APIView
 
 from apps.core.permissions import IsTenantUser
+from apps.core.exceptions import StudentNotFoundError, NotFoundError
 from ..models import ClassSchedule
 
 
@@ -54,13 +55,13 @@ class AdminMarkAttendanceView(APIView):
         try:
             student = Student.objects.get(id=student_id, deleted_at__isnull=True)
         except Student.DoesNotExist:
-            return Response({'error': 'Student not found'}, status=404)
+            raise StudentNotFoundError()
 
         # ClassSchedule取得
         try:
             schedule = ClassSchedule.objects.get(id=schedule_id)
         except ClassSchedule.DoesNotExist:
-            return Response({'error': 'Schedule not found'}, status=404)
+            raise NotFoundError('スケジュールが見つかりません')
 
         if status == 'absent':
             # 既存のAbsenceTicketを確認

@@ -12,6 +12,7 @@ from rest_framework.permissions import IsAuthenticated
 
 from apps.contracts.models import Product, CourseItem
 from apps.pricing.calculations import calculate_enrollment_fees
+from apps.core.exceptions import OZAException
 
 from apps.pricing.views.utils import (
     get_product_price_for_enrollment,
@@ -135,7 +136,7 @@ class PricingConfirmView(APIView):
             logger.error(f"[PricingConfirm] ERROR: {e}\n{error_trace}")
             print(f"[PricingConfirm] ERROR: {e}", flush=True)
             print(error_trace, flush=True)
-            return Response({'error': str(e), 'detail': error_trace}, status=500)
+            raise OZAException(str(e), status_code=500)
 
     def _process_post(self, request):
         """購入確定の実処理"""

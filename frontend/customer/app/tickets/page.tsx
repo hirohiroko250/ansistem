@@ -6,6 +6,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { BottomTabBar } from '@/components/bottom-tab-bar';
+import { AuthGuard } from '@/components/auth';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { getAllStudentItems, type PurchasedItem } from '@/lib/api/students';
@@ -62,7 +63,7 @@ function isExpiringSoon(expiryDate: string): boolean {
   return diffDays <= 30 && diffDays > 0;
 }
 
-export default function TicketsPage() {
+function TicketsContent() {
   const router = useRouter();
   const [tickets, setTickets] = useState<TicketType[]>([]);
   const [loading, setLoading] = useState(true);
@@ -873,5 +874,13 @@ export default function TicketsPage() {
 
       <BottomTabBar />
     </div>
+  );
+}
+
+export default function TicketsPage() {
+  return (
+    <AuthGuard>
+      <TicketsContent />
+    </AuthGuard>
   );
 }

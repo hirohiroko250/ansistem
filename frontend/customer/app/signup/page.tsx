@@ -13,6 +13,7 @@ import { useRouter } from 'next/navigation';
 import { register, checkEmail, checkPhone } from '@/lib/api/auth';
 import { getPrefectures, getAreas, getSchoolsByArea } from '@/lib/api/schools';
 import type { ApiError, Area, PublicSchool } from '@/lib/api/types';
+import { GuestGuard } from '@/components/auth';
 
 // ひらがなをカタカナに変換
 const hiraganaToKatakana = (str: string): string => {
@@ -50,7 +51,7 @@ const referralSources = [
 ];
 
 
-export default function SignupPage() {
+function SignupContent() {
   const router = useRouter();
   const [step, setStep] = useState(1);
   const [formData, setFormData] = useState({
@@ -827,5 +828,13 @@ export default function SignupPage() {
         </form>
       </main>
     </div>
+  );
+}
+
+export default function SignupPage() {
+  return (
+    <GuestGuard>
+      <SignupContent />
+    </GuestGuard>
   );
 }

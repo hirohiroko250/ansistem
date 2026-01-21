@@ -10,6 +10,7 @@ from drf_spectacular.utils import extend_schema
 from apps.billing.models import (
     Invoice, Payment, GuardianBalance, ConfirmedBilling, BankTransfer,
 )
+from apps.core.exceptions import BusinessRuleViolationError
 
 
 class BankTransferImportConfirmMixin:
@@ -22,7 +23,7 @@ class BankTransferImportConfirmMixin:
         import_batch = self.get_object()
 
         if import_batch.confirmed_at:
-            return Response({'error': 'このバッチは既に確定済みです'}, status=400)
+            raise BusinessRuleViolationError('このバッチは既に確定済みです')
 
         matched_transfers = BankTransfer.objects.filter(
             import_batch_id=str(import_batch.id),

@@ -11,6 +11,7 @@ from django.db import models
 from django.utils import timezone
 
 from apps.core.permissions import IsTenantUser, IsTenantAdmin
+from apps.core.exceptions import ValidationException
 from apps.core.csv_utils import CSVMixin
 from apps.core.pagination import AdminResultsSetPagination
 from ..models import StudentItem, StudentDiscount
@@ -100,7 +101,7 @@ class StudentItemViewSet(CSVMixin, viewsets.ModelViewSet):
 
         file = request.FILES.get('file')
         if not file:
-            return Response({'error': 'ファイルが指定されていません'}, status=400)
+            raise ValidationException('ファイルが指定されていません')
 
         tenant_id = getattr(request, 'tenant_id', None)
         if not tenant_id:
@@ -117,7 +118,7 @@ class StudentItemViewSet(CSVMixin, viewsets.ModelViewSet):
             reader = csv.DictReader(io.StringIO(content))
             rows = list(reader)
         except Exception as e:
-            return Response({'error': f'ファイル読み込みエラー: {str(e)}'}, status=400)
+            raise ValidationException(f'ファイル読み込みエラー: {str(e)}')
 
         # 生徒・ブランドのキャッシュ
         students_cache = {}

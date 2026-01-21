@@ -2385,7 +2385,9 @@ export default function FromTicketPurchasePage() {
                       授業 {selectedWeeklySchedules.length + (selectedTime ? 1 : 0)} / {singleCoursePerWeek} (最大週{singleCoursePerWeek}回まで)
                     </p>
                     <Badge variant="outline" className="text-xs bg-blue-50 text-blue-700">
-                      {selectedWeeklySchedules.length + 1}回目を選択中
+                      {selectedTime
+                        ? `${selectedWeeklySchedules.length + 1}回目を選択済み`
+                        : `${selectedWeeklySchedules.length + 1}回目を選択中`}
                     </Badge>
                   </div>
                   <p className="text-xs text-gray-500 mb-2">
@@ -2422,7 +2424,9 @@ export default function FromTicketPurchasePage() {
                 {hasPackItems
                   ? `${currentItem?.name} の曜日・時間帯を選択`
                   : hasSingleCourseMultipleWeekly
-                  ? `${selectedWeeklySchedules.length + 1}回目の曜日・時間帯を選択`
+                  ? (selectedTime
+                    ? `${selectedWeeklySchedules.length + 1}回目の曜日・時間帯`
+                    : `${selectedWeeklySchedules.length + 1}回目の曜日・時間帯を選択`)
                   : '曜日・時間帯を選択'}
               </h2>
               <p className="text-sm text-gray-600 mb-4">
@@ -2504,9 +2508,12 @@ export default function FromTicketPurchasePage() {
                                 const isAlreadySelectedPack = Array.from(selectedClassesPerTicket.values()).some(
                                   s => s.time === timeSlot.time && s.dayOfWeek === dayOfWeekName
                                 );
+                                // 現在選択中（まだ確定していない）のスロットもチェック
+                                const isCurrentlySelected = selectedTime === timeSlot.time && selectedDayOfWeek === dayOfWeekName;
                                 const isAlreadySelected = isAlreadySelectedWeekly || isAlreadySelectedPack;
-                                const canSelect = status !== 'none' && status !== 'full' && !isAlreadySelected;
-                                const isSelected = selectedTime === timeSlot.time && selectedDayOfWeek === dayOfWeekName;
+                                // 選択不可: 空席なし、満席、既に確定済み、または現在選択中
+                                const canSelect = status !== 'none' && status !== 'full' && !isAlreadySelected && !isCurrentlySelected;
+                                const isSelected = isCurrentlySelected;
 
                                 return (
                                   <td
@@ -3013,9 +3020,18 @@ export default function FromTicketPurchasePage() {
                         );
                         const enrollmentTextbookPrice = selectedTextbookOption?.enrollmentPriceWithTax || 0;
 
-                        // APIから返される入会時教材費を除外（選択した教材費で置き換えるため）
+                        // APIから返される入会時教材費と当月分項目を除外
+                        // - 入会時教材費: 選択した教材費で置き換えるため
+                        // - 当月分授業料/月会費/設備費: 月別請求セクションで表示するため
                         const filteredEnrollmentItems = pricingPreview.billingByMonth.enrollment.items.filter(
-                          (item: any) => item.itemType !== 'enrollment_textbook'
+                          (item: any) => {
+                            if (item.itemType === 'enrollment_textbook') return false;
+                            const name = item.billingCategoryName || item.productName || '';
+                            if (name.includes('当月分授業料')) return false;
+                            if (name.includes('当月分月会費')) return false;
+                            if (name.includes('当月分設備費')) return false;
+                            return true;
+                          }
                         );
                         const filteredEnrollmentTotal = filteredEnrollmentItems.reduce(
                           (sum: number, item: any) => sum + (item.priceWithTax || 0), 0

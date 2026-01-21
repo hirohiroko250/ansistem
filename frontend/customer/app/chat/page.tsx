@@ -6,6 +6,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { BottomTabBar } from '@/components/bottom-tab-bar';
+import { AuthGuard } from '@/components/auth';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import Link from 'next/link';
 import Image from 'next/image';
@@ -165,7 +166,7 @@ function SwipeableItem({ children, onDelete, isDeleting }: SwipeableItemProps) {
   );
 }
 
-export default function ChatListPage() {
+function ChatListContent() {
   const [searchQuery, setSearchQuery] = useState('');
   const [channels, setChannels] = useState<Channel[]>([]);
   const [botConfig, setBotConfig] = useState<BotConfig>(DEFAULT_BOT);
@@ -427,5 +428,13 @@ export default function ChatListPage() {
 
       <BottomTabBar />
     </div>
+  );
+}
+
+export default function ChatListPage() {
+  return (
+    <AuthGuard>
+      <ChatListContent />
+    </AuthGuard>
   );
 }

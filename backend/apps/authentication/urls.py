@@ -13,6 +13,7 @@ from .views import (
     PasswordChangeView,
     CheckEmailView,
     CheckPhoneView,
+    ValidationCheckView,
     MeView,
     ImpersonateGuardianView,
 )
@@ -25,6 +26,7 @@ urlpatterns = [
     path('register/employee/', EmployeeRegisterView.as_view(), name='register_employee'),
     path('check-email/', CheckEmailView.as_view(), name='check_email'),
     path('check-phone/', CheckPhoneView.as_view(), name='check_phone'),
+    path('validation/check/', ValidationCheckView.as_view(), name='validation_check'),
     path('logout/', LogoutView.as_view(), name='logout'),
     path('token/refresh/', TokenRefreshAPIView.as_view(), name='token_refresh'),
     path('refresh/', TokenRefreshAPIView.as_view(), name='refresh'),  # フロントエンド互換用

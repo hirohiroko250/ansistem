@@ -11,6 +11,7 @@ from django.utils import timezone
 from drf_spectacular.utils import extend_schema
 
 from apps.billing.models import ConfirmedBilling, PaymentProvider, GuardianBalance
+from apps.core.exceptions import ValidationException
 
 
 def _get_tenant_id(request):
@@ -35,7 +36,7 @@ class BillingExportMixin:
         month = request.query_params.get('month')
 
         if not year or not month:
-            return Response({'error': 'year と month を指定してください'}, status=400)
+            raise ValidationException('year と month を指定してください')
 
         tenant_id = _get_tenant_id(request)
 
@@ -234,12 +235,9 @@ class BillingExportMixin:
                     q_filter |= Q(year=y, month=m)
                 queryset = queryset.filter(q_filter)
             except ValueError:
-                return Response({'error': '日付形式が不正です（YYYY-MM-DD）'}, status=400)
+                raise ValidationException('日付形式が不正です（YYYY-MM-DD）')
         else:
-            return Response(
-                {'error': '期間を指定してください（year, month または start_date, end_date）'},
-                status=400
-            )
+            raise ValidationException('期間を指定してください（year, month または start_date, end_date）')
 
         payment_method = query_params.get('payment_method')
         if payment_method:

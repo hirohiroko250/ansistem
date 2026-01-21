@@ -58,6 +58,7 @@ INSTALLED_APPS = [
     'apps.tasks',           # 作業一覧（入会申請・体験登録・チャット対応など）
     'apps.billing',         # 請求・入金管理
     'apps.knowledge',       # ナレッジ管理（マニュアル・テンプレート）
+    'apps.onboarding',      # オンボーディング（ユースケース単位のAPI）
     # TODO: 以下は必要に応じて後から追加
     # 'apps.examinations',    # テスト・成績管理
     # 'apps.learning',        # 学習記録・教材管理

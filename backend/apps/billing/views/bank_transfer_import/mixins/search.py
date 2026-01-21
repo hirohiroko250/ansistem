@@ -9,6 +9,7 @@ from rest_framework.response import Response
 from drf_spectacular.utils import extend_schema
 
 from apps.billing.models import Invoice, ConfirmedBilling
+from apps.core.exceptions import ValidationException
 
 
 class BankTransferImportSearchMixin:
@@ -31,7 +32,7 @@ class BankTransferImportSearchMixin:
         amount = request.query_params.get('amount', '')
 
         if not query and not guardian_no and not amount:
-            return Response({'error': '検索条件を指定してください'}, status=400)
+            raise ValidationException('検索条件を指定してください')
 
         tenant_id = getattr(request, 'tenant_id', None) or getattr(request.user, 'tenant_id', None)
 
@@ -62,7 +63,7 @@ class BankTransferImportSearchMixin:
         if amount:
             guardians = self._filter_by_amount(guardians, tenant_id, amount)
             if guardians is None:
-                return Response({'error': '金額の形式が正しくありません'}, status=400)
+                raise ValidationException('金額の形式が正しくありません')
 
         guardians = guardians[:20]
 

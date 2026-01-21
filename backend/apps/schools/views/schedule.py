@@ -10,6 +10,7 @@ from rest_framework.parsers import MultiPartParser, FormParser
 from django.utils import timezone
 
 from apps.core.permissions import IsTenantUser, IsTenantAdmin
+from apps.core.exceptions import NotFoundError, SchoolNotFoundError
 from apps.core.csv_utils import CSVMixin
 from ..models import TimeSlot, SchoolSchedule, SchoolCourse, SchoolClosure, School, Brand
 from ..serializers import (
@@ -367,7 +368,7 @@ class SchoolClosureViewSet(CSVMixin, viewsets.ModelViewSet):
         time_slot = TimeSlot.objects.filter(id=time_slot_id).first() if time_slot_id else None
 
         if not school or not brand:
-            return Response({'error': 'School or Brand not found'}, status=status.HTTP_404_NOT_FOUND)
+            raise SchoolNotFoundError('校舎またはブランドが見つかりません')
 
         is_closed = SchoolClosure.is_closed(school, brand, check_date, time_slot)
         return Response({

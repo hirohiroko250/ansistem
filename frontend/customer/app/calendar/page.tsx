@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Calendar } from '@/components/ui/calendar';
 import { BottomTabBar } from '@/components/bottom-tab-bar';
+import { AuthGuard } from '@/components/auth';
 import { useRouter } from 'next/navigation';
 import { format, startOfMonth, endOfMonth, addMonths, subMonths, getDate, getDaysInMonth, getDay, parseISO } from 'date-fns';
 import { ja } from 'date-fns/locale';
@@ -42,7 +43,7 @@ type DisplayEvent = {
 // - 振替: 紫
 // - 休校日: グレー
 
-export default function CalendarPage() {
+function CalendarContent() {
   const router = useRouter();
   const [currentDate, setCurrentDate] = useState(new Date());
 
@@ -1111,5 +1112,13 @@ export default function CalendarPage() {
 
       <BottomTabBar />
     </div>
+  );
+}
+
+export default function CalendarPage() {
+  return (
+    <AuthGuard>
+      <CalendarContent />
+    </AuthGuard>
   );
 }

@@ -8,6 +8,7 @@ from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 
 from apps.core.permissions import IsTenantUser
+from apps.core.exceptions import ValidationException
 from ..models import SuspensionRequest, WithdrawalRequest, StudentSchool, StudentEnrollment
 from ..serializers import (
     SuspensionRequestSerializer, SuspensionRequestCreateSerializer,
@@ -105,7 +106,7 @@ class SuspensionRequestViewSet(viewsets.ModelViewSet):
         try:
             service.cancel()
         except ValueError as e:
-            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            raise ValidationException(str(e))
         return Response(SuspensionRequestSerializer(instance).data)
 
     @action(detail=True, methods=['post'])
@@ -116,7 +117,7 @@ class SuspensionRequestViewSet(viewsets.ModelViewSet):
         try:
             service.approve(processed_by=request.user)
         except ValueError as e:
-            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            raise ValidationException(str(e))
         return Response(SuspensionRequestSerializer(instance).data)
 
     @action(detail=True, methods=['post'])
@@ -130,7 +131,7 @@ class SuspensionRequestViewSet(viewsets.ModelViewSet):
                 reason=request.data.get('reason', '')
             )
         except ValueError as e:
-            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            raise ValidationException(str(e))
         return Response(SuspensionRequestSerializer(instance).data)
 
     @action(detail=True, methods=['post'])
@@ -141,7 +142,7 @@ class SuspensionRequestViewSet(viewsets.ModelViewSet):
         try:
             service.resume()
         except ValueError as e:
-            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            raise ValidationException(str(e))
         return Response(SuspensionRequestSerializer(instance).data)
 
 
@@ -243,7 +244,7 @@ class WithdrawalRequestViewSet(viewsets.ModelViewSet):
         try:
             service.cancel()
         except ValueError as e:
-            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            raise ValidationException(str(e))
         return Response(WithdrawalRequestSerializer(instance).data)
 
     @action(detail=True, methods=['post'])
@@ -254,7 +255,7 @@ class WithdrawalRequestViewSet(viewsets.ModelViewSet):
         try:
             service.approve(processed_by=request.user)
         except ValueError as e:
-            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            raise ValidationException(str(e))
         return Response(WithdrawalRequestSerializer(instance).data)
 
     @action(detail=True, methods=['post'])
@@ -268,5 +269,5 @@ class WithdrawalRequestViewSet(viewsets.ModelViewSet):
                 reason=request.data.get('reason', '')
             )
         except ValueError as e:
-            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            raise ValidationException(str(e))
         return Response(WithdrawalRequestSerializer(instance).data)

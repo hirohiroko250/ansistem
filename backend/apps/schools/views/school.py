@@ -11,6 +11,7 @@ from django.db.models import Count
 from django.utils import timezone
 
 from apps.core.permissions import IsTenantUser, IsTenantAdmin
+from apps.core.exceptions import ValidationException
 from apps.core.csv_utils import CSVMixin
 from ..models import School
 from ..serializers import (
@@ -232,7 +233,7 @@ class PublicSchoolsByAreaView(APIView):
         """
         city = request.query_params.get('city')
         if not city:
-            return Response({'error': 'city parameter is required'}, status=status.HTTP_400_BAD_REQUEST)
+            raise ValidationException('city パラメータは必須です')
 
         queryset = School.objects.filter(
             is_active=True,

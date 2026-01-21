@@ -8,6 +8,7 @@ from rest_framework.permissions import AllowAny
 from rest_framework.views import APIView
 
 from ...models import School, ClassSchedule
+from apps.contracts.models import Ticket
 
 
 class PublicSchoolsByTicketView(APIView):
@@ -112,16 +113,38 @@ class PublicTicketsBySchoolView(APIView):
             )
 
         # ClassScheduleから該当校舎で開講しているチケットを取得
+        # ticket_idはUUIDまたはTi/Ch形式のコードが入っている可能性がある
         ticket_ids = ClassSchedule.objects.filter(
             school_id=school_id,
             is_active=True,
             deleted_at__isnull=True
         ).values_list('ticket_id', flat=True).distinct()
 
-        # チケットIDを正規化して重複を除去
-        normalized_ids = list(set(
-            self.normalize_ticket_id(tid) for tid in ticket_ids if tid
-        ))
+        # ユニークなticket_idsを収集
+        unique_ticket_ids = set(tid for tid in ticket_ids if tid)
+
+        # ticket_codeのリストを作成
+        ticket_codes = []
+
+        for tid in unique_ticket_ids:
+            # UUIDかどうかを判定（ハイフンを含むか、または36文字）
+            is_uuid = '-' in tid or len(tid) == 36
+
+            if is_uuid:
+                # UUIDの場合、Ticketテーブルからticket_codeを取得
+                try:
+                    ticket = Ticket.objects.get(id=tid)
+                    if ticket.ticket_code:
+                        ticket_codes.append(self.normalize_ticket_id(ticket.ticket_code))
+                except Ticket.DoesNotExist:
+                    # チケットが見つからない場合はスキップ
+                    pass
+            else:
+                # Ti/Ch/T形式のコードの場合は正規化して追加
+                ticket_codes.append(self.normalize_ticket_id(tid))
+
+        # 重複を除去
+        normalized_ids = list(set(ticket_codes))
 
         return Response({
             'schoolId': school_id,

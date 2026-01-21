@@ -9,6 +9,7 @@ from rest_framework.views import APIView
 from django.db.models import Q
 
 from ..models import BankType, Bank, BankBranch
+from apps.core.exceptions import NotFoundError
 from ..serializers import BankTypeSerializer, BankSerializer, BankDetailSerializer, BankBranchSerializer
 
 
@@ -84,7 +85,7 @@ class PublicBankDetailView(APIView):
         try:
             bank = Bank.objects.select_related('bank_type').prefetch_related('branches').get(id=bank_id)
         except Bank.DoesNotExist:
-            return Response({'error': 'Bank not found'}, status=status.HTTP_404_NOT_FOUND)
+            raise NotFoundError('金融機関が見つかりません')
 
         serializer = BankDetailSerializer(bank)
         return Response(serializer.data)

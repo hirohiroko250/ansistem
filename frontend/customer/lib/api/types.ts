@@ -629,6 +629,7 @@ export interface ApiSuccessMessage {
 export interface ApiError {
   message: string;
   status: number;
+  code?: string;  // エラーコード（バックエンドの統一エラーフォーマット対応）
   errors?: Record<string, string[]>;
 }
 

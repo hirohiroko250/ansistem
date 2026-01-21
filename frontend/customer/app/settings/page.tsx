@@ -1,14 +1,16 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { ChevronRight, User, CreditCard, HelpCircle, LogOut, Loader2, AlertCircle, KeyRound } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { BottomTabBar } from '@/components/bottom-tab-bar';
+import { AuthGuard } from '@/components/auth';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { getMe, logout } from '@/lib/api/auth';
-import type { Profile, ApiError } from '@/lib/api/types';
+import { useUser } from '@/lib/hooks';
+import { logout } from '@/lib/api/auth';
+import type { Profile } from '@/lib/api/types';
 
 const menuItems = [
   { id: 1, icon: User, label: 'プロフィール編集', href: '/settings/profile-edit' },
@@ -17,33 +19,10 @@ const menuItems = [
   { id: 4, icon: HelpCircle, label: 'よくある質問', href: '#' },
 ];
 
-export default function SettingsPage() {
+function SettingsContent() {
   const router = useRouter();
-  const [profile, setProfile] = useState<Profile | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const { data: profile, isLoading, error } = useUser();
   const [isLoggingOut, setIsLoggingOut] = useState(false);
-
-  useEffect(() => {
-    const fetchProfile = async () => {
-      setIsLoading(true);
-      setError(null);
-      try {
-        const data = await getMe();
-        setProfile(data);
-      } catch (err) {
-        const apiError = err as ApiError;
-        if (apiError.status === 401) {
-          router.push('/login');
-          return;
-        }
-        setError(apiError.message || 'プロフィール情報の取得に失敗しました');
-      } finally {
-        setIsLoading(false);
-      }
-    };
-    fetchProfile();
-  }, [router]);
 
   const handleLogout = async () => {
     setIsLoggingOut(true);
@@ -56,7 +35,7 @@ export default function SettingsPage() {
   };
 
   // 名前の頭文字を取得（アバター用）
-  const getInitials = (profile: Profile | null): string => {
+  const getInitials = (profile: Profile | undefined): string => {
     if (!profile) return '';
     if (profile.lastName) return profile.lastName.slice(0, 2);
     if (profile.fullName) return profile.fullName.slice(0, 2);
@@ -83,7 +62,7 @@ export default function SettingsPage() {
             <CardContent className="p-6">
               <div className="flex items-center gap-2 text-red-600">
                 <AlertCircle className="h-5 w-5" />
-                <p className="text-sm">{error}</p>
+                <p className="text-sm">{error instanceof Error ? error.message : 'プロフィール情報の取得に失敗しました'}</p>
               </div>
             </CardContent>
           </Card>
@@ -150,5 +129,13 @@ export default function SettingsPage() {
 
       <BottomTabBar />
     </div>
+  );
+}
+
+export default function SettingsPage() {
+  return (
+    <AuthGuard>
+      <SettingsContent />
+    </AuthGuard>
   );
 }

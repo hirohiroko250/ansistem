@@ -7,6 +7,7 @@ from django_filters.rest_framework import DjangoFilterBackend
 from django.utils import timezone
 
 from apps.core.permissions import IsTenantUser
+from apps.core.exceptions import UnauthorizedError, ValidationException
 from .models import Task, TaskCategory, TaskComment
 from .serializers import (
     TaskSerializer, TaskCreateUpdateSerializer,
@@ -61,7 +62,7 @@ class TaskViewSet(viewsets.ModelViewSet):
         """自分に割り当てられたタスク一覧"""
         user = request.user
         if not user.is_authenticated:
-            return Response({'error': '認証が必要です'}, status=status.HTTP_401_UNAUTHORIZED)
+            raise UnauthorizedError()
 
         # ユーザーIDでフィルタリング
         tasks = self.queryset.filter(assigned_to_id=user.id).exclude(status__in=['completed', 'cancelled'])
@@ -83,7 +84,7 @@ class TaskViewSet(viewsets.ModelViewSet):
         """担当者別タスク一覧"""
         assignee_id = request.query_params.get('assignee_id')
         if not assignee_id:
-            return Response({'error': 'assignee_id is required'}, status=status.HTTP_400_BAD_REQUEST)
+            raise ValidationException('assignee_id は必須です')
 
         tasks = self.queryset.filter(assigned_to_id=assignee_id)
 

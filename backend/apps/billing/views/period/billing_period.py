@@ -12,6 +12,7 @@ from django.utils import timezone
 from drf_spectacular.utils import extend_schema
 
 from apps.billing.models import BillingPeriod, PaymentProvider
+from apps.core.exceptions import ValidationException, BusinessRuleViolationError, ForbiddenError
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +54,7 @@ class BillingPeriodViewSet(viewsets.ModelViewSet):
         period = self.get_object()
 
         if period.is_closed:
-            return Response({'error': 'この期間は既に締め処理済みです'}, status=400)
+            raise BusinessRuleViolationError('この期間は既に締め処理済みです')
 
         period.is_closed = True
         period.closed_at = timezone.now()
@@ -73,12 +74,12 @@ class BillingPeriodViewSet(viewsets.ModelViewSet):
         from apps.core.permissions import is_admin_user
 
         if not is_admin_user(request.user):
-            return Response({'error': '管理者権限が必要です'}, status=403)
+            raise ForbiddenError('管理者権限が必要です')
 
         period = self.get_object()
 
         if not period.is_closed:
-            return Response({'error': 'この期間は締め処理されていません'}, status=400)
+            raise BusinessRuleViolationError('この期間は締め処理されていません')
 
         period.is_closed = False
         period.closed_at = None
@@ -106,7 +107,7 @@ class BillingPeriodViewSet(viewsets.ModelViewSet):
             try:
                 enrollment_date = datetime.strptime(enrollment_date_str, '%Y-%m-%d').date()
             except ValueError:
-                return Response({'error': '日付形式が不正です（YYYY-MM-DD）'}, status=400)
+                raise ValidationException('日付形式が不正です（YYYY-MM-DD）')
         else:
             enrollment_date = timezone.now().date()
 
@@ -145,7 +146,7 @@ class BillingPeriodViewSet(viewsets.ModelViewSet):
             try:
                 purchase_date = datetime.strptime(purchase_date_str, '%Y-%m-%d').date()
             except ValueError:
-                return Response({'error': '日付形式が不正です（YYYY-MM-DD）'}, status=400)
+                raise ValidationException('日付形式が不正です（YYYY-MM-DD）')
         else:
             purchase_date = timezone.now().date()
 

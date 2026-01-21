@@ -12,6 +12,7 @@ from drf_spectacular.utils import extend_schema
 
 from apps.billing.models import MonthlyBillingDeadline, PaymentProvider
 from apps.billing.services import ConfirmedBillingService
+from apps.core.exceptions import ValidationException, BusinessRuleViolationError, OZAException
 
 logger = logging.getLogger(__name__)
 
@@ -200,13 +201,13 @@ class MonthlyBillingDeadlineViewSet(viewsets.ModelViewSet):
         month = request.query_params.get('month')
 
         if not year or not month:
-            return Response({'error': 'year と month を指定してください'}, status=400)
+            raise ValidationException('year と month を指定してください')
 
         try:
             year = int(year)
             month = int(month)
         except ValueError:
-            return Response({'error': 'year と month は整数で指定してください'}, status=400)
+            raise ValidationException('year と month は整数で指定してください')
 
         tenant_id = self._get_tenant_id(request)
         is_editable = MonthlyBillingDeadline.is_month_editable(tenant_id, year, month)
@@ -225,7 +226,7 @@ class MonthlyBillingDeadlineViewSet(viewsets.ModelViewSet):
         deadline = self.get_object()
 
         if deadline.is_closed:
-            return Response({'error': 'この月は既に締め済みです'}, status=400)
+            raise BusinessRuleViolationError('この月は既に締め済みです')
 
         notes = request.data.get('notes', '')
 
@@ -239,10 +240,10 @@ class MonthlyBillingDeadlineViewSet(viewsets.ModelViewSet):
             )
             return Response(result)
         except ValueError as e:
-            return Response({'error': str(e)}, status=400)
+            raise ValidationException(str(e))
         except Exception as e:
             logger.error(f'Error closing month: {e}')
-            return Response({'error': '締め処理中にエラーが発生しました'}, status=500)
+            raise OZAException('締め処理中にエラーが発生しました', status_code=500)
 
     @extend_schema(summary='確認中にする')
     @action(detail=True, methods=['post'])
@@ -259,7 +260,7 @@ class MonthlyBillingDeadlineViewSet(viewsets.ModelViewSet):
                 'status_display': deadline.status_display,
             })
         except ValueError as e:
-            return Response({'error': str(e)}, status=400)
+            raise ValidationException(str(e))
 
     @extend_schema(summary='確認中を解除する')
     @action(detail=True, methods=['post'])
@@ -276,7 +277,7 @@ class MonthlyBillingDeadlineViewSet(viewsets.ModelViewSet):
                 'status_display': deadline.status_display,
             })
         except ValueError as e:
-            return Response({'error': str(e)}, status=400)
+            raise ValidationException(str(e))
 
     @extend_schema(summary='締めを解除する')
     @action(detail=True, methods=['post'])
@@ -293,7 +294,7 @@ class MonthlyBillingDeadlineViewSet(viewsets.ModelViewSet):
                 'is_closed': deadline.is_closed,
             })
         except ValueError as e:
-            return Response({'error': str(e)}, status=400)
+            raise ValidationException(str(e))
 
     @extend_schema(summary='締日設定を更新')
     @action(detail=True, methods=['patch'])
@@ -303,10 +304,10 @@ class MonthlyBillingDeadlineViewSet(viewsets.ModelViewSet):
 
         closing_day = request.data.get('closing_day')
         if closing_day is None:
-            return Response({'error': 'closing_day を指定してください'}, status=400)
+            raise ValidationException('closing_day を指定してください')
 
         if not (1 <= closing_day <= 31):
-            return Response({'error': '締日は1〜31の間で設定してください'}, status=400)
+            raise ValidationException('締日は1〜31の間で設定してください')
 
         deadline.closing_day = closing_day
         deadline.save()
@@ -323,15 +324,15 @@ class MonthlyBillingDeadlineViewSet(viewsets.ModelViewSet):
         """デフォルト締日を設定（PaymentProviderに保存）"""
         closing_day = request.data.get('closing_day')
         if closing_day is None:
-            return Response({'error': 'closing_day を指定してください'}, status=400)
+            raise ValidationException('closing_day を指定してください')
 
         try:
             closing_day = int(closing_day)
         except ValueError:
-            return Response({'error': 'closing_day は整数で指定してください'}, status=400)
+            raise ValidationException('closing_day は整数で指定してください')
 
         if not (1 <= closing_day <= 31):
-            return Response({'error': '締日は1〜31の間で設定してください'}, status=400)
+            raise ValidationException('締日は1〜31の間で設定してください')
 
         tenant_id = self._get_tenant_id(request)
 

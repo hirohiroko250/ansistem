@@ -80,6 +80,7 @@ interface StudentDetailProps {
   siblings?: Student[];
   onSelectSibling?: (studentId: string) => void;
   onContractUpdate?: (contractId: string, updates: ContractUpdate) => Promise<void>;
+  onRefresh?: () => void;
 }
 
 function getStatusLabel(status: string): string {
@@ -172,7 +173,7 @@ function getSenderTypeLabel(type: string): string {
   return typeMap[type] || type;
 }
 
-export function StudentDetail({ student, parents, contracts, invoices, contactLogs = [], chatLogs = [], messages = [], siblings = [], onSelectSibling, onContractUpdate }: StudentDetailProps) {
+export function StudentDetail({ student, parents, contracts, invoices, contactLogs = [], chatLogs = [], messages = [], siblings = [], onSelectSibling, onContractUpdate, onRefresh }: StudentDetailProps) {
   const [activeTab, setActiveTab] = useState("basic");
   const [editingContract, setEditingContract] = useState<Contract | null>(null);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
@@ -236,6 +237,10 @@ export function StudentDetail({ student, parents, contracts, invoices, contactLo
   const [qrCodeInfo, setQrCodeInfo] = useState<QRCodeInfo | null>(null);
   const [qrCodeDialogOpen, setQrCodeDialogOpen] = useState(false);
 
+  // 保護者画面を開く
+  const [isOpeningGuardianView, setIsOpeningGuardianView] = useState(false);
+  const [guardianAccountCreated, setGuardianAccountCreated] = useState<Record<string, boolean>>({});
+
   // contactLogs propが変わったらlocalContactLogsを更新
   useEffect(() => {
     setLocalContactLogs(contactLogs);
@@ -284,6 +289,43 @@ export function StudentDetail({ student, parents, contracts, invoices, contactLo
       alert('対応履歴の追加に失敗しました');
     } finally {
       setIsSubmittingContactLog(false);
+    }
+  };
+
+  // 保護者画面を開く
+  const openGuardianView = async (guardian: Guardian) => {
+    const guardianId = guardian.id;
+    if (!guardianId) return;
+
+    setIsOpeningGuardianView(true);
+    try {
+      // アカウント未設定の場合は自動作成
+      const hasAccount = guardian.has_account || guardian.hasAccount || guardianAccountCreated[guardianId];
+      if (!hasAccount) {
+        const hasContactInfo = guardian.email || guardian.phone || guardian.phone_mobile || guardian.phoneMobile;
+        if (!hasContactInfo) {
+          alert('電話番号またはメールアドレスが設定されていません。先に連絡先を登録してください。');
+          setIsOpeningGuardianView(false);
+          return;
+        }
+        // アカウントを自動作成
+        await apiClient.post(`/students/guardians/${guardianId}/setup_account/`);
+        setGuardianAccountCreated(prev => ({ ...prev, [guardianId]: true }));
+      }
+
+      // 保護者画面を開く
+      const response = await apiClient.post<{ access: string; refresh: string }>('/auth/impersonate-guardian/', {
+        guardian_id: guardianId
+      });
+      const customerUrl = process.env.NEXT_PUBLIC_CUSTOMER_URL || 'http://localhost:3000';
+      const url = `${customerUrl}/auth/callback?access=${response.access}&refresh=${response.refresh}`;
+      window.open(url, '_blank');
+    } catch (error: any) {
+      console.error('Failed to open guardian view:', error);
+      const errorMessage = error.data?.error || error.message || '';
+      alert(errorMessage || '保護者画面を開けませんでした。');
+    } finally {
+      setIsOpeningGuardianView(false);
     }
   };
 
@@ -457,7 +499,7 @@ export function StudentDetail({ student, parents, contracts, invoices, contactLo
   const [invoiceYear, setInvoiceYear] = useState<string>(defaultYearMonth.year);
   const [invoiceMonth, setInvoiceMonth] = useState<string>(defaultYearMonth.month);
 
-  // やりとりタブのサブタブと日付フィルター
+  // 生徒カルテタブのサブタブと日付フィルター
   const [commTab, setCommTab] = useState<"logs" | "chat" | "requests">("logs");
   const [commDateFrom, setCommDateFrom] = useState<string>("");
   const [commDateTo, setCommDateTo] = useState<string>("");
@@ -910,7 +952,7 @@ export function StudentDetail({ student, parents, contracts, invoices, contactLo
       await apiClient.patch(`/students/guardians/${editingGuardian.id}/`, guardianForm);
       alert('保護者情報を更新しました');
       setGuardianEditDialogOpen(false);
-      window.location.reload();
+      onRefresh?.();
     } catch (error: any) {
       console.error('Guardian update error:', error);
       alert(error.message || '保護者情報の更新に失敗しました');
@@ -935,7 +977,7 @@ export function StudentDetail({ student, parents, contracts, invoices, contactLo
 
       alert('休会登録が完了しました');
       setSuspensionDialogOpen(false);
-      window.location.reload(); // リロードして最新状態を取得
+      onRefresh?.();
     } catch (error: any) {
       console.error('Suspension error:', error);
       alert(error.message || '休会登録に失敗しました');
@@ -960,7 +1002,7 @@ export function StudentDetail({ student, parents, contracts, invoices, contactLo
 
       alert('退会登録が完了しました');
       setWithdrawalDialogOpen(false);
-      window.location.reload(); // リロードして最新状態を取得
+      onRefresh?.();
     } catch (error: any) {
       console.error('Withdrawal error:', error);
       alert(error.message || '退会登録に失敗しました');
@@ -1028,7 +1070,7 @@ export function StudentDetail({ student, parents, contracts, invoices, contactLo
             value="communications"
             className="rounded-none border-b-2 border-transparent data-[state=active]:border-blue-500 data-[state=active]:bg-white px-4 py-2"
           >
-            やりとり
+            生徒カルテ
           </TabsTrigger>
         </TabsList>
 
@@ -1418,16 +1460,13 @@ export function StudentDetail({ student, parents, contracts, invoices, contactLo
                         <div className="flex gap-2">
                           <Button
                             size="sm"
-                            variant="outline"
-                            onClick={() => {
-                              const guardianId = g?.id;
-                              if (guardianId) {
-                                window.location.href = `/admin/parents?id=${guardianId}`;
-                              }
-                            }}
+                            variant="default"
+                            className="bg-blue-600 hover:bg-blue-700"
+                            onClick={() => g && openGuardianView(g)}
+                            disabled={isOpeningGuardianView}
                           >
                             <ExternalLink className="w-4 h-4 mr-1" />
-                            詳細を見る
+                            {isOpeningGuardianView ? '開いています...' : '保護者画面を開く'}
                           </Button>
                           <Button
                             size="sm"
@@ -1874,8 +1913,7 @@ export function StudentDetail({ student, parents, contracts, invoices, contactLo
                                             await apiClient.post(`/contracts/${contract.id}/update-textbooks/`, {
                                               selected_textbook_ids: Array.from(newSelectedIds)
                                             });
-                                            // ページをリロードして更新を反映
-                                            window.location.reload();
+                                            onRefresh?.();
                                           } catch (err) {
                                             console.error('Failed to update textbooks:', err);
                                             alert('教材費の更新に失敗しました');
@@ -2520,7 +2558,7 @@ export function StudentDetail({ student, parents, contracts, invoices, contactLo
           </div>
         </TabsContent>
 
-        {/* やりとりタブ */}
+        {/* 生徒カルテタブ */}
         <TabsContent value="communications" className="flex-1 overflow-auto p-0 m-0">
           <div className="p-4 space-y-4">
             {/* 日付範囲フィルター */}
@@ -3337,8 +3375,7 @@ export function StudentDetail({ student, parents, contracts, invoices, contactLo
         student={student}
         guardian={parents[0]}
         onSuccess={() => {
-          // 契約一覧を再読み込み（親コンポーネントで処理）
-          window.location.reload();
+          onRefresh?.();
         }}
       />
 

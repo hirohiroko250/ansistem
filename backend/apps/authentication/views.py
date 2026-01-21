@@ -10,6 +10,8 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from django.contrib.auth import get_user_model
 from django.utils import timezone
 
+from apps.core.exceptions import UnauthorizedError, ErrorCode
+
 from .serializers import (
     CustomTokenObtainPairSerializer,
     RegisterSerializer,
@@ -69,17 +71,17 @@ class LoginView(TokenObtainPairView):
                     if guardian.email:
                         data['email'] = guardian.email
                     else:
-                        return Response(
-                            {'detail': 'ユーザーアカウントが見つかりません'},
-                            status=status.HTTP_401_UNAUTHORIZED
+                        raise UnauthorizedError(
+                            'ユーザーアカウントが見つかりません',
+                            code=ErrorCode.INVALID_CREDENTIALS
                         )
             elif guardian and guardian.email:
                 # Guardian に紐づくユーザーがいなくても、emailがあればそれを使う
                 data['email'] = guardian.email
             else:
-                return Response(
-                    {'detail': 'この電話番号は登録されていません'},
-                    status=status.HTTP_401_UNAUTHORIZED
+                raise UnauthorizedError(
+                    'この電話番号は登録されていません',
+                    code=ErrorCode.INVALID_CREDENTIALS
                 )
 
         # username フィールドを email に設定（SimpleJWTの要求）
@@ -477,3 +479,148 @@ class EmployeeRegisterView(GenericAPIView):
                 'full_name': user.full_name,
             }
         }, status=status.HTTP_201_CREATED)
+
+
+class ValidationCheckView(GenericAPIView):
+    """一括バリデーションチェックビュー
+
+    複数フィールドの重複チェック等を一括で実行するAPI。
+    フォーム送信前やフィールドblur時に使用。
+
+    POST /api/v1/auth/validation/check/
+    Request:
+    {
+        "email": "test@example.com",
+        "phone": "09012345678"
+    }
+
+    Response:
+    {
+        "email": { "available": true, "message": "使用可能です" },
+        "phone": { "available": false, "message": "既に登録されています" }
+    }
+    """
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        from apps.students.models import Guardian
+        from django.db import models
+
+        data = request.data
+        results = {}
+
+        # メールアドレスチェック
+        if 'email' in data:
+            email = data.get('email', '').strip().lower()
+            if not email:
+                results['email'] = {
+                    'available': False,
+                    'message': 'メールアドレスを入力してください'
+                }
+            else:
+                exists = User.objects.filter(email=email).exists()
+                if exists:
+                    results['email'] = {
+                        'available': False,
+                        'message': 'このメールアドレスは既に登録されています'
+                    }
+                else:
+                    results['email'] = {
+                        'available': True,
+                        'message': '使用可能なメールアドレスです'
+                    }
+
+        # 電話番号チェック
+        if 'phone' in data:
+            phone = data.get('phone', '').strip()
+            if not phone:
+                results['phone'] = {
+                    'available': False,
+                    'message': '電話番号を入力してください'
+                }
+            else:
+                # 電話番号の正規化（ハイフンや空白を削除）
+                normalized_phone = phone.replace('-', '').replace(' ', '').replace('　', '')
+
+                # User テーブルでチェック
+                exists_in_user = User.objects.filter(
+                    models.Q(phone=phone) | models.Q(phone=normalized_phone)
+                ).exists()
+
+                # Guardian テーブルでもチェック（より厳密な重複チェック）
+                existing_guardian = Guardian.objects.filter(
+                    models.Q(phone_mobile__icontains=normalized_phone) |
+                    models.Q(phone__icontains=normalized_phone)
+                ).exclude(email='').first()
+
+                if exists_in_user or existing_guardian:
+                    # 既存のメールアドレスをマスク表示
+                    masked_email = None
+                    if existing_guardian and existing_guardian.email:
+                        email = existing_guardian.email
+                        if '@' in email:
+                            local, domain = email.split('@', 1)
+                            masked_email = f"{local[:3]}***@{domain}" if len(local) > 3 else f"{local[0]}***@{domain}"
+
+                    message = 'この電話番号は既に登録されています'
+                    if masked_email:
+                        message += f'（登録メール: {masked_email}）'
+
+                    results['phone'] = {
+                        'available': False,
+                        'message': message
+                    }
+                else:
+                    results['phone'] = {
+                        'available': True,
+                        'message': '使用可能な電話番号です'
+                    }
+
+        # 保護者番号チェック（管理者向け）
+        if 'guardian_no' in data:
+            guardian_no = data.get('guardian_no', '').strip()
+            if not guardian_no:
+                results['guardian_no'] = {
+                    'available': False,
+                    'message': '保護者番号を入力してください'
+                }
+            else:
+                exists = Guardian.objects.filter(
+                    guardian_no=guardian_no, deleted_at__isnull=True
+                ).exists()
+                if exists:
+                    results['guardian_no'] = {
+                        'available': False,
+                        'message': 'この保護者番号は既に使用されています'
+                    }
+                else:
+                    results['guardian_no'] = {
+                        'available': True,
+                        'message': '使用可能な保護者番号です'
+                    }
+
+        # 生徒番号チェック（管理者向け）
+        if 'student_no' in data:
+            from apps.students.models import Student
+            student_no = data.get('student_no', '').strip()
+            if not student_no:
+                results['student_no'] = {
+                    'available': False,
+                    'message': '生徒番号を入力してください'
+                }
+            else:
+                exists = Student.objects.filter(
+                    student_no=student_no, deleted_at__isnull=True
+                ).exists()
+                if exists:
+                    results['student_no'] = {
+                        'available': False,
+                        'message': 'この生徒番号は既に使用されています'
+                    }
+                else:
+                    results['student_no'] = {
+                        'available': True,
+                        'message': '使用可能な生徒番号です'
+                    }
+
+        return Response(results)

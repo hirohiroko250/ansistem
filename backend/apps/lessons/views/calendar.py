@@ -7,6 +7,8 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 
+from apps.core.exceptions import ValidationException, StudentNotFoundError
+
 
 class StudentCalendarView(APIView):
     """生徒のカレンダー表示用API
@@ -35,13 +37,13 @@ class StudentCalendarView(APIView):
         month = request.query_params.get('month')
 
         if not student_id:
-            return Response({'error': 'student_id is required'}, status=400)
+            raise ValidationException('student_id は必須です')
 
         # 生徒取得
         try:
             student = Student.objects.get(id=student_id, tenant_id=tenant_id)
         except Student.DoesNotExist:
-            return Response({'error': 'Student not found'}, status=404)
+            raise StudentNotFoundError()
 
         # 日付範囲の設定
         if year and month:

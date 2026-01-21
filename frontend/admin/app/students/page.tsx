@@ -56,6 +56,7 @@ export default function StudentsPage() {
     page_size: 50,
   });
   const [searchQuery, setSearchQuery] = useState("");
+  const [hasSearched, setHasSearched] = useState(false);
   const [selectedStudentId, setSelectedStudentId] = useState<string>();
   const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
   const [selectedStudentParents, setSelectedStudentParents] = useState<Guardian[]>([]);
@@ -90,8 +91,11 @@ export default function StudentsPage() {
     // 認証済みの場合のみデータ取得
     const token = apiClient.getToken();
     if (!token) return;
-    loadStudents();
-  }, [filters]);
+    // 検索が実行された場合のみ生徒を取得
+    if (hasSearched) {
+      loadStudents();
+    }
+  }, [filters, hasSearched]);
 
   useEffect(() => {
     if (selectedStudentId) {
@@ -108,7 +112,7 @@ export default function StudentsPage() {
     setBrandCategories(categoriesData);
     setBrands(brandsData);
     setSchools(schoolsData);
-    await loadStudents();
+    setLoading(false);
   }
 
   async function loadStudents() {
@@ -248,6 +252,7 @@ export default function StudentsPage() {
   }
 
   function handleSearch() {
+    setHasSearched(true);
     setFilters((prev) => ({
       ...prev,
       search: searchQuery || undefined,
@@ -256,6 +261,9 @@ export default function StudentsPage() {
   }
 
   function handleCategoryChange(categoryId: string) {
+    if (categoryId !== "all") {
+      setHasSearched(true);
+    }
     setFilters((prev) => ({
       ...prev,
       brand_category_id: categoryId === "all" ? undefined : categoryId,
@@ -264,6 +272,9 @@ export default function StudentsPage() {
   }
 
   function handleBrandChange(brandId: string) {
+    if (brandId !== "all") {
+      setHasSearched(true);
+    }
     setFilters((prev) => ({
       ...prev,
       brand_id: brandId === "all" ? undefined : brandId,
@@ -272,6 +283,9 @@ export default function StudentsPage() {
   }
 
   function handleSchoolChange(schoolId: string) {
+    if (schoolId !== "all") {
+      setHasSearched(true);
+    }
     setFilters((prev) => ({
       ...prev,
       school_id: schoolId === "all" ? undefined : schoolId,
@@ -280,6 +294,9 @@ export default function StudentsPage() {
   }
 
   function handleStatusChange(status: string) {
+    if (status !== "all") {
+      setHasSearched(true);
+    }
     setFilters((prev) => ({
       ...prev,
       status: status === "all" ? undefined : status,
@@ -315,6 +332,7 @@ export default function StudentsPage() {
             siblings={selectedStudentSiblings}
             onSelectSibling={handleSelectStudent}
             onContractUpdate={handleContractUpdate}
+            onRefresh={() => selectedStudentId && loadStudentDetail(selectedStudentId)}
           />
         ) : (
           <div className="text-center text-gray-500">読み込み中...</div>
@@ -325,7 +343,9 @@ export default function StudentsPage() {
         <div className="mb-6">
           <h1 className="text-3xl font-bold text-gray-900 mb-2">生徒一覧</h1>
           <p className="text-gray-600">
-            {result.count.toLocaleString()}名の生徒が登録されています
+            {hasSearched
+              ? `${result.count.toLocaleString()}名の生徒が見つかりました`
+              : "検索条件を入力して生徒を検索してください"}
           </p>
         </div>
 
@@ -423,6 +443,12 @@ export default function StudentsPage() {
         <div className="flex-1 overflow-auto mb-4">
           {loading ? (
             <div className="text-center text-gray-500 py-8">読み込み中...</div>
+          ) : !hasSearched ? (
+            <div className="flex flex-col items-center justify-center py-16 text-gray-500">
+              <Search className="w-16 h-16 text-gray-300 mb-4" />
+              <p className="text-lg">検索条件を入力してください</p>
+              <p className="text-sm mt-2">生徒名、生徒番号、または各種フィルターで検索できます</p>
+            </div>
           ) : (
             <StudentList
               result={result}
@@ -433,7 +459,7 @@ export default function StudentsPage() {
           )}
         </div>
 
-        {result.totalPages > 1 && (
+        {hasSearched && result.totalPages > 1 && (
           <div className="flex items-center justify-between pt-4 border-t">
             <p className="text-sm text-gray-600">
               {startResult}〜{endResult}件 / 全{result.count.toLocaleString()}件

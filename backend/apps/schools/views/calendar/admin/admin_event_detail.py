@@ -8,6 +8,7 @@ from rest_framework.views import APIView
 from django.db.models import Q
 
 from apps.core.permissions import IsTenantUser
+from apps.core.exceptions import ValidationException, NotFoundError
 from apps.schools.models import LessonCalendar, ClassSchedule
 
 
@@ -30,18 +31,12 @@ class AdminCalendarEventDetailView(APIView):
         date_str = request.query_params.get('date')
 
         if not all([schedule_id, date_str]):
-            return Response(
-                {'error': 'schedule_id and date are required'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            raise ValidationException('schedule_id と date は必須です')
 
         try:
             target_date = datetime.strptime(date_str, '%Y-%m-%d').date()
         except ValueError:
-            return Response(
-                {'error': 'Invalid date format. Use YYYY-MM-DD'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            raise ValidationException('日付形式が不正です（YYYY-MM-DD）')
 
         # ClassScheduleを取得
         try:
@@ -49,7 +44,7 @@ class AdminCalendarEventDetailView(APIView):
                 'brand', 'school', 'room', 'grade'
             ).get(id=schedule_id)
         except ClassSchedule.DoesNotExist:
-            return Response({'error': 'Schedule not found'}, status=status.HTTP_404_NOT_FOUND)
+            raise NotFoundError('スケジュールが見つかりません')
 
         # LessonCalendarからlesson_type取得
         lesson_cal = LessonCalendar.objects.filter(

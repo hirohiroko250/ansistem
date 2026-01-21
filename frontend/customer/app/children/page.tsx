@@ -10,6 +10,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { BottomTabBar } from '@/components/bottom-tab-bar';
+import { AuthGuard } from '@/components/auth';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { getChildren, createStudent, CreateStudentRequest, CreateStudentResponse } from '@/lib/api/students';
@@ -44,7 +45,7 @@ type Child = {
   guardian_name?: string;
 };
 
-export default function ChildrenPage() {
+function ChildrenContent() {
   const router = useRouter();
   const { toast } = useToast();
   const [children, setChildren] = useState<Child[]>([]);
@@ -557,5 +558,13 @@ export default function ChildrenPage() {
 
       <BottomTabBar />
     </div>
+  );
+}
+
+export default function ChildrenPage() {
+  return (
+    <AuthGuard>
+      <ChildrenContent />
+    </AuthGuard>
   );
 }

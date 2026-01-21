@@ -7,7 +7,6 @@ import {
   LayoutDashboard,
   CheckSquare,
   Users,
-  UserCircle,
   UserCog,
   BookOpen,
   FileText,
@@ -43,11 +42,6 @@ const menuItems = [
     name: "生徒",
     href: "/students",
     icon: Users,
-  },
-  {
-    name: "保護者",
-    href: "/parents",
-    icon: UserCircle,
   },
   {
     name: "スタッフ",

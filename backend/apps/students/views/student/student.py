@@ -146,18 +146,29 @@ class StudentViewSet(StudentItemsMixin, CSVMixin, viewsets.ModelViewSet):
         # 検索
         search = self.request.query_params.get('search')
         if search:
-            queryset = queryset.filter(
-                Q(student_no__icontains=search) |
+            # 電話番号検索用に数字のみを抽出
+            search_digits = ''.join(filter(str.isdigit, search))
+
+            # ID検索は完全一致、名前・電話番号は曖昧一致
+            q_filter = (
+                Q(student_no=search) |  # 生徒番号は完全一致
                 Q(last_name__icontains=search) |
                 Q(first_name__icontains=search) |
                 Q(last_name_kana__icontains=search) |
                 Q(first_name_kana__icontains=search) |
-                Q(email__icontains=search) |
-                Q(phone__icontains=search) |
-                Q(phone2__icontains=search) |
-                Q(guardian__phone__icontains=search) |
-                Q(guardian__phone_mobile__icontains=search)
+                Q(email__icontains=search)
             )
+
+            # 電話番号検索（数字が含まれている場合）
+            if search_digits:
+                q_filter |= (
+                    Q(phone__icontains=search_digits) |
+                    Q(phone2__icontains=search_digits) |
+                    Q(guardian__phone__icontains=search_digits) |
+                    Q(guardian__phone_mobile__icontains=search_digits)
+                )
+
+            queryset = queryset.filter(q_filter)
 
         return queryset
 

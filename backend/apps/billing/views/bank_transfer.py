@@ -17,6 +17,7 @@ from ..models import (
 from ..serializers import (
     BankTransferSerializer, BankTransferBulkMatchSerializer,
 )
+from apps.core.exceptions import ValidationException, BusinessRuleViolationError
 
 
 @extend_schema_view(
@@ -55,11 +56,11 @@ class BankTransferViewSet(viewsets.ModelViewSet):
         transfer = self.get_object()
 
         if transfer.status not in [BankTransfer.Status.PENDING, BankTransfer.Status.UNMATCHED]:
-            return Response({'error': 'この振込は既に照合済みです'}, status=400)
+            raise BusinessRuleViolationError('この振込は既に照合済みです')
 
         guardian_id = request.data.get('guardian_id')
         if not guardian_id:
-            return Response({'error': 'guardian_id を指定してください'}, status=400)
+            raise ValidationException('guardian_id を指定してください')
 
         from apps.students.models import Guardian
         guardian = get_object_or_404(Guardian, id=guardian_id)
@@ -83,7 +84,7 @@ class BankTransferViewSet(viewsets.ModelViewSet):
         transfer = self.get_object()
 
         if transfer.status == BankTransfer.Status.APPLIED:
-            return Response({'error': 'この振込は既に入金処理済みです'}, status=400)
+            raise BusinessRuleViolationError('この振込は既に入金処理済みです')
 
         invoice_id = request.data.get('invoice_id')
         invoice = None
@@ -92,7 +93,7 @@ class BankTransferViewSet(viewsets.ModelViewSet):
 
         guardian = invoice.guardian if invoice else transfer.guardian
         if not guardian:
-            return Response({'error': '保護者が照合されていません。先に照合してください。'}, status=400)
+            raise BusinessRuleViolationError('保護者が照合されていません。先に照合してください。')
 
         with transaction.atomic():
             payment_no = Payment.generate_payment_no(transfer.tenant_id)

@@ -10,6 +10,7 @@ from django.db.models import Q
 from django.core.cache import cache
 
 from ..models import Course, Pack
+from apps.core.exceptions import NotFoundError
 from ..serializers import PublicCourseSerializer, PublicPackSerializer, PublicBrandSerializer
 
 # キャッシュ有効期間（5分）
@@ -127,7 +128,7 @@ class PublicCourseDetailView(APIView):
                 deleted_at__isnull=True
             )
         except Course.DoesNotExist:
-            return Response({'error': 'Course not found'}, status=status.HTTP_404_NOT_FOUND)
+            raise NotFoundError('コースが見つかりません')
 
         serializer = PublicCourseSerializer(course)
         return Response(serializer.data)
@@ -224,7 +225,7 @@ class PublicPackDetailView(APIView):
                 deleted_at__isnull=True
             )
         except Pack.DoesNotExist:
-            return Response({'error': 'Pack not found'}, status=status.HTTP_404_NOT_FOUND)
+            raise NotFoundError('パックが見つかりません')
 
         serializer = PublicPackSerializer(pack)
         return Response(serializer.data)

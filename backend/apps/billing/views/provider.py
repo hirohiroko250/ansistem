@@ -11,6 +11,7 @@ from rest_framework import serializers
 from drf_spectacular.utils import extend_schema
 
 from ..models import PaymentProvider, BillingPeriod
+from apps.core.exceptions import ValidationException
 
 logger = logging.getLogger(__name__)
 
@@ -109,12 +110,12 @@ class PaymentProviderViewSet(viewsets.ModelViewSet):
 
         if closing_day is not None:
             if not (1 <= closing_day <= 31):
-                return Response({'error': '締日は1〜31の間で設定してください'}, status=400)
+                raise ValidationException('締日は1〜31の間で設定してください')
             provider.closing_day = closing_day
 
         if debit_day is not None:
             if not (1 <= debit_day <= 31):
-                return Response({'error': '引落日は1〜31の間で設定してください'}, status=400)
+                raise ValidationException('引落日は1〜31の間で設定してください')
             provider.debit_day = debit_day
 
         provider.save()
@@ -135,9 +136,9 @@ class PaymentProviderViewSet(viewsets.ModelViewSet):
         debit_day = request.data.get('debit_day', 27)
 
         if not (1 <= closing_day <= 31):
-            return Response({'error': '締日は1〜31の間で設定してください'}, status=400)
+            raise ValidationException('締日は1〜31の間で設定してください')
         if not (1 <= debit_day <= 31):
-            return Response({'error': '引落日は1〜31の間で設定してください'}, status=400)
+            raise ValidationException('引落日は1〜31の間で設定してください')
 
         # デフォルトプロバイダーを作成または取得
         provider, created = PaymentProvider.objects.get_or_create(

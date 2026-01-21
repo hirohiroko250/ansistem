@@ -42,6 +42,9 @@ urlpatterns = [
     # 作業管理
     path('tasks/', include('apps.tasks.urls', namespace='tasks')),
 
+    # オンボーディング（ユースケース単位のAPI）
+    path('onboarding/', include('apps.onboarding.urls', namespace='onboarding')),
+
     # ナレッジ管理（マニュアル・テンプレート）
     path('knowledge/', include('apps.knowledge.urls', namespace='knowledge')),
 

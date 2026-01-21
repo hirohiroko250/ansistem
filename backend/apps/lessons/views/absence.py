@@ -8,6 +8,14 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 
+from apps.core.exceptions import (
+    ValidationException,
+    NotFoundError,
+    StudentNotFoundError,
+    GuardianNotFoundError,
+    BusinessRuleViolationError,
+)
+
 
 class MarkAbsenceView(APIView):
     """カレンダーから欠席登録するAPI
@@ -34,29 +42,29 @@ class MarkAbsenceView(APIView):
         reason = request.data.get('reason', '')
 
         if not student_id or not lesson_date or not class_schedule_id:
-            return Response({'error': 'student_id, lesson_date, class_schedule_id are required'}, status=400)
+            raise ValidationException('student_id, lesson_date, class_schedule_id は必須です')
 
         # 生徒取得
         try:
             student = Student.objects.get(id=student_id, tenant_id=tenant_id, deleted_at__isnull=True)
         except Student.DoesNotExist:
-            return Response({'error': 'Student not found'}, status=404)
+            raise StudentNotFoundError()
 
         # 退会済み生徒で退会日を過ぎている場合はエラー
         if student.status == 'withdrawn' and student.withdrawal_date and date.today() > student.withdrawal_date:
-            return Response({'error': '退会日を過ぎているため、欠席登録はできません'}, status=400)
+            raise BusinessRuleViolationError('退会日を過ぎているため、欠席登録はできません')
 
         # ClassSchedule取得
         try:
             class_schedule = ClassSchedule.objects.get(id=class_schedule_id)
         except ClassSchedule.DoesNotExist:
-            return Response({'error': 'ClassSchedule not found'}, status=404)
+            raise NotFoundError('クラススケジュールが見つかりません')
 
         # 日付パース
         try:
             absence_date = datetime.fromisoformat(lesson_date).date()
         except ValueError:
-            return Response({'error': 'Invalid date format'}, status=400)
+            raise ValidationException('日付形式が不正です')
 
         # ClassScheduleからticket_idで消化記号を取得
         consumption_symbol = ''
@@ -222,11 +230,11 @@ class UseAbsenceTicketView(APIView):
         target_class_schedule_id = request.data.get('target_class_schedule_id')
 
         if not absence_ticket_id:
-            return Response({'error': '欠席チケットIDが必要です'}, status=400)
+            raise ValidationException('欠席チケットIDが必要です')
         if not target_date:
-            return Response({'error': '振替先の日付が必要です'}, status=400)
+            raise ValidationException('振替先の日付が必要です')
         if not target_class_schedule_id:
-            return Response({'error': '振替先のクラスが必要です'}, status=400)
+            raise ValidationException('振替先のクラスが必要です')
 
         # 保護者の子供を取得
         try:
@@ -235,7 +243,7 @@ class UseAbsenceTicketView(APIView):
                 guardian=guardian
             ).values_list('student_id', flat=True))
         except Guardian.DoesNotExist:
-            return Response({'error': '保護者情報が見つかりません'}, status=404)
+            raise GuardianNotFoundError()
 
         # 欠席チケットを取得
         try:
@@ -245,16 +253,16 @@ class UseAbsenceTicketView(APIView):
                 status=AbsenceTicket.Status.ISSUED
             )
         except AbsenceTicket.DoesNotExist:
-            return Response({'error': '有効な欠席チケットが見つかりません'}, status=404)
+            raise NotFoundError('有効な欠席チケットが見つかりません')
 
         # 退会済み生徒で退会日を過ぎている場合はエラー
         student = absence_ticket.student
         if student.status == 'withdrawn' and student.withdrawal_date and date.today() > student.withdrawal_date:
-            return Response({'error': '退会日を過ぎているため、振替チケットは使用できません'}, status=400)
+            raise BusinessRuleViolationError('退会日を過ぎているため、振替チケットは使用できません')
 
         # 有効期限チェック
         if absence_ticket.valid_until and absence_ticket.valid_until < date.today():
-            return Response({'error': 'このチケットは期限切れです'}, status=400)
+            raise BusinessRuleViolationError('このチケットは期限切れです')
 
         # 振替先のクラスを取得
         try:
@@ -263,17 +271,17 @@ class UseAbsenceTicketView(APIView):
                 is_active=True
             )
         except ClassSchedule.DoesNotExist:
-            return Response({'error': '振替先のクラスが見つかりません'}, status=404)
+            raise NotFoundError('振替先のクラスが見つかりません')
 
         # 振替先日付をパース
         try:
             target_date_obj = datetime.strptime(target_date, '%Y-%m-%d').date()
         except ValueError:
-            return Response({'error': '日付形式が不正です（YYYY-MM-DD）'}, status=400)
+            raise ValidationException('日付形式が不正です（YYYY-MM-DD）')
 
         # 過去の日付チェック
         if target_date_obj < date.today():
-            return Response({'error': '過去の日付には振替できません'}, status=400)
+            raise BusinessRuleViolationError('過去の日付には振替できません')
 
         # 当日振替の場合、授業開始30分前までかチェック
         if target_date_obj == date.today():
@@ -282,17 +290,13 @@ class UseAbsenceTicketView(APIView):
             minutes_until_class = (class_start_datetime - now).total_seconds() / 60
 
             if minutes_until_class < 30:
-                return Response({
-                    'error': '当日の振替予約は授業開始30分前までです'
-                }, status=400)
+                raise BusinessRuleViolationError('当日の振替予約は授業開始30分前までです')
 
         # 曜日チェック
         js_weekday = (target_date_obj.weekday() + 1) % 7
         if target_schedule.day_of_week != js_weekday:
             day_names = ['日', '月', '火', '水', '木', '金', '土']
-            return Response({
-                'error': f'このクラスは{day_names[target_schedule.day_of_week]}曜日のみ開講しています'
-            }, status=400)
+            raise BusinessRuleViolationError(f'このクラスは{day_names[target_schedule.day_of_week]}曜日のみ開講しています')
 
         # 欠席チケットを使用済みに更新
         absence_ticket.status = AbsenceTicket.Status.USED
@@ -344,7 +348,7 @@ class CancelAbsenceView(APIView):
 
         absence_ticket_id = request.data.get('absence_ticket_id')
         if not absence_ticket_id:
-            return Response({'error': '欠席チケットIDが必要です'}, status=400)
+            raise ValidationException('欠席チケットIDが必要です')
 
         # 保護者の子供を取得
         try:
@@ -353,7 +357,7 @@ class CancelAbsenceView(APIView):
                 guardian=guardian
             ).values_list('student_id', flat=True))
         except Guardian.DoesNotExist:
-            return Response({'error': '保護者情報が見つかりません'}, status=404)
+            raise GuardianNotFoundError()
 
         # 欠席チケットを取得
         try:
@@ -365,11 +369,11 @@ class CancelAbsenceView(APIView):
                 status=AbsenceTicket.Status.ISSUED
             )
         except AbsenceTicket.DoesNotExist:
-            return Response({'error': '有効な欠席チケットが見つかりません'}, status=404)
+            raise NotFoundError('有効な欠席チケットが見つかりません')
 
         # 過去の欠席日はキャンセル不可
         if absence_ticket.absence_date < date.today():
-            return Response({'error': '過去の欠席はキャンセルできません'}, status=400)
+            raise BusinessRuleViolationError('過去の欠席はキャンセルできません')
 
         # 欠席チケットをキャンセル
         absence_ticket.status = AbsenceTicket.Status.CANCELLED
@@ -396,7 +400,7 @@ class CancelMakeupView(APIView):
 
         absence_ticket_id = request.data.get('absence_ticket_id')
         if not absence_ticket_id:
-            return Response({'error': '欠席チケットIDが必要です'}, status=400)
+            raise ValidationException('欠席チケットIDが必要です')
 
         # 保護者の子供を取得
         try:
@@ -405,7 +409,7 @@ class CancelMakeupView(APIView):
                 guardian=guardian
             ).values_list('student_id', flat=True))
         except Guardian.DoesNotExist:
-            return Response({'error': '保護者情報が見つかりません'}, status=404)
+            raise GuardianNotFoundError()
 
         # 使用済みの欠席チケットを取得
         try:
@@ -417,11 +421,11 @@ class CancelMakeupView(APIView):
                 status=AbsenceTicket.Status.USED
             )
         except AbsenceTicket.DoesNotExist:
-            return Response({'error': '振替予約が見つかりません'}, status=404)
+            raise NotFoundError('振替予約が見つかりません')
 
         # 過去の振替日はキャンセル不可
         if absence_ticket.used_date and absence_ticket.used_date < date.today():
-            return Response({'error': '過去の振替はキャンセルできません'}, status=400)
+            raise BusinessRuleViolationError('過去の振替はキャンセルできません')
 
         # 当日の振替の場合、授業開始30分前までかチェック
         if absence_ticket.used_date == date.today() and absence_ticket.used_class_schedule:
@@ -432,9 +436,7 @@ class CancelMakeupView(APIView):
                 absence_ticket.used_class_schedule.start_time
             )
             if (class_start - now).total_seconds() < 30 * 60:
-                return Response({
-                    'error': '当日の振替キャンセルは授業開始30分前までです'
-                }, status=400)
+                raise BusinessRuleViolationError('当日の振替キャンセルは授業開始30分前までです')
 
         # 振替先の出席記録を削除
         Attendance.objects.filter(
@@ -471,7 +473,7 @@ class TransferAvailableClassesView(APIView):
 
         absence_ticket_id = request.query_params.get('absence_ticket_id')
         if not absence_ticket_id:
-            return Response({'error': '欠席チケットIDが必要です'}, status=400)
+            raise ValidationException('欠席チケットIDが必要です')
 
         # 保護者の子供を取得
         try:
@@ -480,7 +482,7 @@ class TransferAvailableClassesView(APIView):
                 guardian=guardian
             ).values_list('student_id', flat=True))
         except Guardian.DoesNotExist:
-            return Response({'error': '保護者情報が見つかりません'}, status=404)
+            raise GuardianNotFoundError()
 
         # 欠席チケットを取得
         try:
@@ -492,12 +494,12 @@ class TransferAvailableClassesView(APIView):
                 status=AbsenceTicket.Status.ISSUED
             )
         except AbsenceTicket.DoesNotExist:
-            return Response({'error': '有効な欠席チケットが見つかりません'}, status=404)
+            raise NotFoundError('有効な欠席チケットが見つかりません')
 
         # 退会済み生徒で退会日を過ぎている場合はエラー
         student = absence_ticket.student
         if student and student.status == 'withdrawn' and student.withdrawal_date and date.today() > student.withdrawal_date:
-            return Response({'error': '退会日を過ぎているため、振替チケットは使用できません'}, status=400)
+            raise BusinessRuleViolationError('退会日を過ぎているため、振替チケットは使用できません')
 
         # 生徒の学年を取得（振替対象クラスのフィルタリング用）
         student_school_year = None

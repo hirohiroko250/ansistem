@@ -236,6 +236,23 @@ class BillingCalculationMixin:
                 billing_by_month['currentMonth']['total'] += prorated_price
                 print(f"[PricingPreview] Added prorated tuition: ¥{prorated_price}", file=sys.stderr)
 
+            # 月会費の回数割を追加（設備費より先に表示）
+            if current_month_prorated.get('monthlyFee'):
+                monthly_data = current_month_prorated['monthlyFee']
+                prorated_price = monthly_data['proratedPrice']
+                billing_by_month['currentMonth']['items'].append({
+                    'productId': monthly_data.get('productId'),
+                    'productName': monthly_data.get('productName', '月会費'),
+                    'billingCategoryName': f"当月分月会費{ratio_text}",
+                    'itemType': 'monthly_fee_prorated',
+                    'quantity': 1,
+                    'unitPrice': int(prorated_price / 1.1),
+                    'priceWithTax': prorated_price,
+                    'taxRate': 0.1,
+                })
+                billing_by_month['currentMonth']['total'] += prorated_price
+                print(f"[PricingPreview] Added prorated monthly fee: ¥{prorated_price}", file=sys.stderr)
+
             # 設備費の回数割を追加
             if current_month_prorated.get('facilityFee'):
                 facility_data = current_month_prorated['facilityFee']
@@ -252,23 +269,6 @@ class BillingCalculationMixin:
                 })
                 billing_by_month['currentMonth']['total'] += prorated_price
                 print(f"[PricingPreview] Added prorated facility fee: ¥{prorated_price}", file=sys.stderr)
-
-            # 月会費の回数割を追加
-            if current_month_prorated.get('monthlyFee'):
-                monthly_data = current_month_prorated['monthlyFee']
-                prorated_price = monthly_data['proratedPrice']
-                billing_by_month['currentMonth']['items'].append({
-                    'productId': monthly_data.get('productId'),
-                    'productName': monthly_data.get('productName', '月会費'),
-                    'billingCategoryName': f"当月分月会費{ratio_text}",
-                    'itemType': 'monthly_fee_prorated',
-                    'quantity': 1,
-                    'unitPrice': int(prorated_price / 1.1),
-                    'priceWithTax': prorated_price,
-                    'taxRate': 0.1,
-                })
-                billing_by_month['currentMonth']['total'] += prorated_price
-                print(f"[PricingPreview] Added prorated monthly fee: ¥{prorated_price}", file=sys.stderr)
 
         # 入会時授業料をcurrentMonthに追加
         if enrollment_tuition_item:

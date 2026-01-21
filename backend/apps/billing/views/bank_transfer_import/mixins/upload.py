@@ -15,6 +15,7 @@ from rest_framework.parsers import MultiPartParser
 from drf_spectacular.utils import extend_schema
 
 from apps.billing.models import Invoice, BankTransfer, BankTransferImport
+from apps.core.exceptions import ValidationException
 
 logger = logging.getLogger(__name__)
 
@@ -252,7 +253,7 @@ class BankTransferImportUploadMixin:
         import traceback
 
         if 'file' not in request.FILES:
-            return Response({'error': 'ファイルを指定してください'}, status=400)
+            raise ValidationException('ファイルを指定してください')
 
         file = request.FILES['file']
         logger.warning(f"[BankTransferImport] File size: {file.size}")
@@ -280,7 +281,7 @@ class BankTransferImportUploadMixin:
 
                 if error:
                     logger.warning(f"[BankTransferImport] Parse error: {error}")
-                    return Response({'error': error}, status=400)
+                    raise ValidationException(error)
 
                 if bank_transfers is not None:
                     logger.warning(f"[BankTransferImport] Detected bank raw format, {len(bank_transfers)} transfers")
@@ -297,10 +298,10 @@ class BankTransferImportUploadMixin:
                 df = pd.read_excel(file)
                 file_type = 'excel'
             else:
-                return Response({'error': 'CSVまたはExcelファイルのみ対応しています'}, status=400)
+                raise ValidationException('CSVまたはExcelファイルのみ対応しています')
 
             if len(df) == 0:
-                return Response({'error': 'ファイルにデータがありません'}, status=400)
+                raise ValidationException('ファイルにデータがありません')
 
             tenant_id = getattr(request, 'tenant_id', None) or getattr(request.user, 'tenant_id', None)
 
@@ -370,4 +371,5 @@ class BankTransferImportUploadMixin:
 
         except Exception as e:
             tb = traceback.format_exc()
-            return Response({'error': f'ファイルの処理中にエラーが発生しました: {str(e)}', 'traceback': tb}, status=400)
+            logger.error(f"[BankTransferImport] Error: {e}\n{tb}")
+            raise ValidationException(f'ファイルの処理中にエラーが発生しました: {str(e)}')

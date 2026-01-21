@@ -9,10 +9,11 @@ import { AlertCircle, Loader2, Phone, Lock } from 'lucide-react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { GuestGuard } from '@/components/auth';
 import { login } from '@/lib/api/auth';
 import type { ApiError } from '@/lib/api/types';
 
-export default function LoginPage() {
+function LoginContent() {
   const router = useRouter();
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
@@ -162,5 +163,13 @@ export default function LoginPage() {
         </p>
       </div>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <GuestGuard>
+      <LoginContent />
+    </GuestGuard>
   );
 }

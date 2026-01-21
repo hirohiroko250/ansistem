@@ -15,6 +15,7 @@ from drf_spectacular.utils import extend_schema, extend_schema_view
 from ..models import (
     Invoice, Payment, GuardianBalance, OffsetLog
 )
+from apps.core.exceptions import ValidationException
 from ..serializers import (
     GuardianBalanceSerializer, BalanceDepositSerializer, BalanceOffsetSerializer,
     OffsetLogSerializer,
@@ -108,7 +109,7 @@ class GuardianBalanceViewSet(viewsets.ReadOnlyModelViewSet):
                 invoice.save()
 
         except ValueError as e:
-            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            raise ValidationException(str(e))
 
         return Response(GuardianBalanceSerializer(balance).data)
 
