@@ -196,6 +196,8 @@ class StudentViewSet(StudentItemsMixin, CSVMixin, viewsets.ModelViewSet):
             priority='normal',
             student=student,
             guardian=guardian,
+            school=student.primary_school,
+            brand=student.primary_brand,
             source_type='student',
             source_id=student.id,
         )
