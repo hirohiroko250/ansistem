@@ -1338,7 +1338,7 @@ export default function FromTicketPurchasePage() {
           </div>
           <p className="text-center text-sm text-gray-600 mt-2">
             {step === 9 && preSelectClassMode ? 'クラス選択' :
-             step === 10 ? '利用規約' :
+             step === 10 ? '入会規約' :
              step === 11 ? '購入確認' :
              itemType === 'regular' ? `Step ${step} / 11` :
              (itemType === 'seminar' || itemType === 'certification') ? `Step ${[1,2,3,4,5,7,10,11].indexOf(step) + 1} / 8` :
@@ -2593,76 +2593,136 @@ export default function FromTicketPurchasePage() {
         {/* Step 10: 利用規約 */}
         {step === 10 && (
           <div>
-            <h2 className="text-lg font-semibold text-gray-800 mb-4">利用規約の確認</h2>
+            <h2 className="text-lg font-semibold text-gray-800 mb-4">入会規約の確認</h2>
 
             <Card className="rounded-xl shadow-md mb-4">
               <CardContent className="p-4">
-                <div className="h-96 overflow-y-auto bg-gray-50 rounded-lg p-4 text-sm text-gray-700 space-y-3">
-                  <h3 className="font-semibold text-base text-gray-800">MyLesson 利用規約</h3>
+                <div className="h-96 overflow-y-auto bg-gray-50 rounded-lg p-4 text-sm text-gray-700 space-y-4">
+                  <h3 className="font-bold text-lg text-gray-800 text-center">【入会規約】</h3>
 
                   <div>
-                    <h4 className="font-semibold text-gray-800 mb-1">第1条（適用）</h4>
-                    <p>本規約は、当社が提供するMyLessonサービス（以下「本サービス」といいます）の利用条件を定めるものです。利用者は本規約に同意の上、本サービスを利用するものとします。</p>
+                    <h4 className="font-semibold text-gray-800 mb-2">Ⅰ．生徒遵守事項</h4>
+                    <p className="mb-2">授業を円滑に進め、学力向上を図るため、以下の事項を守ってください。</p>
+                    <ol className="list-decimal ml-5 space-y-1">
+                      <li>入室・退室時には、元気よく挨拶をしましょう。</li>
+                      <li>授業開始時間に遅れないようにしてください。</li>
+                      <li>講師が「休み時間です」と伝えるまでは、集中して学習に取り組みましょう。</li>
+                      <li>授業中の私語や、必要のない立ち歩きは控えてください。</li>
+                      <li>授業時間と休憩時間の区別をしっかりつけましょう。</li>
+                      <li>宿題は自分のために、必ず取り組んでください。</li>
+                      <li>定期テストや通知表の結果は、必ず報告してください。</li>
+                      <li>塾内では携帯電話の使用・操作は禁止です。</li>
+                    </ol>
                   </div>
 
                   <div>
-                    <h4 className="font-semibold text-gray-800 mb-1">第2条（利用登録）</h4>
-                    <p>本サービスの利用を希望する方は、本規約に同意の上、当社の定める方法によって利用登録を申請し、当社がこれを承認することによって、利用登録が完了するものとします。</p>
+                    <h4 className="font-semibold text-gray-800 mb-2">Ⅱ．禁止事項</h4>
+                    <p className="mb-2">以下の行為が確認された場合、退塾処分となることがあります。</p>
+                    <ol className="list-decimal ml-5 space-y-1">
+                      <li>長期間の無断欠席</li>
+                      <li>学習に関係のない書籍・ゲームの持ち込みや視聴、音楽鑑賞</li>
+                      <li>いじめ行為（単独・複数を問わず）</li>
+                      <li>小中高生にふさわしくない物品の持参</li>
+                      <li>他の生徒や保護者に危害を及ぼす可能性のある物品の持参</li>
+                      <li>塾が指定する勉強会・講習会・模試等を、塾長の許可なく欠席すること</li>
+                      <li>授業中の飲食（お菓子・ジュース等）</li>
+                      <li>授業中の携帯電話使用</li>
+                      <li>校舎や備品の破損（故意・過失を問わず弁償対象）</li>
+                      <li>机・壁・PC等への落書き（原状回復が必要）</li>
+                      <li>講師の注意を素直に受け入れられない態度</li>
+                      <li>講師の指示に従わない行為</li>
+                    </ol>
                   </div>
 
                   <div>
-                    <h4 className="font-semibold text-gray-800 mb-1">第3条（料金および支払方法）</h4>
-                    <p>利用者は、本サービスの利用料金を、当社が指定する方法により支払うものとします。</p>
-                    <ul className="list-disc ml-5 mt-2">
-                      <li>月額コースは毎月1日に翌月分の料金が発生します</li>
-                      <li>単品チケットは購入時に料金が発生します</li>
-                      <li>返金は原則として行いません</li>
+                    <h4 className="font-semibold text-gray-800 mb-2">Ⅲ．授業料納入について</h4>
+                    <ol className="list-decimal ml-5 space-y-1">
+                      <li>授業料は翌月分を前月末日までにご納入ください。</li>
+                      <li>授業料は口座振替にてお支払いいただきます。現金での納入はお受けできません。</li>
+                      <li>口座振替日は毎月27日（金融機関休業日の場合は翌営業日）です。</li>
+                      <li>入会後1ヶ月以内に、口座振替依頼書をご提出ください。</li>
+                      <li>手続き完了までに2～3ヶ月かかる場合があります。</li>
+                      <li>手続き完了までの授業料は銀行振込にてご納入ください（振込手数料は保護者様ご負担）。</li>
+                      <li>コース変更に伴う授業料の変更反映には、最大2ヶ月かかる場合があります。</li>
+                      <li>中高生は3月度（2/27振替分）より、その他のコースは4月度（3/27振替分）より新学年の授業料が適用されます。※一部コースは異なる場合があります。</li>
+                    </ol>
+                  </div>
+
+                  <div>
+                    <h4 className="font-semibold text-gray-800 mb-2">Ⅳ．ご家庭と塾とのご連絡について</h4>
+                    <ol className="list-decimal ml-5 space-y-1">
+                      <li>欠席の際は、専用サイトよりご連絡ください。</li>
+                      <li>授業中にお子様へのご連絡が必要な場合は、総合受付（0561-54-4449）までご連絡ください。</li>
+                    </ol>
+                  </div>
+
+                  <div>
+                    <h4 className="font-semibold text-gray-800 mb-2">Ⅴ．指導日について</h4>
+                    <p className="mb-2">アンイングリッシュグループでは、毎年指導日を年間カレンダーによって指定しております。（但し年度中でも指導上の都合により変更されることがあります。）</p>
+                    <ol className="list-decimal ml-5 space-y-1">
+                      <li>年間42回の授業を基本としたカリキュラムを編成しています。</li>
+                      <li>祝日であっても授業を行う場合があります。</li>
+                      <li>学習塾に通う小4～中3は、春・夏・冬の講習会に必ずご参加ください（カリキュラムの一環です）。</li>
+                      <li>上記以外の学年及びカルチャー生の講習会は任意参加になります。</li>
+                    </ol>
+                  </div>
+
+                  <div>
+                    <h4 className="font-semibold text-gray-800 mb-2">Ⅵ．授業の振替について</h4>
+                    <ol className="list-decimal ml-5 space-y-1">
+                      <li>欠席のご連絡および振替予約は、専用サイトにて承ります。</li>
+                      <li>お電話でのご連絡・予約につきましては、1授業ごとに110円（税込）の「入力代行手数料」を申し受けます。</li>
+                      <li>振替予約後に同クラスへ新規入会者があった場合、別日への振替をお願いすることがあります。</li>
+                    </ol>
+                  </div>
+
+                  <div>
+                    <h4 className="font-semibold text-gray-800 mb-2">Ⅶ．割引制度</h4>
+                    <ul className="list-disc ml-5 space-y-1">
+                      <li><span className="font-medium">フレンドシップ割引：</span>ご紹介により入会された場合、紹介者・入会者双方のご家庭に毎月割引が適用されます。</li>
+                      <li><span className="font-medium">家族割引：</span>兄弟や複数コース受講の場合、毎月割引が適用されます。</li>
                     </ul>
                   </div>
 
                   <div>
-                    <h4 className="font-semibold text-gray-800 mb-1">第4条（キャンセルポリシー）</h4>
-                    <p>予約のキャンセルは、以下の通りとします：</p>
-                    <ul className="list-disc ml-5 mt-2">
-                      <li>レッスン開始24時間前まで：無料キャンセル</li>
-                      <li>レッスン開始24時間以内：チケット消化</li>
-                      <li>無断欠席：チケット消化</li>
-                    </ul>
+                    <h4 className="font-semibold text-gray-800 mb-2">Ⅷ．休会規約</h4>
+                    <ol className="list-decimal ml-5 space-y-1">
+                      <li>休会希望月の前月末日までに、専用サイトより休会手続きを行ってください。</li>
+                      <li>休会中の座席確保をされる場合は、休会費880円(税込)が発生します。</li>
+                      <li>休会希望月の前月5日を過ぎると翌月分の請求が発生します。休会費が発生する場合、納入済授業料から休会費を差し引いた金額を、復会後に充当いたします。</li>
+                    </ol>
                   </div>
 
                   <div>
-                    <h4 className="font-semibold text-gray-800 mb-1">第5条（禁止事項）</h4>
-                    <p>利用者は、本サービスの利用にあたり、以下の行為をしてはなりません：</p>
-                    <ul className="list-disc ml-5 mt-2">
-                      <li>法令または公序良俗に違反する行為</li>
-                      <li>犯罪行為に関連する行為</li>
-                      <li>他の利用者、第三者、または当社の権利を侵害する行為</li>
-                      <li>本サービスの運営を妨害する行為</li>
-                    </ul>
+                    <h4 className="font-semibold text-gray-800 mb-2">Ⅸ．退会規約</h4>
+                    <ol className="list-decimal ml-5 space-y-1">
+                      <li>退会希望月の5日までに、専用サイトより退会手続きを行ってください。</li>
+                      <li>5日を過ぎると翌月分の請求が発生します。返金は事務手数料を差し引いた上で、翌々月末に行います。</li>
+                      <li>当月に入ってからの前月末での退会はお受けできません。納入済授業料の返金もできません。</li>
+                      <li>未納授業料がある場合、全額納入後に退会手続きが可能です。</li>
+                    </ol>
                   </div>
 
                   <div>
-                    <h4 className="font-semibold text-gray-800 mb-1">第6条（個人情報の取扱い）</h4>
-                    <p>当社は、本サービスの提供に必要な範囲で、利用者の個人情報を取得します。取得した個人情報は、プライバシーポリシーに従って適切に管理します。</p>
+                    <h4 className="font-semibold text-gray-800 mb-2">Ⅹ．アンイングリッシュクラブ教材について</h4>
+                    <ol className="list-decimal ml-5 space-y-1">
+                      <li>教科書は必ずご購入いただきます。音声教材はオンラインでご利用いただけます（教材費に含む）。</li>
+                      <li>お申込み後の教材の返品・返金はできません。</li>
+                    </ol>
                   </div>
 
                   <div>
-                    <h4 className="font-semibold text-gray-800 mb-1">第7条（免責事項）</h4>
-                    <p>当社は、本サービスに関して、利用者と他の利用者または第三者との間で生じた取引、連絡または紛争等について一切責任を負いません。</p>
+                    <h4 className="font-semibold text-gray-800 mb-2">Ⅺ．保護者様へのお願い</h4>
+                    <ol className="list-decimal ml-5 space-y-1">
+                      <li>授業開始5分以上前の入室はご遠慮ください。</li>
+                      <li>お迎えの際は、授業終了時に校舎内までお越しください。</li>
+                      <li>授業中は講師が電話に出られません。緊急時は総合受付（0561-54-4449）までご連絡ください。</li>
+                    </ol>
                   </div>
 
                   <div>
-                    <h4 className="font-semibold text-gray-800 mb-1">第8条（サービス内容の変更等）</h4>
-                    <p>当社は、利用者への事前の通知なく、本サービスの内容を変更、追加または廃止することがあり、利用者はこれを承諾するものとします。</p>
-                  </div>
-
-                  <div>
-                    <h4 className="font-semibold text-gray-800 mb-1">第9条（規約の変更）</h4>
-                    <p>当社は、利用者の承諾を得ることなく本規約を変更することができるものとします。変更後の本規約は、当社が別途定める場合を除いて、本サービス上に表示した時点より効力を生じるものとします。</p>
-                  </div>
-
-                  <div className="pt-3 border-t">
-                    <p className="text-xs text-gray-600">最終更新日：2024年12月4日</p>
+                    <h4 className="font-semibold text-gray-800 mb-2">Ⅻ．大型店舗内の校舎の休講について</h4>
+                    <p>大型店舗内にある校舎は、店舗の休館により、アンイングリッシュグループの開講日であっても休講となる場合がございます。その際は、振替対応にて授業回数を調整させていただきます。</p>
                   </div>
                 </div>
               </CardContent>
@@ -2675,7 +2735,7 @@ export default function FromTicketPurchasePage() {
                 id="terms"
               />
               <label htmlFor="terms" className="text-sm text-gray-700 cursor-pointer">
-                利用規約を確認し、同意します
+                入会規約を確認し、同意します
               </label>
             </div>
 
