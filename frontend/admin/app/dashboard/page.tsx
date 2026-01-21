@@ -60,6 +60,7 @@ import {
 import { getTasks, completeTask, reopenTask, updateTask, Task, getTaskComments, createTaskComment, TaskComment } from "@/lib/api/staff";
 import apiClient from "@/lib/api/client";
 import { Sidebar } from "@/components/layout/Sidebar";
+import { QuickAccessHeader } from "@/components/layout/QuickAccessHeader";
 import { cn } from "@/lib/utils";
 import {
   getOrCreateChannelForGuardian,
@@ -699,7 +700,9 @@ export default function DashboardPage() {
       <Sidebar />
 
       {/* メインコンテンツ */}
-      <div className="flex-1 flex overflow-hidden">
+      <div className="flex-1 flex flex-col overflow-hidden">
+        <QuickAccessHeader />
+        <div className="flex-1 flex overflow-hidden">
         {/* 左側: タスクリスト */}
         <div className={`${selectedTask ? 'w-1/2 border-r' : 'w-full'} flex flex-col bg-white transition-all`}>
           {/* ヘッダー */}
@@ -1853,6 +1856,7 @@ export default function DashboardPage() {
             </div>
           </div>
         )}
+        </div>
       </div>
     </div>
   );

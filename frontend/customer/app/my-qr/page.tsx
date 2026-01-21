@@ -1,52 +1,30 @@
 'use client';
 
-import { useEffect, useState, useRef } from 'react';
+import { useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { BottomTabBar } from '@/components/bottom-tab-bar';
-import { isAuthenticated, getMe } from '@/lib/api/auth';
-import { getMyQRCode, QRCodeInfo } from '@/lib/api/students';
+import { useUser } from '@/lib/hooks/use-user';
+import { useMyQRCode } from '@/lib/hooks/use-students';
 import { Download, Printer, QrCode, User } from 'lucide-react';
 import { QRCodeCanvas } from 'qrcode.react';
 
 export default function MyQRPage() {
   const router = useRouter();
-  const [authChecking, setAuthChecking] = useState(true);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [qrInfo, setQrInfo] = useState<QRCodeInfo | null>(null);
   const qrRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    const checkAuthAndLoad = async () => {
-      if (!isAuthenticated()) {
-        router.push('/login');
-        return;
-      }
+  // React Queryフック
+  const { data: profile, isLoading: isUserLoading } = useUser();
+  const { data: qrInfo, isLoading: isQRLoading, error: qrError } = useMyQRCode();
 
-      try {
-        const profile = await getMe();
-        // 生徒アカウントのみアクセス可能
-        if (profile.userType !== 'student') {
-          router.push('/feed');
-          return;
-        }
+  // 生徒アカウントのみアクセス可能（ユーザー情報読み込み後にチェック）
+  if (!isUserLoading && profile && profile.userType !== 'student') {
+    router.push('/feed');
+  }
 
-        // QRコード情報を取得
-        const qr = await getMyQRCode();
-        setQrInfo(qr);
-      } catch (err) {
-        console.error('Failed to load QR code:', err);
-        setError('QRコードの取得に失敗しました');
-      }
-
-      setAuthChecking(false);
-      setLoading(false);
-    };
-
-    checkAuthAndLoad();
-  }, [router]);
+  const loading = isUserLoading || isQRLoading;
+  const error = qrError ? 'QRコードの取得に失敗しました' : null;
 
   const handleDownload = () => {
     if (!qrRef.current) return;
@@ -64,7 +42,7 @@ export default function MyQRPage() {
     window.print();
   };
 
-  if (authChecking || loading) {
+  if (loading) {
     return (
       <div className="flex h-screen items-center justify-center">
         <div className="text-center">

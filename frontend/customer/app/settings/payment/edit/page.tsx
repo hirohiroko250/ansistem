@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState, useMemo } from 'react';
 import { ChevronLeft, Check, Loader2, Clock } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -9,13 +9,11 @@ import { Label } from '@/components/ui/label';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
-  getMyPayment,
-  getMyBankAccounts,
-  createBankAccountRequest,
-  type PaymentInfo,
+  usePaymentInfo,
+  useMyBankAccounts,
+  useCreateBankAccountRequest,
   type BankAccountRequestData,
-  type BankAccount
-} from '@/lib/api/payment';
+} from '@/lib/hooks/use-payment';
 import { BankSelector } from '@/components/bank-selector';
 
 // ひらがな・全角カタカナ→半角カタカナ変換
@@ -72,61 +70,62 @@ function filterHalfWidthKatakana(str: string): string {
 
 export default function PaymentEditPage() {
   const router = useRouter();
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
   const [success, setSuccess] = useState(false);
-  const [error, setError] = useState('');
-  const [hasExistingAccount, setHasExistingAccount] = useState(false);
-  const [existingAccountId, setExistingAccountId] = useState<string | null>(null);
+  const [localError, setLocalError] = useState('');
 
-  const [formData, setFormData] = useState({
-    bank_name: '',
-    bank_code: '',
-    branch_name: '',
-    branch_code: '',
-    account_type: 'ordinary' as 'ordinary' | 'current' | 'savings',
-    account_number: '',
-    account_holder: '',
-    account_holder_kana: '',
-  });
+  // React Queryフック
+  const { data: paymentData, isLoading: isPaymentLoading } = usePaymentInfo();
+  const { data: bankAccounts = [], isLoading: isBankAccountsLoading } = useMyBankAccounts();
+  const createBankAccountMutation = useCreateBankAccountRequest();
 
-  useEffect(() => {
-    fetchPayment();
-  }, []);
+  // 既存口座の有無を判定
+  const hasExistingAccount = useMemo(() => {
+    return !!(paymentData && paymentData.paymentRegistered && paymentData.bankName);
+  }, [paymentData]);
 
-  const fetchPayment = async () => {
-    try {
-      setLoading(true);
-      const [paymentData, bankAccounts] = await Promise.all([
-        getMyPayment(),
-        getMyBankAccounts()
-      ]);
+  // 既存口座ID（プライマリ口座を優先）
+  const existingAccountId = useMemo(() => {
+    const primaryAccount = bankAccounts.find(acc => acc.is_primary) || bankAccounts[0];
+    return primaryAccount?.id || null;
+  }, [bankAccounts]);
 
-      if (paymentData && paymentData.paymentRegistered && paymentData.bankName) {
-        setHasExistingAccount(true);
-        setFormData({
-          bank_name: paymentData.bankName || '',
-          bank_code: paymentData.bankCode || '',
-          branch_name: paymentData.branchName || '',
-          branch_code: paymentData.branchCode || '',
-          account_type: paymentData.accountType || 'ordinary',
-          account_number: paymentData.accountNumber || '',
-          account_holder: paymentData.accountHolder || '',
-          account_holder_kana: paymentData.accountHolderKana || '',
-        });
-
-        // 既存口座IDを取得（プライマリ口座を優先）
-        const primaryAccount = bankAccounts.find(acc => acc.is_primary) || bankAccounts[0];
-        if (primaryAccount) {
-          setExistingAccountId(primaryAccount.id);
-        }
-      }
-    } catch (error) {
-      console.error('Failed to fetch payment:', error);
-    } finally {
-      setLoading(false);
+  // 初期フォームデータ
+  const initialFormData = useMemo(() => {
+    if (hasExistingAccount && paymentData) {
+      return {
+        bank_name: paymentData.bankName || '',
+        bank_code: paymentData.bankCode || '',
+        branch_name: paymentData.branchName || '',
+        branch_code: paymentData.branchCode || '',
+        account_type: paymentData.accountType || 'ordinary' as 'ordinary' | 'current' | 'savings',
+        account_number: paymentData.accountNumber || '',
+        account_holder: paymentData.accountHolder || '',
+        account_holder_kana: paymentData.accountHolderKana || '',
+      };
     }
-  };
+    return {
+      bank_name: '',
+      bank_code: '',
+      branch_name: '',
+      branch_code: '',
+      account_type: 'ordinary' as 'ordinary' | 'current' | 'savings',
+      account_number: '',
+      account_holder: '',
+      account_holder_kana: '',
+    };
+  }, [hasExistingAccount, paymentData]);
+
+  const [formData, setFormData] = useState(initialFormData);
+
+  // 初期データが変更されたらフォームを更新
+  useMemo(() => {
+    if (!isPaymentLoading && !isBankAccountsLoading) {
+      setFormData(initialFormData);
+    }
+  }, [initialFormData, isPaymentLoading, isBankAccountsLoading]);
+
+  const loading = isPaymentLoading || isBankAccountsLoading;
+  const saving = createBankAccountMutation.isPending;
 
   const handleBankSelect = (data: {
     bankName: string;
@@ -145,43 +144,43 @@ export default function PaymentEditPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError('');
+    setLocalError('');
 
     // バリデーション
     if (!formData.bank_name || !formData.branch_name || !formData.account_number || !formData.account_holder_kana) {
-      setError('必須項目を入力してください');
+      setLocalError('必須項目を入力してください');
       return;
     }
 
-    try {
-      setSaving(true);
-      // 送信時に半角カタカナに変換
-      const kanaConverted = toHalfWidthKatakana(formData.account_holder_kana);
-      const requestData: BankAccountRequestData = {
-        request_type: hasExistingAccount ? 'update' : 'new',
-        bank_name: formData.bank_name,
-        bank_code: formData.bank_code,
-        branch_name: formData.branch_name,
-        branch_code: formData.branch_code,
-        account_type: formData.account_type,
-        account_number: formData.account_number,
-        account_holder: formData.account_holder,
-        account_holder_kana: kanaConverted,
-        is_primary: true,
-      };
-      // 変更の場合は既存口座IDを含める
-      if (hasExistingAccount && existingAccountId) {
-        requestData.existing_account = existingAccountId;
-      }
-      await createBankAccountRequest(requestData);
-      setSuccess(true);
-    } catch (err: any) {
-      console.error('Bank account request error:', err);
-      const errorMessage = err?.data?.existing_account || err?.data?.detail || err?.message || '申請に失敗しました。もう一度お試しください。';
-      setError(typeof errorMessage === 'string' ? errorMessage : '申請に失敗しました。もう一度お試しください。');
-    } finally {
-      setSaving(false);
+    // 送信時に半角カタカナに変換
+    const kanaConverted = toHalfWidthKatakana(formData.account_holder_kana);
+    const requestData: BankAccountRequestData = {
+      request_type: hasExistingAccount ? 'update' : 'new',
+      bank_name: formData.bank_name,
+      bank_code: formData.bank_code,
+      branch_name: formData.branch_name,
+      branch_code: formData.branch_code,
+      account_type: formData.account_type,
+      account_number: formData.account_number,
+      account_holder: formData.account_holder,
+      account_holder_kana: kanaConverted,
+      is_primary: true,
+    };
+    // 変更の場合は既存口座IDを含める
+    if (hasExistingAccount && existingAccountId) {
+      requestData.existing_account = existingAccountId;
     }
+
+    createBankAccountMutation.mutate(requestData, {
+      onSuccess: () => {
+        setSuccess(true);
+      },
+      onError: (err: any) => {
+        console.error('Bank account request error:', err);
+        const errorMessage = err?.data?.existing_account || err?.data?.detail || err?.message || '申請に失敗しました。もう一度お試しください。';
+        setLocalError(typeof errorMessage === 'string' ? errorMessage : '申請に失敗しました。もう一度お試しください。');
+      },
+    });
   };
 
   if (loading) {
@@ -336,10 +335,10 @@ export default function PaymentEditPage() {
             </CardContent>
           </Card>
 
-          {error && (
+          {localError && (
             <Card className="rounded-xl shadow-md mb-6 border-red-200 bg-red-50">
               <CardContent className="p-4">
-                <p className="text-sm text-red-800">{error}</p>
+                <p className="text-sm text-red-800">{localError}</p>
               </CardContent>
             </Card>
           )}

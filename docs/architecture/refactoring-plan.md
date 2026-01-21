@@ -335,3 +335,6 @@ npm install @tanstack/react-query
 | 2026-01-21 | Phase 4: useChat/usePassbook追加、chat/purchase-historyページ移行、全ページReact Query化完了 | - |
 | 2026-01-21 | Phase 4: 追加フック作成（useFeed, usePayment, useStudentQRCode）、詳細ページ移行（children/[id], feed/[id], purchase-history/[month], settings/payment）完了 | - |
 | 2026-01-21 | Phase 4: 追加フック作成（useClasses, useAttendance, useClassManagement, useFriendship）、ページ移行（classes/[id], attendance, class-management, friend-referral）完了 | - |
+| 2026-01-21 | Phase 4: use-payment.ts拡張（useMyBankAccounts, useCreateBankAccountRequest等）、settings/payment/edit移行完了 | - |
+| 2026-01-21 | Phase 4: useMyQRCode追加、my-qrページ移行完了 | - |
+| 2026-01-21 | Phase 4: settings/profile-editをuseUser/useUpdateProfile移行完了 | - |

@@ -9,18 +9,18 @@ import { Label } from '@/components/ui/label';
 import { BottomTabBar } from '@/components/bottom-tab-bar';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { getMe, updateProfile } from '@/lib/api/auth';
-import type { Profile, ApiError } from '@/lib/api/types';
+import { useUser, useUpdateProfile } from '@/lib/hooks/use-user';
+import type { ApiError } from '@/lib/api/types';
 import { AuthGuard } from '@/components/auth';
 
 function ProfileEditContent() {
   const router = useRouter();
-  const [profile, setProfile] = useState<Profile | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveSuccess, setSaveSuccess] = useState(false);
+
+  // React Queryフック
+  const { data: profile, isLoading, error: queryError } = useUser();
+  const updateProfileMutation = useUpdateProfile();
 
   // フォーム入力状態
   const [lastName, setLastName] = useState('');
@@ -36,48 +36,32 @@ function ProfileEditContent() {
   const [address1, setAddress1] = useState('');
   const [address2, setAddress2] = useState('');
 
-  // プロフィール情報を取得
+  // プロフィールデータが読み込まれたらフォームを初期化
   useEffect(() => {
-    const fetchProfile = async () => {
-      setIsLoading(true);
-      setError(null);
-      try {
-        const data = await getMe();
-        setProfile(data);
-        // フォームの初期値を設定
-        setLastName(data.lastName || '');
-        setFirstName(data.firstName || '');
-        setLastNameKana(data.lastNameKana || '');
-        setFirstNameKana(data.firstNameKana || '');
-        setPhoneNumber(data.phoneNumber || '');
-        setEmail(data.email || '');
-        // 住所
-        setPostalCode(data.postalCode || '');
-        setPrefecture(data.prefecture || '');
-        setCity(data.city || '');
-        setAddress1(data.address1 || '');
-        setAddress2(data.address2 || '');
-      } catch (err) {
-        const apiError = err as ApiError;
-        if (apiError.status === 401) {
-          router.push('/login');
-          return;
-        }
-        setError(apiError.message || 'プロフィール情報の取得に失敗しました');
-      } finally {
-        setIsLoading(false);
-      }
-    };
-    fetchProfile();
-  }, [router]);
+    if (profile) {
+      setLastName(profile.lastName || '');
+      setFirstName(profile.firstName || '');
+      setLastNameKana(profile.lastNameKana || '');
+      setFirstNameKana(profile.firstNameKana || '');
+      setPhoneNumber(profile.phoneNumber || '');
+      setEmail(profile.email || '');
+      setPostalCode(profile.postalCode || '');
+      setPrefecture(profile.prefecture || '');
+      setCity(profile.city || '');
+      setAddress1(profile.address1 || '');
+      setAddress2(profile.address2 || '');
+    }
+  }, [profile]);
 
-  const handleSave = async () => {
-    setIsSaving(true);
+  const error = queryError ? 'プロフィール情報の取得に失敗しました' : null;
+  const isSaving = updateProfileMutation.isPending;
+
+  const handleSave = () => {
     setSaveError(null);
     setSaveSuccess(false);
 
-    try {
-      const updatedProfile = await updateProfile({
+    updateProfileMutation.mutate(
+      {
         lastName,
         firstName,
         lastNameKana,
@@ -88,21 +72,22 @@ function ProfileEditContent() {
         city,
         address1,
         address2,
-        // emailの変更はセキュリティ上別の処理が必要な場合が多い
-      });
-      setProfile(updatedProfile);
-      setSaveSuccess(true);
-      setTimeout(() => setSaveSuccess(false), 3000);
-    } catch (err) {
-      const apiError = err as ApiError;
-      if (apiError.status === 401) {
-        router.push('/login');
-        return;
+      },
+      {
+        onSuccess: () => {
+          setSaveSuccess(true);
+          setTimeout(() => setSaveSuccess(false), 3000);
+        },
+        onError: (err: unknown) => {
+          const apiError = err as ApiError | undefined;
+          if (apiError?.status === 401) {
+            router.push('/login');
+            return;
+          }
+          setSaveError(apiError?.message || 'プロフィールの保存に失敗しました');
+        },
       }
-      setSaveError(apiError.message || 'プロフィールの保存に失敗しました');
-    } finally {
-      setIsSaving(false);
-    }
+    );
   };
 
   if (isLoading) {

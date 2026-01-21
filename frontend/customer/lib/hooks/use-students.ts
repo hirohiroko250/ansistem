@@ -9,7 +9,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api, getAccessToken } from '@/lib/api/client';
 import type { Child, ChildDetail } from '@/lib/api/types';
-import { getStudentQRCode, type QRCodeInfo } from '@/lib/api/students';
+import { getStudentQRCode, getMyQRCode, type QRCodeInfo } from '@/lib/api/students';
 
 // クエリキー
 export const studentKeys = {
@@ -20,6 +20,7 @@ export const studentKeys = {
   details: () => [...studentKeys.all, 'detail'] as const,
   detail: (id: string) => [...studentKeys.details(), id] as const,
   qrCode: (id: string) => [...studentKeys.all, 'qrCode', id] as const,
+  myQrCode: () => [...studentKeys.all, 'myQrCode'] as const,
 };
 
 interface StudentsResponse {
@@ -170,7 +171,7 @@ export function useUploadStudentPhoto() {
 }
 
 /**
- * 生徒のQRコードを取得
+ * 生徒のQRコードを取得（保護者が子どものQRを見る場合）
  */
 export function useStudentQRCode(studentId: string | undefined) {
   return useQuery({
@@ -181,6 +182,20 @@ export function useStudentQRCode(studentId: string | undefined) {
     },
     enabled: !!studentId && !!getAccessToken(),
     staleTime: 30 * 60 * 1000, // 30分（QRコードはあまり変わらない）
+  });
+}
+
+/**
+ * 自分のQRコードを取得（生徒ユーザーが自分のQRを見る場合）
+ */
+export function useMyQRCode() {
+  return useQuery({
+    queryKey: studentKeys.myQrCode(),
+    queryFn: async () => {
+      return getMyQRCode();
+    },
+    enabled: !!getAccessToken(),
+    staleTime: 30 * 60 * 1000, // 30分
   });
 }
 
