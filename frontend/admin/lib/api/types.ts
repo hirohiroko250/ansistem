@@ -114,6 +114,7 @@ export interface Student {
   primary_brand?: Brand | null;
   primary_brand_id?: string | null;
   guardian_id?: string | null;
+  guardian_no?: string | null;
   registered_date?: string | null;
   created_at?: string;
   updated_at?: string;
@@ -139,6 +140,7 @@ export interface Student {
   primaryBrand?: Brand | null;
   primaryBrandId?: string | null;
   guardianId?: string | null;
+  guardianNo?: string | null;
   registeredDate?: string | null;
   createdAt?: string;
   updatedAt?: string;

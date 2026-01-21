@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 import { ChevronLeft, Ticket, Calendar, RefreshCw, Clock, Loader2, MapPin, X, ChevronRight } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -8,66 +8,19 @@ import { Button } from '@/components/ui/button';
 import { BottomTabBar } from '@/components/bottom-tab-bar';
 import { AuthGuard } from '@/components/auth';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
-import { getAllStudentItems, type PurchasedItem } from '@/lib/api/students';
-import { getAbsenceTickets, getTransferAvailableClasses, useAbsenceTicket, type AbsenceTicket, type TransferAvailableClass } from '@/lib/api/lessons';
+import { useOwnedTickets, useInvalidateOwnedTickets, type OwnedTicketType } from '@/lib/hooks/use-tickets';
+import { getTransferAvailableClasses, useAbsenceTicket, type TransferAvailableClass } from '@/lib/api/lessons';
 import { getBrandSchools, type BrandSchool } from '@/lib/api/schools';
-import { format, addDays, startOfWeek, isSameDay, startOfMonth, endOfMonth, eachDayOfInterval, getDay, addMonths, subMonths } from 'date-fns';
+import { format, isSameDay, startOfMonth, endOfMonth, eachDayOfInterval, getDay, addMonths, subMonths } from 'date-fns';
 import { ja } from 'date-fns/locale';
 
-type TicketType = {
-  id: string;
-  type: 'course' | 'transfer' | 'event';
-  school: string;
-  brand: string;
-  count: number;
-  expiryDate: string;
-  status: 'active' | 'expiring';
-  studentName?: string;
-  productName?: string;
-  billingMonth?: string;
-  // 振替チケット専用
-  absenceDate?: string;
-  consumptionSymbol?: string;
-  originalTicketName?: string;
-  brandId?: string;
-  schoolId?: string;
-};
-
-// チケットとして表示すべき商品タイプかどうか判定
-// 授業料（tuition）のみがチケット対象
-// 月会費、教材費、入会金などは購入履歴（通帳）に表示
-function isTicketType(productType: string): boolean {
-  return productType === 'tuition';
-}
-
-// 商品タイプからチケットタイプへの変換（授業料のみ）
-function getTicketType(productType: string): 'course' | 'transfer' | 'event' {
-  // 授業料はコースチケット（通常）と振替チケットがある
-  // ここでは全てコースチケットとして扱う（振替はまた別の仕組みで管理）
-  return 'course';
-}
-
-// 有効期限計算（請求月の末日から3ヶ月後）
-function calculateExpiryDate(billingMonth: string): string {
-  const [year, month] = billingMonth.split('-').map(Number);
-  const expiry = new Date(year, month + 2, 0); // 3ヶ月後の末日
-  return expiry.toISOString().split('T')[0];
-}
-
-// 期限間近チェック（30日以内）
-function isExpiringSoon(expiryDate: string): boolean {
-  const expiry = new Date(expiryDate);
-  const now = new Date();
-  const diffDays = Math.ceil((expiry.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
-  return diffDays <= 30 && diffDays > 0;
-}
+// OwnedTicketType is imported from use-tickets hook
 
 function TicketsContent() {
-  const router = useRouter();
-  const [tickets, setTickets] = useState<TicketType[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  // チケットデータを取得
+  const { data: tickets = [], isLoading: loading, error: ticketsError } = useOwnedTickets();
+  const invalidateTickets = useInvalidateOwnedTickets();
+  const error = ticketsError ? 'チケット情報の取得に失敗しました' : null;
 
   // 振替予約モーダル用の状態
   const [showTransferModal, setShowTransferModal] = useState(false);
@@ -85,79 +38,8 @@ function TicketsContent() {
   const [transferSuccess, setTransferSuccess] = useState(false);
   const [currentMonth, setCurrentMonth] = useState(() => new Date());
 
-  useEffect(() => {
-    const fetchTickets = async () => {
-      try {
-        setLoading(true);
-
-        // コースチケット（StudentItems）と振替チケット（AbsenceTickets）を並行取得
-        const [itemsResponse, absenceTickets] = await Promise.all([
-          getAllStudentItems(),
-          getAbsenceTickets('issued').catch(() => [] as AbsenceTicket[]), // エラー時は空配列
-        ]);
-
-        // 授業料（tuition）のみをチケットとして表示
-        // 月会費、教材費、入会金などは購入履歴ページで表示
-        const ticketItems = itemsResponse.items.filter((item: PurchasedItem) => isTicketType(item.productType));
-
-        // PurchasedItemをTicketTypeに変換
-        const convertedTickets: TicketType[] = ticketItems.map((item: PurchasedItem) => {
-          const expiryDate = calculateExpiryDate(item.billingMonth);
-          return {
-            id: item.id,
-            type: getTicketType(item.productType),
-            school: item.schoolName || '未指定',
-            brand: item.brandName || item.productName,
-            count: item.quantity,
-            expiryDate,
-            status: isExpiringSoon(expiryDate) ? 'expiring' : 'active',
-            studentName: item.studentName,
-            productName: item.productName,
-            billingMonth: item.billingMonth,
-          };
-        });
-
-        // AbsenceTicketをTicketTypeに変換（振替チケット）
-        const transferTicketsConverted: TicketType[] = absenceTickets.map((ticket: AbsenceTicket) => ({
-          id: ticket.id,
-          type: 'transfer' as const,
-          school: ticket.schoolName || '未指定',
-          brand: ticket.brandName || '振替チケット',
-          count: 1,
-          expiryDate: ticket.validUntil || '',
-          status: ticket.validUntil && isExpiringSoon(ticket.validUntil) ? 'expiring' : 'active',
-          studentName: ticket.studentName,
-          productName: ticket.originalTicketName || '振替チケット',
-          absenceDate: ticket.absenceDate || undefined,
-          consumptionSymbol: ticket.consumptionSymbol,
-          originalTicketName: ticket.originalTicketName,
-          brandId: ticket.brandId || undefined,
-          schoolId: ticket.schoolId || undefined,
-        }));
-
-        setTickets([...convertedTickets, ...transferTicketsConverted]);
-        setError(null);
-      } catch (err: unknown) {
-        console.error('Failed to fetch tickets:', err);
-        // 401エラーの場合はログインページにリダイレクト
-        if (err && typeof err === 'object' && 'message' in err) {
-          const errorMessage = (err as { message: string }).message;
-          if (errorMessage.includes('401') || errorMessage.includes('認証')) {
-            router.push('/login');
-            return;
-          }
-        }
-        setError('チケット情報の取得に失敗しました');
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchTickets();
-  }, [router]);
-
   // 振替予約モーダルを開く
-  const openTransferModal = useCallback(async (ticket: TicketType) => {
+  const openTransferModal = useCallback(async (ticket: OwnedTicketType) => {
     setSelectedTicket(ticket);
     setShowTransferModal(true);
     setTransferStep('school');
