@@ -100,7 +100,8 @@ class ConfirmedBillingService:
                         skipped_count += 1
                         continue
 
-                    confirmed, was_created = ConfirmedBilling.create_from_contracts(
+                    # まずStudentItemから生成を試みる（入会時費用等）
+                    confirmed, was_created = ConfirmedBilling.create_from_student_items(
                         tenant_id=tenant_id,
                         student=student,
                         guardian=guardian,
@@ -108,6 +109,17 @@ class ConfirmedBillingService:
                         month=month,
                         user=user
                     )
+
+                    # subtotalが0ならContractから生成（月額費用）
+                    if confirmed.subtotal == 0:
+                        confirmed, was_created = ConfirmedBilling.create_from_contracts(
+                            tenant_id=tenant_id,
+                            student=student,
+                            guardian=guardian,
+                            year=year,
+                            month=month,
+                            user=user
+                        )
 
                     # 空の請求確定データは削除
                     if confirmed.subtotal == 0 and not confirmed.items_snapshot and not confirmed.discounts_snapshot:

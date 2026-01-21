@@ -47,7 +47,10 @@ class PricingPreviewView(StudentInfoMixin, EnrollmentFeesMixin, BillingCalculati
 
         # 請求確定判定（当月分が確定済みなら3ヶ月目も含める）
         include_month3 = self._is_billing_confirmed()
-        print(f"[PricingPreview] include_month3={include_month3} (based on billing confirmation)", file=sys.stderr)
+
+        # デバッグ出力（stdout に出力して docker logs に表示）
+        print(f"[PricingPreview] REQUEST: day_of_week={data.get('day_of_week')}, days_of_week={data.get('days_of_week')}, start_date={start_date}", flush=True)
+        print(f"[PricingPreview] include_month3={include_month3}", flush=True)
 
         # 月別料金グループ初期化
         billing_by_month = self._init_billing_by_month(include_month3=include_month3)
@@ -61,11 +64,14 @@ class PricingPreviewView(StudentInfoMixin, EnrollmentFeesMixin, BillingCalculati
                 course, start_date, billing_by_month, textbook_options, additional_fees, subtotal, course_items_list
             )
 
-        # 入会時費用計算
+        # 入会時費用計算（曜日が未選択でも計算する - 回数割以外の入会時費用は曜日に依存しない）
         enrollment_fees_calculated = []
-        if course and start_date and data['day_of_week']:
+        if course and start_date:
+            # day_of_weekが未選択の場合はデフォルトで1（月曜日）を使用
+            # 入会金、教材費などは曜日に依存しないので問題ない
+            day_of_week_for_calc = data['day_of_week'] or 1
             enrollment_fees_calculated, billing_by_month, additional_fees = self._calculate_enrollment_fees(
-                course, start_date, data['day_of_week'], student, guardian,
+                course, start_date, day_of_week_for_calc, student, guardian,
                 billing_by_month, additional_fees
             )
 
@@ -78,14 +84,18 @@ class PricingPreviewView(StudentInfoMixin, EnrollmentFeesMixin, BillingCalculati
         # 月別ラベルを設定
         billing_by_month = self._setup_billing_labels(billing_by_month, start_date, monthly_tuition)
 
+        # 月額費用（設備費・月会費）を確保
+        billing_by_month = self._ensure_monthly_fees_in_billing(billing_by_month, monthly_tuition)
+
         # 当月分回数割料金を計算（複数曜日対応）
         current_month_prorated = self._calculate_current_month_prorated(
             course, start_date, data['day_of_week'], data.get('days_of_week')
         )
+        print(f"[PricingPreview] current_month_prorated={current_month_prorated}", flush=True)
 
-        # 合計金額を計算
+        # 合計金額を計算（当月分回数割を含む）
         grand_total = self._calculate_grand_total(
-            enrollment_tuition_item, additional_fees, monthly_tuition, discount_total, include_month3
+            enrollment_tuition_item, additional_fees, monthly_tuition, discount_total, include_month3, current_month_prorated
         )
 
         # 回数割料金をbilling_by_monthに反映
@@ -95,6 +105,9 @@ class PricingPreviewView(StudentInfoMixin, EnrollmentFeesMixin, BillingCalculati
 
         # 入会時費用の項目を0円で追加（項目がない場合）
         billing_by_month = self._ensure_enrollment_items(billing_by_month)
+
+        # 既存契約の設備費を取得（設備費は高い方のみ請求するため）
+        existing_facility_fee = self._get_existing_facility_fee(student)
 
         # ログ出力
         self._log_results(
@@ -120,4 +133,5 @@ class PricingPreviewView(StudentInfoMixin, EnrollmentFeesMixin, BillingCalculati
             'mileInfo': mile_info,
             'enrollmentFeesCalculated': enrollment_fees_calculated,
             'textbookOptions': textbook_options,
+            'existingFacilityFee': existing_facility_fee,
         })

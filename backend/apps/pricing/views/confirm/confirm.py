@@ -92,9 +92,9 @@ class PricingConfirmView(APIView):
             check_year = today.year + ((today.month - 1 + offset) // 12)
 
             is_confirmed = BillingPeriod.objects.filter(
-                billing_year=check_year,
-                billing_month=check_month,
-                is_confirmed=True,
+                year=check_year,
+                month=check_month,
+                is_closed=True,
             ).exists()
 
             if not is_confirmed:
@@ -125,6 +125,20 @@ class PricingConfirmView(APIView):
 
     def post(self, request):
         """購入を確定する"""
+        import logging
+        logger = logging.getLogger(__name__)
+        try:
+            return self._process_post(request)
+        except Exception as e:
+            import traceback
+            error_trace = traceback.format_exc()
+            logger.error(f"[PricingConfirm] ERROR: {e}\n{error_trace}")
+            print(f"[PricingConfirm] ERROR: {e}", flush=True)
+            print(error_trace, flush=True)
+            return Response({'error': str(e), 'detail': error_trace}, status=500)
+
+    def _process_post(self, request):
+        """購入確定の実処理"""
         # リクエスト解析
         data = parse_request_data(request)
         self._log_request(data)

@@ -38,14 +38,13 @@ def has_guardian_paid_enrollment_fee(guardian: Guardian, tenant_id: str) -> bool
         tenant_id=tenant_id,
         student__guardian=guardian,
         product__item_type=Product.ItemType.ENROLLMENT,
+        deleted_at__isnull=True,
     ).exists()
 
     if enrollment_items:
         return True
 
     # 過去の契約から入会金支払いを確認
-    # 過去に契約があれば（ステータス問わず）、入会金は支払い済みとみなす
-    # ※インポートされた過去データも含む
     has_any_contract = Contract.objects.filter(
         guardian=guardian,
         tenant_id=tenant_id,
@@ -69,14 +68,13 @@ def has_student_received_bag(student: Student, tenant_id: str) -> bool:
         tenant_id=tenant_id,
         student=student,
         product__item_type=Product.ItemType.BAG,
+        deleted_at__isnull=True,
     ).exists()
 
     if bag_items:
         return True
 
     # 過去の契約からバッグ受け取りを確認
-    # 過去に契約があれば（ステータス問わず）、バッグは受け取り済みとみなす
-    # ※インポートされた過去データも含む
     has_any_contract = Contract.objects.filter(
         student=student,
         tenant_id=tenant_id,

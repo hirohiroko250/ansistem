@@ -161,43 +161,112 @@ export default function ConfirmedBillingPage() {
     }
   };
 
-  // 確定データ生成
+  // 確定データ生成（非同期）
   const handleGenerateConfirmedBilling = async () => {
     if (year === null || month === null) return;
 
-    if (!confirm(`${year}年${month}月分の請求確定データを生成しますか？`)) {
+    if (!confirm(`${year}年${month}月分の請求確定データを生成しますか？\n\n※処理には数分かかる場合があります。`)) {
       return;
     }
 
     setGenerating(true);
     try {
-      const response = await apiClient.post<{
+      // 非同期APIを呼び出し
+      const startResponse = await apiClient.post<{
         success: boolean;
-        createdCount: number;
-        updatedCount: number;
-        skippedCount: number;
-        errorCount: number;
-        errors: Array<{ studentName: string; error: string }>;
-      }>('/billing/confirmed/create_confirmed_billing/', {
+        taskId: string;
+        message: string;
+      }>('/billing/confirmed/create_confirmed_billing_async/', {
         year,
         month,
       });
 
-      if (response.success) {
-        alert(
-          `請求確定データを生成しました。\n` +
-            `新規作成: ${response.createdCount ?? 0}件\n` +
-            `更新: ${response.updatedCount ?? 0}件\n` +
-            `スキップ: ${response.skippedCount ?? 0}件` +
-            ((response.errorCount ?? 0) > 0
-              ? `\nエラー: ${response.errorCount}件`
-              : '')
-        );
-        fetchData();
+      if (startResponse.success && startResponse.taskId) {
+        // タスクの完了をポーリング
+        const taskId = startResponse.taskId;
+        let attempts = 0;
+        const maxAttempts = 120; // 最大10分（5秒×120回）
+
+        while (attempts < maxAttempts) {
+          await new Promise((resolve) => setTimeout(resolve, 5000)); // 5秒待機
+          attempts++;
+
+          try {
+            const statusResponse = await apiClient.get<{
+              taskId: string;
+              status: string;
+              result?: {
+                success: boolean;
+                createdCount: number;
+                updatedCount: number;
+                errorCount: number;
+                totalBillings: number;
+                totalAmount: number;
+              };
+              error?: string;
+              progress?: { current: number; total: number };
+            }>(`/billing/confirmed/task_status/${taskId}/`);
+
+            if (statusResponse.status === 'SUCCESS' && statusResponse.result) {
+              const result = statusResponse.result;
+              alert(
+                `請求確定データを生成しました。\n` +
+                  `新規作成: ${result.createdCount ?? 0}件\n` +
+                  `更新: ${result.updatedCount ?? 0}件\n` +
+                  `合計: ${result.totalBillings ?? 0}件\n` +
+                  `総額: ${(result.totalAmount ?? 0).toLocaleString()}円` +
+                  ((result.errorCount ?? 0) > 0
+                    ? `\nエラー: ${result.errorCount}件`
+                    : '')
+              );
+              fetchData();
+              break;
+            } else if (statusResponse.status === 'FAILURE') {
+              throw new Error(statusResponse.error || '処理に失敗しました');
+            }
+            // PENDING or PROGRESS - continue polling
+          } catch (pollError) {
+            console.error('Polling error:', pollError);
+            // ポーリングエラーは無視して継続
+          }
+        }
+
+        if (attempts >= maxAttempts) {
+          alert('処理がタイムアウトしました。しばらく待ってから更新ボタンを押してください。');
+          fetchData();
+        }
       }
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('Failed to generate confirmed billing:', error);
-      alert('請求確定データの生成に失敗しました');
+      // 同期APIにフォールバック
+      try {
+        const response = await apiClient.post<{
+          success: boolean;
+          createdCount: number;
+          updatedCount: number;
+          skippedCount: number;
+          errorCount: number;
+        }>('/billing/confirmed/create_confirmed_billing/', {
+          year,
+          month,
+        });
+
+        if (response.success) {
+          alert(
+            `請求確定データを生成しました。\n` +
+              `新規作成: ${response.createdCount ?? 0}件\n` +
+              `更新: ${response.updatedCount ?? 0}件\n` +
+              `スキップ: ${response.skippedCount ?? 0}件` +
+              ((response.errorCount ?? 0) > 0
+                ? `\nエラー: ${response.errorCount}件`
+                : '')
+          );
+          fetchData();
+        }
+      } catch (fallbackError) {
+        console.error('Fallback also failed:', fallbackError);
+        alert('請求確定データの生成に失敗しました');
+      }
     } finally {
       setGenerating(false);
     }

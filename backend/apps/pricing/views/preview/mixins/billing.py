@@ -2,8 +2,11 @@
 Billing Calculation Mixin - 請求計算
 """
 import sys
+import logging
 from datetime import date as date_type
 from decimal import Decimal
+
+logger = logging.getLogger(__name__)
 
 from apps.pricing.views.utils import (
     calculate_prorated_current_month_fees,
@@ -168,15 +171,21 @@ class BillingCalculationMixin:
             print(f"[PricingPreview] Error calculating prorated fees: {e}", file=sys.stderr)
             return None
 
-    def _calculate_grand_total(self, enrollment_tuition_item, additional_fees, monthly_tuition, discount_total, include_month3=False):
+    def _calculate_grand_total(self, enrollment_tuition_item, additional_fees, monthly_tuition, discount_total, include_month3=False, current_month_prorated=None):
         """合計金額を計算
 
         Args:
             include_month3: 3ヶ月目を含めるかどうか（締日後の場合True）
+            current_month_prorated: 当月分回数割データ
         """
         enrollment_tuition_total = enrollment_tuition_item['total'] if enrollment_tuition_item else 0
         enrollment_fee = additional_fees.get('enrollmentFee', {}).get('price', 0)
         materials_fee = additional_fees.get('materialsFee', {}).get('price', 0)
+
+        # 当月分回数割料金を計算
+        current_month_total = 0
+        if current_month_prorated:
+            current_month_total = current_month_prorated.get('totalProrated', 0)
 
         if monthly_tuition:
             month1_total = monthly_tuition['month1Price'] + monthly_tuition['facilityFee'] + monthly_tuition['monthlyFee']
@@ -188,10 +197,15 @@ class BillingCalculationMixin:
             month2_total = month1_total
             month3_total = month1_total if include_month3 else 0
 
+        # デバッグログ（JSONで出力して見やすく）
+        logger.warning(f"[PricingPreview] grandTotal: enrollment_tuition={enrollment_tuition_total}, enrollment_fee={enrollment_fee}, materials_fee={materials_fee}, current_month={current_month_total}, month1={month1_total}, month2={month2_total}, month3={month3_total}, discount={discount_total}")
+        logger.warning(f"[PricingPreview] additional_fees keys: {list(additional_fees.keys())}")
+
         return (
             enrollment_tuition_total +
             enrollment_fee +
             materials_fee +
+            current_month_total +
             month1_total +
             month2_total +
             month3_total -
@@ -269,6 +283,62 @@ class BillingCalculationMixin:
                 'taxRate': enrollment_tuition_item['taxRate'],
             })
             billing_by_month['currentMonth']['total'] += enrollment_tuition_item['total']
+
+        return billing_by_month
+
+    def _ensure_monthly_fees_in_billing(self, billing_by_month, monthly_tuition):
+        """月額費用（設備費・月会費）がbilling_by_monthに含まれていることを確認
+
+        CourseItemに設備費・月会費がない場合でも、monthly_tuitionから追加する
+        """
+        if not monthly_tuition:
+            return billing_by_month
+
+        # month1/month2/month3 に設備費があるかチェック
+        def has_item_type(items, item_type):
+            return any(item.get('itemType') == item_type for item in items)
+
+        months_to_check = ['month1', 'month2']
+        if 'month3' in billing_by_month:
+            months_to_check.append('month3')
+
+        # 設備費を追加
+        facility_fee = monthly_tuition.get('facilityFee', 0)
+        if facility_fee > 0:
+            for month_key in months_to_check:
+                if not has_item_type(billing_by_month[month_key]['items'], 'facility'):
+                    facility_item = {
+                        'productId': None,
+                        'productName': '設備費',
+                        'billingCategoryName': '設備費',
+                        'itemType': 'facility',
+                        'quantity': 1,
+                        'unitPrice': int(facility_fee / 1.1),
+                        'priceWithTax': facility_fee,
+                        'taxRate': 0.1,
+                    }
+                    billing_by_month[month_key]['items'].append(facility_item)
+                    billing_by_month[month_key]['total'] += facility_fee
+                    print(f"[PricingPreview] Added facility fee to {month_key}: ¥{facility_fee}", file=sys.stderr)
+
+        # 月会費を追加
+        monthly_fee = monthly_tuition.get('monthlyFee', 0)
+        if monthly_fee > 0:
+            for month_key in months_to_check:
+                if not has_item_type(billing_by_month[month_key]['items'], 'monthly_fee'):
+                    monthly_item = {
+                        'productId': None,
+                        'productName': '月会費',
+                        'billingCategoryName': '月会費',
+                        'itemType': 'monthly_fee',
+                        'quantity': 1,
+                        'unitPrice': int(monthly_fee / 1.1),
+                        'priceWithTax': monthly_fee,
+                        'taxRate': 0.1,
+                    }
+                    billing_by_month[month_key]['items'].append(monthly_item)
+                    billing_by_month[month_key]['total'] += monthly_fee
+                    print(f"[PricingPreview] Added monthly fee to {month_key}: ¥{monthly_fee}", file=sys.stderr)
 
         return billing_by_month
 

@@ -81,8 +81,8 @@ class EnrollmentFeesMixin:
         current_month = today.month
 
         try:
-            # テナントIDが指定されていない場合はデフォルトの1を使用
-            tid = tenant_id or 1
+            # テナントIDが指定されていない場合はデフォルトのUUIDを使用
+            tid = tenant_id or '6603315b-f0d4-486a-97c9-dfe981d0bf53'
             deadline = MonthlyBillingDeadline.objects.get(
                 tenant_id=tid,
                 year=current_year,
@@ -112,9 +112,11 @@ class EnrollmentFeesMixin:
 
             print(f"[PricingPreview] Enrollment fees calculation: additional_tickets={additional_tickets}, total_classes={total_classes_in_month}", file=sys.stderr)
 
+            # tenant_idは生徒のものを使用（商品は生徒と同じtenant_idを持つ）
+            tenant_id = str(student.tenant_id) if student else str(course.tenant_id)
             enrollment_fees_calculated = calculate_enrollment_fees(
                 course=course,
-                tenant_id=str(course.tenant_id),
+                tenant_id=tenant_id,
                 enrollment_date=start_date,
                 additional_tickets=additional_tickets,
                 total_classes_in_month=total_classes_in_month,
@@ -126,13 +128,24 @@ class EnrollmentFeesMixin:
             billing_by_month['enrollment']['items'] = []
             billing_by_month['enrollment']['total'] = 0
 
+            # ラベルマッピング（分かりやすい表示名に変換）
+            label_mapping = {
+                '授業料ALL': '当月分授業料',
+                '授業料': '当月分授業料',
+                '月会費': '当月分月会費',
+                '設備費': '当月分設備費',
+            }
+
             for fee in enrollment_fees_calculated:
                 if fee['calculated_price'] >= 0:
                     tax_rate = Decimal('0.1')
                     tax_amount = int(Decimal(str(fee['calculated_price'])) * tax_rate)
                     price_with_tax = fee['calculated_price'] + tax_amount
 
-                    billing_category = fee['product_name'].split('【')[1].split('】')[0] if '【' in fee['product_name'] else fee['item_type']
+                    # 商品名から【】内のテキストを抽出、なければitem_typeを使用
+                    raw_category = fee['product_name'].split('【')[1].split('】')[0] if '【' in fee['product_name'] else fee['item_type']
+                    # マッピングで分かりやすい名前に変換
+                    billing_category = label_mapping.get(raw_category, raw_category)
                     item_data = {
                         'productId': fee['product_id'],
                         'productCode': fee['product_code'],
@@ -176,6 +189,69 @@ class EnrollmentFeesMixin:
             traceback.print_exc()
 
         return enrollment_fees_calculated, billing_by_month, additional_fees
+
+    def _get_existing_facility_fee(self, student):
+        """既存契約の最大設備費を取得
+
+        生徒が既に契約しているコースの設備費の最大値を返す。
+        新規コースの設備費と比較し、高い方のみ請求するために使用。
+
+        Returns:
+            dict: {
+                'maxFee': int,  # 最大設備費（税込）
+                'maxFeeExcludingTax': int,  # 最大設備費（税抜）
+                'courses': list,  # 既存コースのリスト
+            }
+        """
+        from apps.contracts.models import Contract, CourseItem
+        from decimal import Decimal
+
+        if not student:
+            return {'maxFee': 0, 'maxFeeExcludingTax': 0, 'courses': []}
+
+        max_fee = 0
+        max_fee_excluding_tax = 0
+        courses_with_facility = []
+
+        # アクティブな契約を取得
+        contracts = Contract.objects.filter(
+            student=student,
+            status='active',
+            deleted_at__isnull=True
+        ).select_related('course')
+
+        for contract in contracts:
+            if not contract.course:
+                continue
+
+            # コースの設備費を取得
+            facility_item = CourseItem.objects.filter(
+                course=contract.course,
+                product__item_type='facility',
+                is_active=True
+            ).select_related('product').first()
+
+            if facility_item and facility_item.product:
+                base_price = facility_item.product.base_price or Decimal('0')
+                tax_rate = facility_item.product.tax_rate or Decimal('0.1')
+                price_with_tax = int(base_price) + int(base_price * tax_rate)
+
+                if price_with_tax > max_fee:
+                    max_fee = price_with_tax
+                    max_fee_excluding_tax = int(base_price)
+
+                courses_with_facility.append({
+                    'courseName': contract.course.course_name,
+                    'facilityFee': price_with_tax,
+                    'facilityFeeExcludingTax': int(base_price),
+                })
+
+        print(f"[PricingPreview] Existing facility fee: max=¥{max_fee}, courses={len(courses_with_facility)}", file=sys.stderr)
+        return {
+            'maxFee': max_fee,
+            'maxFeeExcludingTax': max_fee_excluding_tax,
+            'courses': courses_with_facility,
+        }
 
     def _ensure_enrollment_items(self, billing_by_month):
         """入会時費用の項目を0円で追加（項目がない場合）"""

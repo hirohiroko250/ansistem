@@ -110,9 +110,22 @@ def get_enrollment_products_for_course(course: Course, tenant_id: str) -> List[P
     ).order_by('product_code')
 
     products_list = list(products)
+
+    # tenant_idで見つからない場合、tenant_idフィルタなしで再検索
+    if not products_list:
+        products = Product.objects.filter(
+            product_code__startswith=f"{course_code}_",
+            item_type__in=enrollment_types,
+            is_active=True,
+            deleted_at__isnull=True
+        ).order_by('product_code')
+        products_list = list(products)
+        if products_list:
+            print(f"[get_enrollment_products] Course: {course_code}, Found {len(products_list)} products (fallback without tenant_id)", file=sys.stderr)
+
     found_types = {p.item_type for p in products_list}
 
-    print(f"[get_enrollment_products] Course: {course_code}, Found: {len(products_list)} enrollment products", file=sys.stderr)
+    print(f"[get_enrollment_products] Course: {course_code}, tenant_id: {tenant_id}, Found: {len(products_list)} enrollment products", file=sys.stderr)
 
     # ブランドレベルの商品にフォールバック（コースレベルになければ）
     brand = course.brand
@@ -126,6 +139,14 @@ def get_enrollment_products_for_course(course: Course, tenant_id: str) -> List[P
                 is_active=True,
                 deleted_at__isnull=True
             ).first()
+            # tenant_idで見つからない場合はtenant_idフィルタなしで再検索
+            if not enrollment_product:
+                enrollment_product = Product.objects.filter(
+                    brand=brand,
+                    item_type=Product.ItemType.ENROLLMENT,
+                    is_active=True,
+                    deleted_at__isnull=True
+                ).first()
             if enrollment_product:
                 products_list.append(enrollment_product)
                 print(f"[get_enrollment_products] Added brand-level enrollment fee: {enrollment_product.product_name}", file=sys.stderr)
@@ -140,11 +161,27 @@ def get_enrollment_products_for_course(course: Course, tenant_id: str) -> List[P
                 is_active=True,
                 deleted_at__isnull=True
             ).first()
+            # tenant_idで見つからない場合はtenant_idフィルタなしで再検索
+            if not facility_product:
+                facility_product = Product.objects.filter(
+                    product_code__startswith=f"{course_code}_",
+                    item_type=Product.ItemType.FACILITY,
+                    is_active=True,
+                    deleted_at__isnull=True
+                ).first()
 
             # コースレベルになければブランドレベルを検索
             if not facility_product:
                 facility_product = Product.objects.filter(
                     tenant_id=tenant_id,
+                    brand=brand,
+                    item_type=Product.ItemType.FACILITY,
+                    is_active=True,
+                    deleted_at__isnull=True
+                ).first()
+            # tenant_idで見つからない場合はtenant_idフィルタなしで再検索
+            if not facility_product:
+                facility_product = Product.objects.filter(
                     brand=brand,
                     item_type=Product.ItemType.FACILITY,
                     is_active=True,
