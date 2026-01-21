@@ -181,6 +181,21 @@ export function StudentDetail({ student, parents, contracts, invoices, contactLo
   // 新規契約登録ダイアログ
   const [newContractDialogOpen, setNewContractDialogOpen] = useState(false);
 
+  // 生徒編集ダイアログ
+  const [studentEditDialogOpen, setStudentEditDialogOpen] = useState(false);
+  const [studentForm, setStudentForm] = useState({
+    last_name: '',
+    first_name: '',
+    last_name_kana: '',
+    first_name_kana: '',
+    birth_date: '',
+    gender: '',
+    phone: '',
+    email: '',
+    school_name: '',
+    notes: '',
+  });
+
   // 保護者編集ダイアログ
   const [guardianEditDialogOpen, setGuardianEditDialogOpen] = useState(false);
   const [editingGuardian, setEditingGuardian] = useState<Guardian | null>(null);
@@ -967,6 +982,39 @@ export function StudentDetail({ student, parents, contracts, invoices, contactLo
     return `${date.getFullYear()}年${date.getMonth() + 1}月${date.getDate()}日`;
   };
 
+  // 生徒編集ダイアログを開く
+  const openStudentEditDialog = () => {
+    setStudentForm({
+      last_name: student.last_name || student.lastName || '',
+      first_name: student.first_name || student.firstName || '',
+      last_name_kana: student.last_name_kana || student.lastNameKana || '',
+      first_name_kana: student.first_name_kana || student.firstNameKana || '',
+      birth_date: student.birth_date || student.birthDate || '',
+      gender: student.gender || '',
+      phone: student.phone || '',
+      email: student.email || '',
+      school_name: student.school_name || student.schoolName || '',
+      notes: (student as any).notes || '',
+    });
+    setStudentEditDialogOpen(true);
+  };
+
+  // 生徒情報を更新
+  const handleStudentUpdate = async () => {
+    setIsSubmitting(true);
+    try {
+      await apiClient.patch(`/students/${student.id}/`, studentForm);
+      alert('生徒情報を更新しました');
+      setStudentEditDialogOpen(false);
+      onRefresh?.();
+    } catch (error: any) {
+      console.error('Student update error:', error);
+      alert(error.data?.detail || error.message || '生徒情報の更新に失敗しました');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   // 保護者編集ダイアログを開く
   const openGuardianEditDialog = (g: Guardian) => {
     setEditingGuardian(g);
@@ -1555,7 +1603,7 @@ export function StudentDetail({ student, parents, contracts, invoices, contactLo
                 <MessageCircle className="w-4 h-4 mr-1" />
                 チャット
               </Button>
-              <Button size="sm" variant="outline" className="w-full">
+              <Button size="sm" variant="outline" className="w-full" onClick={openStudentEditDialog}>
                 <Edit className="w-4 h-4 mr-1" />
                 編集
               </Button>
@@ -3171,6 +3219,146 @@ export function StudentDetail({ student, parents, contracts, invoices, contactLo
           </Button>
         </div>
       </div>
+
+      {/* 生徒編集ダイアログ */}
+      <Dialog open={studentEditDialogOpen} onOpenChange={setStudentEditDialogOpen}>
+        <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>生徒情報の編集</DialogTitle>
+            <DialogDescription>
+              生徒の基本情報を編集します。
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            {/* 氏名 */}
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label className="text-right">氏名</Label>
+              <div className="col-span-3 flex gap-2">
+                <Input
+                  placeholder="姓"
+                  value={studentForm.last_name}
+                  onChange={(e) => setStudentForm({ ...studentForm, last_name: e.target.value })}
+                  className="flex-1"
+                />
+                <Input
+                  placeholder="名"
+                  value={studentForm.first_name}
+                  onChange={(e) => setStudentForm({ ...studentForm, first_name: e.target.value })}
+                  className="flex-1"
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label className="text-right">氏名（カナ）</Label>
+              <div className="col-span-3 flex gap-2">
+                <Input
+                  placeholder="セイ"
+                  value={studentForm.last_name_kana}
+                  onChange={(e) => setStudentForm({ ...studentForm, last_name_kana: e.target.value })}
+                  className="flex-1"
+                />
+                <Input
+                  placeholder="メイ"
+                  value={studentForm.first_name_kana}
+                  onChange={(e) => setStudentForm({ ...studentForm, first_name_kana: e.target.value })}
+                  className="flex-1"
+                />
+              </div>
+            </div>
+            {/* 生年月日 */}
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="student_birth_date" className="text-right">
+                生年月日
+              </Label>
+              <Input
+                id="student_birth_date"
+                type="date"
+                value={studentForm.birth_date}
+                onChange={(e) => setStudentForm({ ...studentForm, birth_date: e.target.value })}
+                className="col-span-3"
+              />
+            </div>
+            {/* 性別 */}
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label className="text-right">性別</Label>
+              <Select
+                value={studentForm.gender}
+                onValueChange={(value) => setStudentForm({ ...studentForm, gender: value })}
+              >
+                <SelectTrigger className="col-span-3">
+                  <SelectValue placeholder="選択してください" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="male">男</SelectItem>
+                  <SelectItem value="female">女</SelectItem>
+                  <SelectItem value="other">その他</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            {/* 電話番号 */}
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="student_phone" className="text-right">
+                電話番号
+              </Label>
+              <Input
+                id="student_phone"
+                value={studentForm.phone}
+                onChange={(e) => setStudentForm({ ...studentForm, phone: e.target.value })}
+                className="col-span-3"
+                placeholder="090-1234-5678"
+              />
+            </div>
+            {/* メール */}
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="student_email" className="text-right">
+                メール
+              </Label>
+              <Input
+                id="student_email"
+                type="email"
+                value={studentForm.email}
+                onChange={(e) => setStudentForm({ ...studentForm, email: e.target.value })}
+                className="col-span-3"
+                placeholder="example@email.com"
+              />
+            </div>
+            {/* 学校名 */}
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="student_school_name" className="text-right">
+                学校名
+              </Label>
+              <Input
+                id="student_school_name"
+                value={studentForm.school_name}
+                onChange={(e) => setStudentForm({ ...studentForm, school_name: e.target.value })}
+                className="col-span-3"
+                placeholder="〇〇小学校"
+              />
+            </div>
+            {/* 備考 */}
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="student_notes" className="text-right">
+                備考
+              </Label>
+              <Textarea
+                id="student_notes"
+                value={studentForm.notes}
+                onChange={(e) => setStudentForm({ ...studentForm, notes: e.target.value })}
+                className="col-span-3"
+                rows={3}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setStudentEditDialogOpen(false)}>
+              キャンセル
+            </Button>
+            <Button onClick={handleStudentUpdate} disabled={isSubmitting}>
+              {isSubmitting ? '保存中...' : '保存'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* 保護者編集ダイアログ */}
       <Dialog open={guardianEditDialogOpen} onOpenChange={setGuardianEditDialogOpen}>

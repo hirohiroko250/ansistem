@@ -334,3 +334,4 @@ npm install @tanstack/react-query
 | 2026-01-21 | Phase 4: useOwnedTickets追加、tickets/calendar/historyページ移行、ビルド確認完了 | - |
 | 2026-01-21 | Phase 4: useChat/usePassbook追加、chat/purchase-historyページ移行、全ページReact Query化完了 | - |
 | 2026-01-21 | Phase 4: 追加フック作成（useFeed, usePayment, useStudentQRCode）、詳細ページ移行（children/[id], feed/[id], purchase-history/[month], settings/payment）完了 | - |
+| 2026-01-21 | Phase 4: 追加フック作成（useClasses, useAttendance, useClassManagement, useFriendship）、ページ移行（classes/[id], attendance, class-management, friend-referral）完了 | - |

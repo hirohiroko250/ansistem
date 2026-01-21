@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { ChevronLeft, Copy, Share2, UserPlus, Users, Gift, Check, Loader2, Clock, CheckCircle, XCircle } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -9,71 +9,46 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { isAuthenticated } from '@/lib/api/auth';
 import {
-  getMyReferralCode,
-  registerFriend,
-  getFriendsList,
-  acceptFriendRequest,
-  rejectFriendRequest,
-  getFSDiscounts,
-  type FriendsListResponse,
-  type DiscountsResponse,
-} from '@/lib/api/friendship';
+  useMyReferralCode,
+  useFriendsList,
+  useFSDiscounts,
+  useRegisterFriend,
+  useAcceptFriendRequest,
+  useRejectFriendRequest,
+} from '@/lib/hooks/use-friendship';
 
 export default function FriendReferralPage() {
   const router = useRouter();
-  const [myCode, setMyCode] = useState<string>('');
-  const [myName, setMyName] = useState<string>('');
-  const [loading, setLoading] = useState(true);
   const [copied, setCopied] = useState(false);
   const [inputCode, setInputCode] = useState('');
-  const [registering, setRegistering] = useState(false);
   const [registerResult, setRegisterResult] = useState<{ success: boolean; message: string } | null>(null);
-  const [friendsData, setFriendsData] = useState<FriendsListResponse | null>(null);
-  const [discountsData, setDiscountsData] = useState<DiscountsResponse | null>(null);
   const [activeTab, setActiveTab] = useState<'invite' | 'friends' | 'discounts'>('invite');
   const [processingId, setProcessingId] = useState<string | null>(null);
 
+  // 認証チェック
   useEffect(() => {
     if (!isAuthenticated()) {
       router.push('/login');
-      return;
     }
-    fetchData();
   }, [router]);
 
-  const fetchData = async () => {
-    try {
-      setLoading(true);
-      // 個別に取得してエラーをハンドリング
-      try {
-        const codeData = await getMyReferralCode();
-        // Handle both camelCase and snake_case
-        const code = codeData?.referralCode || codeData?.referral_code;
-        if (code) {
-          setMyCode(code);
-          setMyName(codeData.name || '');
-        }
-      } catch (e) {
-        console.error('Failed to fetch referral code:', e);
-      }
+  // React Queryフック
+  const { data: codeData, isLoading: codeLoading } = useMyReferralCode();
+  const { data: friendsData, isLoading: friendsLoading } = useFriendsList();
+  const { data: discountsData, isLoading: discountsLoading } = useFSDiscounts();
 
-      try {
-        const friendsList = await getFriendsList();
-        setFriendsData(friendsList);
-      } catch (e) {
-        console.error('Failed to fetch friends list:', e);
-      }
+  // ミューテーション
+  const registerFriendMutation = useRegisterFriend();
+  const acceptFriendMutation = useAcceptFriendRequest();
+  const rejectFriendMutation = useRejectFriendRequest();
 
-      try {
-        const discounts = await getFSDiscounts();
-        setDiscountsData(discounts);
-      } catch (e) {
-        console.error('Failed to fetch discounts:', e);
-      }
-    } finally {
-      setLoading(false);
-    }
-  };
+  // 紹介コードを取得
+  const myCode = useMemo(() => {
+    return codeData?.referralCode || codeData?.referral_code || '';
+  }, [codeData]);
+
+  const loading = codeLoading || friendsLoading || discountsLoading;
+  const registering = registerFriendMutation.isPending;
 
   const handleCopyCode = async () => {
     try {
@@ -114,35 +89,22 @@ export default function FriendReferralPage() {
     }
 
     try {
-      setRegistering(true);
       setRegisterResult(null);
-      const result = await registerFriend(inputCode.trim());
+      const result = await registerFriendMutation.mutateAsync(inputCode.trim());
       setRegisterResult({ success: true, message: result.message });
       setInputCode('');
-      // 友達リストを更新
-      const friendsList = await getFriendsList();
-      setFriendsData(friendsList);
     } catch (error: unknown) {
       const errorMessage = error && typeof error === 'object' && 'message' in error
         ? (error as { message: string }).message
         : '登録に失敗しました';
       setRegisterResult({ success: false, message: errorMessage });
-    } finally {
-      setRegistering(false);
     }
   };
 
   const handleAccept = async (friendshipId: string) => {
     try {
       setProcessingId(friendshipId);
-      await acceptFriendRequest(friendshipId);
-      // データを更新
-      const [friendsList, discounts] = await Promise.all([
-        getFriendsList(),
-        getFSDiscounts(),
-      ]);
-      setFriendsData(friendsList);
-      setDiscountsData(discounts);
+      await acceptFriendMutation.mutateAsync(friendshipId);
     } catch (error) {
       console.error('Failed to accept:', error);
     } finally {
@@ -153,10 +115,7 @@ export default function FriendReferralPage() {
   const handleReject = async (friendshipId: string) => {
     try {
       setProcessingId(friendshipId);
-      await rejectFriendRequest(friendshipId);
-      // データを更新
-      const friendsList = await getFriendsList();
-      setFriendsData(friendsList);
+      await rejectFriendMutation.mutateAsync(friendshipId);
     } catch (error) {
       console.error('Failed to reject:', error);
     } finally {

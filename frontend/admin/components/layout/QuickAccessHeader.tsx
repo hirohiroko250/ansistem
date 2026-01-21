@@ -39,7 +39,7 @@ export function QuickAccessHeader({
           variant="ghost"
           size="sm"
           className="text-white hover:bg-blue-700 flex items-center gap-1.5 whitespace-nowrap"
-          onClick={() => window.location.href = '/tasks'}
+          onClick={() => window.location.href = '/admin/tasks'}
         >
           <ClipboardList className="w-4 h-4" />
           <span>作業一覧</span>
