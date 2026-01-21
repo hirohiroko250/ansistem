@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef } from 'react';
-import { ChevronLeft, User, Plus, ChevronRight, Loader2, Camera, X } from 'lucide-react';
+import { ChevronLeft, User, Plus, ChevronRight, Loader2 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -429,48 +429,6 @@ function ChildrenContent() {
             <DialogTitle>お子様を追加</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
-            {/* 写真選択 */}
-            <div className="flex flex-col items-center">
-              <Label className="mb-2">写真（任意）</Label>
-              <input
-                type="file"
-                ref={photoInputRef}
-                onChange={handlePhotoSelect}
-                accept="image/jpeg,image/png,image/gif,image/webp"
-                className="hidden"
-              />
-              <div className="relative">
-                <button
-                  type="button"
-                  onClick={() => photoInputRef.current?.click()}
-                  className="w-24 h-24 rounded-full bg-blue-100 flex items-center justify-center border-2 border-dashed border-blue-300 hover:border-blue-500 hover:bg-blue-50 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500"
-                >
-                  {photoPreview ? (
-                    <img
-                      src={photoPreview}
-                      alt="プレビュー"
-                      className="w-full h-full rounded-full object-cover"
-                    />
-                  ) : (
-                    <div className="flex flex-col items-center">
-                      <Camera className="w-8 h-8 text-blue-500" />
-                      <span className="text-xs text-blue-500 mt-1">写真を選択</span>
-                    </div>
-                  )}
-                </button>
-                {photoPreview && (
-                  <button
-                    type="button"
-                    onClick={clearPhoto}
-                    className="absolute -top-1 -right-1 w-6 h-6 bg-red-500 text-white rounded-full flex items-center justify-center hover:bg-red-600"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
-                )}
-              </div>
-              <p className="text-xs text-gray-500 mt-2">証明写真のような写真を推奨</p>
-            </div>
-
             <div className="grid grid-cols-2 gap-2">
               <div>
                 <Label htmlFor="lastName">姓 *</Label>

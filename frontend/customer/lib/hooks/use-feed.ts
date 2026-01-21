@@ -17,15 +17,31 @@ import {
   type FeedPost,
   type FeedComment,
 } from '@/lib/api/feed';
+import { getLatestNews, type NewsItem } from '@/lib/api/announcements';
 
 // クエリキー
 export const feedKeys = {
   all: ['feed'] as const,
   lists: () => [...feedKeys.all, 'list'] as const,
+  latestNews: (limit: number) => [...feedKeys.all, 'latestNews', limit] as const,
   details: () => [...feedKeys.all, 'detail'] as const,
   detail: (id: string) => [...feedKeys.details(), id] as const,
   comments: (postId: string) => [...feedKeys.all, 'comments', postId] as const,
 };
+
+/**
+ * 最新ニュースを取得（ホーム用）
+ */
+export function useLatestNews(limit: number = 5) {
+  return useQuery({
+    queryKey: feedKeys.latestNews(limit),
+    queryFn: async () => {
+      return getLatestNews(limit);
+    },
+    enabled: !!getAccessToken(),
+    staleTime: 2 * 60 * 1000, // 2分
+  });
+}
 
 /**
  * フィード投稿詳細を取得
@@ -127,3 +143,4 @@ export function useInvalidateFeed() {
 
 // 型を再エクスポート
 export type { FeedPost, FeedComment } from '@/lib/api/feed';
+export type { NewsItem } from '@/lib/api/announcements';

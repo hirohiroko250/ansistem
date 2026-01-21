@@ -292,6 +292,9 @@ npm install @tanstack/react-query
 - [x] カスタムフック作成（useUser, useStudents, useSchools, useBrands, useTickets）
 - [x] 追加フック作成（useContracts, useSchedules, useHistory, useStaffStudents）
 - [x] 既存コードの置換（feed, settings, contracts, students, schedule, history）
+- [x] 追加フック作成（useClasses, useAttendance, useClassManagement, useFriendship）
+- [x] 追加フック作成（useChat, usePassbook, useFeed, usePayment拡張）
+- [x] 全主要ページの移行完了（20+ページ）
 - [x] テスト・動作確認（ビルド成功）
 
 ### Phase 5: SSR最適化
@@ -338,3 +341,7 @@ npm install @tanstack/react-query
 | 2026-01-21 | Phase 4: use-payment.ts拡張（useMyBankAccounts, useCreateBankAccountRequest等）、settings/payment/edit移行完了 | - |
 | 2026-01-21 | Phase 4: useMyQRCode追加、my-qrページ移行完了 | - |
 | 2026-01-21 | Phase 4: settings/profile-editをuseUser/useUpdateProfile移行完了 | - |
+| 2026-01-21 | Phase 4: chat API拡張（createChannel）、use-chat拡張（useCreateChannel, useSendMessage, useChannelMessages）、chat/new移行完了 | - |
+| 2026-01-21 | Phase 4: use-feed拡張（useLatestNews）、ホームページ（page.tsx）移行完了 | - |
+| 2026-01-21 | Phase 4完了: 全20+ページのReact Query移行、17種類のカスタムフック作成完了 | - |
+| 2026-01-21 | Phase 4: use-feed拡張（useLatestNews）、ホームページ（page.tsx）移行完了 | - |

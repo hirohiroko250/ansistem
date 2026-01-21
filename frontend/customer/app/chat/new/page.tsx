@@ -8,7 +8,7 @@ import { BottomTabBar } from '@/components/bottom-tab-bar';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import api from '@/lib/api/client';
+import { useCreateChannel, useSendMessage, useChannelMessages } from '@/lib/hooks/use-chat';
 import type { Channel, Message } from '@/lib/api/types';
 
 // タイムスタンプをフォーマット
@@ -46,12 +46,25 @@ function NewChatContent() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputValue, setInputValue] = useState(initialMessage);
   const [isLoading, setIsLoading] = useState(false);
-  const [isSending, setIsSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [hasAutoSent, setHasAutoSent] = useState(false);
   const isAutoSending = useRef(false); // 重複防止用フラグ
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // React Query mutations
+  const createChannelMutation = useCreateChannel();
+  const sendMessageMutation = useSendMessage();
+  const { data: channelMessages } = useChannelMessages(channel?.id);
+
+  const isSending = createChannelMutation.isPending || sendMessageMutation.isPending;
+
+  // チャンネル作成後にメッセージを取得して表示
+  useEffect(() => {
+    if (channelMessages && channelMessages.length > 0) {
+      setMessages(channelMessages.map(mapApiMessage));
+    }
+  }, [channelMessages]);
 
   // スクロールを最下部へ
   const scrollToBottom = useCallback(() => {
@@ -80,7 +93,6 @@ function NewChatContent() {
     const messageContent = inputValue.trim();
     const tempMessageId = `temp-${Date.now()}`;
     setInputValue('');
-    setIsSending(true);
     setError(null);
 
     try {
@@ -89,23 +101,12 @@ function NewChatContent() {
       // チャンネルがない場合は新規作成
       if (!currentChannel) {
         setIsLoading(true);
-        const newChannel = await api.post<Channel>('/communications/channels/', {
+        const newChannel = await createChannelMutation.mutateAsync({
           channel_type: 'SUPPORT',
           name: '明細お問い合わせ',
         });
         currentChannel = newChannel;
         setChannel(newChannel);
-
-        // チャンネル作成時にバックエンドが自動返信メッセージを作成しているので、取得して表示
-        try {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const messagesResponse = await api.get<{ results: any[] }>(`/communications/channels/${newChannel.id}/messages/`);
-          if (messagesResponse?.results?.length > 0) {
-            setMessages(messagesResponse.results.map(mapApiMessage));
-          }
-        } catch {
-          // メッセージ取得に失敗しても続行
-        }
         setIsLoading(false);
       }
 
@@ -124,11 +125,10 @@ function NewChatContent() {
       setMessages((prev) => [...prev, tempMessage]);
 
       // メッセージを送信
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const sentMessageRaw = await api.post<any>('/communications/messages/', {
-        channel: currentChannel.id,  // バックエンドは'channel'フィールドを期待
+      const sentMessageRaw = await sendMessageMutation.mutateAsync({
+        channelId: currentChannel.id,
         content: messageContent,
-        message_type: 'TEXT',  // バックエンドは大文字を期待
+        messageType: 'text',
       });
       const sentMessage = mapApiMessage(sentMessageRaw);
 
@@ -149,8 +149,6 @@ function NewChatContent() {
       setMessages((prev) => prev.filter((msg) => msg.id !== tempMessageId));
       // 入力値を復元
       setInputValue(messageContent);
-    } finally {
-      setIsSending(false);
     }
   };
 

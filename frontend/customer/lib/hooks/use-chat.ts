@@ -12,14 +12,19 @@ import {
   getChannels,
   getActiveBotConfig,
   archiveChannel,
+  createChannel,
+  sendMessage,
+  getMessages,
   type BotConfig,
+  type CreateChannelRequest,
 } from '@/lib/api/chat';
-import type { Channel } from '@/lib/api/types';
+import type { Channel, Message, SendMessageRequest } from '@/lib/api/types';
 
 // クエリキー
 export const chatKeys = {
   all: ['chat'] as const,
   channels: () => [...chatKeys.all, 'channels'] as const,
+  messages: (channelId: string) => [...chatKeys.all, 'messages', channelId] as const,
   botConfig: () => [...chatKeys.all, 'botConfig'] as const,
 };
 
@@ -84,6 +89,54 @@ export function useArchiveChannel() {
 }
 
 /**
+ * チャンネルを作成
+ */
+export function useCreateChannel() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (data: CreateChannelRequest) => createChannel(data),
+    onSuccess: (newChannel) => {
+      // チャンネル一覧にキャッシュを追加
+      queryClient.setQueryData<Channel[]>(chatKeys.channels(), (old) =>
+        old ? [newChannel, ...old] : [newChannel]
+      );
+    },
+  });
+}
+
+/**
+ * メッセージを送信
+ */
+export function useSendMessage() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (data: SendMessageRequest) => sendMessage(data),
+    onSuccess: (newMessage, variables) => {
+      // メッセージ一覧キャッシュを更新（楽観的更新の置き換え用）
+      queryClient.invalidateQueries({ queryKey: chatKeys.messages(variables.channelId) });
+    },
+  });
+}
+
+/**
+ * チャンネルのメッセージを取得
+ */
+export function useChannelMessages(channelId: string | undefined) {
+  return useQuery({
+    queryKey: chatKeys.messages(channelId || ''),
+    queryFn: async () => {
+      if (!channelId) throw new Error('Channel ID is required');
+      const response = await getMessages(channelId);
+      return response.results || [];
+    },
+    enabled: !!channelId && !!getAccessToken(),
+    staleTime: 10 * 1000, // 10秒（チャットは頻繁に更新される）
+  });
+}
+
+/**
  * チャンネルキャッシュを無効化
  */
 export function useInvalidateChannels() {
@@ -100,3 +153,7 @@ export function useInvalidateChannels() {
 export function getDefaultBotConfig(): BotConfig {
   return DEFAULT_BOT;
 }
+
+// 型を再エクスポート
+export type { BotConfig, CreateChannelRequest } from '@/lib/api/chat';
+export type { Channel, Message, SendMessageRequest } from '@/lib/api/types';

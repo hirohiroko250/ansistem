@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { Bell, CreditCard, QrCode, Building2, MessageSquare, ClipboardList, Calendar, ChevronRight, Ticket, UserPlus, Star, Loader2, AlertCircle, Banknote, Users } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
@@ -8,12 +8,11 @@ import { Badge } from '@/components/ui/badge';
 import { BottomTabBar } from '@/components/bottom-tab-bar';
 import Link from 'next/link';
 import Image from 'next/image';
-import { getLatestNews, type NewsItem } from '@/lib/api/announcements';
+import { useLatestNews, type NewsItem } from '@/lib/hooks/use-feed';
+import { usePaymentInfo } from '@/lib/hooks/use-payment';
+import { useFriendsList } from '@/lib/hooks/use-friendship';
 import { posts as fallbackPosts } from '@/lib/feed-data';
 import { isAuthenticated } from '@/lib/api/auth';
-import { getMyPayment, type PaymentInfo } from '@/lib/api/payment';
-import { getFriendsList } from '@/lib/api/friendship';
-// import { getMyContracts, type MyContract, type MyStudent } from '@/lib/api/contracts';
 
 const shortcuts = [
   { id: 1, name: '振替・イベント', icon: Ticket, href: '/tickets', color: 'bg-blue-500' },
@@ -41,98 +40,69 @@ type TaskItem = {
 export default function Home() {
   const router = useRouter();
   const [isChecking, setIsChecking] = useState(true);
-  const [news, setNews] = useState<NewsItem[]>([]);
-  const [newsLoading, setNewsLoading] = useState(true);
-  const [tasks, setTasks] = useState<TaskItem[]>([]);
-  const [tasksLoading, setTasksLoading] = useState(true);
 
+  // React Queryフック
+  const { data: latestNews, isLoading: newsLoading } = useLatestNews(5);
+  const { data: paymentInfo, isLoading: paymentLoading } = usePaymentInfo();
+  const { data: friendsData, isLoading: friendsLoading } = useFriendsList();
+
+  // 認証チェック
   useEffect(() => {
-    // 認証チェック
     if (!isAuthenticated()) {
       router.replace('/login');
     } else {
       setIsChecking(false);
-      // お知らせを取得
-      fetchNews();
-      // 作業一覧を取得
-      fetchTasks();
     }
   }, [router]);
 
-  const fetchTasks = async () => {
-    try {
-      setTasksLoading(true);
-      const pendingTasks: TaskItem[] = [];
-
-      // 支払い情報を確認
-      const paymentInfo = await getMyPayment();
-      if (!paymentInfo || !paymentInfo.paymentRegistered) {
-        pendingTasks.push({
-          id: 'payment-registration',
-          title: '銀行口座を登録してください',
-          description: '月謝の引き落としに必要な口座情報を登録してください',
-          href: '/settings/payment/edit',
-          icon: Banknote,
-          priority: 'high',
-        });
-      }
-
-      // 友達申請を確認
-      try {
-        const friendsData = await getFriendsList();
-        if (friendsData?.pending_received?.length > 0) {
-          pendingTasks.push({
-            id: 'friend-requests',
-            title: `友達申請が${friendsData.pending_received.length}件あります`,
-            description: '承認すると相互に毎月500円割引が適用されます',
-            href: '/friend-referral',
-            icon: Users,
-            priority: 'medium',
-          });
-        }
-      } catch (e) {
-        // 友達申請の取得に失敗しても続行
-        console.error('Failed to fetch friend requests:', e);
-      }
-
-      setTasks(pendingTasks);
-    } catch (error) {
-      console.error('Failed to fetch tasks:', error);
-    } finally {
-      setTasksLoading(false);
+  // フォールバック付きニュースデータ
+  const news = useMemo<NewsItem[]>(() => {
+    if (latestNews && latestNews.length > 0) {
+      return latestNews;
     }
-  };
+    // APIからデータがない場合はフォールバック
+    return fallbackPosts.filter(post => post.type).slice(0, 2).map(p => ({
+      id: String(p.id),
+      type: p.type as '新着' | 'お知らせ' | 'イベント',
+      caption: p.caption,
+      date: p.date,
+      source: 'feed' as const,
+    }));
+  }, [latestNews]);
 
-  const fetchNews = async () => {
-    try {
-      setNewsLoading(true);
-      const latestNews = await getLatestNews(5);
-      if (latestNews.length > 0) {
-        setNews(latestNews);
-      } else {
-        // APIからデータがない場合はフォールバック
-        setNews(fallbackPosts.filter(post => post.type).slice(0, 2).map(p => ({
-          id: String(p.id),
-          type: p.type as '新着' | 'お知らせ' | 'イベント',
-          caption: p.caption,
-          date: p.date,
-          source: 'feed' as const,
-        })));
-      }
-    } catch (error) {
-      console.error('Failed to fetch news:', error);
-      // エラー時はフォールバック
-      setNews(fallbackPosts.filter(post => post.type).slice(0, 2).map(p => ({
-        id: String(p.id),
-        type: p.type as '新着' | 'お知らせ' | 'イベント',
-        caption: p.caption,
-        date: p.date,
-        source: 'feed' as const,
-      })));
-    } finally {
-      setNewsLoading(false);
+  // タスクリストを生成
+  const tasks = useMemo<TaskItem[]>(() => {
+    const pendingTasks: TaskItem[] = [];
+
+    // 支払い情報を確認
+    if (paymentInfo !== undefined && (!paymentInfo || !paymentInfo.paymentRegistered)) {
+      pendingTasks.push({
+        id: 'payment-registration',
+        title: '銀行口座を登録してください',
+        description: '月謝の引き落としに必要な口座情報を登録してください',
+        href: '/settings/payment/edit',
+        icon: Banknote,
+        priority: 'high',
+      });
     }
-  };
+
+    // 友達申請を確認
+    const pendingCount = friendsData?.pending_received?.length || 0;
+    if (pendingCount > 0) {
+      pendingTasks.push({
+        id: 'friend-requests',
+        title: `友達申請が${pendingCount}件あります`,
+        description: '承認すると相互に毎月500円割引が適用されます',
+        href: '/friend-referral',
+        icon: Users,
+        priority: 'medium',
+      });
+    }
+
+    return pendingTasks;
+  }, [paymentInfo, friendsData]);
+
+  const tasksLoading = paymentLoading || friendsLoading;
 
   // 認証チェック中はローディング表示
   if (isChecking) {

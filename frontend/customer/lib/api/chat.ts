@@ -39,6 +39,21 @@ export async function getChannel(id: string): Promise<Channel> {
 }
 
 /**
+ * チャンネルを作成
+ *
+ * @param data - チャンネル作成データ
+ * @returns 作成されたチャンネル
+ */
+export interface CreateChannelRequest {
+  channel_type: 'SUPPORT' | 'GROUP' | 'DIRECT';
+  name: string;
+}
+
+export async function createChannel(data: CreateChannelRequest): Promise<Channel> {
+  return api.post<Channel>('/communications/channels/', data);
+}
+
+/**
  * チャンネルをアーカイブ（削除）
  *
  * @param id - チャンネルID
