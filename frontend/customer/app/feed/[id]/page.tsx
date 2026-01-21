@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { BottomTabBar } from '@/components/bottom-tab-bar';
 import { Card, CardContent } from '@/components/ui/card';
@@ -8,95 +8,49 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { getFeedPost, getFeedComments, createFeedComment, likeFeedPost, unlikeFeedPost, type FeedPost, type FeedComment } from '@/lib/api/feed';
 import { getMediaUrl } from '@/lib/api/client';
-import { isAuthenticated } from '@/lib/api/auth';
 import { Heart, MessageCircle, ArrowLeft, Send, Loader2 } from 'lucide-react';
-import Image from 'next/image';
+import { AuthGuard } from '@/components/auth';
+import { useFeedPost, useFeedComments, useCreateComment, useToggleLike, type FeedComment } from '@/lib/hooks/use-feed';
 
-export default function FeedDetailPage() {
+function FeedDetailContent() {
   const router = useRouter();
   const params = useParams();
   const postId = params.id as string;
 
-  const [post, setPost] = useState<FeedPost | null>(null);
-  const [comments, setComments] = useState<FeedComment[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [isLiked, setIsLiked] = useState(false);
-  const [likeCount, setLikeCount] = useState(0);
+  // React Queryフックを使用
+  const { data: post, isLoading: postLoading, error: postError } = useFeedPost(postId);
+  const { data: comments = [] } = useFeedComments(postId);
+  const createCommentMutation = useCreateComment(postId);
+  const toggleLikeMutation = useToggleLike(postId);
+
   const [newComment, setNewComment] = useState('');
-  const [submitting, setSubmitting] = useState(false);
 
-  useEffect(() => {
-    if (!isAuthenticated()) {
-      router.push('/login');
-      return;
-    }
+  const loading = postLoading;
+  const error = postError ? '投稿の読み込みに失敗しました' : null;
 
-    loadPost();
-  }, [postId, router]);
-
-  const loadPost = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-
-      const [postData, commentsData] = await Promise.all([
-        getFeedPost(postId),
-        getFeedComments(postId),
-      ]);
-
-      setPost(postData);
-      setIsLiked(postData.isLiked || false);
-      setLikeCount(postData.likeCount || 0);
-      setComments(commentsData);
-    } catch (err) {
-      console.error('Failed to load post:', err);
-      setError('投稿の読み込みに失敗しました');
-    } finally {
-      setLoading(false);
-    }
-  };
+  // いいね状態とカウント（postデータから取得）
+  const isLiked = post?.isLiked || false;
+  const likeCount = post?.likeCount || 0;
 
   const handleLike = async () => {
     if (!post) return;
-
-    // Optimistic update
-    const wasLiked = isLiked;
-    setIsLiked(!wasLiked);
-    setLikeCount((prev) => prev + (wasLiked ? -1 : 1));
-
-    try {
-      if (wasLiked) {
-        await unlikeFeedPost(postId);
-      } else {
-        await likeFeedPost(postId);
-      }
-    } catch (err) {
-      // Revert on error
-      console.error('Failed to toggle like:', err);
-      setIsLiked(wasLiked);
-      setLikeCount((prev) => prev + (wasLiked ? 1 : -1));
-    }
+    toggleLikeMutation.mutate(isLiked);
   };
 
   const handleSubmitComment = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newComment.trim() || submitting) return;
+    if (!newComment.trim() || createCommentMutation.isPending) return;
 
     try {
-      setSubmitting(true);
-      const comment = await createFeedComment(postId, newComment.trim());
-      setComments((prev) => [...prev, comment]);
+      await createCommentMutation.mutateAsync(newComment.trim());
       setNewComment('');
-    } catch (err) {
-      console.error('Failed to submit comment:', err);
+    } catch {
       alert('コメントの投稿に失敗しました');
-    } finally {
-      setSubmitting(false);
     }
   };
+
+  const submitting = createCommentMutation.isPending;
 
   const formatDate = (dateString: string) => {
     const date = new Date(dateString);
@@ -312,5 +266,13 @@ export default function FeedDetailPage() {
 
       <BottomTabBar />
     </div>
+  );
+}
+
+export default function FeedDetailPage() {
+  return (
+    <AuthGuard>
+      <FeedDetailContent />
+    </AuthGuard>
   );
 }

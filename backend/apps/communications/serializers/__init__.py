@@ -62,6 +62,14 @@ from .chatlog import (
     ChatLogListSerializer,
 )
 
+# Memo
+from .memo import (
+    MessageMemoSerializer,
+    MessageMemoCreateSerializer,
+    TelMemoSerializer,
+    TelMemoCreateSerializer,
+)
+
 __all__ = [
     # Channel & Message
     'ChannelMemberSerializer',
@@ -98,4 +106,9 @@ __all__ = [
     # ChatLog
     'ChatLogSerializer',
     'ChatLogListSerializer',
+    # Memo
+    'MessageMemoSerializer',
+    'MessageMemoCreateSerializer',
+    'TelMemoSerializer',
+    'TelMemoCreateSerializer',
 ]

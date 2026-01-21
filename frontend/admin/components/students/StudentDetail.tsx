@@ -241,6 +241,10 @@ export function StudentDetail({ student, parents, contracts, invoices, contactLo
   const [isOpeningGuardianView, setIsOpeningGuardianView] = useState(false);
   const [guardianAccountCreated, setGuardianAccountCreated] = useState<Record<string, boolean>>({});
 
+  // 写真アップロード
+  const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
+  const photoInputRef = useRef<HTMLInputElement>(null);
+
   // contactLogs propが変わったらlocalContactLogsを更新
   useEffect(() => {
     setLocalContactLogs(contactLogs);
@@ -326,6 +330,45 @@ export function StudentDetail({ student, parents, contracts, invoices, contactLo
       alert(errorMessage || '保護者画面を開けませんでした。');
     } finally {
       setIsOpeningGuardianView(false);
+    }
+  };
+
+  // 写真アップロード
+  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // ファイルサイズチェック（5MB）
+    if (file.size > 5 * 1024 * 1024) {
+      alert('ファイルサイズは5MB以下にしてください');
+      return;
+    }
+
+    // ファイル形式チェック
+    const allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+    if (!allowedTypes.includes(file.type)) {
+      alert('JPG, PNG, GIF, WEBPファイルのみアップロード可能です');
+      return;
+    }
+
+    setIsUploadingPhoto(true);
+    try {
+      const formData = new FormData();
+      formData.append('photo', file);
+
+      await apiClient.postFormData(`/students/${student.id}/upload-photo/`, formData);
+
+      alert('写真をアップロードしました');
+      onRefresh?.();
+    } catch (error: any) {
+      console.error('Photo upload error:', error);
+      alert(error.data?.error || '写真のアップロードに失敗しました');
+    } finally {
+      setIsUploadingPhoto(false);
+      // inputをリセット
+      if (photoInputRef.current) {
+        photoInputRef.current.value = '';
+      }
     }
   };
 
@@ -1020,18 +1063,61 @@ export function StudentDetail({ student, parents, contracts, invoices, contactLo
   const guardianPhone = guardian?.phone || guardian?.phoneMobile || guardian?.phone_mobile || "";
   const guardianEmail = guardian?.email || "";
 
+  // 写真URL
+  const profileImageUrl = student.profile_image_url || (student as any).profileImageUrl || "";
+
   return (
     <div className="h-full flex flex-col bg-white">
       {/* ヘッダー - ファーストビューで重要情報を表示 */}
       <div className="bg-gradient-to-r from-blue-600 to-blue-700 text-white p-4">
-        <div className="flex items-start justify-between mb-3">
-          <div>
-            <h2 className="text-xl font-bold">{lastName} {firstName}</h2>
-            <p className="text-blue-100 text-sm">{lastNameKana} {firstNameKana}</p>
+        <div className="flex items-start gap-4 mb-3">
+          {/* 生徒写真 */}
+          <div className="relative group">
+            <input
+              type="file"
+              ref={photoInputRef}
+              onChange={handlePhotoUpload}
+              accept="image/jpeg,image/png,image/gif,image/webp"
+              className="hidden"
+            />
+            <button
+              onClick={() => photoInputRef.current?.click()}
+              disabled={isUploadingPhoto}
+              className="relative cursor-pointer focus:outline-none focus:ring-2 focus:ring-white/50 rounded-full"
+            >
+              {profileImageUrl ? (
+                <img
+                  src={profileImageUrl}
+                  alt={`${lastName} ${firstName}`}
+                  className="w-16 h-16 rounded-full object-cover border-2 border-white/50"
+                />
+              ) : (
+                <div className="w-16 h-16 rounded-full bg-white/20 flex items-center justify-center border-2 border-white/50">
+                  <User className="w-8 h-8 text-white/70" />
+                </div>
+              )}
+              {/* カメラアイコンオーバーレイ */}
+              <div className="absolute inset-0 rounded-full bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                {isUploadingPhoto ? (
+                  <Loader2 className="w-6 h-6 text-white animate-spin" />
+                ) : (
+                  <ImageIcon className="w-6 h-6 text-white" />
+                )}
+              </div>
+            </button>
           </div>
-          <Badge className={getStatusColor(student.status)}>
-            {getStatusLabel(student.status)}
-          </Badge>
+
+          <div className="flex-1">
+            <div className="flex items-start justify-between">
+              <div>
+                <h2 className="text-xl font-bold">{lastName} {firstName}</h2>
+                <p className="text-blue-100 text-sm">{lastNameKana} {firstNameKana}</p>
+              </div>
+              <Badge className={getStatusColor(student.status)}>
+                {getStatusLabel(student.status)}
+              </Badge>
+            </div>
+          </div>
         </div>
 
         {/* 生徒・保護者の主要情報 */}

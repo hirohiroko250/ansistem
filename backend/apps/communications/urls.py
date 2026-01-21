@@ -8,7 +8,8 @@ from .views import (
     NotificationViewSet, BotConfigViewSet, BotFAQViewSet,
     BotChatViewSet, AnnouncementViewSet,
     FeedPostViewSet, FeedCommentViewSet, FeedBookmarkViewSet,
-    ChatLogViewSet
+    ChatLogViewSet,
+    MessageMemoViewSet, TelMemoViewSet,
 )
 
 app_name = 'communications'
@@ -26,6 +27,8 @@ router.register(r'feed/posts', FeedPostViewSet, basename='feed-post')
 router.register(r'feed/comments', FeedCommentViewSet, basename='feed-comment')
 router.register(r'feed/bookmarks', FeedBookmarkViewSet, basename='feed-bookmark')
 router.register(r'chat-logs', ChatLogViewSet, basename='chat-log')
+router.register(r'message-memos', MessageMemoViewSet, basename='message-memo')
+router.register(r'tel-memos', TelMemoViewSet, basename='tel-memo')
 
 urlpatterns = [
     path('', include(router.urls)),

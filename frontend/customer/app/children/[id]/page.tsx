@@ -1,8 +1,8 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { useParams, useRouter } from 'next/navigation';
-import { ChevronLeft, User, Calendar, School, Phone, Mail, Loader2, Edit2, Save, X, Ticket, QrCode, Download } from 'lucide-react';
+import { useState, useEffect, useMemo, useRef } from 'react';
+import { useParams } from 'next/navigation';
+import { ChevronLeft, User, Loader2, Edit2, Save, X, Ticket, QrCode, Mail, Phone, Camera } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -11,10 +11,10 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { BottomTabBar } from '@/components/bottom-tab-bar';
 import Link from 'next/link';
-import { getChildDetail, updateStudent, getStudentQRCode, QRCodeInfo } from '@/lib/api/students';
 import { useToast } from '@/hooks/use-toast';
 import { QRCodeCanvas } from 'qrcode.react';
 import { AuthGuard } from '@/components/auth';
+import { useStudent, useUpdateStudent, useStudentQRCode, useUploadStudentPhoto } from '@/lib/hooks/use-students';
 
 type ChildDetail = {
   id: string;
@@ -56,13 +56,17 @@ type ChildDetail = {
 
 function ChildDetailContent() {
   const params = useParams();
-  const router = useRouter();
   const { toast } = useToast();
-  const [child, setChild] = useState<ChildDetail | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
+  const childId = params.id as string;
+
+  // React Queryフックを使用
+  const { data: studentData, isLoading: studentLoading, error: studentError } = useStudent(childId);
+  const { data: qrCodeInfo } = useStudentQRCode(childId);
+  const updateMutation = useUpdateStudent();
+  const uploadPhotoMutation = useUploadStudentPhoto();
+
   const [isEditing, setIsEditing] = useState(false);
-  const [qrCodeInfo, setQrCodeInfo] = useState<QRCodeInfo | null>(null);
+  const photoInputRef = useRef<HTMLInputElement>(null);
 
   // 編集用のstate
   const [editLastName, setEditLastName] = useState('');
@@ -70,99 +74,84 @@ function ChildDetailContent() {
   const [editBirthDate, setEditBirthDate] = useState('');
   const [editGender, setEditGender] = useState('');
 
-  const childId = params.id as string;
+  // APIレスポンスをChildDetail型にマッピング
+  const child = useMemo((): ChildDetail | null => {
+    if (!studentData) return null;
+    const data: any = studentData;
+    return {
+      id: data.id,
+      student_no: data.student_no || data.studentNo || '',
+      last_name: data.last_name || data.lastName || '',
+      first_name: data.first_name || data.firstName || '',
+      full_name: data.full_name || data.fullName || '',
+      last_name_kana: data.last_name_kana || data.lastNameKana,
+      first_name_kana: data.first_name_kana || data.firstNameKana,
+      full_name_kana: data.full_name_kana || data.fullNameKana,
+      display_name: data.display_name || data.displayName,
+      birth_date: data.birth_date || data.birthDate,
+      gender: data.gender,
+      email: data.email,
+      phone: data.phone,
+      line_id: data.line_id || data.lineId,
+      school_name: data.school_name || data.schoolName,
+      school_type: data.school_type || data.schoolType,
+      grade: data.grade || data.gradeText,
+      grade_name: data.grade_name || data.gradeName || data.gradeText,
+      profile_image_url: data.profile_image_url || data.profileImageUrl,
+      status: data.status || 'registered',
+      registered_date: data.registered_date || data.registeredDate,
+      trial_date: data.trial_date || data.trialDate,
+      enrollment_date: data.enrollment_date || data.enrollmentDate,
+      suspended_date: data.suspended_date || data.suspendedDate,
+      withdrawal_date: data.withdrawal_date || data.withdrawalDate,
+      withdrawal_reason: data.withdrawal_reason || data.withdrawalReason,
+      notes: data.notes,
+      tags: data.tags,
+      primary_school_name: data.primary_school_name || data.primarySchoolName,
+      primary_brand_name: data.primary_brand_name || data.primaryBrandName,
+      brand_names: data.brand_names || data.brandNames || [],
+      guardian_id: data.guardian_id || data.guardianId,
+      guardian_name: data.guardian_name || data.guardianName,
+      created_at: data.created_at || data.createdAt,
+      updated_at: data.updated_at || data.updatedAt,
+    };
+  }, [studentData]);
 
+  // 編集用stateを初期化
   useEffect(() => {
-    if (childId) {
-      fetchChildDetail();
+    if (child) {
+      setEditLastName(child.last_name);
+      setEditFirstName(child.first_name);
+      setEditBirthDate(child.birth_date || '');
+      setEditGender(child.gender || '');
     }
-  }, [childId]);
+  }, [child]);
 
-  const fetchChildDetail = async () => {
-    try {
-      setLoading(true);
-      const [response, qrCode] = await Promise.all([
-        getChildDetail(childId),
-        getStudentQRCode(childId).catch(() => null),
-      ]);
-      setQrCodeInfo(qrCode);
-      // Map API response
-      const data: any = response;
-      const childData: ChildDetail = {
-        id: data.id,
-        student_no: data.student_no || data.studentNo || '',
-        last_name: data.last_name || data.lastName || '',
-        first_name: data.first_name || data.firstName || '',
-        full_name: data.full_name || data.fullName || '',
-        last_name_kana: data.last_name_kana || data.lastNameKana,
-        first_name_kana: data.first_name_kana || data.firstNameKana,
-        full_name_kana: data.full_name_kana || data.fullNameKana,
-        display_name: data.display_name || data.displayName,
-        birth_date: data.birth_date || data.birthDate,
-        gender: data.gender,
-        email: data.email,
-        phone: data.phone,
-        line_id: data.line_id || data.lineId,
-        school_name: data.school_name || data.schoolName,
-        school_type: data.school_type || data.schoolType,
-        grade: data.grade || data.gradeText,
-        grade_name: data.grade_name || data.gradeName || data.gradeText,
-        profile_image_url: data.profile_image_url || data.profileImageUrl,
-        status: data.status || 'registered',
-        registered_date: data.registered_date || data.registeredDate,
-        trial_date: data.trial_date || data.trialDate,
-        enrollment_date: data.enrollment_date || data.enrollmentDate,
-        suspended_date: data.suspended_date || data.suspendedDate,
-        withdrawal_date: data.withdrawal_date || data.withdrawalDate,
-        withdrawal_reason: data.withdrawal_reason || data.withdrawalReason,
-        notes: data.notes,
-        tags: data.tags,
-        primary_school_name: data.primary_school_name || data.primarySchoolName,
-        primary_brand_name: data.primary_brand_name || data.primaryBrandName,
-        brand_names: data.brand_names || data.brandNames || [],
-        guardian_id: data.guardian_id || data.guardianId,
-        guardian_name: data.guardian_name || data.guardianName,
-        created_at: data.created_at || data.createdAt,
-        updated_at: data.updated_at || data.updatedAt,
-      };
-      setChild(childData);
-      // 編集用stateを初期化
-      setEditLastName(childData.last_name);
-      setEditFirstName(childData.first_name);
-      setEditBirthDate(childData.birth_date || '');
-      setEditGender(childData.gender || '');
-    } catch (error: any) {
-      console.error('Failed to fetch child detail:', error);
+  const loading = studentLoading;
+
+  // エラー表示
+  useEffect(() => {
+    if (studentError) {
       toast({
         title: 'エラー',
-        description: error.message || 'お子様情報の取得に失敗しました',
+        description: 'お子様情報の取得に失敗しました',
         variant: 'destructive',
       });
-    } finally {
-      setLoading(false);
     }
-  };
+  }, [studentError, toast]);
 
   const handleSave = async () => {
     if (!child) return;
 
     try {
-      setSaving(true);
-      await updateStudent(child.id, {
-        last_name: editLastName,
-        first_name: editFirstName,
-        birth_date: editBirthDate || undefined,
-        gender: editGender as 'male' | 'female' | 'other' | undefined,
-      });
-
-      // 更新後のデータを反映
-      setChild({
-        ...child,
-        last_name: editLastName,
-        first_name: editFirstName,
-        full_name: `${editLastName} ${editFirstName}`,
-        birth_date: editBirthDate,
-        gender: editGender,
+      await updateMutation.mutateAsync({
+        id: child.id,
+        data: {
+          lastName: editLastName,
+          firstName: editFirstName,
+          birthDate: editBirthDate || undefined,
+          gender: editGender as 'male' | 'female' | 'other' | undefined,
+        },
       });
 
       setIsEditing(false);
@@ -177,8 +166,6 @@ function ChildDetailContent() {
         description: error.message || 'お子様情報の更新に失敗しました',
         variant: 'destructive',
       });
-    } finally {
-      setSaving(false);
     }
   };
 
@@ -191,6 +178,55 @@ function ChildDetailContent() {
     }
     setIsEditing(false);
   };
+
+  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !child) return;
+
+    // ファイルサイズチェック（5MB）
+    if (file.size > 5 * 1024 * 1024) {
+      toast({
+        title: 'エラー',
+        description: 'ファイルサイズは5MB以下にしてください',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    // ファイル形式チェック
+    const allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+    if (!allowedTypes.includes(file.type)) {
+      toast({
+        title: 'エラー',
+        description: 'JPG, PNG, GIF, WEBPファイルのみアップロード可能です',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    try {
+      await uploadPhotoMutation.mutateAsync({ id: child.id, file });
+      toast({
+        title: '完了',
+        description: '写真をアップロードしました',
+      });
+    } catch (error: any) {
+      console.error('Photo upload error:', error);
+      toast({
+        title: 'エラー',
+        description: error.message || '写真のアップロードに失敗しました',
+        variant: 'destructive',
+      });
+    } finally {
+      // inputをリセット
+      if (photoInputRef.current) {
+        photoInputRef.current.value = '';
+      }
+    }
+  };
+
+  const saving = updateMutation.isPending;
+  const uploadingPhoto = uploadPhotoMutation.isPending;
 
   const calculateAge = (birthDate: string): number | null => {
     if (!birthDate) return null;
@@ -293,7 +329,19 @@ function ChildDetailContent() {
         <Card className="rounded-xl shadow-md">
           <CardContent className="p-6">
             <div className="flex items-center gap-4">
-              <div className="w-20 h-20 bg-blue-100 rounded-full flex items-center justify-center shrink-0">
+              {/* 写真アップロード */}
+              <input
+                type="file"
+                ref={photoInputRef}
+                onChange={handlePhotoUpload}
+                accept="image/jpeg,image/png,image/gif,image/webp"
+                className="hidden"
+              />
+              <button
+                onClick={() => photoInputRef.current?.click()}
+                disabled={uploadingPhoto}
+                className="w-20 h-20 bg-blue-100 rounded-full flex items-center justify-center shrink-0 relative group cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
                 {child.profile_image_url ? (
                   <img
                     src={child.profile_image_url}
@@ -303,7 +351,15 @@ function ChildDetailContent() {
                 ) : (
                   <User className="h-10 w-10 text-blue-600" />
                 )}
-              </div>
+                {/* カメラアイコンオーバーレイ */}
+                <div className="absolute inset-0 rounded-full bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                  {uploadingPhoto ? (
+                    <Loader2 className="w-6 h-6 text-white animate-spin" />
+                  ) : (
+                    <Camera className="w-6 h-6 text-white" />
+                  )}
+                </div>
+              </button>
               <div className="flex-1">
                 {isEditing ? (
                   <div className="space-y-2">

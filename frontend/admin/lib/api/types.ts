@@ -165,6 +165,9 @@ export interface Student {
   campus?: string;
   brand_id?: string;
   campus_id?: string;
+  // Profile image
+  profile_image_url?: string;
+  profileImageUrl?: string;
 }
 
 export interface Guardian {

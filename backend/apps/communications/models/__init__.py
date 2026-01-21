@@ -48,6 +48,12 @@ from .feed import (
 # Chat Log
 from .chat_log import ChatLog
 
+# Memo
+from .memo import (
+    MessageMemo,
+    TelMemo,
+)
+
 __all__ = [
     # Chat
     'Channel',
@@ -77,4 +83,7 @@ __all__ = [
     'FeedBookmark',
     # Chat Log
     'ChatLog',
+    # Memo
+    'MessageMemo',
+    'TelMemo',
 ]

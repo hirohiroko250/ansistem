@@ -1,24 +1,25 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { BottomTabBar } from '@/components/bottom-tab-bar';
 import { isAuthenticated } from '@/lib/api/auth';
+import { getClassSchedules, getSchoolsByTicket, type ClassScheduleResponse, type BrandSchool } from '@/lib/api/schools';
+import { getAbsenceTickets, getTransferAvailableClasses, useAbsenceTicket as useAbsenceTicketApi, type AbsenceTicket, type TransferAvailableClass } from '@/lib/api/lessons';
+import { MapSchoolSelector } from '@/components/map-school-selector';
 import {
-  getMyContracts,
-  changeClass,
-  changeSchool,
-  requestSuspension,
-  requestCancellation,
+  useMyContracts,
+  useChangeClass,
+  useChangeSchool,
+  useRequestSuspension,
+  useRequestCancellation,
+  useUseAbsenceTicket,
   type MyContract,
   type MyStudent,
-} from '@/lib/api/contracts';
-import { getClassSchedules, getSchoolsByTicket, type ClassScheduleResponse, type ClassScheduleItem, type BrandSchool } from '@/lib/api/schools';
-import { getAbsenceTickets, getTransferAvailableClasses, useAbsenceTicket, type AbsenceTicket, type TransferAvailableClass } from '@/lib/api/lessons';
-import { MapSchoolSelector } from '@/components/map-school-selector';
+} from '@/lib/hooks/use-class-management';
 import {
   ChevronLeft,
   ChevronRight,
@@ -145,12 +146,22 @@ type ActionType = 'change-class' | 'change-school' | 'request-suspension' | 'req
 export default function ClassManagementPage() {
   const router = useRouter();
   const [authChecking, setAuthChecking] = useState(true);
+  const [localError, setLocalError] = useState<string | null>(null);
 
-  // データ
-  const [students, setStudents] = useState<MyStudent[]>([]);
-  const [contracts, setContracts] = useState<MyContract[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  // React Queryで契約データ取得
+  const { data: contractsData, isLoading: contractsLoading, error: contractsError } = useMyContracts();
+  const students = useMemo(() => contractsData?.students || [], [contractsData]);
+  const contracts = useMemo(() => contractsData?.contracts || [], [contractsData]);
+
+  // ミューテーション
+  const changeClassMutation = useChangeClass();
+  const changeSchoolMutation = useChangeSchool();
+  const requestSuspensionMutation = useRequestSuspension();
+  const requestCancellationMutation = useRequestCancellation();
+  const useAbsenceTicketMutation = useUseAbsenceTicket();
+
+  const loading = contractsLoading;
+  const error = contractsError ? '契約情報の取得に失敗しました' : localError;
 
   // 選択状態
   const [step, setStep] = useState<Step>('select-child');
@@ -200,9 +211,16 @@ export default function ClassManagementPage() {
   const [transferStep, setTransferStep] = useState<'select-ticket' | 'select-class' | 'select-date'>('select-ticket');
 
   // 処理状態
-  const [submitting, setSubmitting] = useState(false);
   const [submitSuccess, setSubmitSuccess] = useState(false);
   const [submitMessage, setSubmitMessage] = useState('');
+
+  // ミューテーションのpending状態を統合
+  const submitting =
+    changeClassMutation.isPending ||
+    changeSchoolMutation.isPending ||
+    requestSuspensionMutation.isPending ||
+    requestCancellationMutation.isPending ||
+    useAbsenceTicketMutation.isPending;
 
   // 認証チェック
   useEffect(() => {
@@ -216,32 +234,10 @@ export default function ClassManagementPage() {
     checkAuth();
   }, [router]);
 
-  // 契約データ取得
-  const fetchContracts = useCallback(async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      const response = await getMyContracts();
-      setStudents(response.students || []);
-      setContracts(response.contracts || []);
-    } catch (err) {
-      console.error('Failed to fetch contracts:', err);
-      setError('契約情報の取得に失敗しました');
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (!authChecking) {
-      fetchContracts();
-    }
-  }, [authChecking, fetchContracts]);
-
   // 開講時間割取得（チケットでフィルタリング）
   const fetchClassSchedules = useCallback(async (contract: MyContract) => {
     if (!contract.school) {
-      setError('校舎情報がありません');
+      setLocalError('校舎情報がありません');
       return;
     }
     try {
@@ -341,20 +337,19 @@ export default function ClassManagementPage() {
     if (!selectedContract || !selectedSchedule) return;
 
     try {
-      setSubmitting(true);
-      const response = await changeClass(selectedContract.id, {
-        newDayOfWeek: selectedSchedule.dayOfWeek,
-        newStartTime: selectedSchedule.startTime,
-        newClassScheduleId: selectedSchedule.scheduleId,
+      const response = await changeClassMutation.mutateAsync({
+        contractId: selectedContract.id,
+        data: {
+          newDayOfWeek: selectedSchedule.dayOfWeek,
+          newStartTime: selectedSchedule.startTime,
+          newClassScheduleId: selectedSchedule.scheduleId,
+        },
       });
       setSubmitSuccess(true);
       setSubmitMessage(response.message);
       setStep('confirm');
-    } catch (err) {
-      console.error('Failed to change class:', err);
-      setError('クラス変更に失敗しました');
-    } finally {
-      setSubmitting(false);
+    } catch {
+      setLocalError('クラス変更に失敗しました');
     }
   };
 
@@ -376,21 +371,20 @@ export default function ClassManagementPage() {
     if (!selectedContract || !selectedNewSchool || !selectedNewSchedule) return;
 
     try {
-      setSubmitting(true);
-      const response = await changeSchool(selectedContract.id, {
-        newSchoolId: selectedNewSchool.id,
-        newDayOfWeek: selectedNewSchedule.dayOfWeek,
-        newStartTime: selectedNewSchedule.startTime,
-        newClassScheduleId: selectedNewSchedule.scheduleId,
+      const response = await changeSchoolMutation.mutateAsync({
+        contractId: selectedContract.id,
+        data: {
+          newSchoolId: selectedNewSchool.id,
+          newDayOfWeek: selectedNewSchedule.dayOfWeek,
+          newStartTime: selectedNewSchedule.startTime,
+          newClassScheduleId: selectedNewSchedule.scheduleId,
+        },
       });
       setSubmitSuccess(true);
       setSubmitMessage(response.message);
       setStep('confirm');
-    } catch (err) {
-      console.error('Failed to change school:', err);
-      setError('校舎変更に失敗しました');
-    } finally {
-      setSubmitting(false);
+    } catch {
+      setLocalError('校舎変更に失敗しました');
     }
   };
 
@@ -399,21 +393,20 @@ export default function ClassManagementPage() {
     if (!selectedContract || !suspendFrom || !suspendUntil || !billingConfirmed) return;
 
     try {
-      setSubmitting(true);
-      const response = await requestSuspension(selectedContract.id, {
-        suspendFrom,
-        suspendUntil,
-        keepSeat,
-        reason: '', // 休会理由は不要
+      const response = await requestSuspensionMutation.mutateAsync({
+        contractId: selectedContract.id,
+        data: {
+          suspendFrom,
+          suspendUntil,
+          keepSeat,
+          reason: '', // 休会理由は不要
+        },
       });
       setSubmitSuccess(true);
       setSubmitMessage(response.message);
       setStep('confirm');
-    } catch (err) {
-      console.error('Failed to request suspension:', err);
-      setError('休会申請に失敗しました');
-    } finally {
-      setSubmitting(false);
+    } catch {
+      setLocalError('休会申請に失敗しました');
     }
   };
 
@@ -422,19 +415,18 @@ export default function ClassManagementPage() {
     if (!selectedContract || !cancelDate) return;
 
     try {
-      setSubmitting(true);
-      const response = await requestCancellation(selectedContract.id, {
-        cancelDate,
-        reason: cancelReason,
+      const response = await requestCancellationMutation.mutateAsync({
+        contractId: selectedContract.id,
+        data: {
+          cancelDate,
+          reason: cancelReason,
+        },
       });
       setSubmitSuccess(true);
       setSubmitMessage(response.message);
       setStep('confirm');
-    } catch (err) {
-      console.error('Failed to request cancellation:', err);
-      setError('退会申請に失敗しました');
-    } finally {
-      setSubmitting(false);
+    } catch {
+      setLocalError('退会申請に失敗しました');
     }
   };
 
@@ -484,8 +476,7 @@ export default function ClassManagementPage() {
     if (!selectedAbsenceTicket || !selectedTransferClass || !transferDate) return;
 
     try {
-      setSubmitting(true);
-      const response = await useAbsenceTicket({
+      const response = await useAbsenceTicketMutation.mutateAsync({
         absenceTicketId: selectedAbsenceTicket.id,
         targetDate: transferDate,
         targetClassScheduleId: selectedTransferClass.id,
@@ -493,11 +484,8 @@ export default function ClassManagementPage() {
       setSubmitSuccess(true);
       setSubmitMessage(response.message);
       setStep('confirm');
-    } catch (err) {
-      console.error('Failed to make transfer reservation:', err);
-      setError('振替予約に失敗しました');
-    } finally {
-      setSubmitting(false);
+    } catch {
+      setLocalError('振替予約に失敗しました');
     }
   };
 

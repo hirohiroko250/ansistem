@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -9,17 +9,15 @@ import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { BottomTabBar } from '@/components/bottom-tab-bar';
 import { isAuthenticated, getMe } from '@/lib/api/auth';
+import { formatWorkTime } from '@/lib/api/hr';
 import {
-  getTodayAttendance,
-  clockIn,
-  clockOut,
-  getMyMonthlyAttendances,
-  formatWorkTime,
-  AttendanceRecord,
-  getMyQRCode,
-  StaffQRCodeInfo,
-} from '@/lib/api/hr';
-import { getTodayLessons, StaffLessonSchedule } from '@/lib/api/lessons';
+  useTodayAttendance,
+  useMonthlyAttendances,
+  useMyQRCode,
+  useTodayLessons,
+  useClockIn,
+  useClockOut,
+} from '@/lib/hooks/use-attendance';
 import {
   QrCode,
   LogIn,
@@ -28,7 +26,6 @@ import {
   MapPin,
   Camera,
   Calendar,
-  ChevronRight,
   AlertCircle,
   RefreshCw,
 } from 'lucide-react';
@@ -47,17 +44,8 @@ export default function AttendancePage() {
   const router = useRouter();
   const [authChecking, setAuthChecking] = useState(true);
   const [isStaff, setIsStaff] = useState(false);
-
-  const [todayRecord, setTodayRecord] = useState<AttendanceRecord | null>(null);
-  const [monthlyRecords, setMonthlyRecords] = useState<AttendanceRecord[]>([]);
-  const [todayLessons, setTodayLessons] = useState<StaffLessonSchedule[]>([]);
   const [dailyReport, setDailyReport] = useState('');
-  const [loading, setLoading] = useState(true);
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [currentDate] = useState(new Date());
-  const [qrCodeInfo, setQrCodeInfo] = useState<StaffQRCodeInfo | null>(null);
-  const [qrLoading, setQrLoading] = useState(false);
 
   // 認証チェック
   useEffect(() => {
@@ -88,75 +76,46 @@ export default function AttendancePage() {
     checkAuth();
   }, [router]);
 
-  const loadData = useCallback(async () => {
-    try {
-      setLoading(true);
-      setError(null);
+  // React Queryフック（認証完了後のみ有効）
+  const enableQueries = !authChecking && isStaff;
 
-      const [attendance, lessons, monthly, qrCode] = await Promise.all([
-        getTodayAttendance(),
-        getTodayLessons(),
-        getMyMonthlyAttendances(),
-        getMyQRCode().catch(() => null),
-      ]);
+  const { data: todayRecord, isLoading: todayLoading, error: todayError } = useTodayAttendance();
+  const { data: monthlyRecords = [], isLoading: monthlyLoading } = useMonthlyAttendances();
+  const { data: qrCodeInfo, isLoading: qrLoading } = useMyQRCode();
+  const { data: todayLessons = [], isLoading: lessonsLoading } = useTodayLessons();
 
-      setTodayRecord(attendance);
-      setTodayLessons(lessons);
-      setMonthlyRecords(monthly);
-      setQrCodeInfo(qrCode);
-
-      if (attendance?.dailyReport) {
-        setDailyReport(attendance.dailyReport);
-      }
-    } catch (err) {
-      console.error('Failed to load data:', err);
-      setError('データの取得に失敗しました');
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
+  // 日報の初期化
   useEffect(() => {
-    if (!authChecking && isStaff) {
-      loadData();
+    if (todayRecord?.dailyReport && !dailyReport) {
+      setDailyReport(todayRecord.dailyReport);
     }
-  }, [authChecking, isStaff, loadData]);
+  }, [todayRecord, dailyReport]);
+
+  // ミューテーション
+  const clockInMutation = useClockIn();
+  const clockOutMutation = useClockOut();
+
+  const loading = !enableQueries || todayLoading || monthlyLoading || lessonsLoading;
+  const error = todayError ? 'データの取得に失敗しました' : null;
+  const submitting = clockInMutation.isPending || clockOutMutation.isPending;
 
   const handleClockIn = async () => {
     try {
-      setSubmitting(true);
-      setError(null);
-
-      const response = await clockIn({});
-
+      const response = await clockInMutation.mutateAsync({});
       alert(response.message || '出勤打刻が完了しました');
-      await loadData();
     } catch (err: unknown) {
-      console.error('Clock in failed:', err);
       const error = err as { message?: string };
       alert(error.message || '出勤打刻に失敗しました');
-    } finally {
-      setSubmitting(false);
     }
   };
 
   const handleClockOut = async () => {
     try {
-      setSubmitting(true);
-      setError(null);
-
-      const response = await clockOut({
-        dailyReport,
-      });
-
+      const response = await clockOutMutation.mutateAsync({ dailyReport });
       alert(response.message || '退勤打刻が完了しました');
-      await loadData();
     } catch (err: unknown) {
-      console.error('Clock out failed:', err);
       const error = err as { message?: string };
       alert(error.message || '退勤打刻に失敗しました');
-    } finally {
-      setSubmitting(false);
     }
   };
 

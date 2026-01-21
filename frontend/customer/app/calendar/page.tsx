@@ -12,11 +12,12 @@ import { AuthGuard } from '@/components/auth';
 import { useRouter } from 'next/navigation';
 import { format, startOfMonth, endOfMonth, addMonths, subMonths, getDate, getDaysInMonth, getDay, parseISO } from 'date-fns';
 import { ja } from 'date-fns/locale';
-import { getChildren, getStudentItems } from '@/lib/api/students';
+import { useStudents } from '@/lib/hooks/use-students';
+import { getStudentItems } from '@/lib/api/students';
 import { getChildTicketBalance } from '@/lib/api/students';
-import { getCalendarEvents, markAbsent, requestMakeup, getMakeupAvailableDates, markAbsenceFromCalendar, getAbsenceTickets, cancelAbsence, cancelMakeup, type AbsenceTicket } from '@/lib/api/lessons';
+import { getCalendarEvents, requestMakeup, getMakeupAvailableDates, markAbsenceFromCalendar, getAbsenceTickets, cancelAbsence, cancelMakeup, type AbsenceTicket } from '@/lib/api/lessons';
 import { getLessonCalendar, getCalendarSeats, type LessonCalendarDay, type DailySeatInfo } from '@/lib/api/schools';
-import type { Child, CalendarEvent, TicketBalance, MakeupAvailableDate, ApiError } from '@/lib/api/types';
+import type { Child, MakeupAvailableDate, ApiError } from '@/lib/api/types';
 
 type DisplayEvent = {
   id: string;
@@ -47,12 +48,11 @@ function CalendarContent() {
   const router = useRouter();
   const [currentDate, setCurrentDate] = useState(new Date());
 
-  // 子ども関連 state
-  const [children, setChildren] = useState<Child[]>([]);
+  // 子ども関連 - React Query使用
+  const { data: children = [], isLoading: isLoadingChildren, error: childrenQueryError } = useStudents();
   const [selectedChild, setSelectedChild] = useState<Child | null>(null);
   const [showChildSelector, setShowChildSelector] = useState(false);
-  const [isLoadingChildren, setIsLoadingChildren] = useState(true);
-  const [childrenError, setChildrenError] = useState<string | null>(null);
+  const childrenError = childrenQueryError ? 'お子様情報の取得に失敗しました' : null;
 
   // イベント関連 state
   const [events, setEvents] = useState<DisplayEvent[]>([]);
@@ -104,30 +104,12 @@ function CalendarContent() {
   const emptyDays = Array.from({ length: firstDayOfWeek }, (_, i) => i);
   const currentMonthStr = format(currentDate, 'yyyy年M月', { locale: ja });
 
-  // 子ども一覧を取得
+  // 子ども一覧が読み込まれたら最初の子どもを選択
   useEffect(() => {
-    const fetchChildren = async () => {
-      setIsLoadingChildren(true);
-      setChildrenError(null);
-      try {
-        const data = await getChildren();
-        setChildren(data);
-        if (data.length > 0) {
-          setSelectedChild(data[0]);
-        }
-      } catch (err) {
-        const apiError = err as ApiError;
-        if (apiError.status === 401) {
-          router.push('/login');
-          return;
-        }
-        setChildrenError(apiError.message || 'お子様情報の取得に失敗しました');
-      } finally {
-        setIsLoadingChildren(false);
-      }
-    };
-    fetchChildren();
-  }, [router]);
+    if (children.length > 0 && !selectedChild) {
+      setSelectedChild(children[0]);
+    }
+  }, [children, selectedChild]);
 
   // イベントを取得
   const fetchEvents = useCallback(async () => {

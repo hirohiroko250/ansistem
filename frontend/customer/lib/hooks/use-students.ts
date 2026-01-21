@@ -9,6 +9,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api, getAccessToken } from '@/lib/api/client';
 import type { Child, ChildDetail } from '@/lib/api/types';
+import { getStudentQRCode, type QRCodeInfo } from '@/lib/api/students';
 
 // クエリキー
 export const studentKeys = {
@@ -18,6 +19,7 @@ export const studentKeys = {
     [...studentKeys.lists(), filters] as const,
   details: () => [...studentKeys.all, 'detail'] as const,
   detail: (id: string) => [...studentKeys.details(), id] as const,
+  qrCode: (id: string) => [...studentKeys.all, 'qrCode', id] as const,
 };
 
 interface StudentsResponse {
@@ -140,3 +142,47 @@ export function useInvalidateStudents() {
     queryClient.invalidateQueries({ queryKey: studentKeys.all });
   };
 }
+
+/**
+ * 生徒の写真をアップロード
+ */
+export function useUploadStudentPhoto() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ id, file }: { id: string; file: File }) => {
+      const formData = new FormData();
+      formData.append('photo', file);
+      const response = await api.post<{ profile_image_url: string; message: string }>(
+        `/students/children/${id}/upload-photo/`,
+        formData,
+        { headers: { 'Content-Type': 'multipart/form-data' } }
+      );
+      return response;
+    },
+    onSuccess: (data, variables) => {
+      // 詳細キャッシュを無効化
+      queryClient.invalidateQueries({ queryKey: studentKeys.detail(variables.id) });
+      // 一覧キャッシュを無効化
+      queryClient.invalidateQueries({ queryKey: studentKeys.lists() });
+    },
+  });
+}
+
+/**
+ * 生徒のQRコードを取得
+ */
+export function useStudentQRCode(studentId: string | undefined) {
+  return useQuery({
+    queryKey: studentKeys.qrCode(studentId || ''),
+    queryFn: async () => {
+      if (!studentId) throw new Error('Student ID is required');
+      return getStudentQRCode(studentId);
+    },
+    enabled: !!studentId && !!getAccessToken(),
+    staleTime: 30 * 60 * 1000, // 30分（QRコードはあまり変わらない）
+  });
+}
+
+// 型を再エクスポート
+export type { QRCodeInfo } from '@/lib/api/students';

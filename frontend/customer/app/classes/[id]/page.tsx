@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -9,16 +9,14 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { isAuthenticated, getMe } from '@/lib/api/auth';
-import {
-  getClassDetail,
-  getClassStudents,
-  updateClassAttendance,
-  getClassDailyReport,
-  submitClassDailyReport,
-  ClassDetail,
-  ClassStudent,
-} from '@/lib/api/lessons';
 import { ArrowLeft, Clock, MapPin, Users, AlertCircle } from 'lucide-react';
+import {
+  useClassDetail,
+  useClassStudents,
+  useClassDailyReport,
+  useUpdateAttendance,
+  useSubmitDailyReport,
+} from '@/lib/hooks/use-classes';
 
 export default function ClassDetailPage() {
   const router = useRouter();
@@ -27,12 +25,7 @@ export default function ClassDetailPage() {
 
   const [authChecking, setAuthChecking] = useState(true);
   const [isStaff, setIsStaff] = useState(false);
-  const [classDetail, setClassDetail] = useState<ClassDetail | null>(null);
-  const [students, setStudents] = useState<ClassStudent[]>([]);
   const [reportContent, setReportContent] = useState('');
-  const [loading, setLoading] = useState(true);
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   // 認証チェック
   useEffect(() => {
@@ -62,53 +55,32 @@ export default function ClassDetailPage() {
     checkAuth();
   }, [router]);
 
-  const loadData = useCallback(async () => {
-    if (!classId) return;
+  // React Queryフック（認証完了後のみ有効）
+  const enableQueries = !authChecking && isStaff && !!classId;
+  const { data: classDetail, isLoading: detailLoading, error: detailError } = useClassDetail(
+    enableQueries ? classId : undefined
+  );
+  const { data: students = [], isLoading: studentsLoading } = useClassStudents(
+    enableQueries ? classId : undefined
+  );
+  const { data: report } = useClassDailyReport(enableQueries ? classId : undefined);
 
-    try {
-      setLoading(true);
-      setError(null);
-
-      const [detail, studentsList, report] = await Promise.all([
-        getClassDetail(classId),
-        getClassStudents(classId),
-        getClassDailyReport(classId),
-      ]);
-
-      setClassDetail(detail);
-      setStudents(studentsList);
-      if (report?.reportContent) {
-        setReportContent(report.reportContent);
-      }
-    } catch (err) {
-      console.error('Failed to load class data:', err);
-      setError('クラス情報の取得に失敗しました');
-    } finally {
-      setLoading(false);
-    }
-  }, [classId]);
-
+  // 日報内容の初期化
   useEffect(() => {
-    if (!authChecking && isStaff && classId) {
-      loadData();
+    if (report?.reportContent && !reportContent) {
+      setReportContent(report.reportContent);
     }
-  }, [authChecking, isStaff, classId, loadData]);
+  }, [report, reportContent]);
 
-  const handleAttendanceChange = async (studentId: string, status: 'present' | 'absent' | 'late' | 'excused') => {
-    // 楽観的更新
-    setStudents((prev) =>
-      prev.map((s) =>
-        s.id === studentId ? { ...s, attendanceStatus: status } : s
-      )
-    );
+  // ミューテーション
+  const updateAttendanceMutation = useUpdateAttendance(classId);
+  const submitReportMutation = useSubmitDailyReport(classId);
 
-    try {
-      await updateClassAttendance(classId, { studentId, status });
-    } catch (err) {
-      console.error('Failed to update attendance:', err);
-      // 失敗した場合は元に戻す
-      loadData();
-    }
+  const loading = detailLoading || studentsLoading;
+  const error = detailError ? 'クラス情報の取得に失敗しました' : null;
+
+  const handleAttendanceChange = (studentId: string, status: 'present' | 'absent' | 'late' | 'excused') => {
+    updateAttendanceMutation.mutate({ studentId, status });
   };
 
   const handleSubmitReport = async () => {
@@ -118,17 +90,15 @@ export default function ClassDetailPage() {
     }
 
     try {
-      setSubmitting(true);
-      await submitClassDailyReport(classId, reportContent);
+      await submitReportMutation.mutateAsync(reportContent);
       alert('日報を送信しました');
       router.push('/schedule');
-    } catch (err) {
-      console.error('Failed to submit report:', err);
+    } catch {
       alert('日報の送信に失敗しました');
-    } finally {
-      setSubmitting(false);
     }
   };
+
+  const submitting = submitReportMutation.isPending;
 
   if (authChecking || loading) {
     return (

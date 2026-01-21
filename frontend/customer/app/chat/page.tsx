@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
-import { Search, Bot, MessageCircle, Pin, Loader2, Trash2 } from 'lucide-react';
+import { useState, useRef, useCallback } from 'react';
+import { Search, MessageCircle, Pin, Loader2, Trash2 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -10,17 +10,7 @@ import { AuthGuard } from '@/components/auth';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import Link from 'next/link';
 import Image from 'next/image';
-import { getChannels, getActiveBotConfig, archiveChannel, type BotConfig } from '@/lib/api/chat';
-import type { Channel } from '@/lib/api/types';
-
-// デフォルトのAIチャットボット設定
-const DEFAULT_BOT: BotConfig = {
-  id: 'ai-assistant',
-  name: 'AIアシスタント',
-  welcomeMessage: '体験申込・振替・料金など、何でもお気軽に！',
-  botType: 'GENERAL',
-  aiEnabled: false,
-};
+import { useChannels, useBotConfig, useArchiveChannel, getDefaultBotConfig } from '@/lib/hooks/use-chat';
 
 // タイムスタンプをフォーマット
 function formatTimestamp(dateString?: string): string {
@@ -168,73 +158,23 @@ function SwipeableItem({ children, onDelete, isDeleting }: SwipeableItemProps) {
 
 function ChatListContent() {
   const [searchQuery, setSearchQuery] = useState('');
-  const [channels, setChannels] = useState<Channel[]>([]);
-  const [botConfig, setBotConfig] = useState<BotConfig>(DEFAULT_BOT);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [deletingId, setDeletingId] = useState<string | null>(null);
 
-  // チャンネル一覧を取得する関数
-  const fetchChannels = useCallback(async (showLoading = true) => {
-    try {
-      if (showLoading) {
-        setIsLoading(true);
-        setError(null);
-      }
+  // React Queryフックを使用
+  const { data: channels = [], isLoading: channelsLoading, error: channelsError } = useChannels();
+  const { data: botConfig = getDefaultBotConfig() } = useBotConfig();
+  const archiveMutation = useArchiveChannel();
 
-      // チャンネルとボット設定を並行取得
-      const [channelsData, botData] = await Promise.all([
-        getChannels().catch(() => []),
-        getActiveBotConfig().catch(() => DEFAULT_BOT),
-      ]);
-
-      setChannels(Array.isArray(channelsData) ? channelsData : []);
-      setBotConfig(botData || DEFAULT_BOT);
-    } catch (err) {
-      console.error('Failed to fetch data:', err);
-      if (showLoading) {
-        setError('データの取得に失敗しました');
-      }
-      setChannels([]);
-    } finally {
-      if (showLoading) {
-        setIsLoading(false);
-      }
-    }
-  }, []);
-
-  // 初回読み込み
-  useEffect(() => {
-    fetchChannels();
-  }, [fetchChannels]);
-
-  // ページに戻った時にデータを再取得（既読状態を反映）
-  useEffect(() => {
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible') {
-        fetchChannels(false);
-      }
-    };
-
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    return () => {
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-    };
-  }, [fetchChannels]);
+  const isLoading = channelsLoading;
+  const error = channelsError ? 'データの取得に失敗しました' : null;
 
   // チャンネルを削除（アーカイブ）
   const handleDeleteChannel = useCallback(async (channelId: string) => {
     try {
-      setDeletingId(channelId);
-      await archiveChannel(channelId);
-      setChannels((prev) => prev.filter((ch) => ch.id !== channelId));
-    } catch (err) {
-      console.error('Failed to delete channel:', err);
+      await archiveMutation.mutateAsync(channelId);
+    } catch {
       alert('削除に失敗しました');
-    } finally {
-      setDeletingId(null);
     }
-  }, []);
+  }, [archiveMutation]);
 
   // 検索フィルタリング（スタッフが返信したEXTERNALチャンネルのみ表示）
   // ボットチャット(BOT/SUPPORT)は除外、AIアシスタント内で対応
@@ -375,7 +315,7 @@ function ChatListContent() {
               <SwipeableItem
                 key={channel.id}
                 onDelete={() => handleDeleteChannel(channel.id)}
-                isDeleting={deletingId === channel.id}
+                isDeleting={archiveMutation.isPending && archiveMutation.variables === channel.id}
               >
                 <Link href={`/chat/${channel.id}`}>
                   <Card className="rounded-none border-x-0 border-t-0 shadow-none hover:bg-gray-50 transition-colors cursor-pointer">

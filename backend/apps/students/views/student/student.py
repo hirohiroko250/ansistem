@@ -336,3 +336,81 @@ class StudentViewSet(StudentItemsMixin, CSVMixin, viewsets.ModelViewSet):
             'student_no': student.student_no,
             'student_name': student.full_name,
         })
+
+    @action(detail=True, methods=['post'], url_path='upload-photo', parser_classes=[MultiPartParser, FormParser])
+    def upload_photo(self, request, pk=None):
+        """生徒の証明写真をアップロード"""
+        import os
+        from django.conf import settings
+        from django.core.files.storage import default_storage
+
+        student = self.get_object()
+        photo = request.FILES.get('photo')
+
+        if not photo:
+            return Response(
+                {'error': '写真ファイルが必要です'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # ファイルサイズチェック（5MB以下）
+        if photo.size > 5 * 1024 * 1024:
+            return Response(
+                {'error': 'ファイルサイズは5MB以下にしてください'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # 拡張子チェック
+        allowed_extensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp']
+        ext = os.path.splitext(photo.name)[1].lower()
+        if ext not in allowed_extensions:
+            return Response(
+                {'error': 'JPG, PNG, GIF, WEBPファイルのみアップロード可能です'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # 既存の写真を削除
+        if student.profile_image_url:
+            try:
+                old_path = student.profile_image_url.replace(settings.MEDIA_URL, '')
+                if default_storage.exists(old_path):
+                    default_storage.delete(old_path)
+            except Exception:
+                pass
+
+        # 新しいファイル名を生成
+        filename = f"students/{student.id}/photo{ext}"
+        path = default_storage.save(filename, photo)
+        url = default_storage.url(path)
+
+        # URLを保存
+        student.profile_image_url = url
+        student.save(update_fields=['profile_image_url'])
+
+        return Response({
+            'profile_image_url': url,
+            'message': '写真をアップロードしました',
+        })
+
+    @action(detail=True, methods=['delete'], url_path='delete-photo')
+    def delete_photo(self, request, pk=None):
+        """生徒の証明写真を削除"""
+        from django.conf import settings
+        from django.core.files.storage import default_storage
+
+        student = self.get_object()
+
+        if student.profile_image_url:
+            try:
+                old_path = student.profile_image_url.replace(settings.MEDIA_URL, '')
+                if default_storage.exists(old_path):
+                    default_storage.delete(old_path)
+            except Exception:
+                pass
+
+        student.profile_image_url = ''
+        student.save(update_fields=['profile_image_url'])
+
+        return Response({
+            'message': '写真を削除しました',
+        })

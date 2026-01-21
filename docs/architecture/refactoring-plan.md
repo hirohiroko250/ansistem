@@ -331,3 +331,6 @@ npm install @tanstack/react-query
 | 2026-01-21 | Phase 2: signupフォームにバリデーションフック（blur時重複チェック）適用完了 | - |
 | 2026-01-21 | Phase 5: 追加ページへのAuthGuard適用（settings/*, chat/[id], children/[id], contracts, schedule, history, students）完了 | - |
 | 2026-01-21 | Phase 4: 追加React Queryフック作成（useContracts, useSchedules, useHistory, useStaffStudents）、4ページ移行完了 | - |
+| 2026-01-21 | Phase 4: useOwnedTickets追加、tickets/calendar/historyページ移行、ビルド確認完了 | - |
+| 2026-01-21 | Phase 4: useChat/usePassbook追加、chat/purchase-historyページ移行、全ページReact Query化完了 | - |
+| 2026-01-21 | Phase 4: 追加フック作成（useFeed, usePayment, useStudentQRCode）、詳細ページ移行（children/[id], feed/[id], purchase-history/[month], settings/payment）完了 | - |

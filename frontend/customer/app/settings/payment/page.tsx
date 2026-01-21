@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { ChevronLeft, Building2, Edit, Loader2, BookOpen, ArrowUpCircle, ArrowDownCircle, ChevronRight } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -13,55 +13,21 @@ import {
 } from '@/components/ui/dialog';
 import { BottomTabBar } from '@/components/bottom-tab-bar';
 import Link from 'next/link';
-import {
-  getMyPayment,
-  getAccountTypeLabel,
-  getNextWithdrawalDate,
-  getMyPassbook,
-  type PaymentInfo,
-  type PassbookData
-} from '@/lib/api/payment';
+import { getAccountTypeLabel, getNextWithdrawalDate } from '@/lib/api/payment';
 import { AuthGuard } from '@/components/auth';
+import { usePaymentInfo, usePassbookData } from '@/lib/hooks/use-payment';
 
 function PaymentContent() {
-  const [payment, setPayment] = useState<PaymentInfo | null>(null);
-  const [loading, setLoading] = useState(true);
+  // React Queryフックを使用
+  const { data: payment, isLoading: loading } = usePaymentInfo();
 
   // 通帳（入出金履歴）用の状態
   const [isPassbookOpen, setIsPassbookOpen] = useState(false);
-  const [passbookData, setPassbookData] = useState<PassbookData | null>(null);
-  const [isLoadingPassbook, setIsLoadingPassbook] = useState(false);
-
-  useEffect(() => {
-    fetchPayment();
-  }, []);
-
-  const fetchPayment = async () => {
-    try {
-      setLoading(true);
-      const data = await getMyPayment();
-      setPayment(data);
-    } catch (error) {
-      console.error('Failed to fetch payment:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
+  const { data: passbookData, isLoading: isLoadingPassbook } = usePassbookData(isPassbookOpen);
 
   // 通帳を開く
-  const openPassbook = async () => {
+  const openPassbook = () => {
     setIsPassbookOpen(true);
-    if (!passbookData) {
-      setIsLoadingPassbook(true);
-      try {
-        const data = await getMyPassbook();
-        setPassbookData(data);
-      } catch (error) {
-        console.error('Failed to fetch passbook:', error);
-      } finally {
-        setIsLoadingPassbook(false);
-      }
-    }
   };
 
   // 取引タイプに応じたアイコンと色を取得

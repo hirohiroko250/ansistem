@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { ChevronLeft, ChevronRight, MessageCircle, Check, X, Tag, User, Loader2, Star, Gift } from 'lucide-react';
+import { useState, useMemo } from 'react';
+import { ChevronLeft, ChevronRight, MessageCircle, Check, X, Tag, User, Loader2, Star, Gift, Users } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { BottomTabBar } from '@/components/bottom-tab-bar';
@@ -10,10 +10,10 @@ import Link from 'next/link';
 import { format, addMonths, subMonths, parse } from 'date-fns';
 import { ja } from 'date-fns/locale';
 import { useRouter, useParams } from 'next/navigation';
-import { getAllStudentItems, type PurchasedItem, type MileInfo, type FSDiscount } from '@/lib/api/students';
-import { getMe } from '@/lib/api/auth';
-import type { Profile } from '@/lib/api/types';
-import { Users } from 'lucide-react';
+import { type PurchasedItem, type MileInfo, type FSDiscount } from '@/lib/api/students';
+import { usePurchaseHistory } from '@/lib/hooks/use-history';
+import { useUser } from '@/lib/hooks/use-user';
+import { AuthGuard } from '@/components/auth';
 
 type TicketItem = {
   id: string;
@@ -263,13 +263,13 @@ function convertToStudentGroups(items: PurchasedItem[], billingMonth: string): S
   return studentGroups;
 }
 
-export default function PassbookDetailPage() {
+function PassbookDetailContent() {
   const router = useRouter();
   const params = useParams();
   const monthParam = params.month as string; // Format: YYYY-MM
 
   // URLパラメータから日付を取得
-  const getInitialDate = () => {
+  const currentDate = useMemo(() => {
     if (monthParam) {
       try {
         return parse(monthParam, 'yyyy-MM', new Date());
@@ -278,15 +278,19 @@ export default function PassbookDetailPage() {
       }
     }
     return new Date();
-  };
+  }, [monthParam]);
 
-  const [currentDate, setCurrentDate] = useState(getInitialDate);
-  const [allItems, setAllItems] = useState<PurchasedItem[]>([]);
-  const [mileInfo, setMileInfo] = useState<MileInfo>({ balance: 0, potentialDiscount: 0 });
-  const [fsDiscounts, setFsDiscounts] = useState<FSDiscount[]>([]);
-  const [profile, setProfile] = useState<Profile | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  // React Queryフックを使用
+  const { data: purchaseData, isLoading: purchaseLoading, error: purchaseError } = usePurchaseHistory(monthParam);
+  const { data: profile } = useUser();
+
+  const allItems = purchaseData?.items || [];
+  const mileInfo: MileInfo = purchaseData?.mileInfo || { balance: 0, potentialDiscount: 0 };
+  const fsDiscounts: FSDiscount[] = purchaseData?.fsDiscounts || [];
+
+  const loading = purchaseLoading;
+  const error = purchaseError ? '購入履歴の取得に失敗しました' : null;
+
   const [inquiryDialog, setInquiryDialog] = useState<{
     open: boolean;
     studentName: string;
@@ -300,38 +304,6 @@ export default function PassbookDetailPage() {
     itemDescription: '',
     itemAmount: 0,
   });
-
-  // データ取得（請求月でフィルタ）
-  useEffect(() => {
-    const fetchData = async () => {
-      try {
-        setLoading(true);
-        // 該当月のデータのみ取得
-        const [itemsResponse, userProfile] = await Promise.all([
-          getAllStudentItems(monthParam),
-          getMe(),
-        ]);
-        setAllItems(itemsResponse.items);
-        setMileInfo(itemsResponse.mileInfo);
-        setFsDiscounts(itemsResponse.fsDiscounts);
-        setProfile(userProfile);
-        setError(null);
-      } catch (err: unknown) {
-        console.error('Failed to fetch purchase history:', err);
-        if (err && typeof err === 'object' && 'message' in err) {
-          const errorMessage = (err as { message: string }).message;
-          if (errorMessage.includes('401') || errorMessage.includes('認証')) {
-            router.push('/login');
-            return;
-          }
-        }
-        setError('購入履歴の取得に失敗しました');
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchData();
-  }, [router, monthParam]);
 
   const monthKey = format(currentDate, 'yyyy-MM');
   const studentGroups = convertToStudentGroups(allItems, monthKey);
@@ -761,5 +733,13 @@ export default function PassbookDetailPage() {
 
       <BottomTabBar />
     </div>
+  );
+}
+
+export default function PassbookDetailPage() {
+  return (
+    <AuthGuard>
+      <PassbookDetailContent />
+    </AuthGuard>
   );
 }

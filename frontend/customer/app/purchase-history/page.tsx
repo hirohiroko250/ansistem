@@ -1,16 +1,16 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { ChevronLeft, FileText, ChevronRight, Loader2, Download, RotateCcw } from 'lucide-react';
+import { useState, useEffect, useMemo } from 'react';
+import { ChevronLeft, Loader2, RotateCcw } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import Link from 'next/link';
 import { format } from 'date-fns';
 import { ja } from 'date-fns/locale';
-import { useRouter } from 'next/navigation';
-import { getAllStudentItems, downloadAndSaveReceipt, type PurchasedItem } from '@/lib/api/students';
-import { getMyPassbook, type PassbookData, type PassbookTransaction } from '@/lib/api/payment';
-import { isAuthenticated } from '@/lib/api/auth';
+import { downloadAndSaveReceipt, type PurchasedItem } from '@/lib/api/students';
+import type { PassbookData } from '@/lib/api/payment';
+import { usePurchaseHistory, usePassbook } from '@/lib/hooks/use-history';
+import { AuthGuard } from '@/components/auth';
 
 // 月別集計データ型
 type MonthSummary = {
@@ -25,15 +25,22 @@ type MonthSummary = {
   hasReceipt: boolean; // 領収書発行可能か
 };
 
-export default function PassbookListPage() {
-  const router = useRouter();
-  const [allItems, setAllItems] = useState<PurchasedItem[]>([]);
-  const [passbookData, setPassbookData] = useState<PassbookData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [monthSummaries, setMonthSummaries] = useState<MonthSummary[]>([]);
+function PassbookContent() {
   const [isPortrait, setIsPortrait] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
+
+  // React Queryフックを使用
+  const { data: purchaseData, isLoading: purchaseLoading, error: purchaseError } = usePurchaseHistory();
+  const { data: passbookData, isLoading: passbookLoading, error: passbookError } = usePassbook();
+
+  const loading = purchaseLoading || passbookLoading;
+  const error = (purchaseError || passbookError) ? '通帳データの取得に失敗しました' : null;
+
+  // 月別集計データを作成（useMemo使用）
+  const monthSummaries = useMemo(() => {
+    if (!purchaseData?.items) return [];
+    return createMonthSummaries(purchaseData.items, passbookData || null);
+  }, [purchaseData, passbookData]);
 
   // 画面向き検出
   useEffect(() => {
@@ -56,44 +63,6 @@ export default function PassbookListPage() {
       window.removeEventListener('orientationchange', checkOrientation);
     };
   }, []);
-
-  useEffect(() => {
-    if (!isAuthenticated()) {
-      router.push('/login');
-      return;
-    }
-    fetchData();
-  }, [router]);
-
-  const fetchData = async () => {
-    try {
-      setLoading(true);
-      // 請求データと通帳（入出金履歴）を並行取得
-      const [itemsResponse, passbook] = await Promise.all([
-        getAllStudentItems(),
-        getMyPassbook(),
-      ]);
-      setAllItems(itemsResponse.items);
-      setPassbookData(passbook);
-
-      // 月別に集計（通帳データを使用して正確な過不足を計算）
-      const summaries = createMonthSummaries(itemsResponse.items, passbook);
-      setMonthSummaries(summaries);
-      setError(null);
-    } catch (err: unknown) {
-      console.error('Failed to fetch purchase history:', err);
-      if (err && typeof err === 'object' && 'message' in err) {
-        const errorMessage = (err as { message: string }).message;
-        if (errorMessage.includes('401') || errorMessage.includes('認証')) {
-          router.push('/login');
-          return;
-        }
-      }
-      setError('通帳データの取得に失敗しました');
-    } finally {
-      setLoading(false);
-    }
-  };
 
   // 月別集計データを作成
   const createMonthSummaries = (items: PurchasedItem[], passbook: PassbookData | null): MonthSummary[] => {
@@ -354,5 +323,13 @@ export default function PassbookListPage() {
 
       </main>
     </div>
+  );
+}
+
+export default function PassbookListPage() {
+  return (
+    <AuthGuard>
+      <PassbookContent />
+    </AuthGuard>
   );
 }

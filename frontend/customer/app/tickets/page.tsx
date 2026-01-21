@@ -25,7 +25,7 @@ function TicketsContent() {
   // 振替予約モーダル用の状態
   const [showTransferModal, setShowTransferModal] = useState(false);
   const [transferStep, setTransferStep] = useState<'school' | 'calendar'>('school');
-  const [selectedTicket, setSelectedTicket] = useState<TicketType | null>(null);
+  const [selectedTicket, setSelectedTicket] = useState<OwnedTicketType | null>(null);
   const [schools, setSchools] = useState<BrandSchool[]>([]);
   const [selectedSchool, setSelectedSchool] = useState<BrandSchool | null>(null);
   const [availableClasses, setAvailableClasses] = useState<TransferAvailableClass[]>([]);
@@ -107,44 +107,8 @@ function TicketsContent() {
         targetClassScheduleId: selectedClass.id,
       });
       setTransferSuccess(true);
-      // チケット一覧を再取得
-      const [itemsResponse, absenceTickets] = await Promise.all([
-        getAllStudentItems(),
-        getAbsenceTickets('issued').catch(() => [] as AbsenceTicket[]),
-      ]);
-      const ticketItems = itemsResponse.items.filter((item: PurchasedItem) => isTicketType(item.productType));
-      const convertedTickets: TicketType[] = ticketItems.map((item: PurchasedItem) => {
-        const expiryDate = calculateExpiryDate(item.billingMonth);
-        return {
-          id: item.id,
-          type: getTicketType(item.productType),
-          school: item.schoolName || '未指定',
-          brand: item.brandName || item.productName,
-          count: item.quantity,
-          expiryDate,
-          status: isExpiringSoon(expiryDate) ? 'expiring' : 'active',
-          studentName: item.studentName,
-          productName: item.productName,
-          billingMonth: item.billingMonth,
-        };
-      });
-      const transferTicketsConverted: TicketType[] = absenceTickets.map((ticket: AbsenceTicket) => ({
-        id: ticket.id,
-        type: 'transfer' as const,
-        school: ticket.schoolName || '未指定',
-        brand: ticket.brandName || '振替チケット',
-        count: 1,
-        expiryDate: ticket.validUntil || '',
-        status: ticket.validUntil && isExpiringSoon(ticket.validUntil) ? 'expiring' : 'active',
-        studentName: ticket.studentName,
-        productName: ticket.originalTicketName || '振替チケット',
-        absenceDate: ticket.absenceDate || undefined,
-        consumptionSymbol: ticket.consumptionSymbol,
-        originalTicketName: ticket.originalTicketName,
-        brandId: ticket.brandId || undefined,
-        schoolId: ticket.schoolId || undefined,
-      }));
-      setTickets([...convertedTickets, ...transferTicketsConverted]);
+      // キャッシュを無効化して再取得
+      invalidateTickets();
     } catch (err) {
       console.error('Failed to submit transfer:', err);
       const apiError = err as { message?: string };
@@ -152,7 +116,7 @@ function TicketsContent() {
     } finally {
       setIsSubmitting(false);
     }
-  }, [selectedTicket, selectedDate, selectedClass]);
+  }, [selectedTicket, selectedDate, selectedClass, invalidateTickets]);
 
   // モーダルを閉じる
   const closeTransferModal = useCallback(() => {

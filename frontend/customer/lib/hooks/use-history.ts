@@ -16,6 +16,10 @@ import {
   getAllStudentItems,
   type AllStudentItemsResponse,
 } from '@/lib/api/students';
+import {
+  getMyPassbook,
+  type PassbookData,
+} from '@/lib/api/payment';
 
 // クエリキー
 export const historyKeys = {
@@ -26,6 +30,7 @@ export const historyKeys = {
   purchaseHistory: () => [...historyKeys.all, 'purchases'] as const,
   purchaseHistoryByMonth: (billingMonth?: string) =>
     [...historyKeys.purchaseHistory(), billingMonth] as const,
+  passbook: () => [...historyKeys.all, 'passbook'] as const,
 };
 
 /**
@@ -152,3 +157,20 @@ export function useInvalidateHistory() {
     queryClient.invalidateQueries({ queryKey: historyKeys.all });
   };
 }
+
+/**
+ * 通帳データを取得
+ */
+export function usePassbook() {
+  return useQuery({
+    queryKey: historyKeys.passbook(),
+    queryFn: async () => {
+      return getMyPassbook();
+    },
+    enabled: !!getAccessToken(),
+    staleTime: 5 * 60 * 1000, // 5分
+  });
+}
+
+// PassbookData型を再エクスポート
+export type { PassbookData } from '@/lib/api/payment';
