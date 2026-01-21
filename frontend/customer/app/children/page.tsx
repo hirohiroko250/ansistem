@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef } from 'react';
-import { ChevronLeft, User, Plus, ChevronRight, Loader2 } from 'lucide-react';
+import { ChevronLeft, User, Plus, ChevronRight, Loader2, Camera, X } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -13,7 +13,7 @@ import { BottomTabBar } from '@/components/bottom-tab-bar';
 import { AuthGuard } from '@/components/auth';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useStudents, useAddStudent } from '@/lib/hooks';
+import { useStudents, useAddStudent, useUploadStudentPhoto } from '@/lib/hooks';
 import { useToast } from '@/hooks/use-toast';
 import type { Child } from '@/lib/api/types';
 
@@ -36,8 +36,14 @@ function ChildrenContent() {
   // React Query hooks
   const { data: children = [], isLoading: loading, error } = useStudents();
   const addStudentMutation = useAddStudent();
+  const uploadPhotoMutation = useUploadStudentPhoto();
 
   const [showAddDialog, setShowAddDialog] = useState(false);
+
+  // 写真関連
+  const [selectedPhoto, setSelectedPhoto] = useState<File | null>(null);
+  const [photoPreview, setPhotoPreview] = useState<string | null>(null);
+  const photoInputRef = useRef<HTMLInputElement>(null);
 
   // Form state
   const [newChildLastName, setNewChildLastName] = useState('');
@@ -175,6 +181,50 @@ function ChildrenContent() {
     }
   };
 
+  // 写真選択ハンドラー
+  const handlePhotoSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // ファイルサイズチェック（5MB）
+    if (file.size > 5 * 1024 * 1024) {
+      toast({
+        title: 'エラー',
+        description: 'ファイルサイズは5MB以下にしてください',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    // ファイル形式チェック
+    const allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+    if (!allowedTypes.includes(file.type)) {
+      toast({
+        title: 'エラー',
+        description: 'JPG, PNG, GIF, WEBPファイルのみアップロード可能です',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setSelectedPhoto(file);
+    // プレビュー用URL作成
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      setPhotoPreview(reader.result as string);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  // 写真をクリア
+  const clearPhoto = () => {
+    setSelectedPhoto(null);
+    setPhotoPreview(null);
+    if (photoInputRef.current) {
+      photoInputRef.current.value = '';
+    }
+  };
+
   const resetForm = () => {
     setNewChildLastName('');
     setNewChildFirstName('');
@@ -184,6 +234,7 @@ function ChildrenContent() {
     setNewChildGender('');
     setNewChildSchoolName('');
     setNewChildGrade('');
+    clearPhoto();
   };
 
   const handleAddChild = async () => {
@@ -207,7 +258,22 @@ function ChildrenContent() {
         gradeText: newChildGrade || undefined,
       },
       {
-        onSuccess: (newChild) => {
+        onSuccess: async (newChild) => {
+          // 写真が選択されていればアップロード
+          if (selectedPhoto && newChild.id) {
+            try {
+              await uploadPhotoMutation.mutateAsync({ id: newChild.id, file: selectedPhoto });
+            } catch (photoError) {
+              console.error('Photo upload failed:', photoError);
+              // 写真アップロードに失敗しても子供の登録は成功しているのでエラーは軽く通知
+              toast({
+                title: '写真のアップロードに失敗しました',
+                description: '後からお子様詳細画面で写真を設定できます',
+                variant: 'destructive',
+              });
+            }
+          }
+
           setShowAddDialog(false);
           resetForm();
           toast({
@@ -363,6 +429,48 @@ function ChildrenContent() {
             <DialogTitle>お子様を追加</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
+            {/* 写真選択 */}
+            <div className="flex flex-col items-center">
+              <Label className="mb-2">写真（任意）</Label>
+              <input
+                type="file"
+                ref={photoInputRef}
+                onChange={handlePhotoSelect}
+                accept="image/jpeg,image/png,image/gif,image/webp"
+                className="hidden"
+              />
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => photoInputRef.current?.click()}
+                  className="w-24 h-24 rounded-full bg-blue-100 flex items-center justify-center border-2 border-dashed border-blue-300 hover:border-blue-500 hover:bg-blue-50 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  {photoPreview ? (
+                    <img
+                      src={photoPreview}
+                      alt="プレビュー"
+                      className="w-full h-full rounded-full object-cover"
+                    />
+                  ) : (
+                    <div className="flex flex-col items-center">
+                      <Camera className="w-8 h-8 text-blue-500" />
+                      <span className="text-xs text-blue-500 mt-1">写真を選択</span>
+                    </div>
+                  )}
+                </button>
+                {photoPreview && (
+                  <button
+                    type="button"
+                    onClick={clearPhoto}
+                    className="absolute -top-1 -right-1 w-6 h-6 bg-red-500 text-white rounded-full flex items-center justify-center hover:bg-red-600"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
+              <p className="text-xs text-gray-500 mt-2">証明写真のような写真を推奨</p>
+            </div>
+
             <div className="grid grid-cols-2 gap-2">
               <div>
                 <Label htmlFor="lastName">姓 *</Label>

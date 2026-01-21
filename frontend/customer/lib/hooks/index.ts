@@ -19,6 +19,7 @@ export {
   useAddStudent,
   useUpdateStudent,
   useInvalidateStudents,
+  useUploadStudentPhoto,
 } from './use-students';
 
 // Schools hooks
