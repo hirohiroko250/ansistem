@@ -56,7 +56,7 @@ export function StudentList({ result, selectedStudentId, onSelectStudent, unread
         // 生徒番号
         const studentNo = student.studentNo || student.student_no || "";
         // 保護者番号（家族ID）
-        const guardianNo = student.guardianNo || student.guardian_no || "";
+        const guardianNo = (student as any).guardianNo || (student as any).guardian_no || student.guardian?.guardian_no || "";
         // 未読件数
         const unreadCount = unreadCounts[student.id] || 0;
 
