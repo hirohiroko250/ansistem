@@ -316,6 +316,70 @@ export const api = {
     apiRequest<T>(endpoint, { ...options, method: 'DELETE' }),
 
   /**
+   * FormDataをPOSTリクエスト（ファイルアップロード用）
+   */
+  postFormData: async <T>(endpoint: string, formData: FormData, options?: Omit<RequestOptions, 'method' | 'body'>): Promise<T> => {
+    const { skipAuth = false, tenantId, ...fetchOptions } = options || {};
+
+    const headers: HeadersInit = {
+      // Content-Typeは設定しない（ブラウザが自動的にmultipart/form-dataとboundaryを設定）
+      ...(fetchOptions.headers || {}),
+    };
+
+    // テナントID を追加
+    const tenant = tenantId || getTenantId();
+    if (tenant) {
+      (headers as Record<string, string>)['X-Tenant-ID'] = tenant;
+    }
+
+    // 認証トークンを追加
+    if (!skipAuth) {
+      let token = getAccessToken();
+
+      // トークンが期限切れの場合はリフレッシュを試みる
+      if (token && isTokenExpired(token)) {
+        token = await refreshAccessToken();
+      }
+
+      if (token) {
+        (headers as Record<string, string>)['Authorization'] = `Bearer ${token}`;
+      }
+    }
+
+    const url = endpoint.startsWith('http') ? endpoint : `${API_BASE_URL}${endpoint}`;
+
+    const response = await fetch(url, {
+      ...fetchOptions,
+      method: 'POST',
+      headers,
+      body: formData, // FormDataをそのまま送信
+    });
+
+    if (!response.ok) {
+      throw await createApiError(response);
+    }
+
+    if (response.status === 204) {
+      return {} as T;
+    }
+
+    const data = await response.json();
+
+    // バックエンドが success: false を返した場合はエラーとして扱う
+    if (data && typeof data === 'object' && 'success' in data && data.success === false) {
+      const error = data.error || {};
+      throw {
+        message: error.message || 'APIエラーが発生しました',
+        status: response.status,
+        errors: error.details,
+        code: error.code,
+      } as ApiError & { code?: string };
+    }
+
+    return data as T;
+  },
+
+  /**
    * BlobとしてGETリクエスト（ファイルダウンロード用）
    */
   getBlob: async (endpoint: string, options?: Omit<RequestOptions, 'method' | 'body'>): Promise<Blob> => {

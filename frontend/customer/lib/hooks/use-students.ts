@@ -154,10 +154,10 @@ export function useUploadStudentPhoto() {
     mutationFn: async ({ id, file }: { id: string; file: File }) => {
       const formData = new FormData();
       formData.append('photo', file);
-      const response = await api.post<{ profile_image_url: string; message: string }>(
+      // postFormDataを使用してFormDataを正しく送信
+      const response = await api.postFormData<{ profile_image_url: string; message: string }>(
         `/students/children/${id}/upload-photo/`,
-        formData,
-        { headers: { 'Content-Type': 'multipart/form-data' } }
+        formData
       );
       return response;
     },
