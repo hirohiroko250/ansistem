@@ -427,7 +427,6 @@ export default function FromTicketPurchasePage() {
         const categoryBrands = brands.filter(b => b.category?.id === selectedCategory.id);
         const brandIds = categoryBrands.map(b => b.id);
         setCategoryBrandIds(brandIds);
-        console.log('[fetchSchools] Category brands:', brandIds.length);
 
         if (categoryBrands.length === 0) {
           setSchools([]);
@@ -466,11 +465,6 @@ export default function FromTicketPurchasePage() {
           return a.name.localeCompare(b.name, 'ja');
         });
 
-        console.log('[fetchSchools] Built schoolBrandMap:', {
-          mapSize: newSchoolBrandMap.size,
-          sampleEntries: Array.from(newSchoolBrandMap.entries()).slice(0, 3),
-          uniqueSchoolsCount: uniqueSchools.length,
-        });
         setSchools(uniqueSchools);
         setSchoolBrandMap(newSchoolBrandMap);
       } catch (err) {
@@ -491,11 +485,9 @@ export default function FromTicketPurchasePage() {
       : new Set<string>();
 
     const brandIdList = Array.from(brandIdsInCategory);
-    console.log('[useEffect courses] brandIdsInCategory:', brandIdList.length, 'selectedSchoolId:', selectedSchoolId);
     if (brandIdList.length === 0 || !selectedSchoolId) return;
 
     const fetchCoursesAndPacks = async () => {
-      console.log('[fetchCoursesAndPacks] Fetching for school:', selectedSchoolId, 'brands:', brandIdList.length);
       setIsLoadingCourses(true);
       setCoursesError(null);
       try {
@@ -505,7 +497,6 @@ export default function FromTicketPurchasePage() {
           getPublicPacks({ brandIds: brandIdList, schoolId: selectedSchoolId }),
         ]);
 
-        console.log('[fetchCoursesAndPacks] Fetched:', categoryCourses.length, 'courses,', categoryPacks.length, 'packs');
 
         // パックに含まれるコースも単品として表示する（¥0除外は後で行う）
         setCourses(categoryCourses);
@@ -620,7 +611,6 @@ export default function FromTicketPurchasePage() {
           const isRestricted = today >= restrictionStart && today <= examWeekEnd;
 
           if (isRestricted) {
-            console.log(`[Certification] ${cert.certification_name} は購入制限期間中（${restrictionStart.toLocaleDateString()}〜${examWeekEnd.toLocaleDateString()}）`);
           }
 
           return !isRestricted;
@@ -744,12 +734,6 @@ export default function FromTicketPurchasePage() {
       // 通常コースの購入処理（既存の実装）
       if (!selectedCourse) return;
       // デバッグ: 送信前のデータを確認
-      console.log('[handleConfirmPurchase] DEBUG:');
-      console.log('  selectedTextbookIds:', selectedTextbookIds);
-      console.log('  pricingPreview?.textbookOptions:', pricingPreview?.textbookOptions);
-      console.log('  startDate:', startDate);
-      console.log('  selectedBrand:', selectedBrand);
-      console.log('  selectedSchoolId:', selectedSchoolId);
 
       // スケジュール情報を構築（曜日・時間帯をStudentItemに保存するため）
       const schedules: { id: string; dayOfWeek: string; startTime: string; endTime: string; className?: string }[] = [];
@@ -946,7 +930,6 @@ export default function FromTicketPurchasePage() {
   };
 
   const handleSchoolSelect = async (schoolId: string) => {
-    console.log('[handleSchoolSelect] schoolId:', schoolId, 'categoryBrandIds:', categoryBrandIds.length);
     setSelectedSchoolId(schoolId);
 
     // カテゴリ内の最初のブランドをselectedBrandにセット（互換性のため）
@@ -959,10 +942,7 @@ export default function FromTicketPurchasePage() {
 
     // 校舎で開講しているチケットを取得
     try {
-      console.log('[getTicketsBySchool] Calling API with schoolId:', schoolId);
       const ticketData = await getTicketsBySchool(schoolId);
-      console.log('[getTicketsBySchool] API response:', ticketData);
-      console.log('[getTicketsBySchool] ticketIds:', ticketData.ticketIds);
       setSchoolTicketIds(ticketData.ticketIds);
     } catch (err) {
       console.error('チケット取得エラー:', err);
@@ -1145,8 +1125,6 @@ export default function FromTicketPurchasePage() {
 
   // 校舎で開講しているチケットでコースをフィルタ
   const filterBySchoolTickets = (items: (PublicCourse | PublicPack)[]): (PublicCourse | PublicPack)[] => {
-    console.log('[filterBySchoolTickets] schoolTicketIds:', schoolTicketIds);
-    console.log('[filterBySchoolTickets] items count:', items.length);
 
     // 校舎チケットIDがない場合はフィルタしない
     if (schoolTicketIds.length === 0) return items;
@@ -1166,14 +1144,12 @@ export default function FromTicketPurchasePage() {
 
     // schoolTicketIdsを正規化
     const normalizedSchoolTicketIds = schoolTicketIds.map(normalizeTicketCode);
-    console.log('[filterBySchoolTickets] normalizedSchoolTicketIds:', normalizedSchoolTicketIds);
 
     return items.filter(item => {
       // PublicCourseの場合、ticketCodeをチェック
       if ('ticketCode' in item && item.ticketCode) {
         const normalizedCode = normalizeTicketCode(item.ticketCode);
         const included = normalizedSchoolTicketIds.includes(normalizedCode);
-        console.log('[filterBySchoolTickets] Course:', item.courseName, 'ticketCode:', item.ticketCode, '→', normalizedCode, 'included:', included);
         return included;
       }
       // パックの場合
@@ -1207,12 +1183,9 @@ export default function FromTicketPurchasePage() {
       // パック + 「+」を含むコース（複合コース）を表示
       const plusCourses = courses.filter(c => c.courseName.includes('+'));
       items = [...packs, ...plusCourses];
-      console.log('[availableItems] Pack mode - packs:', packs.length, '+ plusCourses:', plusCourses.length);
     }
     const afterGradeFilter = filterByGrade(items);
-    console.log('[availableItems] After grade filter:', afterGradeFilter.length, 'items');
     const afterTicketFilter = filterBySchoolTickets(afterGradeFilter);
-    console.log('[availableItems] After ticket filter:', afterTicketFilter.length, 'items');
 
     // ¥0のコース/パックを除外（表示ロジックと同じ方法で価格を判定）
     const afterPriceFilter = afterTicketFilter.filter((item) => {
@@ -1231,11 +1204,9 @@ export default function FromTicketPurchasePage() {
       // 表示価格が0より大きい場合のみ表示
       const included = displayPrice > 0;
       if (!included) {
-        console.log('[availableItems] Excluding ¥0 item:', 'courseName' in item ? item.courseName : (item as any).packName);
       }
       return included;
     });
-    console.log('[availableItems] After price filter (excluding ¥0):', afterPriceFilter.length, 'items');
 
     // 学年でフィルタリング → 校舎チケットでフィルタリング → 価格フィルタ → 複数条件でソート
     // ソート順: 校舎 → ブランド → 学年 → チケット
@@ -2030,8 +2001,6 @@ export default function FromTicketPurchasePage() {
                           }),
                           getEnrollmentBillingInfo(dateStr).catch(() => null),
                         ]);
-                        console.log('[Debug] pricingPreview:', preview);
-                        console.log('[Debug] billingByMonth:', preview.billingByMonth);
                         setPricingPreview(preview);
                         setBillingInfo(billing);
                       } catch (err) {
@@ -2215,7 +2184,6 @@ export default function FromTicketPurchasePage() {
                   startDate: format(startDate, 'yyyy-MM-dd'),
                   dayOfWeek: dayOfWeekToBackendNumber(dayOfWeek),
                 });
-                console.log('[Debug] pricingPreview after dayOfWeek select:', preview);
                 setPricingPreview(preview);
               } catch (err) {
                 console.error('料金プレビュー再取得エラー:', err);
@@ -2317,7 +2285,6 @@ export default function FromTicketPurchasePage() {
             if (selectedCourse && selectedChild && startDate && finalSchedules.length > 0) {
               try {
                 const daysOfWeek = finalSchedules.map(s => dayOfWeekToBackendNumber(s.dayOfWeek)).filter((d): d is number => d !== undefined);
-                console.log('[handleCompleteWeeklySelection] Updating pricing with days:', daysOfWeek);
                 const preview = await previewPricing({
                   studentId: selectedChild.id,
                   productIds: [selectedCourse.id],

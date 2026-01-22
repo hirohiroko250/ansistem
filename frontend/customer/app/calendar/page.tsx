@@ -177,17 +177,12 @@ function CalendarContent() {
       const year = currentDate.getFullYear();
       const month = currentDate.getMonth() + 1;
 
-      console.log('[Calendar] fetchLessonCalendar:', { ...options, year, month });
       const calendarData = await getLessonCalendar({
         calendarCode: options.calendarPattern,
         brandId: options.brandId,
         schoolId: options.schoolId,
         year,
         month,
-      });
-      console.log('[Calendar] API response:', {
-        calendarLength: calendarData.calendar?.length,
-        closedDays: calendarData.calendar?.filter(d => !d.isOpen).map(d => d.date)
       });
       setLessonCalendar(calendarData.calendar || []);
 
@@ -230,12 +225,10 @@ function CalendarContent() {
     const loadLessonCalendar = async () => {
       if (!selectedChild) return;
 
-      console.log('[Calendar] loadLessonCalendar called, events:', events.length);
 
       // 1. まずイベントからcalendarPatternを取得（最優先）
       const eventWithPattern = events.find(e => e.calendarPattern);
       if (eventWithPattern?.calendarPattern) {
-        console.log('[Calendar] Using calendarPattern from event:', eventWithPattern.calendarPattern);
         await fetchLessonCalendar({ calendarPattern: eventWithPattern.calendarPattern });
         return;
       }
@@ -243,21 +236,17 @@ function CalendarContent() {
       // 2. calendarPatternがなければbrandIdで検索
       const eventWithBrand = events.find(e => e.brandId);
       if (eventWithBrand?.brandId) {
-        console.log('[Calendar] Using brandId from event:', eventWithBrand.brandId);
         await fetchLessonCalendar({ brandId: eventWithBrand.brandId, schoolId: eventWithBrand.schoolId });
         return;
       }
 
       // 3. イベントにない場合は購入アイテムから取得
       try {
-        console.log('[Calendar] No event data, trying student items');
         const items = await getStudentItems(selectedChild.id);
         const item = items.find(i => i.brandId);
         if (item?.brandId) {
-          console.log('[Calendar] Using brandId from student items:', item.brandId);
           await fetchLessonCalendar({ brandId: item.brandId, schoolId: item.schoolId });
         } else {
-          console.log('[Calendar] No valid brandId found');
         }
       } catch (error) {
         console.error('Failed to get student items for calendar:', error);

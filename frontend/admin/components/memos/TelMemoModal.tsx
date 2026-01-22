@@ -26,8 +26,9 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Search, X, Check, Phone } from "lucide-react";
+import { Search, X, Check, Phone, FileText, ScrollText, Receipt, BookOpen, ClipboardList } from "lucide-react";
 import { getStudents, type Student } from "@/lib/api/staff";
+import { useRouter } from "next/navigation";
 import { useToast } from "@/hooks/use-toast";
 import apiClient from "@/lib/api/client";
 
@@ -38,6 +39,7 @@ interface TelMemoModalProps {
 
 export function TelMemoModal({ isOpen, onClose }: TelMemoModalProps) {
   const { toast } = useToast();
+  const router = useRouter();
   const [step, setStep] = useState<"search" | "form">("search");
   const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
 
@@ -293,16 +295,16 @@ export function TelMemoModal({ isOpen, onClose }: TelMemoModalProps) {
           </div>
         ) : (
           <div className="space-y-4">
-            {/* 選択した生徒情報 */}
-            <div className="bg-green-50 p-4 rounded-lg">
+            {/* 選択した生徒情報 - 統一フォーマット */}
+            <div className="bg-green-50 p-4 rounded-lg border border-green-200">
               <div className="flex justify-between items-start">
                 <div>
-                  <p className="text-sm text-gray-500">選択中の生徒</p>
-                  <p className="font-bold text-lg">
+                  <p className="text-xs text-gray-500 mb-1">選択中の生徒</p>
+                  <p className="font-bold text-lg text-gray-900">
                     {selectedStudent?.last_name || selectedStudent?.lastName}{" "}
                     {selectedStudent?.first_name || selectedStudent?.firstName}
                   </p>
-                  <p className="text-sm text-gray-600">
+                  <p className="text-sm text-gray-600 mt-1">
                     家族ID: {selectedStudent?.guardian_no || selectedStudent?.guardianNo || "-"} /
                     生徒ID: {selectedStudent?.student_no || selectedStudent?.studentNo || "-"}
                   </p>
@@ -314,6 +316,157 @@ export function TelMemoModal({ isOpen, onClose }: TelMemoModalProps) {
                 >
                   変更
                 </Button>
+              </div>
+
+              {/* アクションメニュー */}
+              <div className="mt-4 pt-3 border-t border-green-200">
+                <p className="text-xs text-gray-500 mb-2">アクション（個人）</p>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 text-xs bg-white"
+                    onClick={() => {
+                      const studentNo = selectedStudent?.student_no || selectedStudent?.studentNo;
+                      if (studentNo) {
+                        router.push(`/billing?student_no=${studentNo}`);
+                        onClose();
+                      }
+                    }}
+                  >
+                    <Receipt className="w-3 h-3 mr-1" />
+                    請求一覧
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 text-xs bg-white"
+                    onClick={() => {
+                      const studentId = selectedStudent?.id;
+                      if (studentId) {
+                        router.push(`/contracts?student=${studentId}`);
+                        onClose();
+                      }
+                    }}
+                  >
+                    <FileText className="w-3 h-3 mr-1" />
+                    契約情報
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 text-xs bg-white"
+                    onClick={() => {
+                      const studentNo = selectedStudent?.student_no || selectedStudent?.studentNo;
+                      if (studentNo) {
+                        router.push(`/billing/confirmed?student_no=${studentNo}`);
+                        onClose();
+                      }
+                    }}
+                  >
+                    <ScrollText className="w-3 h-3 mr-1" />
+                    請求詳細
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 text-xs bg-white"
+                    onClick={() => {
+                      const guardianNo = selectedStudent?.guardian_no || selectedStudent?.guardianNo;
+                      if (guardianNo) {
+                        router.push(`/billing/payments?guardian_no=${guardianNo}`);
+                        onClose();
+                      }
+                    }}
+                  >
+                    <BookOpen className="w-3 h-3 mr-1" />
+                    通帳（家族）
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 text-xs bg-white"
+                    onClick={() => {
+                      const studentId = selectedStudent?.id;
+                      if (studentId) {
+                        router.push(`/students?selected=${studentId}&tab=karte`);
+                        onClose();
+                      }
+                    }}
+                  >
+                    <ClipboardList className="w-3 h-3 mr-1" />
+                    カルテ
+                  </Button>
+                </div>
+
+                {/* 家族アクション */}
+                {(selectedStudent?.guardian_no || selectedStudent?.guardianNo) && (
+                  <>
+                    <p className="text-xs text-gray-500 mb-2 mt-3">アクション（家族）</p>
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 text-xs bg-white"
+                        onClick={() => {
+                          const guardianNo = selectedStudent?.guardian_no || selectedStudent?.guardianNo;
+                          if (guardianNo) {
+                            router.push(`/billing?guardian_no=${guardianNo}`);
+                            onClose();
+                          }
+                        }}
+                      >
+                        <Receipt className="w-3 h-3 mr-1" />
+                        請求一覧（家族）
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 text-xs bg-white"
+                        onClick={() => {
+                          const guardianNo = selectedStudent?.guardian_no || selectedStudent?.guardianNo;
+                          if (guardianNo) {
+                            router.push(`/contracts?guardian_no=${guardianNo}`);
+                            onClose();
+                          }
+                        }}
+                      >
+                        <FileText className="w-3 h-3 mr-1" />
+                        契約情報（家族）
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 text-xs bg-white"
+                        onClick={() => {
+                          const guardianNo = selectedStudent?.guardian_no || selectedStudent?.guardianNo;
+                          if (guardianNo) {
+                            router.push(`/billing/confirmed?guardian_no=${guardianNo}`);
+                            onClose();
+                          }
+                        }}
+                      >
+                        <ScrollText className="w-3 h-3 mr-1" />
+                        請求詳細（家族）
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 text-xs bg-white"
+                        onClick={() => {
+                          const guardianNo = selectedStudent?.guardian_no || selectedStudent?.guardianNo;
+                          if (guardianNo) {
+                            router.push(`/students?guardian_no=${guardianNo}&tab=karte`);
+                            onClose();
+                          }
+                        }}
+                      >
+                        <ClipboardList className="w-3 h-3 mr-1" />
+                        カルテ（家族）
+                      </Button>
+                    </div>
+                  </>
+                )}
               </div>
             </div>
 

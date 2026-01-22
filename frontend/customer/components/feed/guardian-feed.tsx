@@ -44,12 +44,8 @@ export function GuardianFeed() {
       const postsData = response.results || response.data || [];
 
       // デバッグ: メディアデータの構造を確認
-      console.log('Feed posts response:', postsData);
       if (postsData.length > 0 && postsData[0].media) {
-        console.log('First post media:', postsData[0].media);
         if (postsData[0].media[0]) {
-          console.log('Media URL field:', postsData[0].media[0].fileUrl);
-          console.log('Full media object:', JSON.stringify(postsData[0].media[0], null, 2));
         }
       }
 

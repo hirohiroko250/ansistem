@@ -33,7 +33,6 @@ export async function previewPricing(data: PricingPreviewRequest): Promise<Prici
     day_of_week: data.dayOfWeek,  // 当月分回数割計算用（単一曜日）
     days_of_week: data.daysOfWeek,  // 複数曜日対応
   };
-  console.log('[previewPricing] Sending request with body:', requestBody);
   return api.post<PricingPreviewResponse>('/pricing/preview/', requestBody);
 }
 
@@ -81,7 +80,6 @@ export async function confirmPricing(data: PricingConfirmRequest): Promise<Prici
     // 教材費選択
     selected_textbook_ids: data.selectedTextbookIds,
   };
-  console.log('[confirmPricing] Sending request with body:', requestBody);
   return api.post<PricingConfirmResponse>('/pricing/confirm/', requestBody);
 }
 
