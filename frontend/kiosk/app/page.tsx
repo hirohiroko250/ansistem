@@ -5,7 +5,7 @@ import { Html5Qrcode } from 'html5-qrcode';
 import { format } from 'date-fns';
 import { ja } from 'date-fns/locale';
 import { MapPin, QrCode, CheckCircle2, XCircle, Clock, Users, Loader2, RefreshCw } from 'lucide-react';
-import api from '@/lib/api/client';
+import api from '../lib/api/client';
 
 interface School {
   id: string;
