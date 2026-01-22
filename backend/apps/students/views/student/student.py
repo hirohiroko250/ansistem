@@ -337,6 +337,140 @@ class StudentViewSet(StudentItemsMixin, CSVMixin, viewsets.ModelViewSet):
             'student_name': student.full_name,
         })
 
+    @action(detail=False, methods=['get', 'post'], url_path='children')
+    def children(self, request):
+        """保護者の子ども一覧を取得・子ども追加"""
+        user = request.user
+
+        # 保護者情報を取得
+        guardian = getattr(user, 'guardian_profile', None)
+        if not guardian:
+            return Response(
+                {'error': '保護者アカウントでログインしてください'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        if request.method == 'GET':
+            # 子ども一覧を取得
+            children = guardian.children.filter(deleted_at__isnull=True).select_related(
+                'grade', 'primary_school', 'primary_brand'
+            ).order_by('birth_date')
+            serializer = StudentListSerializer(children, many=True)
+            return Response({
+                'students': serializer.data
+            })
+        else:
+            # POST: 子ども追加
+            serializer = StudentCreateSerializer(data=request.data, context={'request': request})
+            if serializer.is_valid():
+                student = serializer.save(guardian=guardian)
+                return Response(StudentDetailSerializer(student).data, status=status.HTTP_201_CREATED)
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    @action(detail=False, methods=['get', 'patch'], url_path='children/(?P<child_id>[^/.]+)')
+    def child_detail(self, request, child_id=None):
+        """保護者の子ども詳細を取得・更新"""
+        user = request.user
+
+        # 保護者情報を取得
+        guardian = getattr(user, 'guardian_profile', None)
+        if not guardian:
+            return Response(
+                {'error': '保護者アカウントでログインしてください'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        # 子どもを取得
+        try:
+            child = guardian.children.filter(deleted_at__isnull=True).select_related(
+                'grade', 'primary_school', 'primary_brand'
+            ).get(id=child_id)
+        except Student.DoesNotExist:
+            return Response(
+                {'error': 'お子様が見つかりません'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        if request.method == 'GET':
+            serializer = StudentDetailSerializer(child)
+            return Response(serializer.data)
+        else:
+            # PATCH: 子ども更新
+            serializer = StudentUpdateSerializer(child, data=request.data, partial=True, context={'request': request})
+            if serializer.is_valid():
+                student = serializer.save()
+                return Response(StudentDetailSerializer(student).data)
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    @action(detail=False, methods=['post'], url_path='children/(?P<child_id>[^/.]+)/upload-photo', parser_classes=[MultiPartParser, FormParser])
+    def child_upload_photo(self, request, child_id=None):
+        """保護者が子どもの写真をアップロード"""
+        import os
+        from django.conf import settings
+        from django.core.files.storage import default_storage
+
+        user = request.user
+        guardian = getattr(user, 'guardian_profile', None)
+        if not guardian:
+            return Response(
+                {'error': '保護者アカウントでログインしてください'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        try:
+            student = guardian.children.filter(deleted_at__isnull=True).get(id=child_id)
+        except Student.DoesNotExist:
+            return Response(
+                {'error': 'お子様が見つかりません'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        photo = request.FILES.get('photo')
+        if not photo:
+            return Response(
+                {'error': '写真ファイルが必要です'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # ファイルサイズチェック（5MB以下）
+        if photo.size > 5 * 1024 * 1024:
+            return Response(
+                {'error': 'ファイルサイズは5MB以下にしてください'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # 拡張子チェック
+        allowed_extensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp']
+        ext = os.path.splitext(photo.name)[1].lower()
+        if ext not in allowed_extensions:
+            return Response(
+                {'error': 'JPG, PNG, GIF, WEBPファイルのみアップロード可能です'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # 既存の写真を削除
+        if student.profile_image_url:
+            try:
+                old_path = student.profile_image_url.replace(settings.MEDIA_URL, '')
+                if default_storage.exists(old_path):
+                    default_storage.delete(old_path)
+            except Exception:
+                pass
+
+        # 新しいファイル名を生成
+        filename = f"students/{student.id}/photo{ext}"
+        path = default_storage.save(filename, photo)
+        url = default_storage.url(path)
+
+        # URLを保存
+        student.profile_image_url = url
+        student.save(update_fields=['profile_image_url'])
+
+        return Response({
+            'profile_image_url': url,
+            'message': '写真をアップロードしました',
+        })
+
     @action(detail=True, methods=['post'], url_path='upload-photo', parser_classes=[MultiPartParser, FormParser])
     def upload_photo(self, request, pk=None):
         """生徒の証明写真をアップロード"""
