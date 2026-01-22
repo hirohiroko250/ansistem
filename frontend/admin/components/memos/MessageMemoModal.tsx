@@ -339,7 +339,7 @@ export function MessageMemoModal({ isOpen, onClose }: MessageMemoModalProps) {
             {/* ボタン */}
             <div className="flex justify-end gap-2 pt-4 border-t">
               <Button variant="outline" onClick={onClose}>
-                キャンセル
+                戻る
               </Button>
               <Button
                 onClick={handleSaveMemo}

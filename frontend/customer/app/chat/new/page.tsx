@@ -18,7 +18,7 @@ function formatMessageTime(dateString: string): string {
 }
 
 // バックエンドのsnake_caseをフロントエンドのcamelCaseに変換
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+// eslint-disable @typescript-eslint/no-explicit-any -- API response mapping
 function mapApiMessage(apiMessage: any): Message {
   return {
     id: apiMessage.id,

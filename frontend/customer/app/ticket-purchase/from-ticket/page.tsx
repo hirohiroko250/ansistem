@@ -1501,7 +1501,7 @@ export default function FromTicketPurchasePage() {
               <Card className="rounded-xl shadow-sm bg-blue-50 border-blue-200">
                 <CardContent className="p-3">
                   <p className="text-xs text-gray-600 mb-1">選択中</p>
-                  <p className="font-semibold text-gray-800">{selectedChild?.fullName}</p>
+                  <p className="font-semibold text-gray-800">{selectedChild?.fullName} {selectedChild && <span className="text-gray-600">({getDisplayGrade(selectedChild)})</span>}</p>
                 </CardContent>
               </Card>
             </div>
@@ -1577,7 +1577,7 @@ export default function FromTicketPurchasePage() {
             {/* コンパクトな選択状況表示 */}
             <div className="flex items-center gap-2 mb-3 text-sm">
               <span className="text-gray-500">選択中:</span>
-              <span className="font-medium text-gray-800">{selectedChild?.fullName}</span>
+              <span className="font-medium text-gray-800">{selectedChild?.fullName} {selectedChild && <span className="text-gray-600">({getDisplayGrade(selectedChild)})</span>}</span>
               <span className="text-gray-400">›</span>
               <span className="text-blue-600">{selectedCategory?.categoryName}</span>
             </div>
@@ -1654,7 +1654,7 @@ export default function FromTicketPurchasePage() {
               <Card className="rounded-xl shadow-sm bg-blue-50 border-blue-200">
                 <CardContent className="p-3">
                   <p className="text-xs text-gray-600 mb-1">選択中</p>
-                  <p className="font-semibold text-gray-800">{selectedChild?.fullName}</p>
+                  <p className="font-semibold text-gray-800">{selectedChild?.fullName} {selectedChild && <span className="text-gray-600">({getDisplayGrade(selectedChild)})</span>}</p>
                   <p className="text-sm text-gray-700 mt-1">{selectedCategory?.categoryName} → {selectedSchool?.name}</p>
                 </CardContent>
               </Card>
@@ -1718,7 +1718,7 @@ export default function FromTicketPurchasePage() {
               <Card className="rounded-xl shadow-sm bg-blue-50 border-blue-200">
                 <CardContent className="p-3">
                   <p className="text-xs text-gray-600 mb-1">選択中</p>
-                  <p className="font-semibold text-gray-800">{selectedChild?.fullName}</p>
+                  <p className="font-semibold text-gray-800">{selectedChild?.fullName} {selectedChild && <span className="text-gray-600">({getDisplayGrade(selectedChild)})</span>}</p>
                   <p className="text-sm text-gray-700 mt-1">{selectedCategory?.categoryName} → {selectedSchool?.name}</p>
                   {itemType === 'regular' && (
                     <Badge className="mt-1 text-xs">
@@ -1998,7 +1998,7 @@ export default function FromTicketPurchasePage() {
           <div>
             {/* コンパクトな選択状況表示 */}
             <div className="flex items-center gap-1 mb-3 text-xs text-gray-500 flex-wrap">
-              <span className="font-medium text-gray-700">{selectedChild?.fullName}</span>
+              <span className="font-medium text-gray-700">{selectedChild?.fullName} {selectedChild && `(${getDisplayGrade(selectedChild)})`}</span>
               <span>›</span>
               <span className="text-blue-600">{selectedSchool?.name}</span>
               <span>›</span>

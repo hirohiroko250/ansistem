@@ -344,4 +344,5 @@ npm install @tanstack/react-query
 | 2026-01-21 | Phase 4: chat API拡張（createChannel）、use-chat拡張（useCreateChannel, useSendMessage, useChannelMessages）、chat/new移行完了 | - |
 | 2026-01-21 | Phase 4: use-feed拡張（useLatestNews）、ホームページ（page.tsx）移行完了 | - |
 | 2026-01-21 | Phase 4完了: 全20+ページのReact Query移行、17種類のカスタムフック作成完了 | - |
+| 2026-01-22 | Lintエラー修正: useAbsenceTicket→consumeAbsenceTicketにリネーム（React Hooksルール違反解消） | - |
 | 2026-01-21 | Phase 4: use-feed拡張（useLatestNews）、ホームページ（page.tsx）移行完了 | - |
