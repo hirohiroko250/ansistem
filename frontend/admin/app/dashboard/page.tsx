@@ -706,26 +706,25 @@ export default function DashboardPage() {
         {/* 左側: タスクリスト */}
         <div className={`${selectedTask ? 'w-1/2 border-r' : 'w-full'} flex flex-col bg-white transition-all`}>
           {/* ヘッダー */}
-          <div className="p-4 border-b">
-            <div className="flex items-center justify-between mb-3">
+          <div className="p-2 border-b">
+            <div className="flex items-center justify-between mb-1">
               <div>
-                <h1 className="text-xl font-bold text-gray-900">作業一覧</h1>
-                <p className="text-xs text-gray-500">本日の作業と未完了タスク</p>
+                <h1 className="text-sm font-bold text-gray-900">作業一覧</h1>
               </div>
-              <Button size="sm">
-                <Plus className="w-4 h-4 mr-1" />
+              <Button size="sm" className="h-6 text-[10px] px-2">
+                <Plus className="w-3 h-3 mr-0.5" />
                 新規作成
               </Button>
             </div>
 
             {/* 締日情報 */}
             {deadlines.length > 0 && (
-              <div className="flex items-center gap-2 mb-3 overflow-x-auto pb-1">
-                <Calendar className="w-4 h-4 text-gray-400 flex-shrink-0" />
+              <div className="flex items-center gap-1.5 mb-1.5 overflow-x-auto pb-0.5">
+                <Calendar className="w-3 h-3 text-gray-400 flex-shrink-0" />
                 {deadlines.map((deadline) => (
                   <div
                     key={deadline.providerId}
-                    className={`flex items-center gap-1 px-2 py-1 rounded text-xs whitespace-nowrap ${
+                    className={`flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] whitespace-nowrap ${
                       deadline.isClosed
                         ? 'bg-gray-100 text-gray-600'
                         : deadline.daysUntilClosing <= 3
@@ -735,7 +734,7 @@ export default function DashboardPage() {
                         : 'bg-green-100 text-green-700'
                     }`}
                   >
-                    {deadline.isClosed ? <Lock className="w-3 h-3" /> : <Unlock className="w-3 h-3" />}
+                    {deadline.isClosed ? <Lock className="w-2.5 h-2.5" /> : <Unlock className="w-2.5 h-2.5" />}
                     <span className="font-medium">{deadline.providerName}</span>
                     <span>{deadline.closingDateDisplay}</span>
                     {!deadline.isClosed && deadline.daysUntilClosing > 0 && (
@@ -809,51 +808,51 @@ export default function DashboardPage() {
             )}
 
             {/* 統計 */}
-            <div className="flex items-center gap-4 mb-3">
-              <div className="flex items-center gap-1">
-                <Circle className="w-3 h-3 text-blue-400" />
-                <span className="text-xs text-gray-600">新規</span>
-                <span className="text-sm font-bold">{newCount}</span>
+            <div className="flex items-center gap-2 mb-1">
+              <div className="flex items-center gap-0.5">
+                <Circle className="w-2 h-2 text-blue-400" />
+                <span className="text-[9px] text-gray-600">新規</span>
+                <span className="text-[10px] font-bold">{newCount}</span>
               </div>
-              <div className="flex items-center gap-1">
-                <Clock className="w-3 h-3 text-yellow-500" />
-                <span className="text-xs text-gray-600">対応中</span>
-                <span className="text-sm font-bold">{inProgressCount}</span>
+              <div className="flex items-center gap-0.5">
+                <Clock className="w-2 h-2 text-yellow-500" />
+                <span className="text-[9px] text-gray-600">対応中</span>
+                <span className="text-[10px] font-bold">{inProgressCount}</span>
               </div>
-              <div className="flex items-center gap-1">
-                <CheckCircle2 className="w-3 h-3 text-green-500" />
-                <span className="text-xs text-gray-600">完了</span>
-                <span className="text-sm font-bold">{completedCount}</span>
+              <div className="flex items-center gap-0.5">
+                <CheckCircle2 className="w-2 h-2 text-green-500" />
+                <span className="text-[9px] text-gray-600">完了</span>
+                <span className="text-[10px] font-bold">{completedCount}</span>
               </div>
               {urgentCount > 0 && (
-                <div className="flex items-center gap-1 text-red-600">
-                  <AlertCircle className="w-3 h-3" />
-                  <span className="text-xs">要対応</span>
-                  <span className="text-sm font-bold">{urgentCount}</span>
+                <div className="flex items-center gap-0.5 text-red-600">
+                  <AlertCircle className="w-2 h-2" />
+                  <span className="text-[9px]">要対応</span>
+                  <span className="text-[10px] font-bold">{urgentCount}</span>
                 </div>
               )}
               {dangerCount > 0 && (
-                <div className="flex items-center gap-1 text-red-600">
-                  <Clock className="w-3 h-3" />
-                  <span className="text-xs">48h超</span>
-                  <span className="text-sm font-bold animate-pulse">{dangerCount}</span>
+                <div className="flex items-center gap-0.5 text-red-600">
+                  <Clock className="w-2 h-2" />
+                  <span className="text-[9px]">48h超</span>
+                  <span className="text-[10px] font-bold animate-pulse">{dangerCount}</span>
                 </div>
               )}
               {warningCount > 0 && (
-                <div className="flex items-center gap-1 text-yellow-600">
-                  <Clock className="w-3 h-3" />
-                  <span className="text-xs">24h超</span>
-                  <span className="text-sm font-bold">{warningCount}</span>
+                <div className="flex items-center gap-0.5 text-yellow-600">
+                  <Clock className="w-2 h-2" />
+                  <span className="text-[9px]">24h超</span>
+                  <span className="text-[10px] font-bold">{warningCount}</span>
                 </div>
               )}
             </div>
 
             {/* フィルター */}
-            <div className="flex items-center gap-2 flex-wrap">
-              <Filter className="w-4 h-4 text-gray-400" />
+            <div className="flex items-center gap-1 flex-wrap">
+              <Filter className="w-2.5 h-2.5 text-gray-400" />
               {/* カテゴリフィルター */}
               <Select value={filter} onValueChange={setFilter}>
-                <SelectTrigger className="w-[140px] h-8 text-xs">
+                <SelectTrigger className="w-[80px] h-5 text-[9px]">
                   <SelectValue placeholder="カテゴリ" />
                 </SelectTrigger>
                 <SelectContent>
@@ -877,7 +876,7 @@ export default function DashboardPage() {
               </Select>
               {/* 校舎フィルター */}
               <Select value={selectedSchool} onValueChange={setSelectedSchool}>
-                <SelectTrigger className="w-[120px] h-8 text-xs">
+                <SelectTrigger className="w-[70px] h-5 text-[9px]">
                   <SelectValue placeholder="校舎" />
                 </SelectTrigger>
                 <SelectContent>
@@ -891,7 +890,7 @@ export default function DashboardPage() {
               </Select>
               {/* ブランドフィルター */}
               <Select value={selectedBrand} onValueChange={setSelectedBrand}>
-                <SelectTrigger className="w-[120px] h-8 text-xs">
+                <SelectTrigger className="w-[70px] h-5 text-[9px]">
                   <SelectValue placeholder="ブランド" />
                 </SelectTrigger>
                 <SelectContent>
@@ -903,13 +902,14 @@ export default function DashboardPage() {
                   ))}
                 </SelectContent>
               </Select>
-              <div className="flex items-center gap-1">
+              <div className="flex items-center gap-0.5">
                 <Checkbox
                   id="showCompleted"
                   checked={showCompleted}
                   onCheckedChange={(checked) => setShowCompleted(checked === true)}
+                  className="w-2.5 h-2.5"
                 />
-                <label htmlFor="showCompleted" className="text-xs text-gray-600 cursor-pointer">
+                <label htmlFor="showCompleted" className="text-[9px] text-gray-600 cursor-pointer">
                   完了を表示
                 </label>
               </div>
@@ -923,23 +923,23 @@ export default function DashboardPage() {
                 <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
               </div>
             ) : filteredTasks.length > 0 ? (
-              <table className="min-w-full text-xs">
+              <table className="min-w-full text-[10px]">
                 <thead className="bg-gray-50 border-b sticky top-0 z-10">
                   <tr>
-                    <th className="px-1 py-2 text-left font-medium text-gray-500 whitespace-nowrap w-6"></th>
-                    <th className="px-2 py-2 text-left font-medium text-gray-500 whitespace-nowrap">No.</th>
-                    <th className="px-2 py-2 text-left font-medium text-gray-500 whitespace-nowrap">登録日時</th>
-                    <th className="px-2 py-2 text-left font-medium text-gray-500 whitespace-nowrap">状態</th>
-                    <th className="px-2 py-2 text-left font-medium text-gray-500 whitespace-nowrap min-w-[120px]">担当者</th>
-                    <th className="px-2 py-2 text-left font-medium text-gray-500 whitespace-nowrap">カテゴリー</th>
-                    <th className="px-2 py-2 text-left font-medium text-gray-500 whitespace-nowrap">ブランド</th>
-                    <th className="px-2 py-2 text-left font-medium text-gray-500 whitespace-nowrap min-w-[180px]">お問合せ内容</th>
-                    <th className="px-2 py-2 text-left font-medium text-gray-500 whitespace-nowrap min-w-[120px]">件名</th>
-                    <th className="px-2 py-2 text-left font-medium text-gray-500 whitespace-nowrap">生徒ID</th>
-                    <th className="px-2 py-2 text-left font-medium text-gray-500 whitespace-nowrap">生徒名</th>
-                    <th className="px-2 py-2 text-left font-medium text-gray-500 whitespace-nowrap">保護者ID</th>
-                    <th className="px-2 py-2 text-left font-medium text-gray-500 whitespace-nowrap">保護者名</th>
-                    <th className="px-2 py-2 text-left font-medium text-gray-500 whitespace-nowrap">校舎</th>
+                    <th className="px-0.5 py-0.5 text-left text-[9px] font-medium text-gray-500 whitespace-nowrap w-5"></th>
+                    <th className="px-1 py-0.5 text-left text-[9px] font-medium text-gray-500 whitespace-nowrap">No.</th>
+                    <th className="px-1 py-0.5 text-left text-[9px] font-medium text-gray-500 whitespace-nowrap">登録日時</th>
+                    <th className="px-1 py-0.5 text-left text-[9px] font-medium text-gray-500 whitespace-nowrap">状態</th>
+                    <th className="px-1 py-0.5 text-left text-[9px] font-medium text-gray-500 whitespace-nowrap">担当者</th>
+                    <th className="px-1 py-0.5 text-left text-[9px] font-medium text-gray-500 whitespace-nowrap">カテゴリー</th>
+                    <th className="px-1 py-0.5 text-left text-[9px] font-medium text-gray-500 whitespace-nowrap">ブランド</th>
+                    <th className="px-1 py-0.5 text-left text-[9px] font-medium text-gray-500 whitespace-nowrap">お問合せ内容</th>
+                    <th className="px-1 py-0.5 text-left text-[9px] font-medium text-gray-500 whitespace-nowrap">件名</th>
+                    <th className="px-1 py-0.5 text-left text-[9px] font-medium text-gray-500 whitespace-nowrap">生徒ID</th>
+                    <th className="px-1 py-0.5 text-left text-[9px] font-medium text-gray-500 whitespace-nowrap">生徒名</th>
+                    <th className="px-1 py-0.5 text-left text-[9px] font-medium text-gray-500 whitespace-nowrap">保護者ID</th>
+                    <th className="px-1 py-0.5 text-left text-[9px] font-medium text-gray-500 whitespace-nowrap">保護者名</th>
+                    <th className="px-1 py-0.5 text-left text-[9px] font-medium text-gray-500 whitespace-nowrap">校舎</th>
                   </tr>
                 </thead>
                 <tbody className="bg-white">
@@ -970,16 +970,16 @@ export default function DashboardPage() {
                             isExpanded && "border-b-0"
                           )}
                         >
-                          <td className="px-1 py-2 whitespace-nowrap">
+                          <td className="px-0.5 py-px whitespace-nowrap">
                             <button
                               onClick={(e) => toggleTaskExpand(task.id, e)}
-                              className="p-1 hover:bg-gray-200 rounded transition-colors"
+                              className="p-0 hover:bg-gray-200 rounded transition-colors"
                             >
-                              <ChevronDown className={cn("w-4 h-4 text-gray-500 transition-transform", isExpanded && "rotate-180")} />
+                              <ChevronDown className={cn("w-2.5 h-2.5 text-gray-500 transition-transform", isExpanded && "rotate-180")} />
                             </button>
                           </td>
-                          <td className="px-2 py-2 whitespace-nowrap text-gray-900">{index + 1}</td>
-                        <td className="px-2 py-2 whitespace-nowrap text-gray-600">
+                          <td className="px-1 py-px whitespace-nowrap text-gray-900">{index + 1}</td>
+                        <td className="px-1 py-px whitespace-nowrap text-gray-600">
                           {task.created_at && !isNaN(new Date(task.created_at).getTime())
                             ? new Date(task.created_at).toLocaleDateString("ja-JP", { year: "numeric", month: "2-digit", day: "2-digit" })
                             : "---"}
@@ -988,9 +988,9 @@ export default function DashboardPage() {
                             ? new Date(task.created_at).toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" })
                             : ""}
                         </td>
-                        <td className="px-2 py-2 whitespace-nowrap">
-                          <div className="flex items-center gap-1">
-                            <Badge variant="outline" className={cn("text-[10px]", statusClass)}>
+                        <td className="px-1 py-px whitespace-nowrap">
+                          <div className="flex items-center gap-0.5">
+                            <Badge variant="outline" className={cn("text-[8px] px-0.5 py-0 leading-tight", statusClass)}>
                               {task.status_display || (task.status === "completed" ? "完了" : task.status === "in_progress" ? "対応中" : "未対応")}
                             </Badge>
                             {/* 経過時間アラート */}
@@ -999,16 +999,16 @@ export default function DashboardPage() {
                               const hours = Math.floor(getElapsedHours(task.created_at));
                               if (alertLevel === 'danger') {
                                 return (
-                                  <span className="flex items-center gap-0.5 px-1.5 py-0.5 bg-red-100 text-red-700 rounded text-[10px] font-medium animate-pulse" title={`${hours}時間経過`}>
-                                    <AlertCircle className="w-3 h-3" />
+                                  <span className="flex items-center gap-0 px-1 py-0 bg-red-100 text-red-700 rounded text-[8px] font-medium animate-pulse" title={`${hours}時間経過`}>
+                                    <AlertCircle className="w-2 h-2" />
                                     {hours}h
                                   </span>
                                 );
                               }
                               if (alertLevel === 'warning') {
                                 return (
-                                  <span className="flex items-center gap-0.5 px-1.5 py-0.5 bg-yellow-100 text-yellow-700 rounded text-[10px] font-medium" title={`${hours}時間経過`}>
-                                    <Clock className="w-3 h-3" />
+                                  <span className="flex items-center gap-0 px-1 py-0 bg-yellow-100 text-yellow-700 rounded text-[8px] font-medium" title={`${hours}時間経過`}>
+                                    <Clock className="w-2 h-2" />
                                     {hours}h
                                   </span>
                                 );
@@ -1017,7 +1017,7 @@ export default function DashboardPage() {
                             })()}
                           </div>
                         </td>
-                        <td className="px-2 py-2 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                        <td className="px-1 py-px whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
                           <Select
                             value={hasAssignee ? String(task.assigned_to_id) : "__none__"}
                             onValueChange={async (value) => {
@@ -1056,7 +1056,7 @@ export default function DashboardPage() {
                               }
                             }}
                           >
-                            <SelectTrigger className="h-7 text-xs w-[110px] border-dashed">
+                            <SelectTrigger className="h-4 text-[8px] w-[70px] border-dashed px-1">
                               <span className="truncate">{assigneeName}</span>
                             </SelectTrigger>
                             <SelectContent>
@@ -1069,10 +1069,10 @@ export default function DashboardPage() {
                             </SelectContent>
                           </Select>
                         </td>
-                        <td className="px-2 py-2 whitespace-nowrap text-gray-600">
+                        <td className="px-1 py-px whitespace-nowrap text-gray-600">
                           {task.category_name || task.task_type_display || task.task_type || "---"}
                         </td>
-                        <td className="px-2 py-2 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                        <td className="px-1 py-px whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
                           <Select
                             value={task.brand || "__none__"}
                             onValueChange={async (value) => {
@@ -1081,7 +1081,7 @@ export default function DashboardPage() {
                               if (result) loadTasks();
                             }}
                           >
-                            <SelectTrigger className="h-7 text-xs w-[100px] border-dashed">
+                            <SelectTrigger className="h-4 text-[8px] w-[60px] border-dashed px-1">
                               <SelectValue placeholder="---" />
                             </SelectTrigger>
                             <SelectContent>
@@ -1094,25 +1094,25 @@ export default function DashboardPage() {
                             </SelectContent>
                           </Select>
                         </td>
-                        <td className="px-2 py-2 text-gray-600 max-w-[250px] truncate" title={task.description}>
+                        <td className="px-1 py-px text-gray-600 max-w-[150px] truncate" title={task.description}>
                           {task.description || "---"}
                         </td>
-                        <td className="px-2 py-2 text-gray-900 font-medium max-w-[180px] truncate" title={task.title}>
+                        <td className="px-1 py-px text-gray-900 font-medium max-w-[100px] truncate" title={task.title}>
                           {task.title}
                         </td>
-                        <td className="px-2 py-2 whitespace-nowrap text-gray-600">
+                        <td className="px-1 py-px whitespace-nowrap text-gray-600">
                           {task.student_no || "---"}
                         </td>
-                        <td className="px-2 py-2 whitespace-nowrap text-gray-600">
+                        <td className="px-1 py-px whitespace-nowrap text-gray-600">
                           {task.student_name || "---"}
                         </td>
-                        <td className="px-2 py-2 whitespace-nowrap text-gray-600">
+                        <td className="px-1 py-px whitespace-nowrap text-gray-600">
                           {task.guardian_no || "---"}
                         </td>
-                        <td className="px-2 py-2 whitespace-nowrap text-gray-600">
+                        <td className="px-1 py-px whitespace-nowrap text-gray-600">
                           {task.guardian_name || "---"}
                         </td>
-                        <td className="px-2 py-2 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                        <td className="px-1 py-px whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
                           <Select
                             value={task.school || "__none__"}
                             onValueChange={async (value) => {
@@ -1121,7 +1121,7 @@ export default function DashboardPage() {
                               if (result) loadTasks();
                             }}
                           >
-                            <SelectTrigger className="h-7 text-xs w-[100px] border-dashed">
+                            <SelectTrigger className="h-4 text-[8px] w-[60px] border-dashed px-1">
                               <SelectValue placeholder="---" />
                             </SelectTrigger>
                             <SelectContent>
@@ -1138,8 +1138,8 @@ export default function DashboardPage() {
                         {/* 展開時のコメント行 */}
                         {isExpanded && (
                           <tr className="bg-gray-50 border-b border-gray-200">
-                            <td colSpan={14} className="px-4 py-3">
-                              <div className="ml-6 pl-4 border-l-2 border-blue-200">
+                            <td colSpan={14} className="px-1 py-1">
+                              <div className="ml-3 pl-2 border-l-2 border-blue-200">
                                 {cachedComments.length > 0 ? (
                                   <div className="space-y-2">
                                     {cachedComments.map((comment) => {

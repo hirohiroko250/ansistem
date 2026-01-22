@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { ChevronLeft, Package, Sparkles, Calendar as CalendarIcon, Loader2, AlertCircle, BookOpen, Calculator, Pen, Gamepad2, Trophy, Globe, GraduationCap, Clock, Users, CheckCircle2, Circle, Triangle, X as XIcon, Minus, type LucideIcon } from 'lucide-react';
+import { ChevronLeft, Package, Sparkles, Calendar as CalendarIcon, CalendarPlus, Loader2, AlertCircle, BookOpen, Calculator, Pen, Gamepad2, Trophy, Globe, GraduationCap, Clock, Users, CheckCircle2, Circle, Triangle, X as XIcon, Minus, type LucideIcon } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -182,6 +182,7 @@ export default function FromTicketPurchasePage() {
   const [selectedSchoolId, setSelectedSchoolId] = useState<string | null>(null);
   const [itemType, setItemType] = useState<'regular' | 'seminar' | 'certification' | 'event' | null>(null);
   const [courseType, setCourseType] = useState<'single' | 'pack' | null>(null);
+  const [frequency, setFrequency] = useState<'weekly' | 'other' | null>(null); // 週１回 or それ以外
   const [selectedCourse, setSelectedCourse] = useState<PublicCourse | PublicPack | null>(null);
   const [startDate, setStartDate] = useState<Date>();
   const [agreedToTerms, setAgreedToTerms] = useState(false);
@@ -976,6 +977,25 @@ export default function FromTicketPurchasePage() {
         return;
       }
     }
+    // Step 7から戻る場合は頻度選択をリセット
+    if (step === 7 && targetStep === 6) {
+      setFrequency(null);
+      setStep(6);
+      return;
+    }
+    // Step 6で頻度選択中に戻る場合はコースタイプをリセット
+    if (step === 6 && courseType && !frequency) {
+      setCourseType(null);
+      // step 6のままにする（コースタイプ選択画面に戻る）
+      return;
+    }
+    // Step 6でコースタイプ選択中に戻る場合は通常通り
+    if (step === 6 && !courseType) {
+      setCourseType(null);
+      setFrequency(null);
+      setStep(5);
+      return;
+    }
     setStep(targetStep);
   };
 
@@ -1275,7 +1295,7 @@ export default function FromTicketPurchasePage() {
           <Link href="/" className="mr-3">
             <ChevronLeft className="h-6 w-6 text-gray-700" />
           </Link>
-          <h1 className="text-xl font-bold text-gray-800">チケット購入</h1>
+          <h1 className="text-xl font-bold text-gray-800">Class申込</h1>
         </div>
       </header>
 
@@ -1294,26 +1314,26 @@ export default function FromTicketPurchasePage() {
           </Button>
         )}
 
-        <div className="mb-6">
-          <div className="flex items-center justify-center space-x-2">
+        <div className="mb-3">
+          <div className="flex items-center justify-center space-x-1">
             {(itemType === 'regular' ? [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11] :
               (itemType === 'seminar' || itemType === 'certification') ? [1, 2, 3, 4, 5, 7, 10, 11] :
               [1, 2, 3]).map((s) => (
               <div
                 key={s}
-                className={`h-2 flex-1 rounded-full transition-colors ${
+                className={`h-1.5 flex-1 rounded-full transition-colors ${
                   s <= step ? 'bg-blue-500' : 'bg-gray-200'
                 }`}
               />
             ))}
           </div>
-          <p className="text-center text-sm text-gray-600 mt-2">
+          <p className="text-center text-xs text-gray-500 mt-1">
             {step === 9 && preSelectClassMode ? 'クラス選択' :
              step === 10 ? '入会規約' :
              step === 11 ? '購入確認' :
-             itemType === 'regular' ? `Step ${step} / 11` :
-             (itemType === 'seminar' || itemType === 'certification') ? `Step ${[1,2,3,4,5,7,10,11].indexOf(step) + 1} / 8` :
-             `Step ${step} / 3`}
+             itemType === 'regular' ? `${step}/11` :
+             (itemType === 'seminar' || itemType === 'certification') ? `${[1,2,3,4,5,7,10,11].indexOf(step) + 1}/8` :
+             `${step}/3`}
           </p>
         </div>
 
@@ -1619,7 +1639,7 @@ export default function FromTicketPurchasePage() {
         )}
 
         {/* Step 6: コースタイプ選択（単品/パック） */}
-        {step === 6 && (
+        {step === 6 && !courseType && (
           <div>
             <div className="mb-4">
               <Card className="rounded-xl shadow-sm bg-blue-50 border-blue-200">
@@ -1637,7 +1657,6 @@ export default function FromTicketPurchasePage() {
                 className="rounded-xl shadow-md hover:shadow-lg transition-all cursor-pointer border-2 border-transparent hover:border-blue-500"
                 onClick={() => {
                   setCourseType('single');
-                  setStep(7);
                 }}
               >
                 <CardContent className="p-3">
@@ -1660,7 +1679,6 @@ export default function FromTicketPurchasePage() {
                 className="rounded-xl shadow-md hover:shadow-lg transition-all cursor-pointer border-2 border-transparent hover:border-blue-500"
                 onClick={() => {
                   setCourseType('pack');
-                  setStep(7);
                 }}
               >
                 <CardContent className="p-3">
@@ -1682,6 +1700,67 @@ export default function FromTicketPurchasePage() {
           </div>
         )}
 
+        {/* Step 6: 頻度選択（コースタイプ選択後） */}
+        {step === 6 && courseType && !frequency && (
+          <div>
+            <div className="mb-4">
+              <Card className="rounded-xl shadow-sm bg-blue-50 border-blue-200">
+                <CardContent className="p-3">
+                  <p className="text-xs text-gray-600 mb-1">選択中</p>
+                  <p className="font-semibold text-gray-800">{selectedChild?.fullName} {selectedChild && <span className="text-gray-600">({getDisplayGrade(selectedChild)})</span>}</p>
+                  <p className="text-sm text-gray-700 mt-1">{selectedCategory?.categoryName} → {selectedSchool?.name}</p>
+                  <Badge className="mt-1 text-xs">
+                    {courseType === 'single' ? '単品コース' : 'お得パックコース'}
+                  </Badge>
+                </CardContent>
+              </Card>
+            </div>
+
+            <h2 className="text-base font-semibold text-gray-800 mb-3">通う頻度を選択</h2>
+            <div className="space-y-2">
+              <Card
+                className="rounded-xl shadow-md hover:shadow-lg transition-all cursor-pointer border-2 border-transparent hover:border-blue-500"
+                onClick={() => {
+                  setFrequency('weekly');
+                  setStep(7);
+                }}
+              >
+                <CardContent className="p-3">
+                  <div className="flex items-center gap-2">
+                    <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center">
+                      <Calendar className="h-5 w-5 text-blue-600" />
+                    </div>
+                    <div className="flex-1">
+                      <h3 className="font-semibold text-sm text-gray-800">週１回</h3>
+                      <p className="text-xs text-gray-600">毎週同じ曜日・時間に通う</p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card
+                className="rounded-xl shadow-md hover:shadow-lg transition-all cursor-pointer border-2 border-transparent hover:border-blue-500"
+                onClick={() => {
+                  setFrequency('other');
+                  setStep(7);
+                }}
+              >
+                <CardContent className="p-3">
+                  <div className="flex items-center gap-2">
+                    <div className="w-10 h-10 rounded-full bg-purple-100 flex items-center justify-center">
+                      <CalendarPlus className="h-5 w-5 text-purple-600" />
+                    </div>
+                    <div className="flex-1">
+                      <h3 className="font-semibold text-sm text-gray-800">週２回以上 / その他</h3>
+                      <p className="text-xs text-gray-600">複数回通う、または不定期</p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          </div>
+        )}
+
         {/* Step 7: コース/講習会/検定選択 */}
         {step === 7 && (
           <div>
@@ -1692,9 +1771,14 @@ export default function FromTicketPurchasePage() {
                   <p className="font-semibold text-gray-800">{selectedChild?.fullName} {selectedChild && <span className="text-gray-600">({getDisplayGrade(selectedChild)})</span>}</p>
                   <p className="text-sm text-gray-700 mt-1">{selectedCategory?.categoryName} → {selectedSchool?.name}</p>
                   {itemType === 'regular' && (
-                    <Badge className="mt-1 text-xs">
-                      {courseType === 'single' ? '単品コース' : 'お得パックコース'}
-                    </Badge>
+                    <div className="flex items-center gap-1 mt-1">
+                      <Badge className="text-xs">
+                        {courseType === 'single' ? '単品コース' : 'お得パックコース'}
+                      </Badge>
+                      <Badge className="text-xs" variant="outline">
+                        {frequency === 'weekly' ? '週１回' : '週２回以上'}
+                      </Badge>
+                    </div>
                   )}
                   {itemType === 'seminar' && (
                     <Badge className="mt-1 text-xs bg-purple-500">講習会</Badge>
