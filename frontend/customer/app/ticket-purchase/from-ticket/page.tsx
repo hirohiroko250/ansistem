@@ -2341,7 +2341,7 @@ export default function FromTicketPurchasePage() {
                 <Card className="rounded-xl shadow-sm bg-blue-50 border-blue-200">
                   <CardContent className="p-3">
                     <p className="text-xs text-gray-600 mb-1">選択中</p>
-                    <p className="font-semibold text-gray-800">{selectedChild?.fullName}</p>
+                    <p className="font-semibold text-gray-800">{selectedChild?.fullName} {selectedChild && <span className="text-gray-600">({getDisplayGrade(selectedChild)})</span>}</p>
                     <p className="text-sm text-gray-700 mt-1">{selectedCategory?.categoryName} → {selectedSchool?.name}</p>
                     <p className="text-sm text-gray-700">{selectedCourse && getCourseName(selectedCourse)}</p>
                     <p className="text-sm text-gray-700">開始日: {startDate && format(startDate, 'yyyy年MM月dd日', { locale: ja })}</p>
@@ -2772,8 +2772,7 @@ export default function FromTicketPurchasePage() {
               <CardContent className="p-4 space-y-3">
                 <div>
                   <p className="text-sm text-gray-600 mb-1">お子様</p>
-                  <p className="font-semibold text-gray-800">{selectedChild?.fullName}</p>
-                  <p className="text-sm text-gray-600">{selectedChild?.grade}</p>
+                  <p className="font-semibold text-gray-800">{selectedChild?.fullName} {selectedChild && <span className="text-gray-600">({getDisplayGrade(selectedChild)})</span>}</p>
                 </div>
                 <div className="border-t pt-4">
                   <p className="text-sm text-gray-600 mb-1">カテゴリ</p>
