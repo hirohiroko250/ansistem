@@ -63,35 +63,35 @@ export function StaffList({ result, groups = [], selectedStaffId, onSelectStaff 
           <div
             key={staff.id}
             className={cn(
-              "px-3 py-2.5 cursor-pointer hover:bg-blue-50 transition-all border-b border-gray-100",
+              "px-2 py-1.5 cursor-pointer hover:bg-blue-50 transition-all border-b border-gray-100",
               selectedStaffId === staff.id && "bg-blue-50 border-l-4 border-l-blue-500"
             )}
             onClick={() => onSelectStaff(staff.id)}
           >
-            <div className="flex items-start gap-2">
+            <div className="flex items-start gap-1.5">
               <div className="flex-1 min-w-0">
                 {/* 1行目: 名前、役職、ステータス */}
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="font-medium text-gray-900 text-sm">{staffName || "名前未設定"}</span>
-                  {positionName && <span className="text-xs text-gray-500">{positionName}</span>}
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <span className="font-medium text-gray-900 text-xs">{staffName || "名前未設定"}</span>
+                  {positionName && <span className="text-[10px] text-gray-500">{positionName}</span>}
                   <Badge
                     variant={getStatusVariant(staff.status)}
-                    className="text-[10px] px-1.5 py-0"
+                    className="text-[9px] px-1 py-0 h-4"
                   >
                     {getStatusLabel(staff.status)}
                   </Badge>
                 </div>
 
                 {/* 2行目: 会社タグとグループタグ */}
-                <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
+                <div className="flex items-center gap-1 mt-0.5 flex-wrap">
                   {/* 会社タグ */}
                   {brands.map(brand => (
                     <Badge
                       key={brand.id}
                       variant="outline"
-                      className="text-[10px] px-1.5 py-0 bg-orange-50 text-orange-700 border-orange-200"
+                      className="text-[9px] px-1 py-0 h-4 bg-orange-50 text-orange-700 border-orange-200"
                     >
-                      <Building2 className="w-2.5 h-2.5 mr-0.5" />
+                      <Building2 className="w-2 h-2 mr-0.5" />
                       {brand.name}
                     </Badge>
                   ))}
@@ -101,16 +101,16 @@ export function StaffList({ result, groups = [], selectedStaffId, onSelectStaff 
                     <Badge
                       key={index}
                       variant="outline"
-                      className="text-[10px] px-1.5 py-0 bg-blue-50 text-blue-700 border-blue-200"
+                      className="text-[9px] px-1 py-0 h-4 bg-blue-50 text-blue-700 border-blue-200"
                     >
-                      <Users className="w-2.5 h-2.5 mr-0.5" />
+                      <Users className="w-2 h-2 mr-0.5" />
                       {groupName}
                     </Badge>
                   ))}
 
                   {/* 社員番号 */}
                   {employeeNo && (
-                    <span className="text-[10px] text-gray-400">No.{employeeNo}</span>
+                    <span className="text-[9px] text-gray-400">No.{employeeNo}</span>
                   )}
                 </div>
               </div>

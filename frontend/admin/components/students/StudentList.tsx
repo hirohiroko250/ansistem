@@ -64,31 +64,31 @@ export function StudentList({ result, selectedStudentId, onSelectStudent, unread
           <div
             key={student.id}
             className={cn(
-              "px-3 py-2 cursor-pointer hover:bg-blue-50 transition-all border-b border-gray-100",
+              "px-2 py-1 cursor-pointer hover:bg-blue-50 transition-all border-b border-gray-100",
               selectedStudentId === student.id && "bg-blue-50 border-l-4 border-l-blue-500",
               unreadCount > 0 && "bg-red-50"
             )}
             onClick={() => onSelectStudent(student.id)}
           >
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5">
               <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2">
-                  <span className="font-medium text-gray-900 text-sm truncate">{studentName || "名前未設定"}</span>
-                  {gradeText && <span className="text-xs text-gray-500">{gradeText}</span>}
+                <div className="flex items-center gap-1.5">
+                  <span className="font-medium text-gray-900 text-xs truncate">{studentName || "名前未設定"}</span>
+                  {gradeText && <span className="text-[10px] text-gray-500">{gradeText}</span>}
                   <Badge
                     variant={getStatusVariant(student.status)}
-                    className="text-[10px] px-1.5 py-0"
+                    className="text-[9px] px-1 py-0 h-4"
                   >
                     {getStatusLabel(student.status)}
                   </Badge>
                   {unreadCount > 0 && (
-                    <span className="flex items-center gap-0.5 bg-red-500 text-white text-[10px] px-1.5 py-0.5 rounded-full">
-                      <MessageCircle className="w-3 h-3" />
+                    <span className="flex items-center gap-0.5 bg-red-500 text-white text-[9px] px-1 py-0 rounded-full">
+                      <MessageCircle className="w-2.5 h-2.5" />
                       {unreadCount}
                     </span>
                   )}
                 </div>
-                <div className="text-xs text-gray-400 flex gap-3">
+                <div className="text-[10px] text-gray-400 flex gap-2">
                   {guardianNo && <span>家族ID {guardianNo}</span>}
                   {studentNo && <span>生徒ID {studentNo}</span>}
                 </div>

@@ -38,23 +38,23 @@ const taskTypeLabels: Record<string, string> = {
 export function TaskList({ tasks, selectedTaskId, onSelectTask }: TaskListProps) {
   return (
     <div className="overflow-x-auto border rounded-lg">
-      <table className="min-w-full text-sm">
+      <table className="min-w-full text-xs">
         <thead className="bg-gray-50 border-b">
           <tr>
-            <th className="px-2 py-2 text-left text-xs font-medium text-gray-500 whitespace-nowrap">No.</th>
-            <th className="px-2 py-2 text-left text-xs font-medium text-gray-500 whitespace-nowrap">登録日時</th>
-            <th className="px-2 py-2 text-left text-xs font-medium text-gray-500 whitespace-nowrap">状態</th>
-            <th className="px-2 py-2 text-left text-xs font-medium text-gray-500 whitespace-nowrap">担当者</th>
-            <th className="px-2 py-2 text-left text-xs font-medium text-gray-500 whitespace-nowrap">カテゴリー</th>
-            <th className="px-2 py-2 text-left text-xs font-medium text-gray-500 whitespace-nowrap">ブランド</th>
-            <th className="px-2 py-2 text-left text-xs font-medium text-gray-500 whitespace-nowrap min-w-[200px]">お問合せ内容</th>
-            <th className="px-2 py-2 text-left text-xs font-medium text-gray-500 whitespace-nowrap min-w-[150px]">件名</th>
-            <th className="px-2 py-2 text-left text-xs font-medium text-gray-500 whitespace-nowrap">生徒ID</th>
-            <th className="px-2 py-2 text-left text-xs font-medium text-gray-500 whitespace-nowrap">生徒名</th>
-            <th className="px-2 py-2 text-left text-xs font-medium text-gray-500 whitespace-nowrap">保護者ID</th>
-            <th className="px-2 py-2 text-left text-xs font-medium text-gray-500 whitespace-nowrap">保護者名</th>
-            <th className="px-2 py-2 text-left text-xs font-medium text-gray-500 whitespace-nowrap">校舎</th>
-            <th className="px-2 py-2 text-left text-xs font-medium text-gray-500 whitespace-nowrap">期限</th>
+            <th className="px-1.5 py-1 text-left text-[10px] font-medium text-gray-500 whitespace-nowrap">No.</th>
+            <th className="px-1.5 py-1 text-left text-[10px] font-medium text-gray-500 whitespace-nowrap">登録日時</th>
+            <th className="px-1.5 py-1 text-left text-[10px] font-medium text-gray-500 whitespace-nowrap">状態</th>
+            <th className="px-1.5 py-1 text-left text-[10px] font-medium text-gray-500 whitespace-nowrap">担当者</th>
+            <th className="px-1.5 py-1 text-left text-[10px] font-medium text-gray-500 whitespace-nowrap">カテゴリー</th>
+            <th className="px-1.5 py-1 text-left text-[10px] font-medium text-gray-500 whitespace-nowrap">ブランド</th>
+            <th className="px-1.5 py-1 text-left text-[10px] font-medium text-gray-500 whitespace-nowrap min-w-[180px]">お問合せ内容</th>
+            <th className="px-1.5 py-1 text-left text-[10px] font-medium text-gray-500 whitespace-nowrap min-w-[120px]">件名</th>
+            <th className="px-1.5 py-1 text-left text-[10px] font-medium text-gray-500 whitespace-nowrap">生徒ID</th>
+            <th className="px-1.5 py-1 text-left text-[10px] font-medium text-gray-500 whitespace-nowrap">生徒名</th>
+            <th className="px-1.5 py-1 text-left text-[10px] font-medium text-gray-500 whitespace-nowrap">保護者ID</th>
+            <th className="px-1.5 py-1 text-left text-[10px] font-medium text-gray-500 whitespace-nowrap">保護者名</th>
+            <th className="px-1.5 py-1 text-left text-[10px] font-medium text-gray-500 whitespace-nowrap">校舎</th>
+            <th className="px-1.5 py-1 text-left text-[10px] font-medium text-gray-500 whitespace-nowrap">期限</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-gray-200 bg-white">
@@ -79,48 +79,48 @@ export function TaskList({ tasks, selectedTaskId, onSelectTask }: TaskListProps)
                 )}
                 onClick={() => onSelectTask(task.id)}
               >
-                <td className="px-2 py-2 whitespace-nowrap text-gray-900">{index + 1}</td>
-                <td className="px-2 py-2 whitespace-nowrap text-gray-600">
+                <td className="px-1.5 py-0.5 whitespace-nowrap text-gray-900">{index + 1}</td>
+                <td className="px-1.5 py-0.5 whitespace-nowrap text-gray-600">
                   {isValidCreatedDate && createdDate
                     ? format(createdDate, "yyyy/MM/dd HH:mm", { locale: ja })
                     : "---"}
                 </td>
-                <td className="px-2 py-2 whitespace-nowrap">
-                  <Badge variant="outline" className={cn("text-xs", statusInfo.className)}>
+                <td className="px-1.5 py-0.5 whitespace-nowrap">
+                  <Badge variant="outline" className={cn("text-[10px] px-1 py-0", statusInfo.className)}>
                     {task.status_display || statusInfo.label}
                   </Badge>
                 </td>
-                <td className="px-2 py-2 whitespace-nowrap text-gray-600">
+                <td className="px-1.5 py-0.5 whitespace-nowrap text-gray-600">
                   {task.assigned_to_name || "未割当て"}
                 </td>
-                <td className="px-2 py-2 whitespace-nowrap text-gray-600">
+                <td className="px-1.5 py-0.5 whitespace-nowrap text-gray-600">
                   {task.category_name || taskTypeLabels[task.task_type] || task.task_type_display || task.task_type || "---"}
                 </td>
-                <td className="px-2 py-2 whitespace-nowrap text-gray-600">
+                <td className="px-1.5 py-0.5 whitespace-nowrap text-gray-600">
                   {task.brand_name || "---"}
                 </td>
-                <td className="px-2 py-2 text-gray-600 max-w-[300px] truncate" title={task.description}>
+                <td className="px-1.5 py-0.5 text-gray-600 max-w-[250px] truncate" title={task.description}>
                   {task.description || "---"}
                 </td>
-                <td className="px-2 py-2 text-gray-900 font-medium max-w-[200px] truncate" title={task.title}>
+                <td className="px-1.5 py-0.5 text-gray-900 font-medium max-w-[180px] truncate" title={task.title}>
                   {task.title}
                 </td>
-                <td className="px-2 py-2 whitespace-nowrap text-gray-600">
+                <td className="px-1.5 py-0.5 whitespace-nowrap text-gray-600">
                   {task.student ? task.student.substring(0, 8) : "---"}
                 </td>
-                <td className="px-2 py-2 whitespace-nowrap text-gray-600">
+                <td className="px-1.5 py-0.5 whitespace-nowrap text-gray-600">
                   {task.student_name || "---"}
                 </td>
-                <td className="px-2 py-2 whitespace-nowrap text-gray-600">
+                <td className="px-1.5 py-0.5 whitespace-nowrap text-gray-600">
                   {task.guardian ? task.guardian.substring(0, 8) : "---"}
                 </td>
-                <td className="px-2 py-2 whitespace-nowrap text-gray-600">
+                <td className="px-1.5 py-0.5 whitespace-nowrap text-gray-600">
                   {task.guardian_name || "---"}
                 </td>
-                <td className="px-2 py-2 whitespace-nowrap text-gray-600">
+                <td className="px-1.5 py-0.5 whitespace-nowrap text-gray-600">
                   {task.school_name || "---"}
                 </td>
-                <td className="px-2 py-2 whitespace-nowrap text-gray-600">
+                <td className="px-1.5 py-0.5 whitespace-nowrap text-gray-600">
                   {isValidDueDate && dueDate
                     ? format(dueDate, "MM/dd HH:mm", { locale: ja })
                     : "---"}
