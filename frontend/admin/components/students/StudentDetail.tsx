@@ -258,6 +258,7 @@ export function StudentDetail({ student, parents, contracts, invoices, contactLo
 
   // 写真アップロード
   const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
+  const [isPhotoModalOpen, setIsPhotoModalOpen] = useState(false);
   const photoInputRef = useRef<HTMLInputElement>(null);
 
   // contactLogs propが変わったらlocalContactLogsを更新
@@ -1119,8 +1120,8 @@ export function StudentDetail({ student, parents, contracts, invoices, contactLo
       {/* ヘッダー - ファーストビューで重要情報を表示 */}
       <div className="bg-gradient-to-r from-blue-600 to-blue-700 text-white p-4">
         <div className="flex items-start gap-4 mb-3">
-          {/* 生徒写真 */}
-          <div className="relative group">
+          {/* 生徒写真 - 証明写真サイズ */}
+          <div className="relative group shrink-0">
             <input
               type="file"
               ref={photoInputRef}
@@ -1128,31 +1129,46 @@ export function StudentDetail({ student, parents, contracts, invoices, contactLo
               accept="image/jpeg,image/png,image/gif,image/webp"
               className="hidden"
             />
-            <button
-              onClick={() => photoInputRef.current?.click()}
-              disabled={isUploadingPhoto}
-              className="relative cursor-pointer focus:outline-none focus:ring-2 focus:ring-white/50 rounded-full"
-            >
-              {profileImageUrl ? (
+            {profileImageUrl ? (
+              <div className="relative">
                 <img
                   src={profileImageUrl}
                   alt={`${lastName} ${firstName}`}
-                  className="w-16 h-16 rounded-full object-cover border-2 border-white/50"
+                  className="w-20 h-28 object-cover rounded-lg border-2 border-white/50 cursor-pointer hover:opacity-90 transition-opacity"
+                  onClick={() => setIsPhotoModalOpen(true)}
                 />
-              ) : (
-                <div className="w-16 h-16 rounded-full bg-white/20 flex items-center justify-center border-2 border-white/50">
-                  <User className="w-8 h-8 text-white/70" />
-                </div>
-              )}
-              {/* カメラアイコンオーバーレイ */}
-              <div className="absolute inset-0 rounded-full bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                {isUploadingPhoto ? (
-                  <Loader2 className="w-6 h-6 text-white animate-spin" />
-                ) : (
-                  <ImageIcon className="w-6 h-6 text-white" />
-                )}
+                {/* アップロードボタン */}
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    photoInputRef.current?.click();
+                  }}
+                  disabled={isUploadingPhoto}
+                  className="absolute -bottom-2 -right-2 w-7 h-7 bg-blue-500 hover:bg-blue-600 rounded-full flex items-center justify-center border-2 border-white shadow-lg"
+                >
+                  {isUploadingPhoto ? (
+                    <Loader2 className="w-4 h-4 text-white animate-spin" />
+                  ) : (
+                    <ImageIcon className="w-4 h-4 text-white" />
+                  )}
+                </button>
               </div>
-            </button>
+            ) : (
+              <button
+                onClick={() => photoInputRef.current?.click()}
+                disabled={isUploadingPhoto}
+                className="w-20 h-28 rounded-lg bg-white/20 flex flex-col items-center justify-center border-2 border-dashed border-white/50 hover:bg-white/30 transition-colors cursor-pointer"
+              >
+                {isUploadingPhoto ? (
+                  <Loader2 className="w-8 h-8 text-white animate-spin" />
+                ) : (
+                  <>
+                    <ImageIcon className="w-8 h-8 text-white/70 mb-1" />
+                    <span className="text-[10px] text-white/70">写真を追加</span>
+                  </>
+                )}
+              </button>
+            )}
           </div>
 
           <div className="flex-1">
@@ -3853,6 +3869,44 @@ export function StudentDetail({ student, parents, contracts, invoices, contactLo
               閉じる
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* 写真拡大モーダル */}
+      <Dialog open={isPhotoModalOpen} onOpenChange={setIsPhotoModalOpen}>
+        <DialogContent className="max-w-lg p-0 overflow-hidden">
+          <DialogHeader className="p-4 pb-0">
+            <DialogTitle>{lastName} {firstName}の写真</DialogTitle>
+          </DialogHeader>
+          <div className="p-4 flex flex-col items-center">
+            {profileImageUrl ? (
+              <img
+                src={profileImageUrl}
+                alt={`${lastName} ${firstName}`}
+                className="max-w-full max-h-[60vh] object-contain rounded-lg"
+              />
+            ) : (
+              <div className="w-64 h-80 bg-gray-100 flex flex-col items-center justify-center rounded-lg">
+                <User className="w-20 h-20 text-gray-400 mb-2" />
+                <p className="text-gray-500">写真が登録されていません</p>
+              </div>
+            )}
+            <div className="mt-4 flex gap-2">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setIsPhotoModalOpen(false);
+                  photoInputRef.current?.click();
+                }}
+              >
+                <ImageIcon className="w-4 h-4 mr-2" />
+                {profileImageUrl ? "写真を変更" : "写真をアップロード"}
+              </Button>
+              <Button variant="outline" onClick={() => setIsPhotoModalOpen(false)}>
+                閉じる
+              </Button>
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
     </div>
