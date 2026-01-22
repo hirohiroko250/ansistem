@@ -9,7 +9,7 @@ import { BottomTabBar } from '@/components/bottom-tab-bar';
 import { AuthGuard } from '@/components/auth';
 import Link from 'next/link';
 import { useOwnedTickets, useInvalidateOwnedTickets, type OwnedTicketType } from '@/lib/hooks/use-tickets';
-import { getTransferAvailableClasses, useAbsenceTicket, type TransferAvailableClass } from '@/lib/api/lessons';
+import { getTransferAvailableClasses, consumeAbsenceTicket, type TransferAvailableClass } from '@/lib/api/lessons';
 import { getBrandSchools, type BrandSchool } from '@/lib/api/schools';
 import { format, isSameDay, startOfMonth, endOfMonth, eachDayOfInterval, getDay, addMonths, subMonths } from 'date-fns';
 import { ja } from 'date-fns/locale';
@@ -101,7 +101,7 @@ function TicketsContent() {
     setTransferError(null);
 
     try {
-      await useAbsenceTicket({
+      await consumeAbsenceTicket({
         absenceTicketId: selectedTicket.id,
         targetDate: format(selectedDate, 'yyyy-MM-dd'),
         targetClassScheduleId: selectedClass.id,
@@ -238,14 +238,14 @@ function TicketsContent() {
         </div>
 
         {tickets.length === 0 && !error && (
-          <Card className="rounded-xl shadow-md bg-gray-50 border-gray-200 mb-6">
-            <CardContent className="p-6 text-center">
-              <Ticket className="h-12 w-12 text-gray-400 mx-auto mb-3" />
-              <p className="text-gray-600 font-medium mb-2">まだチケットがありません</p>
-              <p className="text-sm text-gray-500">
+          <Card className="rounded-xl shadow-md bg-gray-50 border-gray-200 mb-4">
+            <CardContent className="p-4 text-center">
+              <Ticket className="h-10 w-10 text-gray-400 mx-auto mb-2" />
+              <p className="text-sm text-gray-600 font-medium mb-1">まだチケットがありません</p>
+              <p className="text-xs text-gray-500">
                 チケットを購入すると、ここに表示されます
               </p>
-              <Link href="/ticket-purchase" className="inline-block mt-4 px-4 py-2 bg-blue-500 text-white rounded-lg text-sm font-medium">
+              <Link href="/ticket-purchase" className="inline-block mt-3 px-3 py-1.5 bg-blue-500 text-white rounded-lg text-xs font-medium">
                 チケットを購入する
               </Link>
             </CardContent>
@@ -431,11 +431,11 @@ function TicketsContent() {
             {/* コンテンツ */}
             <div className="flex-1 overflow-y-auto p-4">
               {transferSuccess ? (
-                <div className="text-center py-8">
-                  <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                    <RefreshCw className="h-8 w-8 text-green-600" />
+                <div className="text-center py-6">
+                  <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-3">
+                    <RefreshCw className="h-6 w-6 text-green-600" />
                   </div>
-                  <h3 className="text-xl font-bold text-gray-800 mb-2">振替予約完了</h3>
+                  <h3 className="text-lg font-bold text-gray-800 mb-2">振替予約完了</h3>
                   <p className="text-gray-600 mb-4">
                     {selectedDate && format(selectedDate, 'M月d日(E)', { locale: ja })}の授業に振替予約しました
                   </p>

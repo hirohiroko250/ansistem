@@ -828,7 +828,7 @@ export interface UseAbsenceTicketResponse {
  * @param data - 振替予約データ
  * @returns 振替予約結果
  */
-export async function useAbsenceTicket(
+export async function consumeAbsenceTicket(
   data: UseAbsenceTicketRequest
 ): Promise<UseAbsenceTicketResponse> {
   return api.post<UseAbsenceTicketResponse>('/lessons/use-absence-ticket/', {

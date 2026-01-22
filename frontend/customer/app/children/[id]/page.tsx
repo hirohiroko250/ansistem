@@ -340,7 +340,7 @@ function ChildDetailContent() {
               <button
                 onClick={() => photoInputRef.current?.click()}
                 disabled={uploadingPhoto}
-                className="w-20 h-20 bg-blue-100 rounded-full flex items-center justify-center shrink-0 relative group cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-20 h-20 bg-blue-100 rounded-full flex items-center justify-center shrink-0 relative cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500 border-2 border-dashed border-blue-300"
               >
                 {child.profile_image_url ? (
                   <img
@@ -349,16 +349,23 @@ function ChildDetailContent() {
                     className="w-full h-full rounded-full object-cover"
                   />
                 ) : (
-                  <User className="h-10 w-10 text-blue-600" />
+                  <div className="flex flex-col items-center">
+                    {uploadingPhoto ? (
+                      <Loader2 className="h-6 w-6 text-blue-600 animate-spin" />
+                    ) : (
+                      <>
+                        <Camera className="h-6 w-6 text-blue-600" />
+                        <span className="text-[10px] text-blue-600 mt-1">写真</span>
+                      </>
+                    )}
+                  </div>
                 )}
-                {/* カメラアイコンオーバーレイ */}
-                <div className="absolute inset-0 rounded-full bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                  {uploadingPhoto ? (
+                {/* アップロード中オーバーレイ */}
+                {uploadingPhoto && child.profile_image_url && (
+                  <div className="absolute inset-0 rounded-full bg-black/40 flex items-center justify-center">
                     <Loader2 className="w-6 h-6 text-white animate-spin" />
-                  ) : (
-                    <Camera className="w-6 h-6 text-white" />
-                  )}
-                </div>
+                  </div>
+                )}
               </button>
               <div className="flex-1">
                 {isEditing ? (

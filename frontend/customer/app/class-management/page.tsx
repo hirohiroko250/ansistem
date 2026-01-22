@@ -8,7 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { BottomTabBar } from '@/components/bottom-tab-bar';
 import { isAuthenticated } from '@/lib/api/auth';
 import { getClassSchedules, getSchoolsByTicket, type ClassScheduleResponse, type BrandSchool } from '@/lib/api/schools';
-import { getAbsenceTickets, getTransferAvailableClasses, useAbsenceTicket as useAbsenceTicketApi, type AbsenceTicket, type TransferAvailableClass } from '@/lib/api/lessons';
+import { getAbsenceTickets, getTransferAvailableClasses, consumeAbsenceTicket, type AbsenceTicket, type TransferAvailableClass } from '@/lib/api/lessons';
 import { MapSchoolSelector } from '@/components/map-school-selector';
 import {
   useMyContracts,
@@ -16,7 +16,7 @@ import {
   useChangeSchool,
   useRequestSuspension,
   useRequestCancellation,
-  useUseAbsenceTicket,
+  useConsumeAbsenceTicket,
   type MyContract,
   type MyStudent,
 } from '@/lib/hooks/use-class-management';
@@ -158,7 +158,7 @@ export default function ClassManagementPage() {
   const changeSchoolMutation = useChangeSchool();
   const requestSuspensionMutation = useRequestSuspension();
   const requestCancellationMutation = useRequestCancellation();
-  const useAbsenceTicketMutation = useUseAbsenceTicket();
+  const consumeAbsenceTicketMutation = useConsumeAbsenceTicket();
 
   const loading = contractsLoading;
   const error = contractsError ? '契約情報の取得に失敗しました' : localError;
@@ -220,7 +220,7 @@ export default function ClassManagementPage() {
     changeSchoolMutation.isPending ||
     requestSuspensionMutation.isPending ||
     requestCancellationMutation.isPending ||
-    useAbsenceTicketMutation.isPending;
+    consumeAbsenceTicketMutation.isPending;
 
   // 認証チェック
   useEffect(() => {
@@ -476,7 +476,7 @@ export default function ClassManagementPage() {
     if (!selectedAbsenceTicket || !selectedTransferClass || !transferDate) return;
 
     try {
-      const response = await useAbsenceTicketMutation.mutateAsync({
+      const response = await consumeAbsenceTicketMutation.mutateAsync({
         absenceTicketId: selectedAbsenceTicket.id,
         targetDate: transferDate,
         targetClassScheduleId: selectedTransferClass.id,

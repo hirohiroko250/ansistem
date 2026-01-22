@@ -30,7 +30,7 @@ import {
 import {
   getAbsenceTickets,
   getTransferAvailableClasses,
-  useAbsenceTicket,
+  consumeAbsenceTicket,
   type AbsenceTicket,
   type TransferAvailableClass,
   type UseAbsenceTicketRequest,
@@ -202,12 +202,12 @@ export function useRequestCancellation() {
 /**
  * 欠席チケット使用（振替予約）
  */
-export function useUseAbsenceTicket() {
+export function useConsumeAbsenceTicket() {
   const queryClient = useQueryClient();
 
   return useMutation({
     mutationFn: async (data: UseAbsenceTicketRequest) => {
-      return useAbsenceTicket(data);
+      return consumeAbsenceTicket(data);
     },
     onSuccess: () => {
       // 欠席チケット一覧を再取得

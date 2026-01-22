@@ -46,31 +46,31 @@ function SettingsContent() {
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-blue-50">
       <header className="sticky top-0 z-40 bg-white shadow-sm">
         <div className="max-w-[390px] mx-auto px-4 h-16 flex items-center">
-          <h1 className="text-2xl font-bold text-blue-600">Settings</h1>
+          <h1 className="text-xl font-bold text-blue-600">Settings</h1>
         </div>
       </header>
 
       <main className="max-w-[390px] mx-auto px-4 py-6 pb-24">
         {isLoading ? (
-          <Card className="rounded-xl shadow-md mb-6">
-            <CardContent className="p-6 flex items-center justify-center">
-              <Loader2 className="h-8 w-8 animate-spin text-blue-500" />
+          <Card className="rounded-xl shadow-md mb-4">
+            <CardContent className="p-4 flex items-center justify-center">
+              <Loader2 className="h-6 w-6 animate-spin text-blue-500" />
             </CardContent>
           </Card>
         ) : error ? (
-          <Card className="rounded-xl shadow-md mb-6 border-red-200">
-            <CardContent className="p-6">
+          <Card className="rounded-xl shadow-md mb-4 border-red-200">
+            <CardContent className="p-4">
               <div className="flex items-center gap-2 text-red-600">
-                <AlertCircle className="h-5 w-5" />
-                <p className="text-sm">{error instanceof Error ? error.message : 'プロフィール情報の取得に失敗しました'}</p>
+                <AlertCircle className="h-4 w-4" />
+                <p className="text-xs">{error instanceof Error ? error.message : 'プロフィール情報の取得に失敗しました'}</p>
               </div>
             </CardContent>
           </Card>
         ) : (
-          <Card className="rounded-xl shadow-md mb-6">
-            <CardContent className="p-6 flex items-center gap-4">
-              <Avatar className="h-16 w-16">
-                <AvatarFallback className="bg-blue-100 text-blue-600 text-xl font-semibold">
+          <Card className="rounded-xl shadow-md mb-4">
+            <CardContent className="p-4 flex items-center gap-3">
+              <Avatar className="h-12 w-12">
+                <AvatarFallback className="bg-blue-100 text-blue-600 text-base font-semibold">
                   {getInitials(profile)}
                 </AvatarFallback>
               </Avatar>

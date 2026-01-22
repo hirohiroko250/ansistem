@@ -414,11 +414,11 @@ export default function ClassRegistrationPage() {
 
             {contracts.length === 0 ? (
               <Card className="rounded-xl shadow-md bg-gray-50 border-gray-200">
-                <CardContent className="p-6 text-center">
-                  <CalendarIcon className="h-12 w-12 text-gray-400 mx-auto mb-3" />
-                  <p className="text-gray-600">受講中のクラスがありません</p>
+                <CardContent className="p-4 text-center">
+                  <CalendarIcon className="h-10 w-10 text-gray-400 mx-auto mb-2" />
+                  <p className="text-sm text-gray-600">受講中のクラスがありません</p>
                   <Link href="/ticket-purchase">
-                    <Button className="mt-4">コースを探す</Button>
+                    <Button className="mt-3" size="sm">コースを探す</Button>
                   </Link>
                 </CardContent>
               </Card>
@@ -758,9 +758,9 @@ export default function ClassRegistrationPage() {
               </Card>
             ) : (
               <Card>
-                <CardContent className="p-6 text-center">
-                  <CalendarIcon className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-                  <p className="text-gray-500">開講時間割がありません</p>
+                <CardContent className="p-4 text-center">
+                  <CalendarIcon className="w-10 h-10 text-gray-300 mx-auto mb-2" />
+                  <p className="text-sm text-gray-500">開講時間割がありません</p>
                 </CardContent>
               </Card>
             )}
@@ -856,9 +856,9 @@ export default function ClassRegistrationPage() {
               </>
             ) : (
               <Card>
-                <CardContent className="p-6 text-center">
-                  <MapPin className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-                  <p className="text-gray-500">他に開講校舎がありません</p>
+                <CardContent className="p-4 text-center">
+                  <MapPin className="w-10 h-10 text-gray-300 mx-auto mb-2" />
+                  <p className="text-sm text-gray-500">他に開講校舎がありません</p>
                 </CardContent>
               </Card>
             )}
@@ -989,9 +989,9 @@ export default function ClassRegistrationPage() {
               </Card>
             ) : (
               <Card>
-                <CardContent className="p-6 text-center">
-                  <CalendarIcon className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-                  <p className="text-gray-500">この校舎では開講していません</p>
+                <CardContent className="p-4 text-center">
+                  <CalendarIcon className="w-10 h-10 text-gray-300 mx-auto mb-2" />
+                  <p className="text-sm text-gray-500">この校舎では開講していません</p>
                 </CardContent>
               </Card>
             )}
@@ -1281,10 +1281,10 @@ export default function ClassRegistrationPage() {
         {mode === 'confirm' && (
           <section>
             <Card className="rounded-xl shadow-md border-green-200 bg-green-50">
-              <CardContent className="p-6 text-center">
-                <CheckCircle className="w-16 h-16 text-green-500 mx-auto mb-4" />
-                <h2 className="text-xl font-bold text-green-800 mb-2">申請完了</h2>
-                <p className="text-green-700">{successMessage}</p>
+              <CardContent className="p-4 text-center">
+                <CheckCircle className="w-12 h-12 text-green-500 mx-auto mb-3" />
+                <h2 className="text-lg font-bold text-green-800 mb-2">申請完了</h2>
+                <p className="text-sm text-green-700">{successMessage}</p>
               </CardContent>
             </Card>
             <Button

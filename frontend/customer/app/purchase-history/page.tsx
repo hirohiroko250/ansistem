@@ -158,9 +158,9 @@ function PassbookContent() {
   if (isMobile && isPortrait) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-blue-600 to-blue-800 flex items-center justify-center">
-        <div className="text-center text-white p-8">
-          <RotateCcw className="h-16 w-16 mx-auto mb-6 animate-pulse" />
-          <h2 className="text-xl font-bold mb-3">画面を横向きにしてください</h2>
+        <div className="text-center text-white p-6">
+          <RotateCcw className="h-12 w-12 mx-auto mb-4 animate-pulse" />
+          <h2 className="text-lg font-bold mb-2">画面を横向きにしてください</h2>
           <p className="text-blue-200 text-sm">
             通帳画面は横向き表示に最適化されています
           </p>

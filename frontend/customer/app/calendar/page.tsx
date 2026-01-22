@@ -556,7 +556,7 @@ function CalendarContent() {
       <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-blue-50">
         <header className="sticky top-0 z-40 bg-white shadow-sm">
           <div className="max-w-[390px] mx-auto px-4 h-16 flex items-center">
-            <h1 className="text-2xl font-bold text-blue-600">Calendar</h1>
+            <h1 className="text-xl font-bold text-blue-600">Calendar</h1>
           </div>
         </header>
         <main className="max-w-[390px] mx-auto px-4 py-6 pb-24 flex flex-col items-center justify-center min-h-[60vh]">
@@ -742,8 +742,8 @@ function CalendarContent() {
             </div>
           ) : events.length === 0 ? (
             <Card className="rounded-xl shadow-md">
-              <CardContent className="p-6 text-center">
-                <p className="text-gray-500">今月の予定はありません</p>
+              <CardContent className="p-4 text-center">
+                <p className="text-sm text-gray-500">今月の予定はありません</p>
               </CardContent>
             </Card>
           ) : (
@@ -756,9 +756,9 @@ function CalendarContent() {
                     className="rounded-xl shadow-md cursor-pointer hover:shadow-lg transition-shadow"
                     onClick={() => handleEventClick(event)}
                   >
-                    <CardContent className="p-4 flex items-center gap-3">
+                    <CardContent className="p-3 flex items-center gap-3">
                       <div className="text-center">
-                        <div className="text-2xl font-bold text-gray-800">{event.date}</div>
+                        <div className="text-xl font-bold text-gray-800">{event.date}</div>
                         <div className="text-xs text-gray-500">{format(currentDate, 'M月', { locale: ja })}</div>
                       </div>
                       <div className="flex-1">

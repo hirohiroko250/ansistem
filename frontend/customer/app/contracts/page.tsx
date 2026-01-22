@@ -110,10 +110,10 @@ function ContractsContent() {
     return (
       <div className="min-h-screen bg-gradient-to-b from-blue-50 to-blue-100 flex items-center justify-center">
         <Card className="max-w-md mx-4">
-          <CardContent className="p-6 text-center">
-            <AlertCircle className="w-12 h-12 text-yellow-500 mx-auto mb-4" />
-            <p className="text-gray-600">このページは講師専用です</p>
-            <Button className="mt-4" onClick={() => router.push('/feed')}>
+          <CardContent className="p-4 text-center">
+            <AlertCircle className="w-10 h-10 text-yellow-500 mx-auto mb-3" />
+            <p className="text-sm text-gray-600">このページは講師専用です</p>
+            <Button className="mt-3" size="sm" onClick={() => router.push('/feed')}>
               フィードに戻る
             </Button>
           </CardContent>
@@ -129,8 +129,8 @@ function ContractsContent() {
         <div className="bg-white/80 backdrop-blur-sm border-b border-gray-200 sticky top-0 z-10">
           <div className="p-4">
             <div className="flex items-center gap-2">
-              <FileText className="w-6 h-6 text-blue-600" />
-              <h1 className="text-2xl font-bold text-gray-900">契約一覧</h1>
+              <FileText className="w-5 h-5 text-blue-600" />
+              <h1 className="text-xl font-bold text-gray-900">契約一覧</h1>
             </div>
             <p className="text-sm text-gray-600 mt-1">
               {pagination.count}件の契約
@@ -196,9 +196,9 @@ function ContractsContent() {
             </Card>
           ) : contracts.length === 0 ? (
             <Card>
-              <CardContent className="p-8 text-center">
-                <FileText className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-                <p className="text-gray-500">契約が見つかりません</p>
+              <CardContent className="p-6 text-center">
+                <FileText className="w-10 h-10 text-gray-300 mx-auto mb-2" />
+                <p className="text-sm text-gray-500">契約が見つかりません</p>
               </CardContent>
             </Card>
           ) : (

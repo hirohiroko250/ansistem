@@ -1349,8 +1349,8 @@ export default function FromTicketPurchasePage() {
         {/* Step 1: 項目選択 */}
         {step === 1 && !itemType && (
           <div>
-            <h2 className="text-lg font-semibold text-gray-800 mb-4">購入する項目を選択</h2>
-            <div className="space-y-4">
+            <h2 className="text-base font-semibold text-gray-800 mb-3">購入する項目を選択</h2>
+            <div className="space-y-2">
               <Card
                 className="rounded-xl shadow-md hover:shadow-lg transition-all cursor-pointer border-2 border-transparent hover:border-blue-500"
                 onClick={() => {
@@ -1358,17 +1358,17 @@ export default function FromTicketPurchasePage() {
                   setStep(2);
                 }}
               >
-                <CardContent className="p-6">
-                  <div className="flex items-center gap-4 mb-3">
-                    <div className="w-16 h-16 rounded-full bg-blue-100 flex items-center justify-center">
-                      <BookOpen className="h-8 w-8 text-blue-600" />
+                <CardContent className="p-3">
+                  <div className="flex items-center gap-2 mb-1">
+                    <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center">
+                      <BookOpen className="h-5 w-5 text-blue-600" />
                     </div>
                     <div className="flex-1">
-                      <h3 className="font-bold text-lg text-gray-800">通常授業</h3>
-                      <p className="text-sm text-gray-600">単品コース・月額パック</p>
+                      <h3 className="font-semibold text-sm text-gray-800">通常授業</h3>
+                      <p className="text-xs text-gray-600">単品コース・月額パック</p>
                     </div>
                   </div>
-                  <p className="text-sm text-gray-600">
+                  <p className="text-xs text-gray-600">
                     通常の授業コースやお得な月額パックプランです。
                   </p>
                 </CardContent>
@@ -1381,17 +1381,17 @@ export default function FromTicketPurchasePage() {
                   setStep(2);
                 }}
               >
-                <CardContent className="p-6">
-                  <div className="flex items-center gap-4 mb-3">
-                    <div className="w-16 h-16 rounded-full bg-purple-100 flex items-center justify-center">
-                      <CalendarIcon className="h-8 w-8 text-purple-600" />
+                <CardContent className="p-3">
+                  <div className="flex items-center gap-2 mb-1">
+                    <div className="w-10 h-10 rounded-full bg-purple-100 flex items-center justify-center">
+                      <CalendarIcon className="h-5 w-5 text-purple-600" />
                     </div>
                     <div className="flex-1">
-                      <h3 className="font-bold text-lg text-gray-800">講習会</h3>
-                      <p className="text-sm text-gray-600">夏期・冬期・春期講習</p>
+                      <h3 className="font-semibold text-sm text-gray-800">講習会</h3>
+                      <p className="text-xs text-gray-600">夏期・冬期・春期講習</p>
                     </div>
                   </div>
-                  <p className="text-sm text-gray-600">
+                  <p className="text-xs text-gray-600">
                     季節講習や特別講習に申し込めます。
                   </p>
                 </CardContent>
@@ -1404,17 +1404,17 @@ export default function FromTicketPurchasePage() {
                   setStep(2);
                 }}
               >
-                <CardContent className="p-6">
-                  <div className="flex items-center gap-4 mb-3">
-                    <div className="w-16 h-16 rounded-full bg-amber-100 flex items-center justify-center">
-                      <Trophy className="h-8 w-8 text-amber-600" />
+                <CardContent className="p-3">
+                  <div className="flex items-center gap-2 mb-1">
+                    <div className="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center">
+                      <Trophy className="h-5 w-5 text-amber-600" />
                     </div>
                     <div className="flex-1">
-                      <h3 className="font-bold text-lg text-gray-800">検定</h3>
-                      <p className="text-sm text-gray-600">英検・漢検・数検など</p>
+                      <h3 className="font-semibold text-sm text-gray-800">検定</h3>
+                      <p className="text-xs text-gray-600">英検・漢検・数検など</p>
                     </div>
                   </div>
-                  <p className="text-sm text-gray-600">
+                  <p className="text-xs text-gray-600">
                     各種検定試験に申し込めます。
                   </p>
                 </CardContent>
@@ -1423,17 +1423,17 @@ export default function FromTicketPurchasePage() {
               <Card
                 className="rounded-xl shadow-md hover:shadow-lg transition-all cursor-pointer border-2 border-transparent hover:border-green-500 opacity-50"
               >
-                <CardContent className="p-6">
-                  <div className="flex items-center gap-4 mb-3">
-                    <div className="w-16 h-16 rounded-full bg-green-100 flex items-center justify-center">
-                      <Users className="h-8 w-8 text-green-600" />
+                <CardContent className="p-3">
+                  <div className="flex items-center gap-2 mb-1">
+                    <div className="w-10 h-10 rounded-full bg-green-100 flex items-center justify-center">
+                      <Users className="h-5 w-5 text-green-600" />
                     </div>
                     <div className="flex-1">
-                      <h3 className="font-bold text-lg text-gray-800">イベント</h3>
-                      <p className="text-sm text-gray-600">特別イベント・体験会</p>
+                      <h3 className="font-semibold text-sm text-gray-800">イベント</h3>
+                      <p className="text-xs text-gray-600">特別イベント・体験会</p>
                     </div>
                   </div>
-                  <p className="text-sm text-gray-600">
+                  <p className="text-xs text-gray-600">
                     近日公開予定
                   </p>
                 </CardContent>
@@ -1445,7 +1445,7 @@ export default function FromTicketPurchasePage() {
         {/* Step 2: お子様選択（全ての項目タイプ共通） */}
         {step === 2 && (
           <div>
-            <h2 className="text-lg font-semibold text-gray-800 mb-4">お子様を選択</h2>
+            <h2 className="text-base font-semibold text-gray-800 mb-3">お子様を選択</h2>
 
             {isLoadingChildren ? (
               <div className="flex flex-col items-center justify-center py-12">
@@ -1480,12 +1480,12 @@ export default function FromTicketPurchasePage() {
                     className="rounded-xl shadow-md hover:shadow-lg transition-shadow cursor-pointer"
                     onClick={() => handleChildSelect(child)}
                   >
-                    <CardContent className="p-4 flex items-center justify-between">
+                    <CardContent className="p-2 flex items-center justify-between">
                       <div>
-                        <h3 className="font-semibold text-gray-800">{child.fullName}</h3>
-                        <p className="text-sm text-gray-600">{getDisplayGrade(child)}</p>
+                        <h3 className="font-semibold text-sm text-gray-800">{child.fullName}</h3>
+                        <p className="text-xs text-gray-600">{getDisplayGrade(child)}</p>
                       </div>
-                      <ChevronLeft className="h-5 w-5 text-gray-400 rotate-180" />
+                      <ChevronLeft className="h-4 w-4 text-gray-400 rotate-180" />
                     </CardContent>
                   </Card>
                 ))}
@@ -1505,7 +1505,7 @@ export default function FromTicketPurchasePage() {
                 </CardContent>
               </Card>
             </div>
-            <h2 className="text-lg font-semibold text-gray-800 mb-4">カテゴリを選択</h2>
+            <h2 className="text-base font-semibold text-gray-800 mb-3">カテゴリを選択</h2>
 
             {isLoadingBrands ? (
               <div className="flex flex-col items-center justify-center py-12">
@@ -1548,20 +1548,20 @@ export default function FromTicketPurchasePage() {
                         setStep(4);
                       }}
                     >
-                      <CardContent className="p-4 flex items-center justify-between">
+                      <CardContent className="p-2 flex items-center justify-between">
                         <div className="flex items-center">
                           <div
-                            className="w-12 h-12 rounded-full flex items-center justify-center mr-4"
+                            className="w-8 h-8 rounded-full flex items-center justify-center mr-2"
                             style={{ backgroundColor: category.colorPrimary ? `${category.colorPrimary}20` : '#E5E7EB' }}
                           >
                             <GraduationCap
-                              className="h-6 w-6"
+                              className="h-4 w-4"
                               style={{ color: category.colorPrimary || '#6B7280' }}
                             />
                           </div>
-                          <span className="text-base font-semibold text-gray-800">{category.categoryName}</span>
+                          <span className="text-sm font-semibold text-gray-800">{category.categoryName}</span>
                         </div>
-                        <ChevronLeft className="h-5 w-5 text-gray-400 rotate-180" />
+                        <ChevronLeft className="h-4 w-4 text-gray-400 rotate-180" />
                       </CardContent>
                     </Card>
                   ));
@@ -1582,7 +1582,7 @@ export default function FromTicketPurchasePage() {
               <span className="text-blue-600">{selectedCategory?.categoryName}</span>
             </div>
 
-            <h2 className="text-lg font-semibold text-gray-800 mb-1">校舎を選択</h2>
+            <h2 className="text-base font-semibold text-gray-800 mb-1">校舎を選択</h2>
             <p className="text-xs text-gray-500 mb-2">
               通いたい校舎を選択してください
             </p>
@@ -1660,8 +1660,8 @@ export default function FromTicketPurchasePage() {
               </Card>
             </div>
 
-            <h2 className="text-lg font-semibold text-gray-800 mb-4">コースタイプを選択</h2>
-            <div className="space-y-4">
+            <h2 className="text-base font-semibold text-gray-800 mb-3">コースタイプを選択</h2>
+            <div className="space-y-2">
               <Card
                 className="rounded-xl shadow-md hover:shadow-lg transition-all cursor-pointer border-2 border-transparent hover:border-blue-500"
                 onClick={() => {
@@ -1669,17 +1669,17 @@ export default function FromTicketPurchasePage() {
                   setStep(7);
                 }}
               >
-                <CardContent className="p-6">
-                  <div className="flex items-center gap-4 mb-3">
-                    <div className="w-16 h-16 rounded-full bg-orange-100 flex items-center justify-center">
-                      <Package className="h-8 w-8 text-orange-600" />
+                <CardContent className="p-3">
+                  <div className="flex items-center gap-2 mb-1">
+                    <div className="w-10 h-10 rounded-full bg-orange-100 flex items-center justify-center">
+                      <Package className="h-5 w-5 text-orange-600" />
                     </div>
                     <div className="flex-1">
-                      <h3 className="font-bold text-lg text-gray-800">単品コース</h3>
-                      <p className="text-sm text-gray-600">回数券・都度利用</p>
+                      <h3 className="font-semibold text-sm text-gray-800">単品コース</h3>
+                      <p className="text-xs text-gray-600">回数券・都度利用</p>
                     </div>
                   </div>
-                  <p className="text-sm text-gray-600">
+                  <p className="text-xs text-gray-600">
                     必要な時に必要な分だけ購入できる、柔軟な利用プランです。
                   </p>
                 </CardContent>
@@ -1692,17 +1692,17 @@ export default function FromTicketPurchasePage() {
                   setStep(7);
                 }}
               >
-                <CardContent className="p-6">
-                  <div className="flex items-center gap-4 mb-3">
-                    <div className="w-16 h-16 rounded-full bg-green-100 flex items-center justify-center">
-                      <Sparkles className="h-8 w-8 text-green-600" />
+                <CardContent className="p-3">
+                  <div className="flex items-center gap-2 mb-1">
+                    <div className="w-10 h-10 rounded-full bg-green-100 flex items-center justify-center">
+                      <Sparkles className="h-5 w-5 text-green-600" />
                     </div>
                     <div className="flex-1">
-                      <h3 className="font-bold text-lg text-gray-800">お得パックコース</h3>
-                      <p className="text-sm text-gray-600">月額制・定期コース</p>
+                      <h3 className="font-semibold text-sm text-gray-800">お得パックコース</h3>
+                      <p className="text-xs text-gray-600">月額制・定期コース</p>
                     </div>
                   </div>
-                  <p className="text-sm text-gray-600">
+                  <p className="text-xs text-gray-600">
                     定期的に通う方にお得な月額制プランです。入会金もこちらから。
                   </p>
                 </CardContent>
@@ -1735,7 +1735,7 @@ export default function FromTicketPurchasePage() {
               </Card>
             </div>
 
-            <h2 className="text-lg font-semibold text-gray-800 mb-4">
+            <h2 className="text-base font-semibold text-gray-800 mb-3">
               {itemType === 'seminar' ? '講習会を選択' :
                itemType === 'certification' ? '検定を選択' : 'コースを選択'}
             </h2>
@@ -2005,7 +2005,7 @@ export default function FromTicketPurchasePage() {
               <span className="text-blue-600">{selectedCourse && getCourseName(selectedCourse)}</span>
             </div>
 
-            <h2 className="text-lg font-semibold text-gray-800 mb-2">開始日を選択</h2>
+            <h2 className="text-base font-semibold text-gray-800 mb-2">開始日を選択</h2>
 
             <Card className="rounded-xl shadow-md mb-3">
               <CardContent className="p-2">
@@ -2466,10 +2466,10 @@ export default function FromTicketPurchasePage() {
                 </div>
               ) : !classScheduleData || classScheduleData.timeSlots.length === 0 ? (
                 <Card className="rounded-xl shadow-md mb-4">
-                  <CardContent className="p-6 text-center">
-                    <CalendarIcon className="h-12 w-12 text-gray-400 mx-auto mb-3" />
-                    <p className="text-gray-600 mb-2">この校舎では現在開講枠がありません</p>
-                    <p className="text-sm text-gray-500">
+                  <CardContent className="p-4 text-center">
+                    <CalendarIcon className="h-10 w-10 text-gray-400 mx-auto mb-2" />
+                    <p className="text-sm text-gray-600 mb-1">この校舎では現在開講枠がありません</p>
+                    <p className="text-xs text-gray-500">
                       購入後にカレンダー画面で予約できます
                     </p>
                   </CardContent>
@@ -2600,7 +2600,7 @@ export default function FromTicketPurchasePage() {
         {/* Step 10: 利用規約 */}
         {step === 10 && (
           <div>
-            <h2 className="text-lg font-semibold text-gray-800 mb-4">入会規約の確認</h2>
+            <h2 className="text-base font-semibold text-gray-800 mb-3">入会規約の確認</h2>
 
             <Card className="rounded-xl shadow-md mb-4">
               <CardContent className="p-4">
@@ -2759,7 +2759,7 @@ export default function FromTicketPurchasePage() {
         {/* Step 11: 購入内容の確認 */}
         {step === 11 && (
           <div>
-            <h2 className="text-lg font-semibold text-gray-800 mb-4">購入内容の確認</h2>
+            <h2 className="text-base font-semibold text-gray-800 mb-3">購入内容の確認</h2>
 
             {confirmError && (
               <div className="flex items-center gap-2 p-3 rounded-lg bg-red-50 border border-red-200 mb-4">
@@ -2768,8 +2768,8 @@ export default function FromTicketPurchasePage() {
               </div>
             )}
 
-            <Card className="rounded-xl shadow-md mb-6">
-              <CardContent className="p-6 space-y-4">
+            <Card className="rounded-xl shadow-md mb-4">
+              <CardContent className="p-4 space-y-3">
                 <div>
                   <p className="text-sm text-gray-600 mb-1">お子様</p>
                   <p className="font-semibold text-gray-800">{selectedChild?.fullName}</p>
