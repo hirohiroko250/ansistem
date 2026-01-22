@@ -57,7 +57,7 @@ dist/
 *.swo
 
 # Docker
-.dockerignore
+# Note: .dockerignore files are tracked (needed for builds)
 
 # Debug logs (keep directory structure)
 docs/debug/run_*.md
