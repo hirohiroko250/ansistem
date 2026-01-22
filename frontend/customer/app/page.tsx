@@ -16,7 +16,7 @@ import { isAuthenticated } from '@/lib/api/auth';
 
 const shortcuts = [
   { id: 1, name: '振替・イベント', icon: Ticket, href: '/tickets', color: 'bg-blue-500' },
-  { id: 2, name: 'チケット購入', icon: CreditCard, href: '/ticket-purchase', color: 'bg-green-500' },
+  { id: 2, name: 'Class申込', icon: CreditCard, href: '/ticket-purchase', color: 'bg-green-500' },
   { id: 3, name: 'QR読み取り', icon: QrCode, href: '/qr-reader', color: 'bg-orange-500' },
   { id: 4, name: '選択・休退会', icon: Building2, href: '/class-registration', color: 'bg-teal-500' },
   { id: 5, name: '体験', icon: Star, href: '/trial', color: 'bg-yellow-500' },
