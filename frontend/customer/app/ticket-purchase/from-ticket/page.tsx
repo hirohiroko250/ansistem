@@ -2510,7 +2510,7 @@ export default function FromTicketPurchasePage() {
                 time: selectedTime,
                 schoolId: currentScheduleSchoolId || selectedSchoolId || '',
                 schoolName: currentSchool?.name || selectedSchool?.name || '',
-                schoolNameShort: currentSchool?.nameShort || currentSchool?.name?.slice(0, 3) || selectedSchool?.name?.slice(0, 3) || '',
+                schoolNameShort: (currentSchool?.name || selectedSchool?.name || '').slice(0, 3),
               });
               setSelectedWeeklySchedules(finalSchedules);
             }
@@ -2864,8 +2864,7 @@ export default function FromTicketPurchasePage() {
                                       <span className="text-[10px] font-bold text-green-700">{selectedSchoolShort}</span>
                                     ) : isSelected ? (
                                       <span className="text-[10px] font-bold text-blue-600">
-                                        {schools.find(s => s.id === currentScheduleSchoolId)?.nameShort ||
-                                         schools.find(s => s.id === currentScheduleSchoolId)?.name?.slice(0, 3) || ''}
+                                        {(schools.find(s => s.id === currentScheduleSchoolId)?.name || '').slice(0, 3)}
                                       </span>
                                     ) : getStatusIcon(status)}
                                   </td>
@@ -2907,8 +2906,7 @@ export default function FromTicketPurchasePage() {
                       <div className="flex items-center gap-1 px-2 py-1 rounded bg-blue-100 border border-blue-300 text-[11px]">
                         <span className="font-bold text-blue-600">{selectedWeeklySchedules.length + 1}</span>
                         <span className="font-semibold text-gray-800">
-                          {schools.find(s => s.id === currentScheduleSchoolId)?.nameShort ||
-                           schools.find(s => s.id === currentScheduleSchoolId)?.name?.slice(0, 3)}
+                          {(schools.find(s => s.id === currentScheduleSchoolId)?.name || '').slice(0, 3)}
                         </span>
                         <span className="text-gray-600">{selectedDayOfWeek.replace('曜日', '')}</span>
                         <span className="font-medium text-gray-800">{selectedTime}</span>
