@@ -147,7 +147,7 @@ export function useBiometricAuth(): UseBiometricAuthReturn {
 
         // 認証情報IDを保存
         const credentialId = btoa(
-          String.fromCharCode(...new Uint8Array(credential.rawId))
+          String.fromCharCode.apply(null, Array.from(new Uint8Array(credential.rawId)))
         );
         localStorage.setItem(CREDENTIAL_ID_KEY, credentialId);
         localStorage.setItem(BIOMETRIC_ENABLED_KEY, 'true');
