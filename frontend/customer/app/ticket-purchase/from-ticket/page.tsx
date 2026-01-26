@@ -1391,9 +1391,36 @@ export default function FromTicketPurchasePage() {
       return included;
     });
 
-    // 学年でフィルタリング → 校舎チケットでフィルタリング → 価格フィルタ → 複数条件でソート
+    // 週回数でフィルタリング（frequency選択に基づく）
+    const afterFrequencyFilter = afterPriceFilter.filter((item) => {
+      // パックの場合はフィルタしない（パックは複数チケットを含む）
+      if ('tickets' in item) return true;
+
+      // 単品コースの場合、コース名またはチケット名から週回数を判定
+      const courseName = 'courseName' in item ? item.courseName : '';
+      const ticketName = 'ticketName' in item ? (item as PublicCourse).ticketName || '' : '';
+      const checkString = courseName + ticketName;
+
+      // 「Free」を含むかチェック（フリーパス/無制限）
+      const isFree = checkString.includes('Free') || checkString.includes('フリー');
+      // 「週1」を含むかチェック
+      const isWeekly1 = checkString.includes('週1') || checkString.includes('×1');
+
+      if (frequency === 'weekly') {
+        // 週1回選択時: 週1回のコースのみ表示（Freeは除外）
+        return isWeekly1 && !isFree;
+      } else if (frequency === 'other') {
+        // 複数回選択時: 週1回以外（Free、週2以上）を表示
+        return !isWeekly1 || isFree;
+      }
+
+      // frequencyが未選択の場合は全て表示
+      return true;
+    });
+
+    // 学年でフィルタリング → 校舎チケットでフィルタリング → 価格フィルタ → 週回数フィルタ → 複数条件でソート
     // ソート順: 校舎 → ブランド → 学年 → チケット
-    return sortByMultipleCriteria(afterPriceFilter);
+    return sortByMultipleCriteria(afterFrequencyFilter);
   })();
 
   // 料金計算（API レスポンスがあればそれを使用）
@@ -3213,24 +3240,26 @@ export default function FromTicketPurchasePage() {
                                   {isSelected && <CheckCircle2 className="h-4 w-4 text-white" />}
                                 </div>
                                 <div>
-                                  <p className="font-medium text-gray-800">{paymentLabel}</p>
-                                  <p className="text-xs text-gray-500">2ヶ月目以降: {billingDesc}</p>
+                                  {/* 入会時教材費を先に表示 */}
+                                  {option.enrollmentPriceWithTax !== undefined && option.enrollmentPriceWithTax > 0 && (
+                                    <p className="font-medium text-gray-800">入会時教材費（{option.enrollmentMonth}月入会）</p>
+                                  )}
+                                  <p className={`text-gray-600 ${option.enrollmentPriceWithTax ? 'text-xs mt-1' : 'font-medium text-gray-800'}`}>
+                                    {paymentLabel}（2ヶ月目以降: {billingDesc}）
+                                  </p>
                                 </div>
                               </div>
                               <div className="text-right">
-                                <p className="font-semibold text-amber-600">¥{option.priceWithTax.toLocaleString()}</p>
-                                <p className="text-xs text-gray-500">（税込/回）</p>
+                                {/* 入会時教材費の金額を先に表示 */}
+                                {option.enrollmentPriceWithTax !== undefined && option.enrollmentPriceWithTax > 0 && (
+                                  <p className="font-semibold text-amber-600">¥{option.enrollmentPriceWithTax.toLocaleString()}</p>
+                                )}
+                                <p className={`${option.enrollmentPriceWithTax ? 'text-xs text-gray-500 mt-1' : 'font-semibold text-amber-600'}`}>
+                                  {option.enrollmentPriceWithTax ? `${paymentLabel}: ` : ''}¥{option.priceWithTax.toLocaleString()}
+                                  {!option.enrollmentPriceWithTax && <span className="text-xs text-gray-500 ml-1">（税込/回）</span>}
+                                </p>
                               </div>
                             </div>
-                            {/* 入会時教材費（傾斜料金）を表示 */}
-                            {option.enrollmentPriceWithTax !== undefined && option.enrollmentPriceWithTax > 0 && (
-                              <div className="mt-2 pt-2 border-t border-dashed text-xs text-gray-600">
-                                <div className="flex justify-between">
-                                  <span>入会時教材費（{option.enrollmentMonth}月入会）:</span>
-                                  <span className="font-medium">¥{option.enrollmentPriceWithTax.toLocaleString()}</span>
-                                </div>
-                              </div>
-                            )}
                           </div>
                         );
                       })}
