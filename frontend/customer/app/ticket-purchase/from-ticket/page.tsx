@@ -354,6 +354,7 @@ export default function FromTicketPurchasePage() {
   const [selectedSchoolIds, setSelectedSchoolIds] = useState<string[]>([]);  // 選択した校舎ID一覧
   const [currentScheduleSchoolId, setCurrentScheduleSchoolId] = useState<string | null>(null);  // 現在のスケジュール表示校舎
   const [classScheduleDataPerSchool, setClassScheduleDataPerSchool] = useState<Map<string, ClassScheduleResponse>>(new Map());  // 校舎ごとのスケジュール
+  const [showSchoolMapModal, setShowSchoolMapModal] = useState(false);  // 校舎選択マップモーダル
 
   // パック内アイテム（tickets と courses を統一）
   type PackItem = {
@@ -1925,7 +1926,7 @@ export default function FromTicketPurchasePage() {
                   setStep(7);
                 }}
               >
-                <span className="text-base font-semibold text-gray-800">② 複数回</span>
+                <span className="text-base font-semibold text-gray-800">② それ以外（週2回〜/フリー）</span>
               </div>
             </div>
           </div>
@@ -2662,8 +2663,12 @@ export default function FromTicketPurchasePage() {
 
               {/* 複数校舎対応：校舎選択タブ */}
               {hasSingleCourseMultipleWeekly && (
-                <div className="mb-4">
-                  <div className="flex items-center gap-2 mb-2 overflow-x-auto pb-2">
+                <div className="mb-4 p-3 bg-blue-50 rounded-xl">
+                  <p className="text-sm font-medium text-blue-800 mb-3">
+                    通う校舎を選択（現在: <span className="font-bold">{schools.find(s => s.id === currentScheduleSchoolId)?.name || selectedSchool?.name}</span>）
+                  </p>
+                  <div className="flex flex-wrap gap-2 mb-3">
+                    {/* 選択済み校舎 */}
                     {selectedSchoolIds.map((schoolId) => {
                       const school = schools.find(s => s.id === schoolId);
                       const isActive = currentScheduleSchoolId === schoolId;
@@ -2671,51 +2676,80 @@ export default function FromTicketPurchasePage() {
                         <button
                           key={schoolId}
                           onClick={() => handleSwitchScheduleSchool(schoolId, hasPackItems ? packItems[currentTicketIndex]?.ticketCode : undefined)}
-                          className={`flex-shrink-0 px-4 py-2 rounded-full text-sm font-medium transition-all ${
+                          className={`px-4 py-2.5 rounded-lg text-sm font-medium transition-all shadow-sm ${
                             isActive
-                              ? 'bg-blue-600 text-white'
-                              : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                              ? 'bg-blue-600 text-white shadow-blue-200'
+                              : 'bg-white text-gray-700 hover:bg-blue-100 border border-gray-200'
                           }`}
                         >
                           {school?.name || '校舎'}
                         </button>
                       );
                     })}
-                    {/* 別の校舎を追加ボタン */}
-                    <div className="relative flex-shrink-0">
+                  </div>
+
+                  {/* 校舎追加セクション */}
+                  <div className="flex flex-wrap gap-2">
+                    {/* 地図から校舎を追加 */}
+                    {schools.filter(s => !selectedSchoolIds.includes(s.id) && s.latitude && s.longitude).length > 0 && (
                       <button
-                        onClick={() => {
-                          const addSchoolEl = document.getElementById('add-school-dropdown');
-                          if (addSchoolEl) {
-                            addSchoolEl.classList.toggle('hidden');
-                          }
-                        }}
-                        className="px-4 py-2 rounded-full text-sm font-medium bg-green-100 text-green-700 hover:bg-green-200 flex items-center gap-1"
+                        onClick={() => setShowSchoolMapModal(true)}
+                        className="px-4 py-2.5 rounded-lg text-sm font-medium bg-green-600 text-white hover:bg-green-700 transition-all shadow-sm flex items-center gap-2"
                       >
-                        <span>＋ 別の校舎</span>
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                        </svg>
+                        地図から校舎を追加
                       </button>
-                      <div id="add-school-dropdown" className="hidden absolute top-full left-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg z-20 min-w-[200px] max-h-60 overflow-y-auto">
-                        {schools.filter(s => !selectedSchoolIds.includes(s.id)).map((school) => (
-                          <button
-                            key={school.id}
-                            onClick={() => {
-                              handleAddSchool(school.id);
-                              document.getElementById('add-school-dropdown')?.classList.add('hidden');
-                            }}
-                            className="w-full text-left px-4 py-2 text-sm hover:bg-gray-100 border-b border-gray-100 last:border-b-0"
-                          >
-                            {school.name}
-                          </button>
-                        ))}
-                        {schools.filter(s => !selectedSchoolIds.includes(s.id)).length === 0 && (
-                          <p className="px-4 py-2 text-sm text-gray-500">追加できる校舎がありません</p>
-                        )}
+                    )}
+                    {/* WEB校などオンライン校舎（緯度経度がない校舎）を別途表示 */}
+                    {schools.filter(s => !selectedSchoolIds.includes(s.id) && (!s.latitude || !s.longitude)).map((school) => (
+                      <button
+                        key={school.id}
+                        onClick={() => handleAddSchool(school.id)}
+                        className="px-4 py-2.5 rounded-lg text-sm font-medium bg-purple-100 text-purple-700 hover:bg-purple-200 border border-purple-300 transition-all flex items-center gap-2"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                        </svg>
+                        + {school.name}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* 校舎選択マップモーダル */}
+              {showSchoolMapModal && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+                  <div className="bg-white rounded-2xl w-[95%] max-w-[400px] max-h-[90vh] overflow-hidden shadow-2xl">
+                    <div className="p-4 border-b flex items-center justify-between">
+                      <h3 className="font-bold text-gray-800">校舎を地図から選択</h3>
+                      <button
+                        onClick={() => setShowSchoolMapModal(false)}
+                        className="p-2 rounded-full hover:bg-gray-100"
+                      >
+                        <XIcon className="w-5 h-5 text-gray-500" />
+                      </button>
+                    </div>
+                    <div className="p-4">
+                      <div className="w-full aspect-square max-w-[350px] mx-auto">
+                        <MapSchoolSelector
+                          schools={schools.filter(s => !selectedSchoolIds.includes(s.id) && s.latitude && s.longitude)}
+                          selectedSchoolId={null}
+                          onSelectSchool={(schoolId) => {
+                            handleAddSchool(schoolId);
+                            setShowSchoolMapModal(false);
+                          }}
+                          isLoading={false}
+                        />
                       </div>
+                      <p className="text-xs text-gray-500 text-center mt-3">
+                        地図上のマーカーをタップして校舎を選択してください
+                      </p>
                     </div>
                   </div>
-                  <p className="text-xs text-gray-500">
-                    現在の校舎: <span className="font-semibold">{schools.find(s => s.id === currentScheduleSchoolId)?.name || selectedSchool?.name}</span>
-                  </p>
                 </div>
               )}
 
