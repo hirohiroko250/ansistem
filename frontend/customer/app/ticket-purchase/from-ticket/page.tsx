@@ -2177,7 +2177,7 @@ export default function FromTicketPurchasePage() {
                   mode="single"
                   selected={startDate}
                   onSelect={async (date) => {
-                    setStartDate(date);
+                    if (date) setStartDate(date);
                     // 開始日が選択されたら料金プレビューを再取得（入会時授業料を含む）
                     if (date && selectedCourse && selectedChild) {
                       setIsLoadingPricing(true);
