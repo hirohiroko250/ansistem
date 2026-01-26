@@ -2429,6 +2429,7 @@ export default function FromTicketPurchasePage() {
                   time: selectedTime,
                   schoolId: currentScheduleSchoolId || selectedSchoolId || '',
                   schoolName: currentSchool?.name || selectedSchool?.name || '',
+                  schoolNameShort: (currentSchool?.name || selectedSchool?.name || '').slice(0, 3),
                 });
                 setSelectedClassesPerTicket(newMap);
               }
