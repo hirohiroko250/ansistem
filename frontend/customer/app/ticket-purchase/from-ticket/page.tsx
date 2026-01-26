@@ -3574,40 +3574,6 @@ export default function FromTicketPurchasePage() {
                         );
                       })()}
 
-                      {/* 3ヶ月目〜（締日後のみ） - 設備費は既存契約より高い場合のみ差額を請求 */}
-                      {(() => {
-                        if (!pricingPreview.billingByMonth.month3) return null;
-                        const existingFacilityMax = pricingPreview.existingFacilityFee?.maxFee || 0;
-                        const processedItems = pricingPreview.billingByMonth.month3.items.map((item: any) => {
-                          if (item.itemType === 'facility') {
-                            const newFee = item.priceWithTax || 0;
-                            if (existingFacilityMax >= newFee) {
-                              return null;
-                            }
-                            const diff = newFee - existingFacilityMax;
-                            return { ...item, priceWithTax: diff, originalPrice: newFee };
-                          }
-                          return item;
-                        }).filter(Boolean);
-                        const filteredTotal = processedItems.reduce(
-                          (sum: number, item: any) => sum + (item.priceWithTax || 0), 0
-                        );
-                        if (processedItems.length === 0) return null;
-                        return (
-                          <div className="bg-pink-50 rounded-lg p-3 space-y-2">
-                            <div className="flex justify-between items-center border-b border-pink-200 pb-2 mb-2">
-                              <span className="font-semibold text-pink-800">{pricingPreview.billingByMonth.month3.label}</span>
-                              <span className="font-semibold text-pink-800">¥{filteredTotal.toLocaleString()}</span>
-                            </div>
-                            {processedItems.map((item: any, index: number) => (
-                              <div key={index} className="flex justify-between text-sm">
-                                <span className="text-gray-700">{item.billingCategoryName || item.productName}</span>
-                                <span className="text-gray-800">¥{item.priceWithTax.toLocaleString()}</span>
-                              </div>
-                            ))}
-                          </div>
-                        );
-                      })()}
 
                     </>
                   ) : (
