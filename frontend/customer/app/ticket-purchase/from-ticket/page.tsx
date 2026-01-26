@@ -2460,7 +2460,7 @@ export default function FromTicketPurchasePage() {
                   time: selectedTime,
                   schoolId: currentScheduleSchoolId || selectedSchoolId || '',
                   schoolName: currentSchool?.name || selectedSchool?.name || '',
-                  schoolNameShort: currentSchool?.nameShort || currentSchool?.name?.slice(0, 3) || selectedSchool?.name?.slice(0, 3) || '',
+                  schoolNameShort: (currentSchool?.name || selectedSchool?.name || '').slice(0, 3),
                 });
                 setSelectedWeeklySchedules(newSchedules);
 
