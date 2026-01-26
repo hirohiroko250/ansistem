@@ -652,6 +652,9 @@ export default function FeedPage() {
                         <video
                           src={getMediaUrl(file.url)}
                           className="w-20 h-20 object-cover rounded border"
+                          preload="metadata"
+                          muted
+                          playsInline
                         />
                       ) : (
                         <img
