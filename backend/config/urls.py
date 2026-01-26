@@ -13,8 +13,8 @@ from drf_spectacular.views import (
 from apps.core.views import serve_media
 
 urlpatterns = [
-    # Admin
-    path('admin/', admin.site.urls),
+    # Django Admin (use /django-admin/ to avoid conflict with frontend /admin)
+    path('django-admin/', admin.site.urls),
 
     # API v1
     path('api/v1/', include('api.v1.urls')),

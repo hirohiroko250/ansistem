@@ -169,34 +169,34 @@ export default function Home() {
         )}
 
         <section className="mb-4">
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="text-lg font-semibold text-gray-800">最新情報</h2>
-            <Link href="/feed" className="text-sm text-blue-600 hover:text-blue-700 flex items-center gap-1">
+          <div className="flex items-center justify-between mb-2">
+            <h2 className="text-base font-semibold text-gray-800">最新情報</h2>
+            <Link href="/feed" className="text-xs text-blue-600 hover:text-blue-700 flex items-center gap-1">
               すべて見る
-              <ChevronRight className="h-4 w-4" />
+              <ChevronRight className="h-3 w-3" />
             </Link>
           </div>
-          <div className="space-y-3">
+          <div className="space-y-2">
             {newsLoading ? (
-              <div className="flex justify-center py-4">
-                <Loader2 className="h-5 w-5 animate-spin text-blue-500" />
+              <div className="flex justify-center py-3">
+                <Loader2 className="h-4 w-4 animate-spin text-blue-500" />
               </div>
             ) : news.length > 0 ? (
               news.slice(0, 2).map((item) => (
                 <Link key={item.id} href="/feed">
-                  <Card className="rounded-xl shadow-md hover:shadow-lg transition-shadow cursor-pointer">
-                    <CardContent className="p-4">
-                      <div className="flex items-start gap-3">
+                  <Card className="rounded-lg shadow-sm hover:shadow-md transition-shadow cursor-pointer">
+                    <CardContent className="p-2.5">
+                      <div className="flex items-start gap-2">
                         <Badge className={`${
                           item.type === '新着' ? 'bg-blue-500' :
                           item.type === 'お知らせ' ? 'bg-orange-500' :
                           'bg-green-500'
-                        } text-white text-xs shrink-0`}>
+                        } text-white text-[10px] px-1.5 py-0.5 shrink-0`}>
                           {item.type}
                         </Badge>
                         <div className="flex-1 min-w-0">
-                          <h3 className="font-semibold text-gray-800 mb-1 line-clamp-2">{item.caption}</h3>
-                          <p className="text-xs text-gray-500">{item.date}</p>
+                          <h3 className="text-sm font-medium text-gray-800 mb-0.5 line-clamp-2">{item.caption}</h3>
+                          <p className="text-[10px] text-gray-500">{item.date}</p>
                         </div>
                       </div>
                     </CardContent>
@@ -204,7 +204,7 @@ export default function Home() {
                 </Link>
               ))
             ) : (
-              <p className="text-center text-gray-500 text-sm py-4">お知らせはありません</p>
+              <p className="text-center text-gray-500 text-xs py-3">お知らせはありません</p>
             )}
           </div>
         </section>

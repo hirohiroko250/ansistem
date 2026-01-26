@@ -1112,14 +1112,17 @@ export function StudentDetail({ student, parents, contracts, invoices, contactLo
   const guardianPhone = guardian?.phone || guardian?.phoneMobile || guardian?.phone_mobile || "";
   const guardianEmail = guardian?.email || "";
 
-  // 写真URL
-  const profileImageUrl = student.profile_image_url || (student as any).profileImageUrl || "";
+  // 写真URL - 相対URLの場合はAPIベースURLを追加
+  const rawPhotoUrl = student.profile_image_url || (student as any).profileImageUrl || "";
+  const profileImageUrl = rawPhotoUrl && !rawPhotoUrl.startsWith('http')
+    ? `${process.env.NEXT_PUBLIC_API_URL?.replace('/api/v1', '')}${rawPhotoUrl}`
+    : rawPhotoUrl;
 
   return (
     <div className="h-full flex flex-col bg-white">
       {/* ヘッダー - ファーストビューで重要情報を表示 */}
-      <div className="bg-gradient-to-r from-blue-600 to-blue-700 text-white p-4">
-        <div className="flex items-start gap-4 mb-3">
+      <div className="bg-gradient-to-r from-blue-600 to-blue-700 text-white p-2">
+        <div className="flex items-start gap-3 mb-2">
           {/* 生徒写真 - 証明写真サイズ */}
           <div className="relative group shrink-0">
             <input
@@ -1134,7 +1137,7 @@ export function StudentDetail({ student, parents, contracts, invoices, contactLo
                 <img
                   src={profileImageUrl}
                   alt={`${lastName} ${firstName}`}
-                  className="w-20 h-28 object-cover rounded-lg border-2 border-white/50 cursor-pointer hover:opacity-90 transition-opacity"
+                  className="w-24 h-32 object-cover rounded-lg border-2 border-white/50 cursor-pointer hover:opacity-90 transition-opacity"
                   onClick={() => setIsPhotoModalOpen(true)}
                 />
                 {/* アップロードボタン */}
@@ -1144,12 +1147,12 @@ export function StudentDetail({ student, parents, contracts, invoices, contactLo
                     photoInputRef.current?.click();
                   }}
                   disabled={isUploadingPhoto}
-                  className="absolute -bottom-2 -right-2 w-7 h-7 bg-blue-500 hover:bg-blue-600 rounded-full flex items-center justify-center border-2 border-white shadow-lg"
+                  className="absolute -bottom-1 -right-1 w-6 h-6 bg-blue-500 hover:bg-blue-600 rounded-full flex items-center justify-center border-2 border-white shadow-lg"
                 >
                   {isUploadingPhoto ? (
-                    <Loader2 className="w-4 h-4 text-white animate-spin" />
+                    <Loader2 className="w-3 h-3 text-white animate-spin" />
                   ) : (
-                    <ImageIcon className="w-4 h-4 text-white" />
+                    <ImageIcon className="w-3 h-3 text-white" />
                   )}
                 </button>
               </div>
@@ -1157,7 +1160,7 @@ export function StudentDetail({ student, parents, contracts, invoices, contactLo
               <button
                 onClick={() => photoInputRef.current?.click()}
                 disabled={isUploadingPhoto}
-                className="w-20 h-28 rounded-lg bg-white/20 flex flex-col items-center justify-center border-2 border-dashed border-white/50 hover:bg-white/30 transition-colors cursor-pointer"
+                className="w-24 h-32 rounded-lg bg-white/20 flex flex-col items-center justify-center border-2 border-dashed border-white/50 hover:bg-white/30 transition-colors cursor-pointer"
               >
                 {isUploadingPhoto ? (
                   <Loader2 className="w-8 h-8 text-white animate-spin" />
@@ -1174,10 +1177,10 @@ export function StudentDetail({ student, parents, contracts, invoices, contactLo
           <div className="flex-1">
             <div className="flex items-start justify-between">
               <div>
-                <h2 className="text-xl font-bold">{lastName} {firstName}</h2>
-                <p className="text-blue-100 text-sm">{lastNameKana} {firstNameKana}</p>
+                <h2 className="text-lg font-bold">{lastName} {firstName}</h2>
+                <p className="text-blue-100 text-xs">{lastNameKana} {firstNameKana}</p>
               </div>
-              <Badge className={getStatusColor(student.status)}>
+              <Badge className={`${getStatusColor(student.status)} text-[10px] px-1.5 py-0.5`}>
                 {getStatusLabel(student.status)}
               </Badge>
             </div>
@@ -1185,57 +1188,57 @@ export function StudentDetail({ student, parents, contracts, invoices, contactLo
         </div>
 
         {/* 生徒・保護者の主要情報 */}
-        <div className="grid grid-cols-2 gap-4 text-sm">
+        <div className="grid grid-cols-2 gap-2 text-xs">
           {/* 生徒情報 */}
-          <div className="bg-white/10 rounded p-2">
-            <div className="grid grid-cols-2 gap-x-3 gap-y-1">
+          <div className="bg-white/10 rounded p-1.5">
+            <div className="grid grid-cols-2 gap-x-2 gap-y-0.5">
               <div>
-                <span className="text-blue-200 text-xs">生徒ID</span>
-                <p className="font-mono">{studentNo}</p>
+                <span className="text-blue-200 text-[10px]">生徒ID</span>
+                <p className="font-mono text-[11px]">{studentNo}</p>
               </div>
               <div>
-                <span className="text-blue-200 text-xs">学年</span>
-                <p>{gradeText || "-"}</p>
+                <span className="text-blue-200 text-[10px]">学年</span>
+                <p className="text-[11px]">{gradeText || "-"}</p>
               </div>
               <div>
-                <span className="text-blue-200 text-xs">性別</span>
-                <p>{gender === "male" ? "男" : gender === "female" ? "女" : "-"}</p>
+                <span className="text-blue-200 text-[10px]">性別</span>
+                <p className="text-[11px]">{gender === "male" ? "男" : gender === "female" ? "女" : "-"}</p>
               </div>
               <div>
-                <span className="text-blue-200 text-xs">校舎</span>
-                <p className="truncate">{schoolName || "-"}</p>
+                <span className="text-blue-200 text-[10px]">校舎</span>
+                <p className="text-[11px] truncate">{schoolName || "-"}</p>
               </div>
             </div>
           </div>
 
           {/* 保護者情報 */}
-          <div className="bg-white/10 rounded p-2">
-            <div className="space-y-1">
+          <div className="bg-white/10 rounded p-1.5">
+            <div className="space-y-0.5">
               <div className="flex justify-between items-center">
                 <div>
-                  <span className="text-blue-200 text-xs">保護者</span>
-                  <p>{guardianName || "-"}</p>
+                  <span className="text-blue-200 text-[10px]">保護者</span>
+                  <p className="text-[11px]">{guardianName || "-"}</p>
                 </div>
                 {guardian && (
                   <Button
                     size="sm"
                     variant="secondary"
-                    className="h-6 text-xs bg-white/20 hover:bg-white/30 text-white border-0"
+                    className="h-5 text-[10px] px-1.5 bg-white/20 hover:bg-white/30 text-white border-0"
                     onClick={() => guardian && openGuardianView(guardian)}
                     disabled={isOpeningGuardianView}
                   >
-                    <ExternalLink className="w-3 h-3 mr-1" />
+                    <ExternalLink className="w-2.5 h-2.5 mr-0.5" />
                     保護者画面
                   </Button>
                 )}
               </div>
               <div>
-                <span className="text-blue-200 text-xs">TEL</span>
-                <p className="font-mono text-xs">{guardianPhone || "-"}</p>
+                <span className="text-blue-200 text-[10px]">TEL</span>
+                <p className="font-mono text-[10px]">{guardianPhone || "-"}</p>
               </div>
               <div>
-                <span className="text-blue-200 text-xs">Mail</span>
-                <p className="text-xs truncate">{guardianEmail || "-"}</p>
+                <span className="text-blue-200 text-[10px]">Mail</span>
+                <p className="text-[10px] truncate">{guardianEmail || "-"}</p>
               </div>
             </div>
           </div>
