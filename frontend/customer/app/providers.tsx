@@ -3,12 +3,13 @@
 /**
  * App Providers - アプリケーション全体のプロバイダー
  *
- * React Query, Toast, Theme などのプロバイダーをまとめて提供
+ * React Query, Toast, Theme, Session Timeout などのプロバイダーをまとめて提供
  */
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useState } from 'react';
 import { Toaster } from '@/components/ui/toaster';
+import { IdleTimeoutProvider } from '@/components/providers/idle-timeout-provider';
 
 // デフォルトのクエリクライアント設定
 const defaultQueryClientOptions = {
@@ -39,7 +40,9 @@ export function Providers({ children }: { children: React.ReactNode }) {
 
   return (
     <QueryClientProvider client={queryClient}>
-      {children}
+      <IdleTimeoutProvider>
+        {children}
+      </IdleTimeoutProvider>
       <Toaster />
     </QueryClientProvider>
   );

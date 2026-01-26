@@ -45,3 +45,12 @@ export {
   useTicketLogs,
   useAllTicketBalances,
 } from './use-tickets';
+
+// Session management
+export { useIdleTimeout } from './use-idle-timeout';
+
+// Biometric authentication
+export {
+  useBiometricAuth,
+  isBiometricAvailable,
+} from './use-biometric-auth';

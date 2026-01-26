@@ -1,16 +1,17 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { AlertCircle, Loader2, Phone, Lock } from 'lucide-react';
+import { AlertCircle, Loader2, Phone, Lock, ScanFace } from 'lucide-react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { GuestGuard } from '@/components/auth';
 import { login } from '@/lib/api/auth';
+import { useBiometricAuth } from '@/lib/hooks/use-biometric-auth';
 import type { ApiError } from '@/lib/api/types';
 
 function LoginContent() {
@@ -19,6 +20,66 @@ function LoginContent() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+
+  // 生体認証フック
+  const {
+    isAvailable: isBiometricAvailable,
+    isEnabled: isBiometricEnabled,
+    isLoading: isBiometricLoading,
+    authenticate: biometricAuthenticate,
+    getRegisteredEmail,
+  } = useBiometricAuth();
+
+  // 生体認証が有効な場合、登録済みメールを表示用に取得
+  const [biometricUserEmail, setBiometricUserEmail] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (isBiometricEnabled) {
+      setBiometricUserEmail(getRegisteredEmail());
+    }
+  }, [isBiometricEnabled, getRegisteredEmail]);
+
+  // 生体認証でログイン
+  const handleBiometricLogin = async () => {
+    setError('');
+
+    const registeredEmail = getRegisteredEmail();
+    if (!registeredEmail) {
+      setError('生体認証が設定されていません');
+      return;
+    }
+
+    const result = await biometricAuthenticate();
+    if (!result.success) {
+      setError(result.error || '生体認証に失敗しました');
+      return;
+    }
+
+    // 生体認証成功後、保存されているパスワードでログイン
+    // 注: 実際の実装では、サーバー側でWebAuthn認証を行い、トークンを発行する
+    // ここでは簡易的に、生体認証成功 = 認証済みとしてlocalStorageからパスワードを取得
+    const savedPassword = localStorage.getItem('biometric_password');
+    if (!savedPassword) {
+      setError('生体認証の設定が不完全です。通常のログインをお試しください');
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      const response = await login({ phone: registeredEmail, password: savedPassword });
+
+      if (response.user?.mustChangePassword) {
+        router.push('/password-change');
+      } else {
+        router.push('/feed');
+      }
+    } catch (err) {
+      const apiError = err as ApiError;
+      setError(apiError.message || 'ログインに失敗しました');
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -129,7 +190,7 @@ function LoginContent() {
 
               <Button
                 type="submit"
-                disabled={isLoading}
+                disabled={isLoading || isBiometricLoading}
                 className="w-full h-12 rounded-full bg-blue-600 hover:bg-blue-700 text-white font-bold text-lg disabled:opacity-70"
               >
                 {isLoading ? (
@@ -142,6 +203,43 @@ function LoginContent() {
                 )}
               </Button>
             </form>
+
+            {/* 生体認証ボタン */}
+            {isBiometricAvailable && isBiometricEnabled && biometricUserEmail && (
+              <div className="mt-4">
+                <div className="relative">
+                  <div className="absolute inset-0 flex items-center">
+                    <span className="w-full border-t border-gray-200" />
+                  </div>
+                  <div className="relative flex justify-center text-xs uppercase">
+                    <span className="bg-white px-2 text-gray-500">または</span>
+                  </div>
+                </div>
+
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={handleBiometricLogin}
+                  disabled={isLoading || isBiometricLoading}
+                  className="w-full h-12 rounded-full mt-4 border-2 border-gray-300 hover:border-blue-500 hover:bg-blue-50"
+                >
+                  {isBiometricLoading ? (
+                    <span className="flex items-center gap-2">
+                      <Loader2 className="h-5 w-5 animate-spin" />
+                      認証中...
+                    </span>
+                  ) : (
+                    <span className="flex items-center gap-2">
+                      <ScanFace className="h-5 w-5" />
+                      Face ID / Touch ID でログイン
+                    </span>
+                  )}
+                </Button>
+                <p className="text-xs text-gray-500 text-center mt-2">
+                  {biometricUserEmail} としてログイン
+                </p>
+              </div>
+            )}
 
             <div className="mt-6 space-y-3 text-center">
               <Link href="/signup">
