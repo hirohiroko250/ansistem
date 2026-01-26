@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { ChevronLeft, Package, Sparkles, Calendar as CalendarIcon, CalendarPlus, Loader2, AlertCircle, BookOpen, Calculator, Pen, Gamepad2, Trophy, Globe, GraduationCap, Clock, Users, CheckCircle2, Circle, Triangle, X as XIcon, Minus, MessageSquare, type LucideIcon } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -184,8 +184,28 @@ export default function FromTicketPurchasePage() {
   const [courseType, setCourseType] = useState<'single' | 'pack' | null>(null);
   const [frequency, setFrequency] = useState<'weekly' | 'other' | null>(null); // 週１回 or それ以外
   const [selectedCourse, setSelectedCourse] = useState<PublicCourse | PublicPack | null>(null);
-  const [startDate, setStartDate] = useState<Date>();
+  const [startDate, setStartDate] = useState<Date>(new Date());
   const [agreedToTerms, setAgreedToTerms] = useState(false);
+  const [hasScrolledToBottom, setHasScrolledToBottom] = useState(false);
+  const termsRef = useRef<HTMLDivElement>(null);
+
+  // 利用規約のスクロールハンドラー
+  const handleTermsScroll = useCallback(() => {
+    if (!termsRef.current) return;
+    const { scrollTop, scrollHeight, clientHeight } = termsRef.current;
+    // 下から10px以内にスクロールしたら「最後まで読んだ」とみなす
+    if (scrollTop + clientHeight >= scrollHeight - 10) {
+      setHasScrolledToBottom(true);
+    }
+  }, []);
+
+  // ステップ10（利用規約）に戻った時にスクロール状態をリセット
+  useEffect(() => {
+    if (step === 10) {
+      setHasScrolledToBottom(false);
+      setAgreedToTerms(false);
+    }
+  }, [step]);
 
   // API 関連の state
   const [children, setChildren] = useState<Child[]>([]);
@@ -210,6 +230,9 @@ export default function FromTicketPurchasePage() {
   const [packs, setPacks] = useState<PublicPack[]>([]);
   const [isLoadingCourses, setIsLoadingCourses] = useState(false);
   const [coursesError, setCoursesError] = useState<string | null>(null);
+
+  // コースデータのキャッシュ（同じリクエストを繰り返さない）
+  const courseCacheRef = useRef<Map<string, { courses: PublicCourse[], packs: PublicPack[] }>>(new Map());
 
   // 講習会
   const [seminars, setSeminars] = useState<Array<{
@@ -570,8 +593,20 @@ export default function FromTicketPurchasePage() {
       ? new Set(brands.filter(b => b.category?.id === selectedCategory.id).map(b => b.id))
       : new Set<string>();
 
-    const brandIdList = Array.from(brandIdsInCategory);
+    const brandIdList = Array.from(brandIdsInCategory).sort();
     if (brandIdList.length === 0 || !selectedSchoolId) return;
+
+    // キャッシュキーを生成
+    const cacheKey = `${brandIdList.join(',')}_${selectedSchoolId}`;
+
+    // キャッシュがあれば即座に反映
+    const cached = courseCacheRef.current.get(cacheKey);
+    if (cached) {
+      setCourses(cached.courses);
+      setPacks(cached.packs);
+      setIsLoadingCourses(false);
+      return;
+    }
 
     const fetchCoursesAndPacks = async () => {
       setIsLoadingCourses(true);
@@ -583,6 +618,8 @@ export default function FromTicketPurchasePage() {
           getPublicPacks({ brandIds: brandIdList, schoolId: selectedSchoolId }),
         ]);
 
+        // キャッシュに保存
+        courseCacheRef.current.set(cacheKey, { courses: categoryCourses, packs: categoryPacks });
 
         // パックに含まれるコースも単品として表示する（¥0除外は後で行う）
         setCourses(categoryCourses);
@@ -1870,27 +1907,17 @@ export default function FromTicketPurchasePage() {
         {/* Step 7: コース/講習会/検定選択 */}
         {step === 7 && (
           <div>
-            <div className="mb-2">
-              <div className="bg-blue-50 border border-blue-200 rounded px-2 py-1.5">
-                <p className="text-[10px] text-gray-500 leading-none">選択中</p>
-                <p className="text-xs font-medium text-gray-800 leading-tight">{selectedChild?.fullName} <span className="text-gray-500">({selectedChild && getDisplayGrade(selectedChild)})</span></p>
-                <p className="text-[10px] text-gray-600 leading-tight">{selectedCategory?.categoryName} → {selectedSchool?.name}</p>
-                {itemType === 'regular' && (
-                  <Badge className="text-[9px] px-1 py-0 mt-0.5 h-4">{courseType === 'single' ? '単品コース' : 'お得パックコース'}</Badge>
-                )}
-                {itemType === 'seminar' && (
-                  <Badge className="text-[9px] px-1 py-0 mt-0.5 h-4 bg-purple-500">講習会</Badge>
-                )}
-                {itemType === 'certification' && (
-                  <Badge className="text-[9px] px-1 py-0 mt-0.5 h-4 bg-amber-500">検定</Badge>
-                )}
-              </div>
+            <div className="mb-1.5 bg-gray-50 border border-gray-200 rounded px-2 py-1 text-[10px]">
+              <span className="text-gray-500">選択中: </span>
+              <span className="font-medium text-gray-800">{selectedChild?.fullName}</span>
+              <span className="text-gray-500"> ({selectedChild && getDisplayGrade(selectedChild)}) </span>
+              <span className="text-gray-600">{selectedCategory?.categoryName} → {selectedSchool?.name}</span>
+              {itemType === 'regular' && (
+                <Badge className="text-[8px] px-1 py-0 ml-1 h-3.5">{courseType === 'single' ? '単品' : 'パック'}</Badge>
+              )}
             </div>
 
-            <h2 className="text-xs font-semibold text-gray-800 mb-1.5">
-              {itemType === 'seminar' ? '講習会を選択' :
-               itemType === 'certification' ? '検定を選択' : 'コースを選択'}
-            </h2>
+            <h2 className="text-[11px] font-semibold text-gray-800 mb-1">コースを選択</h2>
 
             {/* 講習会選択 */}
             {itemType === 'seminar' && (
@@ -2048,11 +2075,19 @@ export default function FromTicketPurchasePage() {
             )}
 
             {isLoadingCourses || isLoadingPricing ? (
-              <div className="flex flex-col items-center justify-center py-12">
-                <Loader2 className="h-8 w-8 animate-spin text-blue-500 mb-3" />
-                <p className="text-sm text-gray-600">
-                  {isLoadingCourses ? 'コースを読み込み中...' : '料金を計算中...'}
-                </p>
+              <div className="space-y-1">
+                {[1, 2, 3, 4].map((i) => (
+                  <div key={i} className="border border-gray-200 rounded px-1.5 py-1 animate-pulse">
+                    <div className="flex justify-between items-center">
+                      <div className="flex items-center gap-1 flex-1">
+                        <div className="w-3 h-3 bg-gray-200 rounded" />
+                        <div className="h-3 bg-gray-200 rounded w-40" />
+                      </div>
+                      <div className="h-3 bg-gray-200 rounded w-14" />
+                    </div>
+                  </div>
+                ))}
+                <p className="text-[10px] text-gray-400 text-center pt-1">読み込み中...</p>
               </div>
             ) : availableItems.length === 0 ? (
               <p className="text-center text-gray-600 py-8">
@@ -2061,52 +2096,41 @@ export default function FromTicketPurchasePage() {
                   : 'パック/月額コースがありません'}
               </p>
             ) : (
-              <div className="space-y-1.5">
+              <div className="space-y-1">
                 {availableItems.map((item, index) => {
-                  // セット内容から当月分授業料を除外（入会時授業料は別計算のため）
-                  const filteredItems = 'items' in item && item.items
-                    ? item.items.filter((i: { productName: string }) =>
-                        !i.productName.includes('当月分授業料') &&
-                        !i.productName.includes('入会時授業料')
-                      )
-                    : [];
                   // パックの場合はコース一覧を表示
                   const packCourses = 'courses' in item ? item.courses : [];
                   const packTickets = 'tickets' in item ? item.tickets : [];
                   // 番号を丸数字で表示（①②③...）
-                  const circledNumber = String.fromCharCode(0x2460 + index); // ① から始まる
+                  const circledNumber = String.fromCharCode(0x2460 + index);
 
                   return (
                     <div
                       key={item.id}
-                      className="border border-gray-200 rounded px-2 py-1.5 hover:bg-gray-50 transition-colors cursor-pointer"
+                      className="border border-gray-200 rounded px-1.5 py-1 hover:bg-gray-50 transition-colors cursor-pointer"
                       onClick={() => handleCourseSelect(item)}
                     >
-                      <div className="flex justify-between items-start">
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-1 flex-wrap">
-                            <span className="text-sm font-bold text-blue-600">{circledNumber}</span>
-                            <span className="text-xs font-medium text-gray-800 leading-tight">{getCourseName(item)}</span>
-                            {isMonthlyItem(item) && (
-                              <Badge className="bg-green-500 text-white text-[9px] px-1 py-0 h-4">月額</Badge>
-                            )}
-                          </div>
-                          {item.gradeName && (
-                            <p className="text-[10px] text-gray-500 leading-tight ml-5">対象: {item.gradeName}</p>
+                      <div className="flex justify-between items-center">
+                        <div className="flex-1 min-w-0 flex items-center gap-1">
+                          <span className="text-xs font-bold text-blue-600">{circledNumber}</span>
+                          <span className="text-[11px] font-medium text-gray-800 truncate">{getCourseName(item)}</span>
+                          {isMonthlyItem(item) && (
+                            <Badge className="bg-green-500 text-white text-[8px] px-1 py-0 h-3.5 shrink-0">月額</Badge>
                           )}
                         </div>
-                        <div className="text-right shrink-0 ml-2">
-                          <span className="text-sm font-bold text-blue-600">
-                            ¥{('tuitionPrice' in item && item.tuitionPrice ? item.tuitionPrice : getTuitionPrice(item)).toLocaleString()}
-                          </span>
-                        </div>
+                        <span className="text-xs font-bold text-blue-600 shrink-0 ml-1">
+                          ¥{('tuitionPrice' in item && item.tuitionPrice ? item.tuitionPrice : getTuitionPrice(item)).toLocaleString()}
+                        </span>
                       </div>
+                      {item.gradeName && (
+                        <p className="text-[9px] text-gray-400 ml-4">対象: {item.gradeName}</p>
+                      )}
 
                       {/* パックの場合：含まれるコース */}
                       {packCourses && packCourses.length > 0 && (
-                        <div className="flex flex-wrap gap-0.5 mt-1 ml-5">
+                        <div className="flex flex-wrap gap-0.5 mt-0.5 ml-4">
                           {packCourses.map((pc: { courseId: string; courseName: string }) => (
-                            <Badge key={pc.courseId} variant="outline" className="text-[9px] bg-blue-50 text-blue-700 px-1 py-0 h-4">
+                            <Badge key={pc.courseId} variant="outline" className="text-[8px] bg-blue-50 text-blue-700 px-1 py-0 h-3.5">
                               {pc.courseName}
                             </Badge>
                           ))}
@@ -2115,9 +2139,9 @@ export default function FromTicketPurchasePage() {
 
                       {/* パックの場合：チケット情報 */}
                       {packTickets && packTickets.length > 0 && (
-                        <div className="flex flex-wrap gap-0.5 mt-0.5 ml-5">
+                        <div className="flex flex-wrap gap-0.5 mt-0.5 ml-4">
                           {packTickets.map((pt: { ticketId: string; ticketName: string; perWeek?: number }) => (
-                            <Badge key={pt.ticketId} variant="outline" className="text-[9px] bg-orange-50 text-orange-700 px-1 py-0 h-4">
+                            <Badge key={pt.ticketId} variant="outline" className="text-[8px] bg-orange-50 text-orange-700 px-1 py-0 h-3.5">
                               {pt.ticketName}{pt.perWeek ? ` ×週${pt.perWeek}回` : ''}
                             </Badge>
                           ))}
@@ -2839,7 +2863,11 @@ export default function FromTicketPurchasePage() {
 
             <Card className="rounded-xl shadow-md mb-4">
               <CardContent className="p-4">
-                <div className="h-96 overflow-y-auto bg-gray-50 rounded-lg p-4 text-sm text-gray-700 space-y-4">
+                <div
+                  ref={termsRef}
+                  onScroll={handleTermsScroll}
+                  className="h-96 overflow-y-auto bg-gray-50 rounded-lg p-4 text-sm text-gray-700 space-y-4"
+                >
                   <h3 className="font-bold text-lg text-gray-800 text-center">【入会規約】</h3>
 
                   <div>
@@ -2970,13 +2998,21 @@ export default function FromTicketPurchasePage() {
               </CardContent>
             </Card>
 
-            <div className="flex items-start gap-3 mb-4 p-4 bg-gray-50 rounded-lg">
+            {!hasScrolledToBottom && (
+              <div className="flex items-center gap-2 p-3 rounded-lg bg-amber-50 border border-amber-200 mb-4">
+                <AlertCircle className="h-5 w-5 text-amber-600 shrink-0" />
+                <p className="text-sm text-amber-800">規約を最後までスクロールしてください</p>
+              </div>
+            )}
+
+            <div className={`flex items-start gap-3 mb-4 p-4 bg-gray-50 rounded-lg ${!hasScrolledToBottom ? 'opacity-50' : ''}`}>
               <Checkbox
                 checked={agreedToTerms}
                 onCheckedChange={(checked) => setAgreedToTerms(!!checked)}
                 id="terms"
+                disabled={!hasScrolledToBottom}
               />
-              <label htmlFor="terms" className="text-sm text-gray-700 cursor-pointer">
+              <label htmlFor="terms" className={`text-sm text-gray-700 ${hasScrolledToBottom ? 'cursor-pointer' : 'cursor-not-allowed'}`}>
                 入会規約を確認し、同意します
               </label>
             </div>
