@@ -17,6 +17,73 @@ from ..serializers import PublicCourseSerializer, PublicPackSerializer, PublicBr
 CACHE_TTL = 60 * 5
 
 
+import re
+
+def _grade_matches(grade_name_filter: str, grade_name_db: str) -> bool:
+    """学年が範囲指定の学年名にマッチするか判定する
+
+    例: grade_name_filter="小5", grade_name_db="小1～小6" → True
+        grade_name_filter="小5", grade_name_db="小1~" → True
+        grade_name_filter="小5", grade_name_db="年少～年長" → False
+    """
+    if not grade_name_filter or not grade_name_db:
+        return False
+
+    # 完全一致または部分文字列マッチ
+    if grade_name_filter in grade_name_db:
+        return True
+
+    # フィルター値から学年タイプと番号を抽出（例: "小5" → type="小", num=5）
+    m = re.match(r'^(小|中|高)(\d+)$', grade_name_filter)
+    if not m:
+        return False
+    filter_type = m.group(1)
+    filter_num = int(m.group(2))
+
+    # DB値から範囲を解析（例: "小1～小6" → start=1, end=6）
+    # パターン1: "小1～小6" or "小1〜小6"
+    range_match = re.match(
+        r'^' + re.escape(filter_type) + r'(\d+)[～〜~]' + re.escape(filter_type) + r'(\d+)',
+        grade_name_db
+    )
+    if range_match:
+        start = int(range_match.group(1))
+        end = int(range_match.group(2))
+        return start <= filter_num <= end
+
+    # パターン2: "小1~" or "小1～"（上限なし）
+    open_match = re.match(
+        r'^' + re.escape(filter_type) + r'(\d+)[～〜~]',
+        grade_name_db
+    )
+    if open_match:
+        start = int(open_match.group(1))
+        return filter_num >= start
+
+    return False
+
+
+def _build_grade_filter(grade_name: str, name_field: str = 'course_name'):
+    """学年フィルターのQ条件を構築する（範囲学年対応）"""
+    from apps.schools.models import Grade
+    # 基本条件: 完全一致 or grade_id=NULLでコース名マッチ
+    q = Q(grade__grade_name__icontains=grade_name) | \
+        Q(grade_id__isnull=True, **{f'{name_field}__icontains': grade_name})
+
+    # 範囲学年にマッチするgrade_idを事前に取得
+    m = re.match(r'^(小|中|高)(\d+)$', grade_name)
+    if m:
+        matching_grade_ids = []
+        grades = Grade.objects.filter(deleted_at__isnull=True)
+        for grade in grades:
+            if _grade_matches(grade_name, grade.grade_name):
+                matching_grade_ids.append(grade.id)
+        if matching_grade_ids:
+            q = q | Q(grade_id__in=matching_grade_ids)
+
+    return q
+
+
 class PublicBrandListView(APIView):
     """公開ブランド一覧API（認証不要・顧客向け）"""
     permission_classes = [AllowAny]
@@ -104,14 +171,10 @@ class PublicCourseListView(APIView):
                 # 校舎コードとして処理
                 queryset = queryset.filter(Q(school__school_code=school_id) | Q(school_id__isnull=True))
 
-        # 学年でフィルタリング
-        # grade_idがNULLのコース（学年不問）も含める
-        # コース名に学年が含まれている場合も対象にする
+        # 学年でフィルタリング（範囲学年対応）
+        # 例: "小5" → "小1～小6" にもマッチ
         if grade_name:
-            queryset = queryset.filter(
-                Q(grade__grade_name__icontains=grade_name) |
-                Q(grade_id__isnull=True, course_name__icontains=grade_name)
-            )
+            queryset = queryset.filter(_build_grade_filter(grade_name, 'course_name'))
 
         # ソートしてリミット適用
         queryset = queryset.order_by('sort_order', 'course_name')[:limit]
@@ -212,14 +275,10 @@ class PublicPackListView(APIView):
                 # 校舎コードとして処理
                 queryset = queryset.filter(Q(school__school_code=school_id) | Q(school_id__isnull=True))
 
-        # 学年でフィルタリング
-        # grade_idがNULLのパック（学年不問）も含める
-        # パック名に学年が含まれている場合も対象にする
+        # 学年でフィルタリング（範囲学年対応）
+        # 例: "小5" → "小1～小6" にもマッチ
         if grade_name:
-            queryset = queryset.filter(
-                Q(grade__grade_name__icontains=grade_name) |
-                Q(grade_id__isnull=True, pack_name__icontains=grade_name)
-            )
+            queryset = queryset.filter(_build_grade_filter(grade_name, 'pack_name'))
 
         # ソートしてリミット適用
         queryset = queryset.order_by('sort_order', 'pack_name')[:limit]
