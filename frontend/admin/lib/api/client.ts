@@ -78,7 +78,8 @@ class ApiClient {
       if (response.status === 401 && typeof window !== "undefined") {
         console.error('[API] 401 Unauthorized - clearing token and redirecting to login');
         this.setToken(null);
-        window.location.href = "/login";
+        const basePath = process.env.NEXT_PUBLIC_BASE_PATH || "/admin";
+        window.location.href = `${basePath}/login`;
         // リダイレクト中はPromiseを永久にpendingにしてコンポーネントのクラッシュを防ぐ
         return new Promise(() => {}) as T;
       }
@@ -171,7 +172,8 @@ class ApiClient {
       if (response.status === 401 && typeof window !== "undefined") {
         console.error('[API] 401 Unauthorized - clearing token and redirecting to login');
         this.setToken(null);
-        window.location.href = "/login";
+        const basePath = process.env.NEXT_PUBLIC_BASE_PATH || "/admin";
+        window.location.href = `${basePath}/login`;
         // リダイレクト中はPromiseを永久にpendingにしてクラッシュを防ぐ
         return new Promise<Blob>(() => {});
       }
