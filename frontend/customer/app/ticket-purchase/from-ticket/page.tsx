@@ -2543,49 +2543,6 @@ export default function FromTicketPurchasePage() {
                 </Card>
               </div>
 
-              {/* 通常請求額の表示 */}
-              {pricingPreview?.billingByMonth?.month1 && (
-                <div className="mb-3 p-2 rounded-lg border border-gray-200 bg-white">
-                  <p className="text-[10px] font-semibold text-gray-700 mb-1">通常請求額</p>
-                  <div className="flex items-center justify-between">
-                    <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[10px] text-gray-600">
-                      {(() => {
-                        const existingFacilityMax = pricingPreview.existingFacilityFee?.maxFee || 0;
-                        const processedItems = pricingPreview.billingByMonth.month1.items.map((item: any) => {
-                          if (item.itemType === 'facility' && existingFacilityMax > 0) {
-                            const adjustedPrice = Math.max(0, item.priceWithTax - existingFacilityMax);
-                            return { ...item, priceWithTax: adjustedPrice, originalPrice: item.priceWithTax };
-                          }
-                          return item;
-                        }).filter((item: any) => item.priceWithTax > 0);
-                        return processedItems.map((item: any, idx: number) => (
-                          <span key={idx}>
-                            {item.billingCategoryName || item.productName}: ¥{item.priceWithTax.toLocaleString()}
-                          </span>
-                        ));
-                      })()}
-                    </div>
-                    <div className="text-right">
-                      <span className="text-xs font-bold text-gray-800">
-                        ¥{(() => {
-                          const existingFacilityMax = pricingPreview.existingFacilityFee?.maxFee || 0;
-                          let total = pricingPreview.billingByMonth.month1.total;
-                          if (existingFacilityMax > 0) {
-                            const facilityItem = pricingPreview.billingByMonth.month1.items.find((i: any) => i.itemType === 'facility');
-                            if (facilityItem) {
-                              const reduction = Math.min(existingFacilityMax, facilityItem.priceWithTax);
-                              total -= reduction;
-                            }
-                          }
-                          return Math.max(0, total).toLocaleString();
-                        })()}
-                      </span>
-                      <span className="text-[10px] text-gray-500">/月</span>
-                    </div>
-                  </div>
-                </div>
-              )}
-
               {/* パックの場合はアイテム進捗を表示 */}
               {hasPackItems && (
                 <div className="mb-3">
@@ -2906,6 +2863,49 @@ export default function FromTicketPurchasePage() {
                         <span className="text-[9px] text-blue-600 ml-1">選択中</span>
                       </div>
                     )}
+                  </div>
+                </div>
+              )}
+
+              {/* 通常請求額の表示 */}
+              {pricingPreview?.billingByMonth?.month1 && (
+                <div className="mb-3 p-2 rounded-lg border border-gray-200 bg-white">
+                  <p className="text-[10px] font-semibold text-gray-700 mb-1">通常請求額</p>
+                  <div className="flex items-center justify-between">
+                    <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[10px] text-gray-600">
+                      {(() => {
+                        const existingFacilityMax = pricingPreview.existingFacilityFee?.maxFee || 0;
+                        const processedItems = pricingPreview.billingByMonth.month1.items.map((item: any) => {
+                          if (item.itemType === 'facility' && existingFacilityMax > 0) {
+                            const adjustedPrice = Math.max(0, item.priceWithTax - existingFacilityMax);
+                            return { ...item, priceWithTax: adjustedPrice, originalPrice: item.priceWithTax };
+                          }
+                          return item;
+                        }).filter((item: any) => item.priceWithTax > 0);
+                        return processedItems.map((item: any, idx: number) => (
+                          <span key={idx}>
+                            {item.billingCategoryName || item.productName}: ¥{item.priceWithTax.toLocaleString()}
+                          </span>
+                        ));
+                      })()}
+                    </div>
+                    <div className="text-right">
+                      <span className="text-xs font-bold text-gray-800">
+                        ¥{(() => {
+                          const existingFacilityMax = pricingPreview.existingFacilityFee?.maxFee || 0;
+                          let total = pricingPreview.billingByMonth.month1.total;
+                          if (existingFacilityMax > 0) {
+                            const facilityItem = pricingPreview.billingByMonth.month1.items.find((i: any) => i.itemType === 'facility');
+                            if (facilityItem) {
+                              const reduction = Math.min(existingFacilityMax, facilityItem.priceWithTax);
+                              total -= reduction;
+                            }
+                          }
+                          return Math.max(0, total).toLocaleString();
+                        })()}
+                      </span>
+                      <span className="text-[10px] text-gray-500">/月</span>
+                    </div>
                   </div>
                 </div>
               )}
