@@ -105,8 +105,13 @@ class PublicCourseListView(APIView):
                 queryset = queryset.filter(Q(school__school_code=school_id) | Q(school_id__isnull=True))
 
         # 学年でフィルタリング
+        # grade_idがNULLのコース（学年不問）も含める
+        # コース名に学年が含まれている場合も対象にする
         if grade_name:
-            queryset = queryset.filter(grade__grade_name__icontains=grade_name)
+            queryset = queryset.filter(
+                Q(grade__grade_name__icontains=grade_name) |
+                Q(grade_id__isnull=True, course_name__icontains=grade_name)
+            )
 
         # ソートしてリミット適用
         queryset = queryset.order_by('sort_order', 'course_name')[:limit]
@@ -208,8 +213,13 @@ class PublicPackListView(APIView):
                 queryset = queryset.filter(Q(school__school_code=school_id) | Q(school_id__isnull=True))
 
         # 学年でフィルタリング
+        # grade_idがNULLのパック（学年不問）も含める
+        # パック名に学年が含まれている場合も対象にする
         if grade_name:
-            queryset = queryset.filter(grade__grade_name__icontains=grade_name)
+            queryset = queryset.filter(
+                Q(grade__grade_name__icontains=grade_name) |
+                Q(grade_id__isnull=True, pack_name__icontains=grade_name)
+            )
 
         # ソートしてリミット適用
         queryset = queryset.order_by('sort_order', 'pack_name')[:limit]
