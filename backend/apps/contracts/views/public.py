@@ -48,6 +48,7 @@ class PublicCourseListView(APIView):
         ?brand_ids=xxx,yyy,zzz で複数ブランドフィルタリング（カンマ区切りUUID）
         ?school_id=xxx で校舎フィルタリング（UUIDまたは校舎コード）
         ?grade_name=xxx で学年フィルタリング
+        ?limit=xxx で結果を制限（デフォルト500）
         """
         import uuid as uuid_module
 
@@ -56,13 +57,19 @@ class PublicCourseListView(APIView):
         brand_ids = request.query_params.get('brand_ids', '')
         school_id = request.query_params.get('school_id', '')
         grade_name = request.query_params.get('grade_name', '')
-        cache_key = f"public_courses:{brand_id}:{brand_ids}:{school_id}:{grade_name}"
+        limit = request.query_params.get('limit', '500')
+        try:
+            limit = min(int(limit), 1000)  # 最大1000件
+        except ValueError:
+            limit = 500
+        cache_key = f"public_courses:{brand_id}:{brand_ids}:{school_id}:{grade_name}:{limit}"
 
         # キャッシュから取得
         cached_data = cache.get(cache_key)
         if cached_data is not None:
             return Response(cached_data)
 
+        # 基本クエリ - 必要なフィールドのみ選択
         queryset = Course.objects.filter(
             is_active=True,
             is_visible=True,  # 保護者に表示するコースのみ
@@ -101,7 +108,8 @@ class PublicCourseListView(APIView):
         if grade_name:
             queryset = queryset.filter(grade__grade_name__icontains=grade_name)
 
-        queryset = queryset.order_by('sort_order', 'course_name')
+        # ソートしてリミット適用
+        queryset = queryset.order_by('sort_order', 'course_name')[:limit]
         serializer = PublicCourseSerializer(queryset, many=True)
 
         # キャッシュに保存
@@ -145,6 +153,7 @@ class PublicPackListView(APIView):
         ?brand_ids=xxx,yyy,zzz で複数ブランドフィルタリング（カンマ区切りUUID）
         ?school_id=xxx で校舎フィルタリング（UUIDまたは校舎コード）
         ?grade_name=xxx で学年フィルタリング
+        ?limit=xxx で結果を制限（デフォルト500）
         """
         import uuid as uuid_module
 
@@ -153,7 +162,12 @@ class PublicPackListView(APIView):
         brand_ids = request.query_params.get('brand_ids', '')
         school_id = request.query_params.get('school_id', '')
         grade_name = request.query_params.get('grade_name', '')
-        cache_key = f"public_packs:{brand_id}:{brand_ids}:{school_id}:{grade_name}"
+        limit = request.query_params.get('limit', '500')
+        try:
+            limit = min(int(limit), 1000)  # 最大1000件
+        except ValueError:
+            limit = 500
+        cache_key = f"public_packs:{brand_id}:{brand_ids}:{school_id}:{grade_name}:{limit}"
 
         # キャッシュから取得
         cached_data = cache.get(cache_key)
@@ -197,7 +211,8 @@ class PublicPackListView(APIView):
         if grade_name:
             queryset = queryset.filter(grade__grade_name__icontains=grade_name)
 
-        queryset = queryset.order_by('sort_order', 'pack_name')
+        # ソートしてリミット適用
+        queryset = queryset.order_by('sort_order', 'pack_name')[:limit]
         serializer = PublicPackSerializer(queryset, many=True)
 
         # キャッシュに保存

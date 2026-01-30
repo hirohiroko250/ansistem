@@ -2,7 +2,7 @@
 Schools Views Package
 """
 # Brand Views
-from .brand import BrandViewSet, PublicBrandCategoriesView, PublicBrandSchoolsView
+from .brand import BrandViewSet, PublicBrandCategoriesView, PublicBrandSchoolsView, PublicCategorySchoolsView
 
 # School Views
 from .school import (
@@ -47,6 +47,7 @@ __all__ = [
     'BrandViewSet',
     'PublicBrandCategoriesView',
     'PublicBrandSchoolsView',
+    'PublicCategorySchoolsView',
     # School
     'SchoolViewSet',
     'PublicSchoolListView',

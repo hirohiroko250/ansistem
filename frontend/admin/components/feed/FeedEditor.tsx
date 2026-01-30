@@ -61,15 +61,17 @@ export interface FeedEditorHandle {
 interface FeedEditorProps {
   initialContent?: string;
   onChange?: (html: string) => void;
+  onPasteFile?: (file: File) => Promise<string | null>;
   className?: string;
 }
 
 // ---- Component ----
 const FeedEditor = forwardRef<FeedEditorHandle, FeedEditorProps>(
-  ({ initialContent = "", onChange, className }, ref) => {
+  ({ initialContent = "", onChange, onPasteFile, className }, ref) => {
     const editorRef = useRef<HTMLDivElement>(null);
     const initializedRef = useRef(false);
     const [activeDropdown, setActiveDropdown] = useState<string | null>(null);
+    const [isPasting, setIsPasting] = useState(false);
 
     useEffect(() => {
       if (editorRef.current && !initializedRef.current) {
@@ -305,25 +307,66 @@ const FeedEditor = forwardRef<FeedEditorHandle, FeedEditorProps>(
         </div>
 
         {/* Editor Area */}
-        <div
-          ref={editorRef}
-          contentEditable
-          suppressContentEditableWarning
-          onInput={handleInput}
-          className={`flex-1 p-4 outline-none overflow-y-auto leading-relaxed text-sm
-            [&:empty]:before:content-[attr(data-placeholder)] [&:empty]:before:text-gray-400
-            [&_img]:max-w-full [&_img]:h-auto [&_img]:rounded
-            [&_video]:max-w-full [&_video]:h-auto
-            [&_blockquote]:border-l-4 [&_blockquote]:border-gray-300 [&_blockquote]:pl-4 [&_blockquote]:italic [&_blockquote]:text-gray-600
-            [&_h2]:text-xl [&_h2]:font-bold [&_h2]:my-3
-            [&_h3]:text-lg [&_h3]:font-bold [&_h3]:my-2
-            [&_h4]:text-base [&_h4]:font-bold [&_h4]:my-2
-            [&_a]:text-blue-600 [&_a]:underline
-            [&_ul]:list-disc [&_ul]:pl-6
-            [&_ol]:list-decimal [&_ol]:pl-6`}
-          style={{ minHeight: "400px" }}
-          data-placeholder="本文を入力してください..."
-        />
+        <div className="relative flex-1">
+          {isPasting && (
+            <div className="absolute inset-0 bg-white/80 z-10 flex items-center justify-center">
+              <div className="flex items-center gap-2 text-sm text-gray-500">
+                <svg className="w-5 h-5 animate-spin" viewBox="0 0 24 24" fill="none">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                </svg>
+                画像をアップロード中...
+              </div>
+            </div>
+          )}
+          <div
+            ref={editorRef}
+            contentEditable
+            suppressContentEditableWarning
+            onInput={handleInput}
+            onPaste={async (e) => {
+              if (!onPasteFile) return;
+              const items = e.clipboardData?.items;
+              if (!items) return;
+              for (let i = 0; i < items.length; i++) {
+                if (items[i].type.startsWith("image/")) {
+                  e.preventDefault();
+                  const file = items[i].getAsFile();
+                  if (!file) return;
+                  setIsPasting(true);
+                  try {
+                    const url = await onPasteFile(file);
+                    if (url) {
+                      editorRef.current?.focus();
+                      document.execCommand(
+                        "insertHTML",
+                        false,
+                        `<div style="margin:8px 0;text-align:center;"><img src="${url}" alt="" style="max-width:100%;height:auto;border-radius:4px;" /></div><p><br></p>`
+                      );
+                      handleInput();
+                    }
+                  } finally {
+                    setIsPasting(false);
+                  }
+                  return;
+                }
+              }
+            }}
+            className={`h-full p-4 outline-none overflow-y-auto leading-relaxed text-sm
+              [&:empty]:before:content-[attr(data-placeholder)] [&:empty]:before:text-gray-400
+              [&_img]:max-w-full [&_img]:h-auto [&_img]:rounded
+              [&_video]:max-w-full [&_video]:h-auto
+              [&_blockquote]:border-l-4 [&_blockquote]:border-gray-300 [&_blockquote]:pl-4 [&_blockquote]:italic [&_blockquote]:text-gray-600
+              [&_h2]:text-xl [&_h2]:font-bold [&_h2]:my-3
+              [&_h3]:text-lg [&_h3]:font-bold [&_h3]:my-2
+              [&_h4]:text-base [&_h4]:font-bold [&_h4]:my-2
+              [&_a]:text-blue-600 [&_a]:underline
+              [&_ul]:list-disc [&_ul]:pl-6
+              [&_ol]:list-decimal [&_ol]:pl-6`}
+            style={{ minHeight: "400px" }}
+            data-placeholder="本文を入力してください...（Ctrl+Vで画像貼り付け可）"
+          />
+        </div>
       </div>
     );
   }

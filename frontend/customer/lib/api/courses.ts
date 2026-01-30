@@ -23,6 +23,8 @@ export async function getPublicCourses(params?: {
   brandId?: string;
   brandIds?: string[];  // 複数ブランドIDでフィルタ
   schoolId?: string;
+  gradeName?: string;   // 学年でフィルタ（例: "小5"）
+  limit?: number;       // 取得件数制限
 }): Promise<PublicCourse[]> {
   const searchParams = new URLSearchParams();
   if (params?.brandId) searchParams.append('brand_id', params.brandId);
@@ -30,6 +32,8 @@ export async function getPublicCourses(params?: {
     searchParams.append('brand_ids', params.brandIds.join(','));
   }
   if (params?.schoolId) searchParams.append('school_id', params.schoolId);
+  if (params?.gradeName) searchParams.append('grade_name', params.gradeName);
+  if (params?.limit) searchParams.append('limit', params.limit.toString());
 
   const query = searchParams.toString();
   return api.get<PublicCourse[]>(

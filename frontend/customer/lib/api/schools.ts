@@ -102,6 +102,7 @@ export async function getBrandCategories(): Promise<BrandCategory[]> {
 export interface BrandSchool {
   id: string;
   name: string;
+  nameShort: string;  // 校舎名略称（3文字程度）
   code: string;
   address: string;
   phone: string;
@@ -122,6 +123,30 @@ export async function getBrandSchools(brandId: string): Promise<BrandSchool[]> {
     { skipAuth: true }
   );
   return response.data || [];
+}
+
+/**
+ * カテゴリ内全ブランドの開講校舎を一括取得
+ * 認証不要
+ * @param categoryId - ブランドカテゴリID
+ * @returns 校舎一覧 + 校舎ID→ブランドIDマッピング
+ */
+export async function getCategorySchools(categoryId: string): Promise<{
+  schools: BrandSchool[];
+  schoolBrandMap: Record<string, string[]>;
+}> {
+  const response = await api.get<{
+    data: BrandSchool[];
+    schoolBrandMap: Record<string, string[]>;
+    count: number;
+  }>(
+    `/schools/public/category-schools/?category_id=${encodeURIComponent(categoryId)}`,
+    { skipAuth: true }
+  );
+  return {
+    schools: response.data || [],
+    schoolBrandMap: response.schoolBrandMap || {},
+  };
 }
 
 /**

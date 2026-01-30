@@ -90,6 +90,10 @@ class PublicCourseSerializer(serializers.Serializer):
         from datetime import date
         from decimal import Decimal
 
+        # course_priceが設定されていればそれを優先（税込み想定）
+        if obj.course_price is not None and obj.course_price > 0:
+            return int(obj.course_price)
+
         # prefetch済みのcourse_itemsを使用（追加クエリなし）
         for ci in obj.course_items.all():
             if not ci.is_active:

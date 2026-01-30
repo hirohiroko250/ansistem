@@ -127,8 +127,63 @@ def parse_start_date(start_date_str):
     return None
 
 
+def _parse_single_schedule(sched_data):
+    """1件のスケジュールデータを解析する共通処理"""
+    day_of_week = None
+    start_time_val = None
+    end_time_val = None
+    class_schedule = None
+    school_override = None
+
+    class_schedule_id = sched_data.get('id')
+    school_id = sched_data.get('schoolId') or sched_data.get('school_id')
+
+    if class_schedule_id:
+        try:
+            class_schedule = ClassSchedule.objects.get(id=class_schedule_id)
+            day_of_week = class_schedule.day_of_week
+            start_time_val = class_schedule.start_time
+            end_time_val = class_schedule.end_time
+            print(f"[PricingConfirm] Found ClassSchedule: {class_schedule.class_name} (id={class_schedule_id})", file=sys.stderr)
+        except ClassSchedule.DoesNotExist:
+            print(f"[PricingConfirm] ClassSchedule not found: id={class_schedule_id}", file=sys.stderr)
+
+    # フォールバック（ClassScheduleが見つからない場合）
+    if not class_schedule:
+        day_of_week_str = sched_data.get('dayOfWeek', '') or sched_data.get('day_of_week', '')
+        day_name_to_int = {'月曜日': 1, '火曜日': 2, '水曜日': 3, '木曜日': 4, '金曜日': 5, '土曜日': 6, '日曜日': 7}
+        day_of_week = day_name_to_int.get(day_of_week_str)
+
+        start_time_str = sched_data.get('startTime', '') or sched_data.get('start_time', '')
+        end_time_str = sched_data.get('endTime', '') or sched_data.get('end_time', '')
+        try:
+            if start_time_str:
+                parts = start_time_str.split(':')
+                start_time_val = time(int(parts[0]), int(parts[1]))
+            if end_time_str:
+                parts = end_time_str.split(':')
+                end_time_val = time(int(parts[0]), int(parts[1]))
+        except (ValueError, IndexError):
+            pass
+
+    # 校舎の取得（スケジュールごとに異なる校舎の場合）
+    if school_id:
+        try:
+            school_override = School.objects.get(id=school_id)
+        except School.DoesNotExist:
+            pass
+
+    return {
+        'day_of_week': day_of_week,
+        'start_time': start_time_val,
+        'end_time': end_time_val,
+        'class_schedule': class_schedule,
+        'school': school_override,
+    }
+
+
 def parse_schedule_info(schedules):
-    """スケジュール情報を解析"""
+    """スケジュール情報を解析（最初の1件のみ・後方互換性用）"""
     schedule_day_of_week = None
     schedule_start_time = None
     schedule_end_time = None
@@ -137,39 +192,35 @@ def parse_schedule_info(schedules):
     if not schedules or len(schedules) == 0:
         return schedule_day_of_week, schedule_start_time, schedule_end_time, selected_class_schedule
 
-    first_schedule = schedules[0]
-    class_schedule_id = first_schedule.get('id')
-
-    if class_schedule_id:
-        try:
-            selected_class_schedule = ClassSchedule.objects.get(id=class_schedule_id)
-            schedule_day_of_week = selected_class_schedule.day_of_week
-            schedule_start_time = selected_class_schedule.start_time
-            schedule_end_time = selected_class_schedule.end_time
-            print(f"[PricingConfirm] Found ClassSchedule: {selected_class_schedule.class_name} (id={class_schedule_id})", file=sys.stderr)
-        except ClassSchedule.DoesNotExist:
-            print(f"[PricingConfirm] ClassSchedule not found: id={class_schedule_id}", file=sys.stderr)
-
-    # フォールバック
-    if not selected_class_schedule:
-        day_of_week_str = first_schedule.get('day_of_week', '')
-        day_name_to_int = {'月曜日': 1, '火曜日': 2, '水曜日': 3, '木曜日': 4, '金曜日': 5, '土曜日': 6, '日曜日': 7}
-        schedule_day_of_week = day_name_to_int.get(day_of_week_str)
-
-        start_time_str = first_schedule.get('start_time', '')
-        end_time_str = first_schedule.get('end_time', '')
-        try:
-            if start_time_str:
-                parts = start_time_str.split(':')
-                schedule_start_time = time(int(parts[0]), int(parts[1]))
-            if end_time_str:
-                parts = end_time_str.split(':')
-                schedule_end_time = time(int(parts[0]), int(parts[1]))
-        except (ValueError, IndexError):
-            pass
+    parsed = _parse_single_schedule(schedules[0])
+    schedule_day_of_week = parsed['day_of_week']
+    schedule_start_time = parsed['start_time']
+    schedule_end_time = parsed['end_time']
+    selected_class_schedule = parsed['class_schedule']
 
     print(f"[PricingConfirm] Parsed schedule: day_of_week={schedule_day_of_week}, start_time={schedule_start_time}, end_time={schedule_end_time}", file=sys.stderr)
     return schedule_day_of_week, schedule_start_time, schedule_end_time, selected_class_schedule
+
+
+def parse_all_schedules(schedules):
+    """全スケジュール情報を解析（複数曜日対応）
+
+    Returns:
+        list of dict: [{day_of_week, start_time, end_time, class_schedule, school}, ...]
+    """
+    if not schedules or len(schedules) == 0:
+        return []
+
+    parsed_list = []
+    for sched_data in schedules:
+        parsed = _parse_single_schedule(sched_data)
+        parsed_list.append(parsed)
+        print(f"[PricingConfirm] Parsed schedule [{len(parsed_list)}]: "
+              f"day_of_week={parsed['day_of_week']}, start_time={parsed['start_time']}, "
+              f"class_schedule={parsed['class_schedule']}", file=sys.stderr)
+
+    print(f"[PricingConfirm] Total schedules parsed: {len(parsed_list)}", file=sys.stderr)
+    return parsed_list
 
 
 def get_ticket(ticket_id):
@@ -276,8 +327,13 @@ def create_student_school(student, school, brand, start_date):
 
 def create_student_enrollment(student, school, brand, selected_class_schedule,
                                start_date, order_id, product_name,
-                               schedule_day_of_week, schedule_start_time, schedule_end_time):
-    """StudentEnrollmentを作成"""
+                               schedule_day_of_week, schedule_start_time, schedule_end_time,
+                               is_additional=False):
+    """StudentEnrollmentを作成
+
+    Args:
+        is_additional: True の場合、既存の受講記録を終了しない（複数曜日の2つ目以降）
+    """
     if not school or not brand:
         return None
 
@@ -292,8 +348,10 @@ def create_student_enrollment(student, school, brand, selected_class_schedule,
         day_of_week_override=schedule_day_of_week,
         start_time_override=schedule_start_time,
         end_time_override=schedule_end_time,
+        skip_end_current=is_additional,
     )
-    print(f"[PricingConfirm] Created StudentEnrollment: student={student}, school={school}, brand={brand}", file=sys.stderr)
+    print(f"[PricingConfirm] Created StudentEnrollment: student={student}, school={school}, brand={brand}, "
+          f"day={schedule_day_of_week}, is_additional={is_additional}", file=sys.stderr)
 
     # 生徒のステータスを「入会」に更新
     if student.status in [Student.Status.REGISTERED, Student.Status.TRIAL]:

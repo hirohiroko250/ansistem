@@ -30,6 +30,7 @@ from .helpers import (
     get_brand_and_school,
     parse_start_date,
     parse_schedule_info,
+    parse_all_schedules,
     get_ticket,
     create_contract,
     create_student_item,
@@ -162,9 +163,10 @@ class PricingConfirmView(APIView):
         brand, school = get_brand_and_school(data['brand_id'], data['school_id'])
         start_date = parse_start_date(data['start_date_str'])
 
-        # スケジュール情報解析
+        # スケジュール情報解析（最初の1件 + 全件）
         schedule_day_of_week, schedule_start_time, schedule_end_time, selected_class_schedule = \
             parse_schedule_info(data['schedules'])
+        all_schedules = parse_all_schedules(data['schedules'])
 
         # チケット取得
         ticket = get_ticket(data['ticket_id'])
@@ -195,7 +197,8 @@ class PricingConfirmView(APIView):
                     schedule_day_of_week, schedule_start_time, schedule_end_time,
                     selected_class_schedule, order_id, billing_months,
                     data['payment_method'], data['selected_textbook_ids'],
-                    data['miles_to_use'], mile_discount
+                    data['miles_to_use'], mile_discount,
+                    all_schedules=all_schedules
                 )
 
         elif student and pack:
@@ -204,7 +207,8 @@ class PricingConfirmView(APIView):
                     student, pack, guardian, brand, school, start_date,
                     schedule_day_of_week, schedule_start_time, schedule_end_time,
                     selected_class_schedule, order_id, billing_months,
-                    data['payment_method'], data['miles_to_use'], mile_discount
+                    data['payment_method'], data['miles_to_use'], mile_discount,
+                    all_schedules=all_schedules
                 )
 
         # マイル使用記録
@@ -290,7 +294,8 @@ class PricingConfirmView(APIView):
     def _process_course_purchase(self, student, course, guardian, brand, school, start_date,
                                    schedule_day_of_week, schedule_start_time, schedule_end_time,
                                    selected_class_schedule, order_id, billing_months,
-                                   payment_method, selected_textbook_ids, miles_to_use, mile_discount):
+                                   payment_method, selected_textbook_ids, miles_to_use, mile_discount,
+                                   all_schedules=None):
         """コース購入処理（前払い制対応・合算請求）
 
         全てのアイテムを同じ請求月（次の未確定請求期間）に合算する。
@@ -383,12 +388,51 @@ class PricingConfirmView(APIView):
         # StudentSchool作成
         create_student_school(student, school, brand, start_date)
 
-        # StudentEnrollment作成
-        create_student_enrollment(
-            student, school, brand, selected_class_schedule,
-            start_date, order_id, f'コース: {course.course_name}',
-            schedule_day_of_week, schedule_start_time, schedule_end_time
-        )
+        # StudentEnrollment作成（複数曜日対応）
+        if all_schedules and len(all_schedules) > 1:
+            # 複数スケジュール: 各曜日ごとにEnrollmentを作成
+            print(f"[PricingConfirm] Creating {len(all_schedules)} enrollments for multiple schedules", file=sys.stderr)
+            for idx, sched in enumerate(all_schedules):
+                sched_school = sched.get('school') or school
+                create_student_enrollment(
+                    student, sched_school, brand, sched['class_schedule'],
+                    start_date, order_id, f'コース: {course.course_name}',
+                    sched['day_of_week'], sched['start_time'], sched['end_time'],
+                    is_additional=(idx > 0)  # 2つ目以降は既存を終了しない
+                )
+                # 追加校舎がある場合はStudentSchoolも作成
+                if sched_school and sched_school != school:
+                    create_student_school(student, sched_school, brand, start_date)
+
+            # 追加曜日のStudentItem作成（カレンダー表示用）
+            # カレンダーはStudentItemのclass_schedule_idを参照するため、
+            # 2つ目以降のスケジュールにも紐付くStudentItemが必要
+            tuition_product = None
+            for ci in course_items:
+                if ci.product and ci.product.item_type == 'tuition':
+                    tuition_product = ci.product
+                    break
+
+            for idx, sched in enumerate(all_schedules[1:], 2):
+                sched_school = sched.get('school') or school
+                ref_product = tuition_product or (course_items.first().product if course_items.exists() else None)
+                if ref_product:
+                    create_student_item(
+                        student, contract, ref_product, billing_month, order_id,
+                        Decimal('0'), 1,
+                        f'コース: {course.course_name} / 追加曜日{idx}登録',
+                        brand, sched_school, course, start_date,
+                        sched['day_of_week'], sched['start_time'], sched['end_time'],
+                        sched['class_schedule']
+                    )
+                    print(f"[PricingConfirm] Created additional schedule StudentItem for day={sched['day_of_week']}", file=sys.stderr)
+        else:
+            # 単一スケジュール（従来通り）
+            create_student_enrollment(
+                student, school, brand, selected_class_schedule,
+                start_date, order_id, f'コース: {course.course_name}',
+                schedule_day_of_week, schedule_start_time, schedule_end_time
+            )
 
         # 入会時費用計算・作成（当月日割分）
         enrollment_tuition_info = None
@@ -424,7 +468,8 @@ class PricingConfirmView(APIView):
     def _process_pack_purchase(self, student, pack, guardian, brand, school, start_date,
                                 schedule_day_of_week, schedule_start_time, schedule_end_time,
                                 selected_class_schedule, order_id, billing_months,
-                                payment_method, miles_to_use, mile_discount):
+                                payment_method, miles_to_use, mile_discount,
+                                all_schedules=None):
         """パック購入処理（前払い制対応・合算請求）
 
         全てのアイテムを同じ請求月（次の未確定請求期間）に合算する。
@@ -554,15 +599,52 @@ class PricingConfirmView(APIView):
                     selected_class_schedule
                 )
 
-        # StudentSchool・Enrollment作成
+        # StudentSchool・Enrollment作成（複数曜日対応）
         use_brand = brand or pack.brand
         use_school = school or pack.school
         create_student_school(student, use_school, use_brand, start_date)
-        create_student_enrollment(
-            student, use_school, use_brand, selected_class_schedule,
-            start_date, order_id, f'パック: {pack.pack_name}',
-            schedule_day_of_week, schedule_start_time, schedule_end_time
-        )
+
+        if all_schedules and len(all_schedules) > 1:
+            # 複数スケジュール: 各曜日ごとにEnrollmentを作成
+            print(f"[PricingConfirm] Pack: Creating {len(all_schedules)} enrollments for multiple schedules", file=sys.stderr)
+            for idx, sched in enumerate(all_schedules):
+                sched_school = sched.get('school') or use_school
+                create_student_enrollment(
+                    student, sched_school, use_brand, sched['class_schedule'],
+                    start_date, order_id, f'パック: {pack.pack_name}',
+                    sched['day_of_week'], sched['start_time'], sched['end_time'],
+                    is_additional=(idx > 0)
+                )
+                if sched_school and sched_school != use_school:
+                    create_student_school(student, sched_school, use_brand, start_date)
+
+            # 追加曜日のStudentItem作成（カレンダー表示用）
+            first_product = None
+            for pc in pack_courses:
+                if pc.course:
+                    ci = pc.course.course_items.filter(is_active=True, product__item_type='tuition').first()
+                    if ci and ci.product:
+                        first_product = ci.product
+                        break
+
+            for idx, sched in enumerate(all_schedules[1:], 2):
+                sched_school = sched.get('school') or use_school
+                if first_product:
+                    create_student_item(
+                        student, contract, first_product, billing_month, order_id,
+                        Decimal('0'), 1,
+                        f'パック: {pack.pack_name} / 追加曜日{idx}登録',
+                        use_brand, sched_school, None, start_date,
+                        sched['day_of_week'], sched['start_time'], sched['end_time'],
+                        sched['class_schedule']
+                    )
+                    print(f"[PricingConfirm] Pack: Created additional schedule StudentItem for day={sched['day_of_week']}", file=sys.stderr)
+        else:
+            create_student_enrollment(
+                student, use_school, use_brand, selected_class_schedule,
+                start_date, order_id, f'パック: {pack.pack_name}',
+                schedule_day_of_week, schedule_start_time, schedule_end_time
+            )
 
         # タスク作成
         service_month_labels = ' / '.join([m['label'] for m in service_months])

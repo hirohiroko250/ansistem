@@ -60,7 +60,7 @@ const countDayOfWeekOccurrences = (
 };
 import { getChildren } from '@/lib/api/students';
 import { getPublicCourses, getPublicPacks, getPublicBrands } from '@/lib/api/courses';
-import { getBrandSchools, getClassSchedules, getSchoolsByTicket, getTicketsBySchool, type BrandSchool, type ClassScheduleResponse, type ClassScheduleItem } from '@/lib/api/schools';
+import { getBrandSchools, getCategorySchools, getClassSchedules, getSchoolsByTicket, getTicketsBySchool, type BrandSchool, type ClassScheduleResponse, type ClassScheduleItem } from '@/lib/api/schools';
 import { MapSchoolSelector } from '@/components/map-school-selector';
 import { previewPricing, confirmPricing, getEnrollmentBillingInfo, type EnrollmentBillingInfo } from '@/lib/api/pricing';
 import { getStaffLessonSchedules, type StaffLessonSchedule } from '@/lib/api/lessons';
@@ -526,7 +526,7 @@ export default function FromTicketPurchasePage() {
     fetchBrands();
   }, []);
 
-  // カテゴリ選択時に校舎を取得（カテゴリ内の全ブランドの校舎を取得）
+  // カテゴリ選択時に校舎を取得（カテゴリ内の全ブランドの校舎を一括取得）
   useEffect(() => {
     if (!selectedCategory) return;
 
@@ -534,7 +534,7 @@ export default function FromTicketPurchasePage() {
       setIsLoadingSchools(true);
       setSchoolsError(null);
       try {
-        // カテゴリ内のブランドを取得
+        // カテゴリ内のブランドIDをセット
         const categoryBrands = brands.filter(b => b.category?.id === selectedCategory.id);
         const brandIds = categoryBrands.map(b => b.id);
         setCategoryBrandIds(brandIds);
@@ -544,39 +544,14 @@ export default function FromTicketPurchasePage() {
           return;
         }
 
-        // カテゴリ内の全ブランドの校舎を取得して結合
-        const allSchoolsPromises = categoryBrands.map(brand => getBrandSchools(brand.id));
-        const allSchoolsArrays = await Promise.all(allSchoolsPromises);
+        // 一括APIで全ブランドの校舎を取得（1リクエスト）
+        const result = await getCategorySchools(selectedCategory.id);
 
-        // 校舎を結合し、IDで重複を除去 + 校舎ID→ブランドID配列マップを作成
-        const schoolMap = new Map<string, BrandSchool>();
-        const newSchoolBrandMap = new Map<string, string[]>();
-
-        categoryBrands.forEach((brand, index) => {
-          const schoolsForBrand = allSchoolsArrays[index] || [];
-          schoolsForBrand.forEach(school => {
-            if (!schoolMap.has(school.id)) {
-              schoolMap.set(school.id, school);
-            }
-            // 校舎に対応するブランドID配列に追加
-            const existingBrands = newSchoolBrandMap.get(school.id) || [];
-            if (!existingBrands.includes(brand.id)) {
-              newSchoolBrandMap.set(school.id, [...existingBrands, brand.id]);
-            }
-          });
-        });
-
-        const uniqueSchools = Array.from(schoolMap.values());
-
-        // sortOrderでソート（sortOrderがなければ校舎名でソート）
-        uniqueSchools.sort((a, b) => {
-          const orderA = a.sortOrder ?? 9999;
-          const orderB = b.sortOrder ?? 9999;
-          if (orderA !== orderB) return orderA - orderB;
-          return a.name.localeCompare(b.name, 'ja');
-        });
-
-        setSchools(uniqueSchools);
+        setSchools(result.schools);
+        // Record<string, string[]> → Map<string, string[]> に変換
+        const newSchoolBrandMap = new Map<string, string[]>(
+          Object.entries(result.schoolBrandMap)
+        );
         setSchoolBrandMap(newSchoolBrandMap);
       } catch (err) {
         const apiError = err as ApiError;
@@ -588,18 +563,30 @@ export default function FromTicketPurchasePage() {
     fetchSchools();
   }, [selectedCategory, brands]);
 
-  // 校舎選択時にコース・パックを取得（校舎フィルタ + カテゴリでクライアント側フィルタ）
+  // 校舎選択時にコース・パックを取得（校舎で開講しているブランドのみに絞り込み）
   useEffect(() => {
-    // カテゴリ内のブランドIDを直接計算
-    const brandIdsInCategory = selectedCategory
-      ? new Set(brands.filter(b => b.category?.id === selectedCategory.id).map(b => b.id))
-      : new Set<string>();
+    if (!selectedSchoolId || !selectedCategory) return;
+
+    // 校舎に紐付いたブランドIDを取得
+    const schoolBrandIds = schoolBrandMap.get(selectedSchoolId) || [];
+
+    // カテゴリ内かつ校舎に紐付いたブランドのみに絞り込み
+    const brandIdsInCategory = new Set(
+      brands
+        .filter(b => b.category?.id === selectedCategory.id && schoolBrandIds.includes(b.id))
+        .map(b => b.id)
+    );
 
     const brandIdList = Array.from(brandIdsInCategory).sort();
-    if (brandIdList.length === 0 || !selectedSchoolId) return;
+    if (brandIdList.length === 0) return;
 
-    // キャッシュキーを生成
-    const cacheKey = `${brandIdList.join(',')}_${selectedSchoolId}`;
+    // キャッシュキーを生成（学年も含める）
+    let childGradeName: string | undefined;
+    if (selectedChild) {
+      const gradeInfo = calculateGradeFromBirthDate(selectedChild.birthDate);
+      childGradeName = gradeInfo.grade;
+    }
+    const cacheKey = `${brandIdList.join(',')}_${selectedSchoolId}_${childGradeName || ''}`;
 
     // キャッシュがあれば即座に反映
     const cached = courseCacheRef.current.get(cacheKey);
@@ -614,16 +601,15 @@ export default function FromTicketPurchasePage() {
       setIsLoadingCourses(true);
       setCoursesError(null);
       try {
-        // ブランドIDと校舎IDでサーバーサイドフィルタリング
+        // 校舎で開講しているブランドのコースのみ取得（学年フィルタ付き）
         const [categoryCourses, categoryPacks] = await Promise.all([
-          getPublicCourses({ brandIds: brandIdList, schoolId: selectedSchoolId }),
+          getPublicCourses({ brandIds: brandIdList, schoolId: selectedSchoolId, gradeName: childGradeName, limit: 1000 }),
           getPublicPacks({ brandIds: brandIdList, schoolId: selectedSchoolId }),
         ]);
 
         // キャッシュに保存
         courseCacheRef.current.set(cacheKey, { courses: categoryCourses, packs: categoryPacks });
 
-        // パックに含まれるコースも単品として表示する（¥0除外は後で行う）
         setCourses(categoryCourses);
         setPacks(categoryPacks);
       } catch (err) {
@@ -634,7 +620,7 @@ export default function FromTicketPurchasePage() {
       }
     };
     fetchCoursesAndPacks();
-  }, [selectedCategory, brands, selectedSchoolId]);
+  }, [selectedCategory, brands, selectedSchoolId, schoolBrandMap]);
 
   // 講習会を取得（itemType === 'seminar' の場合）
   useEffect(() => {
@@ -918,7 +904,7 @@ export default function FromTicketPurchasePage() {
         selectedTextbookIds: selectedTextbookIds.length > 0 ? selectedTextbookIds : undefined,
       });
 
-      if (result.status === 'completed' || result.status === 'pending') {
+      if (result.status === 'completed' || result.status === 'pending' || result.status === 'already_completed') {
         // 選択したクラスがある場合は予約も行う
         let bookedClassInfo = null;
         if (selectedClass) {
@@ -1041,9 +1027,14 @@ export default function FromTicketPurchasePage() {
         ? `Ti${ticketCode.replace(/^T/, '')}`
         : undefined;
 
+      // コースに紐付いたブランドIDを優先使用（selectedBrandはカテゴリ内の最初のブランドの場合がある）
+      const courseBrandId = selectedCourse && 'brandId' in selectedCourse
+        ? (selectedCourse as PublicCourse).brandId
+        : selectedBrand?.id;
+
       const data = await getClassSchedules(
         targetSchoolId,
-        selectedBrand?.id,
+        courseBrandId,
         undefined,
         ticketIdForApi
       );
@@ -1220,7 +1211,8 @@ export default function FromTicketPurchasePage() {
 
       // 単一学年の場合
       const courseGradeOrder = getGradeOrder(item.gradeName);
-      return childGradeOrder === courseGradeOrder;
+      const matched = childGradeOrder === courseGradeOrder;
+      return matched;
     });
   };
 
@@ -1352,8 +1344,8 @@ export default function FromTicketPurchasePage() {
           return normalizedSchoolTicketIds.includes(normalizedCode);
         });
       }
-      // ticketCodeがないコースは表示しない
-      return false;
+      // ticketCodeがないコースも表示する（校舎フィルタはスキップ）
+      return true;
     });
   };
 
@@ -1386,11 +1378,7 @@ export default function FromTicketPurchasePage() {
           displayPrice = (tuitionItem as { price: number }).price || 0;
         }
       }
-      // 表示価格が0より大きい場合のみ表示
-      const included = displayPrice > 0;
-      if (!included) {
-      }
-      return included;
+      return displayPrice > 0;
     });
 
     // 週回数でフィルタリング（frequency選択に基づく）
@@ -3418,6 +3406,7 @@ export default function FromTicketPurchasePage() {
                     <>
                       {/* 入会時費用（選択した教材費の入会時教材費を含む） */}
                       {(() => {
+                        if (!pricingPreview.billingByMonth?.enrollment?.items) return null;
                         // 選択した教材費の入会時教材費を取得
                         const selectedTextbookOption = pricingPreview.textbookOptions?.find(
                           opt => selectedTextbookIds.includes(opt.productId)
@@ -3474,6 +3463,7 @@ export default function FromTicketPurchasePage() {
 
                       {/* 当月分（回数割） - 設備費は既存契約より高い場合のみ差額を請求 */}
                       {(() => {
+                        if (!pricingPreview.billingByMonth?.currentMonth?.items) return null;
                         const existingFacilityMax = pricingPreview.existingFacilityFee?.maxFee || 0;
                         const processedItems = pricingPreview.billingByMonth.currentMonth.items.map((item: any) => {
                           if (item.itemType === 'facility') {
@@ -3508,6 +3498,7 @@ export default function FromTicketPurchasePage() {
 
                       {/* 翌月分 - 設備費は既存契約より高い場合のみ差額を請求 */}
                       {(() => {
+                        if (!pricingPreview.billingByMonth?.month1?.items) return null;
                         const existingFacilityMax = pricingPreview.existingFacilityFee?.maxFee || 0;
                         const processedItems = pricingPreview.billingByMonth.month1.items.map((item: any) => {
                           if (item.itemType === 'facility') {
@@ -3542,6 +3533,7 @@ export default function FromTicketPurchasePage() {
 
                       {/* 翌々月分 - 設備費は既存契約より高い場合のみ差額を請求 */}
                       {(() => {
+                        if (!pricingPreview.billingByMonth?.month2?.items) return null;
                         const existingFacilityMax = pricingPreview.existingFacilityFee?.maxFee || 0;
                         const processedItems = pricingPreview.billingByMonth.month2.items.map((item: any) => {
                           if (item.itemType === 'facility') {

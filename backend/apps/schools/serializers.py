@@ -51,8 +51,11 @@ class PublicBrandCategorySerializer(serializers.ModelSerializer):
         ]
 
     def get_brands(self, obj):
-        """カテゴリに属するブランド一覧"""
-        brands = obj.brands.filter(is_active=True, deleted_at__isnull=True).order_by('sort_order')
+        """カテゴリに属するブランド一覧（プリフェッチ済みデータを優先使用）"""
+        # Prefetch(to_attr='active_brands') がある場合はそちらを使用（追加クエリなし）
+        brands = getattr(obj, 'active_brands', None)
+        if brands is None:
+            brands = obj.brands.filter(is_active=True, deleted_at__isnull=True).order_by('sort_order')
         return [
             {
                 'id': str(brand.id),

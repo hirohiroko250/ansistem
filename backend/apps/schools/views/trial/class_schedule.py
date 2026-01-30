@@ -52,12 +52,19 @@ class PublicClassScheduleView(APIView):
         if brand_category_id:
             queryset = queryset.filter(brand_category_id=brand_category_id)
         if ticket_id:
+            # "Ti10000131" → "T10000131" にも対応（フロントエンドがTi形式で送る場合がある）
+            ticket_id_variants = [ticket_id]
+            if ticket_id.startswith('Ti'):
+                ticket_id_variants.append('T' + ticket_id[2:])
+            elif ticket_id.startswith('T') and not ticket_id.startswith('Ti'):
+                ticket_id_variants.append('Ti' + ticket_id[1:])
+
             # チケットIDから同じtransfer_groupのスケジュールを取得
-            ticket_schedule = ClassSchedule.objects.filter(ticket_id=ticket_id).first()
+            ticket_schedule = ClassSchedule.objects.filter(ticket_id__in=ticket_id_variants).first()
             if ticket_schedule and ticket_schedule.transfer_group:
                 queryset = queryset.filter(transfer_group=ticket_schedule.transfer_group)
             else:
-                ticket = Ticket.objects.filter(ticket_code=ticket_id).first()
+                ticket = Ticket.objects.filter(ticket_code__in=ticket_id_variants).first()
                 if ticket and ticket.ticket_name:
                     class_names = ['White', 'Yellow', 'Red', 'Purple', 'Kids', 'Jr', 'ジュニア', 'キッズ']
                     transfer_group = None
@@ -68,9 +75,9 @@ class PublicClassScheduleView(APIView):
                     if transfer_group:
                         queryset = queryset.filter(transfer_group=transfer_group)
                     else:
-                        queryset = queryset.filter(ticket_id=ticket_id)
+                        queryset = queryset.filter(ticket_id__in=ticket_id_variants)
                 else:
-                    queryset = queryset.filter(ticket_id=ticket_id)
+                    queryset = queryset.filter(ticket_id__in=ticket_id_variants)
 
         # 曜日名マッピング
         day_short_names = {1: '月', 2: '火', 3: '水', 4: '木', 5: '金', 6: '土', 7: '日'}

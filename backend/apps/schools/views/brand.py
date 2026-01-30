@@ -10,6 +10,7 @@ from rest_framework.views import APIView
 from django.db.models import Count
 from django.utils import timezone
 
+from django.db.models import Prefetch
 from apps.core.permissions import IsTenantUser, IsTenantAdmin
 from apps.core.csv_utils import CSVMixin
 from ..models import Brand, BrandCategory, BrandSchool
@@ -119,8 +120,13 @@ class PublicBrandCategoriesView(APIView):
         """
         ブランドカテゴリ一覧を返す（各カテゴリにブランドが含まれる）
         """
+        active_brands = Brand.objects.filter(
+            is_active=True, deleted_at__isnull=True
+        ).order_by('sort_order')
         categories = BrandCategory.objects.filter(
             is_active=True
+        ).prefetch_related(
+            Prefetch('brands', queryset=active_brands, to_attr='active_brands')
         ).order_by('sort_order', 'category_code')
 
         serializer = PublicBrandCategorySerializer(categories, many=True)
@@ -159,6 +165,7 @@ class PublicBrandSchoolsView(APIView):
                 schools_data.append({
                     'id': str(school.id),
                     'name': school.school_name,
+                    'nameShort': school.school_name_short or school.school_name[:3],  # 略称または先頭3文字
                     'code': school.school_code,
                     'address': f"{school.prefecture}{school.city}{school.address1}{school.address2}".strip(),
                     'phone': school.phone,
@@ -170,5 +177,65 @@ class PublicBrandSchoolsView(APIView):
 
         return Response({
             'data': schools_data,
+            'count': len(schools_data)
+        })
+
+
+class PublicCategorySchoolsView(APIView):
+    """カテゴリ内全ブランドの開講校舎一括取得API（認証不要）"""
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        """
+        カテゴリIDを指定して、カテゴリ内全ブランドの開講校舎を一括取得
+        ?category_id=xxx でカテゴリフィルタリング
+        レスポンス: { data: BrandSchool[], schoolBrandMap: { schoolId: brandId[] }, count: number }
+        """
+        category_id = request.query_params.get('category_id', '')
+        if not category_id:
+            return Response({'error': 'category_id is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # カテゴリに属するブランドの全BrandSchoolを1クエリで取得
+        brand_schools = BrandSchool.objects.filter(
+            is_active=True,
+            brand__category_id=category_id,
+            brand__is_active=True,
+            brand__deleted_at__isnull=True,
+            school__is_active=True,
+        ).select_related('school', 'brand')
+
+        # 校舎を重複除去し、校舎ID→ブランドIDマッピングも構築
+        school_map = {}  # school_id -> school_data
+        school_brand_map = {}  # school_id -> [brand_id, ...]
+
+        for bs in brand_schools:
+            school = bs.school
+            school_id = str(school.id)
+            brand_id = str(bs.brand_id)
+
+            if school_id not in school_map:
+                school_map[school_id] = {
+                    'id': school_id,
+                    'name': school.school_name,
+                    'nameShort': school.school_name_short or school.school_name[:3],
+                    'code': school.school_code,
+                    'address': f"{school.prefecture}{school.city}{school.address1}{school.address2}".strip(),
+                    'phone': school.phone,
+                    'latitude': float(school.latitude) if school.latitude else None,
+                    'longitude': float(school.longitude) if school.longitude else None,
+                    'isMain': bs.is_main,
+                    'sortOrder': bs.sort_order,
+                }
+
+            if school_id not in school_brand_map:
+                school_brand_map[school_id] = []
+            if brand_id not in school_brand_map[school_id]:
+                school_brand_map[school_id].append(brand_id)
+
+        schools_data = sorted(school_map.values(), key=lambda s: (s['sortOrder'] if s['sortOrder'] is not None else 9999, s['name']))
+
+        return Response({
+            'data': schools_data,
+            'schoolBrandMap': school_brand_map,
             'count': len(schools_data)
         })

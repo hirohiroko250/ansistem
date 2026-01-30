@@ -230,7 +230,8 @@ class StudentEnrollment(TenantModel):
     def create_enrollment(cls, student, school, brand, class_schedule=None,
                          ticket=None, change_type=None, effective_date=None,
                          student_item=None, notes='',
-                         day_of_week_override=None, start_time_override=None, end_time_override=None):
+                         day_of_week_override=None, start_time_override=None, end_time_override=None,
+                         skip_end_current=False):
         """新しい受講記録を作成し、前の記録を終了する
 
         Args:
@@ -246,15 +247,18 @@ class StudentEnrollment(TenantModel):
             day_of_week_override: 曜日（class_scheduleがない場合に使用）
             start_time_override: 開始時間（class_scheduleがない場合に使用）
             end_time_override: 終了時間（class_scheduleがない場合に使用）
+            skip_end_current: 既存の受講記録を終了しない（複数曜日追加時に使用）
         """
         from datetime import date as date_cls
         effective_date = effective_date or date_cls.today()
 
-        # 同じブランドの現在有効な記録を終了
-        current = cls.get_current_enrollment(student, brand)
-        if current:
-            current.end_date = effective_date
-            current.save()
+        # 同じブランドの現在有効な記録を終了（skip_end_current=Trueの場合はスキップ）
+        current = None
+        if not skip_end_current:
+            current = cls.get_current_enrollment(student, brand)
+            if current:
+                current.end_date = effective_date
+                current.save()
 
         # 曜日・時間情報を取得（class_scheduleから取得、なければoverride値を使用）
         day_of_week = None

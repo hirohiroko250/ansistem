@@ -12,6 +12,7 @@ import { getMediaUrl } from '@/lib/api/client';
 import { Heart, MessageCircle, ArrowLeft, Send, Loader2 } from 'lucide-react';
 import { AuthGuard } from '@/components/auth';
 import { useFeedPost, useFeedComments, useCreateComment, useToggleLike, type FeedComment } from '@/lib/hooks/use-feed';
+import { SafeHtml, hasInlineMedia, isHtml } from '@/components/ui/safe-html';
 
 function FeedDetailContent() {
   const router = useRouter();
@@ -143,8 +144,8 @@ function FeedDetailContent() {
               )}
             </div>
 
-            {/* Media */}
-            {post.media && post.media.length > 0 && (
+            {/* Media - skip if content has inline media */}
+            {!(isHtml(post.content) && hasInlineMedia(post.content)) && post.media && post.media.length > 0 && (
               <div className="relative">
                 {post.media[0].mediaType === 'VIDEO' ? (
                   <video
@@ -190,10 +191,10 @@ function FeedDetailContent() {
                 <h2 className="font-semibold text-gray-900 mb-2">{post.title}</h2>
               )}
 
-              <p className="text-sm text-gray-800">
+              <div className="text-sm text-gray-800">
                 <span className="font-semibold mr-2">{post.authorName || '運営'}</span>
-                {post.content}
-              </p>
+                <SafeHtml content={post.content} />
+              </div>
 
               {post.hashtags && post.hashtags.length > 0 && (
                 <p className="text-sm text-blue-600 mt-1">

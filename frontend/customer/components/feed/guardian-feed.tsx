@@ -10,6 +10,7 @@ import { getFeedPosts, likeFeedPost, unlikeFeedPost, type FeedPost } from '@/lib
 import { getMediaUrl } from '@/lib/api/client';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
+import { SafeHtml, hasInlineMedia, isHtml } from '@/components/ui/safe-html';
 
 type AnnouncementType = {
   id: number;
@@ -297,33 +298,37 @@ export function GuardianFeed() {
                   )}
                 </div>
 
-                {/* メディア表示 */}
-                {post.media && post.media.length > 0 ? (
-                  <div className="relative">
-                    {post.media[0].mediaType === 'VIDEO' ? (
-                      <video
-                        src={getMediaUrl(post.media[0].fileUrl)}
-                        className="w-full aspect-square object-cover"
-                        controls
-                      />
+                {/* メディア表示 - インラインメディアがある場合はスキップ */}
+                {!(isHtml(post.content) && hasInlineMedia(post.content)) && (
+                  <>
+                    {post.media && post.media.length > 0 ? (
+                      <div className="relative">
+                        {post.media[0].mediaType === 'VIDEO' ? (
+                          <video
+                            src={getMediaUrl(post.media[0].fileUrl)}
+                            className="w-full aspect-square object-cover"
+                            controls
+                          />
+                        ) : (
+                          <img
+                            src={getMediaUrl(post.media[0].fileUrl)}
+                            alt={post.media[0].caption || '投稿画像'}
+                            className="w-full aspect-square object-cover"
+                            onError={(e) => console.error('Image load error:', post.media[0].fileUrl, e)}
+                          />
+                        )}
+                        {post.media.length > 1 && (
+                          <Badge className="absolute top-2 right-2 bg-black/60">
+                            +{post.media.length - 1}
+                          </Badge>
+                        )}
+                      </div>
                     ) : (
-                      <img
-                        src={getMediaUrl(post.media[0].fileUrl)}
-                        alt={post.media[0].caption || '投稿画像'}
-                        className="w-full aspect-square object-cover"
-                        onError={(e) => console.error('Image load error:', post.media[0].fileUrl, e)}
-                      />
+                      <div className="w-full aspect-video bg-gradient-to-br from-blue-100 to-blue-200 flex items-center justify-center">
+                        <p className="text-blue-600 text-sm">テキスト投稿</p>
+                      </div>
                     )}
-                    {post.media.length > 1 && (
-                      <Badge className="absolute top-2 right-2 bg-black/60">
-                        +{post.media.length - 1}
-                      </Badge>
-                    )}
-                  </div>
-                ) : (
-                  <div className="w-full aspect-video bg-gradient-to-br from-blue-100 to-blue-200 flex items-center justify-center">
-                    <p className="text-blue-600 text-sm">テキスト投稿</p>
-                  </div>
+                  </>
                 )}
 
                 <div className="px-4 py-3">
@@ -359,10 +364,10 @@ export function GuardianFeed() {
                     <h4 className="font-semibold text-gray-900 mb-1">{post.title}</h4>
                   )}
 
-                  <p className="text-sm text-gray-800">
+                  <div className="text-sm text-gray-800">
                     <span className="font-semibold mr-2">{post.authorName || '運営'}</span>
-                    {post.content}
-                  </p>
+                    <SafeHtml content={post.content} />
+                  </div>
 
                   {post.hashtags && post.hashtags.length > 0 && (
                     <p className="text-sm text-blue-600 mt-1">

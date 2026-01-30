@@ -435,7 +435,7 @@ export interface PricingConfirmRequest {
 
 export interface PricingConfirmResponse {
   orderId: string;
-  status: 'pending' | 'completed' | 'failed';
+  status: 'pending' | 'completed' | 'failed' | 'already_completed';
   paymentUrl?: string;
   message: string;
   mileDiscount?: number;  // マイル割引額
