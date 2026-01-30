@@ -30,7 +30,6 @@ import {
   Loader2,
   ArrowLeft,
   Image as ImageIcon,
-  Film,
   Settings2,
 } from "lucide-react";
 import { MultiSelect } from "@/components/ui/multi-select";
@@ -456,24 +455,12 @@ export default function FeedPage() {
                     </div>
 
                     {/* Upload Area */}
-                    <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
-                      <div className="mb-3">
-                        {mediaTab === "photo" ? (
-                          <ImageIcon className="w-12 h-12 mx-auto text-gray-300" />
-                        ) : (
-                          <Film className="w-12 h-12 mx-auto text-gray-300" />
-                        )}
-                      </div>
-                      <p className="text-sm text-gray-500 mb-3">
-                        ここにドロップ<br />またはクリックで
-                      </p>
-                      <FileUpload
-                        accept={mediaTab === "photo" ? "image/*" : "video/*"}
-                        label={mediaTab === "photo" ? "画像をアップロード" : "動画をアップロード"}
-                        enableImageEdit={false}
-                        onUpload={handleMediaUpload}
-                      />
-                    </div>
+                    <FileUpload
+                      accept={mediaTab === "photo" ? "image/*" : "video/*"}
+                      label={mediaTab === "photo" ? "画像をアップロード" : "動画をアップロード"}
+                      enableImageEdit={false}
+                      onUpload={handleMediaUpload}
+                    />
 
                     <p className="text-xs text-gray-500 mt-3 text-center">
                       アップロードした{mediaTab === "photo" ? "画像" : "動画"}はエディタに挿入されます
