@@ -25,6 +25,63 @@ type MonthSummary = {
   hasReceipt: boolean; // 領収書発行可能か
 };
 
+// 月別集計データを作成（コンポーネント外に定義してTDZエラーを回避）
+function createMonthSummaries(items: PurchasedItem[], passbook: PassbookData | null): MonthSummary[] {
+  // 月ごとにグループ化（請求データ）
+  const monthMap = new Map<string, PurchasedItem[]>();
+
+  items.forEach(item => {
+    const month = item.billingMonth;
+    if (!monthMap.has(month)) {
+      monthMap.set(month, []);
+    }
+    monthMap.get(month)!.push(item);
+  });
+
+  // 入金・調整データを月ごとに集計
+  const paymentByMonth = new Map<string, number>();
+  if (passbook?.transactions) {
+    passbook.transactions.forEach(tx => {
+      if (tx.transaction_type === 'deposit' || tx.transaction_type === 'adjustment') {
+        const txMonth = tx.created_at.substring(0, 7);
+        const current = paymentByMonth.get(txMonth) || 0;
+        paymentByMonth.set(txMonth, current + tx.amount);
+      }
+    });
+  }
+
+  // 集計データを作成
+  const summaries: MonthSummary[] = [];
+  let runningBalance = 0;
+
+  const sortedMonths = Array.from(monthMap.keys()).sort();
+
+  sortedMonths.forEach(month => {
+    const monthItems = monthMap.get(month)!;
+    const billingAmount = monthItems.reduce((sum, item) => sum + item.finalPrice, 0);
+    const paymentAmount = paymentByMonth.get(month) || 0;
+    const balance = paymentAmount - billingAmount;
+    runningBalance += balance;
+
+    const isPaid = paymentAmount >= billingAmount;
+    const displayMonth = format(new Date(month + '-01'), 'yyyy年M月', { locale: ja });
+
+    summaries.push({
+      month,
+      displayMonth,
+      category: paymentAmount > 0 ? '入金' : '請求',
+      billingAmount,
+      paymentAmount,
+      description: isPaid ? '入金済' : (paymentAmount > 0 ? '一部入金' : '未入金'),
+      balance,
+      cumulative: runningBalance,
+      hasReceipt: paymentAmount > 0,
+    });
+  });
+
+  return summaries.reverse();
+}
+
 function PassbookContent() {
   const [isPortrait, setIsPortrait] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
@@ -63,73 +120,6 @@ function PassbookContent() {
       window.removeEventListener('orientationchange', checkOrientation);
     };
   }, []);
-
-  // 月別集計データを作成
-  const createMonthSummaries = (items: PurchasedItem[], passbook: PassbookData | null): MonthSummary[] => {
-    // 月ごとにグループ化（請求データ）
-    const monthMap = new Map<string, PurchasedItem[]>();
-
-    items.forEach(item => {
-      const month = item.billingMonth;
-      if (!monthMap.has(month)) {
-        monthMap.set(month, []);
-      }
-      monthMap.get(month)!.push(item);
-    });
-
-    // 入金・調整データを月ごとに集計
-    const paymentByMonth = new Map<string, number>();
-    if (passbook?.transactions) {
-      passbook.transactions.forEach(tx => {
-        // deposit（入金）、adjustment（調整）を入金として扱う
-        // offset（相殺）は請求への充当なので除外
-        if (tx.transaction_type === 'deposit' || tx.transaction_type === 'adjustment') {
-          // 取引日から月を取得
-          const txMonth = tx.created_at.substring(0, 7); // YYYY-MM形式
-          const current = paymentByMonth.get(txMonth) || 0;
-          // adjustmentはプラス/マイナス両方あり得る
-          paymentByMonth.set(txMonth, current + tx.amount);
-        }
-      });
-    }
-
-    // 集計データを作成
-    const summaries: MonthSummary[] = [];
-    let runningBalance = 0; // 累計過不足
-
-    // 月を昇順でソート
-    const sortedMonths = Array.from(monthMap.keys()).sort();
-
-    sortedMonths.forEach(month => {
-      const monthItems = monthMap.get(month)!;
-      const billingAmount = monthItems.reduce((sum, item) => sum + item.finalPrice, 0);
-
-      // その月の入金額（実際の振込データから）
-      const paymentAmount = paymentByMonth.get(month) || 0;
-
-      // 過不足 = 入金額 - 請求額（マイナスは不足）
-      const balance = paymentAmount - billingAmount;
-      runningBalance += balance;
-
-      const isPaid = paymentAmount >= billingAmount;
-      const displayMonth = format(new Date(month + '-01'), 'yyyy年M月', { locale: ja });
-
-      summaries.push({
-        month,
-        displayMonth,
-        category: paymentAmount > 0 ? '入金' : '請求',
-        billingAmount,
-        paymentAmount,
-        description: isPaid ? '入金済' : (paymentAmount > 0 ? '一部入金' : '未入金'),
-        balance,
-        cumulative: runningBalance,
-        hasReceipt: paymentAmount > 0,
-      });
-    });
-
-    // 新しい順に並べ替え
-    return summaries.reverse();
-  };
 
   // 領収書ダウンロード
   const [downloadingMonth, setDownloadingMonth] = useState<string | null>(null);
