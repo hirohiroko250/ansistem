@@ -63,6 +63,7 @@ class FeedPostListSerializer(serializers.ModelSerializer):
     is_bookmarked = serializers.SerializerMethodField()
     target_brands_detail = serializers.SerializerMethodField()
     target_schools_detail = serializers.SerializerMethodField()
+    approved_by_name = serializers.SerializerMethodField()
 
     class Meta:
         model = FeedPost
@@ -76,8 +77,14 @@ class FeedPostListSerializer(serializers.ModelSerializer):
             'media', 'is_liked', 'is_bookmarked',
             'is_published', 'published_at',
             'publish_start_at', 'publish_end_at',
+            'approval_status', 'approved_by', 'approved_by_name', 'approved_at',
             'created_at', 'updated_at'
         ]
+
+    def get_approved_by_name(self, obj):
+        if obj.approved_by:
+            return obj.approved_by.full_name or obj.approved_by.email
+        return None
 
     def get_target_brands_detail(self, obj):
         return [{'id': str(b.id), 'name': b.brand_name} for b in obj.target_brands.all()]
@@ -110,6 +117,7 @@ class FeedPostDetailSerializer(serializers.ModelSerializer):
     target_grades_detail = serializers.SerializerMethodField()
     is_liked = serializers.SerializerMethodField()
     is_bookmarked = serializers.SerializerMethodField()
+    approved_by_name = serializers.SerializerMethodField()
 
     class Meta:
         model = FeedPost
@@ -125,12 +133,19 @@ class FeedPostDetailSerializer(serializers.ModelSerializer):
             'media', 'comments', 'is_liked', 'is_bookmarked',
             'is_published', 'published_at',
             'publish_start_at', 'publish_end_at',
+            'approval_status', 'approved_by', 'approved_by_name', 'approved_at',
             'is_deleted', 'deleted_at', 'created_at', 'updated_at'
         ]
         read_only_fields = [
             'id', 'tenant_id', 'like_count', 'comment_count', 'view_count',
+            'approval_status', 'approved_by', 'approved_at',
             'created_at', 'updated_at'
         ]
+
+    def get_approved_by_name(self, obj):
+        if obj.approved_by:
+            return obj.approved_by.full_name or obj.approved_by.email
+        return None
 
     def get_comments(self, obj):
         # トップレベルのコメントのみ取得（返信は除く）

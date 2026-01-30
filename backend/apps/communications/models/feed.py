@@ -22,6 +22,11 @@ class FeedPost(models.Model):
         GRADE = 'GRADE', '学年限定'
         STAFF = 'STAFF', 'スタッフのみ'
 
+    class ApprovalStatus(models.TextChoices):
+        PENDING = 'pending', '申請中'
+        APPROVED = 'approved', '承認済'
+        REJECTED = 'rejected', '却下'
+
     id = models.UUIDField(
         primary_key=True,
         default=uuid.uuid4,
@@ -149,6 +154,26 @@ class FeedPost(models.Model):
         blank=True,
         verbose_name='公開終了日時',
         help_text='指定しない場合は無期限'
+    )
+    # 承認
+    approval_status = models.CharField(
+        max_length=20,
+        choices=ApprovalStatus.choices,
+        default=ApprovalStatus.APPROVED,
+        verbose_name='承認ステータス',
+    )
+    approved_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='approved_feed_posts',
+        verbose_name='承認者',
+    )
+    approved_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name='承認日時',
     )
     # 削除
     is_deleted = models.BooleanField(

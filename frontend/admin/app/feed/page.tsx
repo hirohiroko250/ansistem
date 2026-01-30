@@ -34,6 +34,10 @@ import {
   X,
   Send,
   Smartphone,
+  CheckCircle,
+  XCircle,
+  ShieldCheck,
+  Filter,
 } from "lucide-react";
 import { MultiSelect } from "@/components/ui/multi-select";
 import { FileUpload } from "@/components/ui/file-upload";
@@ -74,6 +78,9 @@ interface FeedPost {
   publishedAt?: string;
   publishStartAt?: string;
   publishEndAt?: string;
+  approvalStatus?: string;
+  approvedByName?: string;
+  approvedAt?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -129,16 +136,20 @@ export default function FeedPage() {
     publishEndAt: "",
   });
 
+  const [approvalFilter, setApprovalFilter] = useState<string>("all");
+
   useEffect(() => {
     loadPosts();
     loadSchools();
     loadBrands();
   }, []);
 
-  async function loadPosts() {
+  async function loadPosts(filterOverride?: string) {
     try {
       setLoading(true);
-      const response = await apiClient.get<any>("/communications/feed/posts/");
+      const filter = filterOverride ?? approvalFilter;
+      const params = filter && filter !== "all" ? `?approval_status=${filter}` : "";
+      const response = await apiClient.get<any>(`/communications/feed/posts/${params}`);
       const data = response.results || response.data || response || [];
       setPosts(Array.isArray(data) ? data : []);
     } catch (error) {
@@ -306,6 +317,33 @@ export default function FeedPage() {
       console.error("Failed to delete post:", error);
       alert("削除に失敗しました");
     }
+  }
+
+  async function handleApprove(postId: string) {
+    if (!confirm("この投稿を承認しますか？")) return;
+    try {
+      await apiClient.post(`/communications/feed/posts/${postId}/approve/`);
+      await loadPosts();
+    } catch (error) {
+      console.error("Failed to approve post:", error);
+      alert("承認に失敗しました");
+    }
+  }
+
+  async function handleReject(postId: string) {
+    if (!confirm("この投稿を却下しますか？")) return;
+    try {
+      await apiClient.post(`/communications/feed/posts/${postId}/reject/`);
+      await loadPosts();
+    } catch (error) {
+      console.error("Failed to reject post:", error);
+      alert("却下に失敗しました");
+    }
+  }
+
+  function handleApprovalFilterChange(value: string) {
+    setApprovalFilter(value);
+    loadPosts(value);
   }
 
   function handleMediaUpload(file: { url: string }) {
@@ -773,10 +811,27 @@ export default function FeedPage() {
               <h1 className="text-2xl font-bold text-gray-900">フィード管理</h1>
               <p className="text-sm text-gray-600">{posts.length}件の投稿</p>
             </div>
-            <Button onClick={handleCreate}>
-              <Plus className="w-4 h-4 mr-2" />
-              新規投稿
-            </Button>
+            <div className="flex items-center gap-3">
+              {/* 承認ステータスフィルタ */}
+              <div className="flex items-center gap-2">
+                <Filter className="w-4 h-4 text-gray-500" />
+                <Select value={approvalFilter} onValueChange={handleApprovalFilterChange}>
+                  <SelectTrigger className="w-[160px] h-9">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">すべて</SelectItem>
+                    <SelectItem value="pending">申請中のみ</SelectItem>
+                    <SelectItem value="approved">承認済のみ</SelectItem>
+                    <SelectItem value="rejected">却下のみ</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <Button onClick={handleCreate}>
+                <Plus className="w-4 h-4 mr-2" />
+                新規投稿
+              </Button>
+            </div>
           </div>
 
           {loading ? (
@@ -1024,6 +1079,7 @@ export default function FeedPage() {
                       <th className="px-3 py-2.5 font-semibold text-gray-700 whitespace-nowrap w-24">アクション</th>
                       <th className="px-3 py-2.5 font-semibold text-gray-700 whitespace-nowrap w-20">ID</th>
                       <th className="px-3 py-2.5 font-semibold text-gray-700 whitespace-nowrap w-20">状態</th>
+                      <th className="px-3 py-2.5 font-semibold text-gray-700 whitespace-nowrap w-28">承認</th>
                       <th className="px-3 py-2.5 font-semibold text-gray-700 whitespace-nowrap min-w-[200px]">タイトル</th>
                       <th className="px-3 py-2.5 font-semibold text-gray-700 whitespace-nowrap w-20">公開範囲</th>
                       <th className="px-3 py-2.5 font-semibold text-gray-700 whitespace-nowrap w-32">開始日</th>
@@ -1094,6 +1150,44 @@ export default function FeedPage() {
                           )}
                           {post.isPinned && (
                             <Pin className="w-3 h-3 text-blue-500 inline ml-1" />
+                          )}
+                        </td>
+
+                        {/* 承認 */}
+                        <td className="px-3 py-2">
+                          {post.approvalStatus === "pending" ? (
+                            <div className="flex items-center gap-1">
+                              <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-yellow-100 text-yellow-800">
+                                申請中
+                              </span>
+                              <button
+                                type="button"
+                                className="inline-flex items-center justify-center w-6 h-6 rounded hover:bg-green-100 text-green-600 transition-colors"
+                                onClick={() => handleApprove(post.id)}
+                                title="承認"
+                              >
+                                <CheckCircle className="w-4 h-4" />
+                              </button>
+                              <button
+                                type="button"
+                                className="inline-flex items-center justify-center w-6 h-6 rounded hover:bg-red-100 text-red-500 transition-colors"
+                                onClick={() => handleReject(post.id)}
+                                title="却下"
+                              >
+                                <XCircle className="w-4 h-4" />
+                              </button>
+                            </div>
+                          ) : post.approvalStatus === "approved" ? (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-700">
+                              <ShieldCheck className="w-3 h-3 mr-0.5" />
+                              承認済
+                            </span>
+                          ) : post.approvalStatus === "rejected" ? (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-700">
+                              却下
+                            </span>
+                          ) : (
+                            <span className="text-xs text-gray-300">-</span>
                           )}
                         </td>
 

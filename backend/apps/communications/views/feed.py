@@ -22,6 +22,11 @@ class FeedPostViewSet(viewsets.ModelViewSet):
     """フィード投稿ビューセット"""
     permission_classes = [IsAuthenticated, IsTenantUser]
 
+    def _is_admin_user(self):
+        """リクエストユーザーがADMIN/SUPER_ADMINかを判定"""
+        user = self.request.user
+        return user and user.is_authenticated and getattr(user, 'role', None) in ('ADMIN', 'SUPER_ADMIN')
+
     def get_queryset(self):
         # tenant_idを取得（リクエストから、またはユーザーから）
         tenant_id = getattr(self.request, 'tenant_id', None)
@@ -30,8 +35,19 @@ class FeedPostViewSet(viewsets.ModelViewSet):
 
         queryset = FeedPost.objects.filter(
             is_deleted=False,
-            is_published=True
-        ).select_related('author', 'school').prefetch_related('media', 'target_schools', 'target_grades')
+        ).select_related('author', 'school', 'approved_by').prefetch_related('media', 'target_schools', 'target_grades')
+
+        # 管理者は全ステータス表示可能、一般ユーザーは承認済＋公開のみ
+        if self._is_admin_user():
+            # 承認ステータスフィルター（管理画面用）
+            approval_status = self.request.query_params.get('approval_status')
+            if approval_status:
+                queryset = queryset.filter(approval_status=approval_status)
+        else:
+            queryset = queryset.filter(
+                is_published=True,
+                approval_status=FeedPost.ApprovalStatus.APPROVED,
+            )
 
         # tenant_idがある場合のみフィルタ
         if tenant_id:
@@ -72,7 +88,10 @@ class FeedPostViewSet(viewsets.ModelViewSet):
         return FeedPostDetailSerializer
 
     def get_permissions(self):
-        # 作成・更新・削除は管理者のみ
+        # 承認・却下は管理者のみ
+        if self.action in ['approve', 'reject']:
+            return [IsAuthenticated(), IsTenantAdmin()]
+        # 作成・更新・削除・ピン操作は管理者のみ
         if self.action in ['create', 'update', 'partial_update', 'destroy', 'pin', 'unpin']:
             return [IsAuthenticated(), IsTenantAdmin()]
         return super().get_permissions()
@@ -83,11 +102,24 @@ class FeedPostViewSet(viewsets.ModelViewSet):
         tenant_id = getattr(self.request, 'tenant_id', None)
         if not tenant_id and self.request.user:
             tenant_id = getattr(self.request.user, 'tenant_id', None)
-        serializer.save(
+
+        # 管理者の投稿は自動承認、それ以外は申請中
+        is_admin = self._is_admin_user()
+        extra_kwargs = dict(
             tenant_id=tenant_id,
             author=self.request.user,
-            published_at=tz.now() if serializer.validated_data.get('is_published', True) else None
         )
+        if is_admin:
+            extra_kwargs['approval_status'] = FeedPost.ApprovalStatus.APPROVED
+            extra_kwargs['approved_by'] = self.request.user
+            extra_kwargs['approved_at'] = tz.now()
+            extra_kwargs['published_at'] = tz.now() if serializer.validated_data.get('is_published', True) else None
+        else:
+            extra_kwargs['approval_status'] = FeedPost.ApprovalStatus.PENDING
+            extra_kwargs['is_published'] = False
+            extra_kwargs['published_at'] = None
+
+        serializer.save(**extra_kwargs)
 
     def retrieve(self, request, *args, **kwargs):
         """詳細取得時に閲覧数をインクリメント"""
@@ -234,6 +266,39 @@ class FeedPostViewSet(viewsets.ModelViewSet):
         post.is_pinned = False
         post.pinned_at = None
         post.save(update_fields=['is_pinned', 'pinned_at'])
+        return Response(FeedPostDetailSerializer(post, context={'request': request}).data)
+
+    @action(detail=True, methods=['post'])
+    def approve(self, request, pk=None):
+        """投稿を承認"""
+        post = self.get_object()
+        if post.approval_status != FeedPost.ApprovalStatus.PENDING:
+            return Response(
+                {'error': '申請中の投稿のみ承認できます'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        post.approval_status = FeedPost.ApprovalStatus.APPROVED
+        post.is_published = True
+        post.approved_by = request.user
+        post.approved_at = timezone.now()
+        post.published_at = timezone.now()
+        post.save(update_fields=[
+            'approval_status', 'is_published', 'approved_by',
+            'approved_at', 'published_at',
+        ])
+        return Response(FeedPostDetailSerializer(post, context={'request': request}).data)
+
+    @action(detail=True, methods=['post'])
+    def reject(self, request, pk=None):
+        """投稿を却下"""
+        post = self.get_object()
+        if post.approval_status != FeedPost.ApprovalStatus.PENDING:
+            return Response(
+                {'error': '申請中の投稿のみ却下できます'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        post.approval_status = FeedPost.ApprovalStatus.REJECTED
+        post.save(update_fields=['approval_status'])
         return Response(FeedPostDetailSerializer(post, context={'request': request}).data)
 
 

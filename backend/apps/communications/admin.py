@@ -248,21 +248,22 @@ class FeedPostAdmin(CSVImportExportMixin, admin.ModelAdmin):
     list_display = [
         'get_content_preview', 'post_type', 'author', 'school',
         'visibility', 'is_pinned', 'like_count', 'comment_count',
-        'is_published', 'created_at'
+        'is_published', 'approval_status', 'created_at'
     ]
-    list_filter = ['post_type', 'visibility', 'is_pinned', 'is_published', 'is_deleted']
+    list_filter = ['post_type', 'visibility', 'is_pinned', 'is_published', 'approval_status', 'is_deleted']
     search_fields = ['content', 'hashtags']
     filter_horizontal = ['target_schools', 'target_grades']
     inlines = [FeedMediaInline]
     ordering = ['-created_at']
-    readonly_fields = ['like_count', 'comment_count', 'view_count', 'created_at', 'updated_at']
+    readonly_fields = ['like_count', 'comment_count', 'view_count', 'approved_by', 'approved_at', 'created_at', 'updated_at']
 
     fieldsets = (
         ('基本情報', {
             'fields': ('author', 'school', 'post_type', 'content', 'hashtags')
         }),
         ('公開設定', {
-            'fields': ('visibility', 'target_schools', 'target_grades', 'is_published', 'published_at')
+            'fields': ('visibility', 'target_schools', 'target_grades', 'is_published', 'published_at',
+                       'approval_status', 'approved_by', 'approved_at')
         }),
         ('表示設定', {
             'fields': ('is_pinned', 'pinned_at', 'allow_comments', 'allow_likes')
