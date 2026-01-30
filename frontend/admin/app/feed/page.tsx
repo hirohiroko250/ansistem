@@ -13,7 +13,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import apiClient, { getMediaUrl } from "@/lib/api/client";
+import apiClient, { getMediaUrl, getAccessToken } from "@/lib/api/client";
 import {
   Plus,
   Heart,
@@ -293,6 +293,25 @@ export default function FeedPage() {
     }
   }
 
+  async function handlePasteFile(file: File): Promise<string | null> {
+    try {
+      const token = getAccessToken();
+      const baseUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1";
+      const formData = new FormData();
+      formData.append("file", file);
+      const response = await fetch(`${baseUrl}/core/upload/`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+        body: formData,
+      });
+      if (!response.ok) return null;
+      const data = await response.json();
+      return getMediaUrl(data.url);
+    } catch {
+      return null;
+    }
+  }
+
   function getVisibilityIcon(visibility: string) {
     switch (visibility) {
       case "PUBLIC": return <Globe className="w-4 h-4" />;
@@ -370,6 +389,7 @@ export default function FeedPage() {
                   ref={editorRef}
                   initialContent={formData.content}
                   onChange={(html) => setFormData((prev) => ({ ...prev, content: html }))}
+                  onPasteFile={handlePasteFile}
                   className="flex-1"
                 />
               </div>
