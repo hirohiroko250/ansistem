@@ -199,15 +199,53 @@ export function MentionInput({
 }
 
 /**
- * メンションをハイライト表示するユーティリティ
+ * テキスト内のURLをリンクに変換するユーティリティ
+ */
+const URL_PATTERN = /(https?:\/\/[^\s<>'"]+)/g;
+
+function linkifyText(text: string, keyPrefix: string): React.ReactNode[] {
+  const parts: React.ReactNode[] = [];
+  let lastIndex = 0;
+  let match;
+
+  const regex = new RegExp(URL_PATTERN.source, 'g');
+  while ((match = regex.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      parts.push(text.substring(lastIndex, match.index));
+    }
+    parts.push(
+      <a
+        key={`${keyPrefix}-link-${match.index}`}
+        href={match[0]}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="text-blue-400 underline break-all hover:text-blue-300"
+      >
+        {match[0]}
+      </a>
+    );
+    lastIndex = match.index + match[0].length;
+  }
+
+  if (lastIndex < text.length) {
+    parts.push(text.substring(lastIndex));
+  }
+
+  return parts.length > 0 ? parts : [text];
+}
+
+/**
+ * メンションをハイライト表示 + URLを自動リンク化するユーティリティ
  * @[user_id] 形式のメンションを @ユーザー名 形式に変換してハイライト
+ * https://... 形式のURLをクリック可能なリンクに変換
  */
 export function formatMessageWithMentions(
   content: string,
   mentions: Array<{ user_id: string; user_name: string }> = []
 ): React.ReactNode[] {
   if (!mentions || mentions.length === 0) {
-    return [content];
+    // メンションがなくてもURLリンク化は行う
+    return linkifyText(content, 'msg');
   }
 
   // user_idからuser_nameへのマッピング
@@ -220,9 +258,10 @@ export function formatMessageWithMentions(
   let match;
 
   while ((match = mentionPattern.exec(content)) !== null) {
-    // マッチ前のテキスト
+    // マッチ前のテキスト（URLリンク化も適用）
     if (match.index > lastIndex) {
-      parts.push(content.substring(lastIndex, match.index));
+      const textBefore = content.substring(lastIndex, match.index);
+      parts.push(...linkifyText(textBefore, `pre-${match.index}`));
     }
 
     const userId = match[1];
@@ -246,10 +285,11 @@ export function formatMessageWithMentions(
     lastIndex = match.index + match[0].length;
   }
 
-  // 残りのテキスト
+  // 残りのテキスト（URLリンク化も適用）
   if (lastIndex < content.length) {
-    parts.push(content.substring(lastIndex));
+    const remaining = content.substring(lastIndex);
+    parts.push(...linkifyText(remaining, 'post'));
   }
 
-  return parts.length > 0 ? parts : [content];
+  return parts.length > 0 ? parts : linkifyText(content, 'msg');
 }
