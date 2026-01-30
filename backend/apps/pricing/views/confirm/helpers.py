@@ -397,12 +397,12 @@ def create_purchase_task(student, product_name, order_id, payment_method, billin
 
     if course:
         metadata['course_id'] = str(course.id)
-        use_school = school or (course.school if hasattr(course, 'school') else None)
-        use_brand = brand or (course.brand if hasattr(course, 'brand') else None)
+        use_school = school or getattr(course, 'school', None)
+        use_brand = brand or getattr(course, 'brand', None) or getattr(student, 'primary_brand', None)
     else:
         metadata['pack_id'] = str(pack.id)
-        use_school = school
-        use_brand = brand
+        use_school = school or getattr(pack, 'school', None)
+        use_brand = brand or getattr(pack, 'brand', None) or getattr(student, 'primary_brand', None)
 
     Task.objects.create(
         tenant_id=student.tenant_id,

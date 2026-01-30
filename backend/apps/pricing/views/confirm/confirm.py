@@ -163,6 +163,27 @@ class PricingConfirmView(APIView):
         brand, school = get_brand_and_school(data['brand_id'], data['school_id'])
         start_date = parse_start_date(data['start_date_str'])
 
+        # ブランド・校舎のフォールバック（リクエストに含まれない場合）
+        if not brand:
+            if course and getattr(course, 'brand', None):
+                brand = course.brand
+            elif pack and getattr(pack, 'brand', None):
+                brand = pack.brand
+            elif student and getattr(student, 'primary_brand', None):
+                brand = student.primary_brand
+            if brand:
+                print(f"[PricingConfirm] Brand resolved via fallback: {brand}", file=sys.stderr)
+
+        if not school:
+            if course and getattr(course, 'school', None):
+                school = course.school
+            elif pack and getattr(pack, 'school', None):
+                school = pack.school
+            elif student and getattr(student, 'primary_school', None):
+                school = student.primary_school
+            if school:
+                print(f"[PricingConfirm] School resolved via fallback: {school}", file=sys.stderr)
+
         # スケジュール情報解析（最初の1件 + 全件）
         schedule_day_of_week, schedule_start_time, schedule_end_time, selected_class_schedule = \
             parse_schedule_info(data['schedules'])
