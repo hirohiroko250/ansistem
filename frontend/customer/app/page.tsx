@@ -11,7 +11,6 @@ import Image from 'next/image';
 import { useLatestNews, type NewsItem } from '@/lib/hooks/use-feed';
 import { usePaymentInfo } from '@/lib/hooks/use-payment';
 import { useFriendsList } from '@/lib/hooks/use-friendship';
-import { posts as fallbackPosts } from '@/lib/feed-data';
 import { isAuthenticated } from '@/lib/api/auth';
 
 const shortcuts = [
@@ -55,19 +54,9 @@ export default function Home() {
     }
   }, [router]);
 
-  // フォールバック付きニュースデータ
+  // ニュースデータ
   const news = useMemo<NewsItem[]>(() => {
-    if (latestNews && latestNews.length > 0) {
-      return latestNews;
-    }
-    // APIからデータがない場合はフォールバック
-    return fallbackPosts.filter(post => post.type).slice(0, 2).map(p => ({
-      id: String(p.id),
-      type: p.type as '新着' | 'お知らせ' | 'イベント',
-      caption: p.caption,
-      date: p.date,
-      source: 'feed' as const,
-    }));
+    return latestNews || [];
   }, [latestNews]);
 
   // タスクリストを生成
@@ -183,7 +172,7 @@ export default function Home() {
               </div>
             ) : news.length > 0 ? (
               news.slice(0, 2).map((item) => (
-                <Link key={item.id} href="/feed">
+                <Link key={item.id} href={item.source === 'feed' ? `/feed/${item.id}` : '/feed'}>
                   <Card className="rounded-lg shadow-sm hover:shadow-md transition-shadow cursor-pointer">
                     <CardContent className="p-2.5">
                       <div className="flex items-start gap-2">

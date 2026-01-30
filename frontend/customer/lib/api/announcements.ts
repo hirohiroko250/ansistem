@@ -94,23 +94,9 @@ export interface NewsItem {
 
 export async function getLatestNews(limit: number = 5): Promise<NewsItem[]> {
   try {
-    const [announcements, feedPosts] = await Promise.all([
-      getAnnouncements(limit),
-      getFeedPosts(limit),
-    ]);
+    const feedPosts = await getFeedPosts(limit);
 
     const news: NewsItem[] = [];
-
-    // お知らせをNewsItemに変換
-    announcements.forEach((a) => {
-      news.push({
-        id: a.id,
-        type: 'お知らせ',
-        caption: a.title,
-        date: formatDate(a.sentAt || a.createdAt),
-        source: 'announcement',
-      });
-    });
 
     // フィード投稿をNewsItemに変換
     feedPosts.forEach((f) => {
@@ -121,20 +107,17 @@ export async function getLatestNews(limit: number = 5): Promise<NewsItem[]> {
         type = 'お知らせ';
       }
 
-      // 題名があれば題名を、なければ内容の先頭100文字を表示
-      const caption = f.title || f.content.slice(0, 100);
+      const rawDate = f.publishedAt || f.createdAt;
+      const caption = f.title || f.content.replace(/<[^>]*>/g, '').slice(0, 100);
 
       news.push({
         id: f.id,
         type,
         caption,
-        date: formatDate(f.publishedAt || f.createdAt),
+        date: formatDate(rawDate),
         source: 'feed',
       });
     });
-
-    // 日付でソート（新しい順）
-    news.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
     return news.slice(0, limit);
   } catch (error) {
