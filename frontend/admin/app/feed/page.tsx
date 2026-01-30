@@ -629,11 +629,11 @@ export default function FeedPage() {
       <Sidebar />
 
       <div className="flex-1 overflow-auto">
-        <div className="p-6 max-w-4xl mx-auto">
-          <div className="flex justify-between items-center mb-6">
+        <div className="p-6">
+          <div className="flex justify-between items-center mb-4">
             <div>
               <h1 className="text-2xl font-bold text-gray-900">フィード管理</h1>
-              <p className="text-gray-600">{posts.length}件の投稿</p>
+              <p className="text-sm text-gray-600">{posts.length}件の投稿</p>
             </div>
             <Button onClick={handleCreate}>
               <Plus className="w-4 h-4 mr-2" />
@@ -654,89 +654,197 @@ export default function FeedPage() {
               </Button>
             </Card>
           ) : (
-            <div className="space-y-4">
-              {posts.map((post) => (
-                <Card key={post.id} className="p-4">
-                  <div className="flex gap-4">
-                    {/* メディアサムネイル */}
-                    {post.media && post.media.length > 0 && (
-                      <div className="flex-shrink-0">
-                        <img
-                          src={getMediaUrl(post.media[0].thumbnailUrl || post.media[0].fileUrl)}
-                          alt=""
-                          className="w-24 h-24 object-cover rounded"
-                        />
-                      </div>
-                    )}
+            <div className="bg-white border rounded-lg overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-gray-100 border-b text-left">
+                      <th className="px-3 py-2.5 font-semibold text-gray-700 whitespace-nowrap w-12">No</th>
+                      <th className="px-3 py-2.5 font-semibold text-gray-700 whitespace-nowrap w-24">アクション</th>
+                      <th className="px-3 py-2.5 font-semibold text-gray-700 whitespace-nowrap w-20">ID</th>
+                      <th className="px-3 py-2.5 font-semibold text-gray-700 whitespace-nowrap w-20">状態</th>
+                      <th className="px-3 py-2.5 font-semibold text-gray-700 whitespace-nowrap min-w-[200px]">タイトル</th>
+                      <th className="px-3 py-2.5 font-semibold text-gray-700 whitespace-nowrap w-20">公開範囲</th>
+                      <th className="px-3 py-2.5 font-semibold text-gray-700 whitespace-nowrap w-32">開始日</th>
+                      <th className="px-3 py-2.5 font-semibold text-gray-700 whitespace-nowrap w-32">終了日</th>
+                      <th className="px-3 py-2.5 font-semibold text-gray-700 whitespace-nowrap w-36">対象ブランド</th>
+                      <th className="px-3 py-2.5 font-semibold text-gray-700 whitespace-nowrap w-36">対象校舎</th>
+                      <th className="px-3 py-2.5 font-semibold text-gray-700 whitespace-nowrap text-center w-16">
+                        <Heart className="w-3.5 h-3.5 inline" />
+                      </th>
+                      <th className="px-3 py-2.5 font-semibold text-gray-700 whitespace-nowrap text-center w-16">
+                        <MessageCircle className="w-3.5 h-3.5 inline" />
+                      </th>
+                      <th className="px-3 py-2.5 font-semibold text-gray-700 whitespace-nowrap text-center w-16">
+                        <Eye className="w-3.5 h-3.5 inline" />
+                      </th>
+                      <th className="px-3 py-2.5 font-semibold text-gray-700 whitespace-nowrap w-24">作成者</th>
+                      <th className="px-3 py-2.5 font-semibold text-gray-700 whitespace-nowrap w-28">作成日</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {posts.map((post, index) => (
+                      <tr
+                        key={post.id}
+                        className={`border-b last:border-b-0 hover:bg-blue-50/50 transition-colors ${
+                          !post.isPublished ? "bg-gray-50/50" : ""
+                        }`}
+                      >
+                        {/* No */}
+                        <td className="px-3 py-2 text-gray-500 text-center">{index + 1}</td>
 
-                    <div className="flex-1 min-w-0">
-                      {/* ヘッダー */}
-                      <div className="flex items-center gap-2 mb-2">
-                        {post.isPinned && <Pin className="w-4 h-4 text-blue-500" />}
-                        <span className="text-sm font-medium">{post.authorName || "スタッフ"}</span>
-                        {post.schoolName && (
-                          <Badge variant="outline" className="text-xs">
-                            {post.schoolName}
-                          </Badge>
-                        )}
-                        <span className="text-xs text-gray-500 flex items-center gap-1">
-                          {getVisibilityIcon(post.visibility)}
-                          {getVisibilityLabel(post.visibility)}
-                        </span>
-                        {!post.isPublished && <Badge variant="secondary">下書き</Badge>}
-                      </div>
+                        {/* アクション */}
+                        <td className="px-3 py-2">
+                          <div className="flex items-center gap-1">
+                            <button
+                              type="button"
+                              className="inline-flex items-center justify-center w-7 h-7 rounded hover:bg-blue-100 text-blue-600 transition-colors"
+                              onClick={() => handleEdit(post)}
+                              title="編集"
+                            >
+                              <Pencil className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              className="inline-flex items-center justify-center w-7 h-7 rounded hover:bg-red-100 text-red-500 transition-colors"
+                              onClick={() => handleDelete(post)}
+                              title="削除"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </td>
 
-                      {/* 題名 */}
-                      {post.title && (
-                        <h4 className="font-semibold text-gray-900 mb-1">{post.title}</h4>
-                      )}
+                        {/* ID */}
+                        <td className="px-3 py-2 text-gray-500 font-mono text-xs">
+                          {String(post.id).slice(0, 8)}
+                        </td>
 
-                      {/* コンテンツ */}
-                      <p className="text-gray-700 mb-2 line-clamp-3 whitespace-pre-wrap">
-                        {post.content?.replace(/<[^>]*>/g, "").slice(0, 200)}
-                      </p>
-
-                      {/* ハッシュタグ */}
-                      {post.hashtags && post.hashtags.length > 0 && (
-                        <div className="flex flex-wrap gap-1 mb-2">
-                          {post.hashtags.map((tag, idx) => (
-                            <span key={idx} className="text-blue-500 text-sm">
-                              #{tag}
+                        {/* 状態 */}
+                        <td className="px-3 py-2">
+                          {post.isPublished ? (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-700">
+                              UP
                             </span>
-                          ))}
-                        </div>
-                      )}
+                          ) : (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-200 text-gray-600">
+                              非表示
+                            </span>
+                          )}
+                          {post.isPinned && (
+                            <Pin className="w-3 h-3 text-blue-500 inline ml-1" />
+                          )}
+                        </td>
 
-                      {/* 統計 */}
-                      <div className="flex items-center gap-4 text-sm text-gray-500">
-                        <span className="flex items-center gap-1">
-                          <Heart className="w-4 h-4" /> {post.likeCount}
-                        </span>
-                        <span className="flex items-center gap-1">
-                          <MessageCircle className="w-4 h-4" /> {post.commentCount}
-                        </span>
-                        <span className="flex items-center gap-1">
-                          <Eye className="w-4 h-4" /> {post.viewCount}
-                        </span>
-                        <span className="flex items-center gap-1">
-                          <Calendar className="w-4 h-4" />
-                          {new Date(post.createdAt).toLocaleDateString("ja-JP")}
-                        </span>
-                      </div>
-                    </div>
+                        {/* タイトル */}
+                        <td className="px-3 py-2">
+                          <div className="max-w-[300px]">
+                            <span
+                              className="text-gray-900 font-medium hover:text-blue-600 cursor-pointer truncate block"
+                              onClick={() => handleEdit(post)}
+                              title={post.title || "(無題)"}
+                            >
+                              {post.title || <span className="text-gray-400">(無題)</span>}
+                            </span>
+                            <span className="text-gray-400 text-xs truncate block">
+                              {post.content?.replace(/<[^>]*>/g, "").slice(0, 50)}
+                            </span>
+                          </div>
+                        </td>
 
-                    {/* アクション */}
-                    <div className="flex gap-2">
-                      <Button variant="outline" size="sm" onClick={() => handleEdit(post)}>
-                        <Pencil className="w-4 h-4" />
-                      </Button>
-                      <Button variant="outline" size="sm" onClick={() => handleDelete(post)}>
-                        <Trash2 className="w-4 h-4" />
-                      </Button>
-                    </div>
-                  </div>
-                </Card>
-              ))}
+                        {/* 公開範囲 */}
+                        <td className="px-3 py-2">
+                          <span className="inline-flex items-center gap-1 text-xs text-gray-600">
+                            {getVisibilityIcon(post.visibility)}
+                            {getVisibilityLabel(post.visibility)}
+                          </span>
+                        </td>
+
+                        {/* 開始日 */}
+                        <td className="px-3 py-2 text-xs text-gray-600 whitespace-nowrap">
+                          {post.publishStartAt
+                            ? new Date(post.publishStartAt).toLocaleDateString("ja-JP", {
+                                year: "numeric",
+                                month: "2-digit",
+                                day: "2-digit",
+                              })
+                            : <span className="text-gray-300">-</span>}
+                        </td>
+
+                        {/* 終了日 */}
+                        <td className="px-3 py-2 text-xs text-gray-600 whitespace-nowrap">
+                          {post.publishEndAt
+                            ? new Date(post.publishEndAt).toLocaleDateString("ja-JP", {
+                                year: "numeric",
+                                month: "2-digit",
+                                day: "2-digit",
+                              })
+                            : <span className="text-gray-300">-</span>}
+                        </td>
+
+                        {/* 対象ブランド */}
+                        <td className="px-3 py-2">
+                          {post.targetBrandsDetail && post.targetBrandsDetail.length > 0 ? (
+                            <div className="flex flex-wrap gap-0.5">
+                              {post.targetBrandsDetail.slice(0, 2).map((b) => (
+                                <span key={b.id} className="inline-block px-1.5 py-0.5 bg-purple-50 text-purple-700 rounded text-xs truncate max-w-[80px]">
+                                  {b.name}
+                                </span>
+                              ))}
+                              {post.targetBrandsDetail.length > 2 && (
+                                <span className="text-xs text-gray-400">+{post.targetBrandsDetail.length - 2}</span>
+                              )}
+                            </div>
+                          ) : (
+                            <span className="text-xs text-gray-300">全て</span>
+                          )}
+                        </td>
+
+                        {/* 対象校舎 */}
+                        <td className="px-3 py-2">
+                          {post.targetSchoolsDetail && post.targetSchoolsDetail.length > 0 ? (
+                            <div className="flex flex-wrap gap-0.5">
+                              {post.targetSchoolsDetail.slice(0, 2).map((s) => (
+                                <span key={s.id} className="inline-block px-1.5 py-0.5 bg-blue-50 text-blue-700 rounded text-xs truncate max-w-[80px]">
+                                  {s.name}
+                                </span>
+                              ))}
+                              {post.targetSchoolsDetail.length > 2 && (
+                                <span className="text-xs text-gray-400">+{post.targetSchoolsDetail.length - 2}</span>
+                              )}
+                            </div>
+                          ) : (
+                            <span className="text-xs text-gray-300">全て</span>
+                          )}
+                        </td>
+
+                        {/* いいね */}
+                        <td className="px-3 py-2 text-center text-xs text-gray-600">{post.likeCount}</td>
+
+                        {/* コメント */}
+                        <td className="px-3 py-2 text-center text-xs text-gray-600">{post.commentCount}</td>
+
+                        {/* 閲覧数 */}
+                        <td className="px-3 py-2 text-center text-xs text-gray-600">{post.viewCount}</td>
+
+                        {/* 作成者 */}
+                        <td className="px-3 py-2 text-xs text-gray-700 whitespace-nowrap">
+                          {post.authorName || "-"}
+                        </td>
+
+                        {/* 作成日 */}
+                        <td className="px-3 py-2 text-xs text-gray-600 whitespace-nowrap">
+                          {new Date(post.createdAt).toLocaleDateString("ja-JP", {
+                            year: "numeric",
+                            month: "2-digit",
+                            day: "2-digit",
+                          })}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
           )}
         </div>
