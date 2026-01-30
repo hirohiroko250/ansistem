@@ -31,10 +31,29 @@ import {
   ArrowLeft,
   Image as ImageIcon,
   Settings2,
+  X,
+  Send,
+  Smartphone,
+  Home,
+  Bell,
+  ChevronUp,
+  ChevronDown,
+  Clock,
 } from "lucide-react";
 import { MultiSelect } from "@/components/ui/multi-select";
 import { FileUpload } from "@/components/ui/file-upload";
 import FeedEditor, { type FeedEditorHandle } from "@/components/feed/FeedEditor";
+
+interface FeedComment {
+  id: string;
+  commenterName: string;
+  guardianName: string | null;
+  content: string;
+  parent: string | null;
+  replyCount: number;
+  likeCount: number;
+  createdAt: string;
+}
 
 interface FeedPost {
   id: string;
@@ -85,8 +104,20 @@ export default function FeedPage() {
   const [saving, setSaving] = useState(false);
   const [sidebarTab, setSidebarTab] = useState<"media" | "settings">("media");
   const [mediaTab, setMediaTab] = useState<"photo" | "video">("photo");
+  const [previewPostId, setPreviewPostId] = useState<string | null>(null);
 
   const editorRef = useRef<FeedEditorHandle>(null);
+
+  // Comment panel state
+  const [commentPanelPostId, setCommentPanelPostId] = useState<string | null>(null);
+  const [commentPanelPost, setCommentPanelPost] = useState<FeedPost | null>(null);
+  const [comments, setComments] = useState<FeedComment[]>([]);
+  const [commentsLoading, setCommentsLoading] = useState(false);
+  const [replyText, setReplyText] = useState("");
+  const [replySubmitting, setReplySubmitting] = useState(false);
+  const [expandedCommentId, setExpandedCommentId] = useState<string | null>(null);
+  const [replies, setReplies] = useState<Record<string, FeedComment[]>>({});
+  const [replyTargetCommentId, setReplyTargetCommentId] = useState<string | null>(null);
 
   const [formData, setFormData] = useState({
     title: "",
@@ -309,6 +340,90 @@ export default function FeedPage() {
     } catch {
       return null;
     }
+  }
+
+  async function loadComments(postId: string) {
+    try {
+      setCommentsLoading(true);
+      const response = await apiClient.get<any>(`/communications/feed/posts/${postId}/comments/`);
+      const data = response.results || response.data || response || [];
+      setComments(Array.isArray(data) ? data : []);
+    } catch (error) {
+      console.error("Failed to load comments:", error);
+      setComments([]);
+    } finally {
+      setCommentsLoading(false);
+    }
+  }
+
+  async function loadReplies(commentId: string) {
+    try {
+      const response = await apiClient.get<any>(`/communications/feed/comments/${commentId}/replies/`);
+      const data = response.results || response.data || response || [];
+      setReplies((prev) => ({ ...prev, [commentId]: Array.isArray(data) ? data : [] }));
+    } catch (error) {
+      console.error("Failed to load replies:", error);
+    }
+  }
+
+  async function handleSubmitReply(postId: string, parentId?: string) {
+    if (!replyText.trim()) return;
+    try {
+      setReplySubmitting(true);
+      const payload: any = { content: replyText.trim() };
+      if (parentId) {
+        payload.parent = parentId;
+      }
+      await apiClient.post(`/communications/feed/posts/${postId}/comments/`, payload);
+      setReplyText("");
+      setReplyTargetCommentId(null);
+      await loadComments(postId);
+      if (parentId) {
+        await loadReplies(parentId);
+      }
+      await loadPosts();
+    } catch (error) {
+      console.error("Failed to submit reply:", error);
+      alert("コメントの送信に失敗しました");
+    } finally {
+      setReplySubmitting(false);
+    }
+  }
+
+  async function handleDeleteComment(commentId: string, postId: string) {
+    if (!confirm("このコメントを削除しますか？")) return;
+    try {
+      await apiClient.delete(`/communications/feed/comments/${commentId}/`);
+      await loadComments(postId);
+      await loadPosts();
+    } catch (error) {
+      console.error("Failed to delete comment:", error);
+      alert("コメントの削除に失敗しました");
+    }
+  }
+
+  function handleOpenCommentPanel(post: FeedPost) {
+    if (commentPanelPostId === post.id) {
+      handleCloseCommentPanel();
+      return;
+    }
+    setCommentPanelPostId(post.id);
+    setCommentPanelPost(post);
+    setReplyText("");
+    setReplyTargetCommentId(null);
+    setExpandedCommentId(null);
+    setReplies({});
+    loadComments(post.id);
+  }
+
+  function handleCloseCommentPanel() {
+    setCommentPanelPostId(null);
+    setCommentPanelPost(null);
+    setComments([]);
+    setReplyText("");
+    setReplyTargetCommentId(null);
+    setExpandedCommentId(null);
+    setReplies({});
   }
 
   function getVisibilityIcon(visibility: string) {
@@ -623,10 +738,229 @@ export default function FeedPage() {
     );
   }
 
+  const previewPost = previewPostId ? posts.find((p) => p.id === previewPostId) : null;
+
+  function extractFirstImage(html: string): string | null {
+    const match = html.match(/<img[^>]+src="([^"]+)"/);
+    return match ? match[1] : null;
+  }
+
   // ========== LIST MODE ==========
   return (
     <div className="flex h-screen bg-gray-50">
       <Sidebar />
+
+      {/* Phone Preview Panel */}
+      <div className="w-[300px] border-r bg-gray-100 flex flex-col items-center py-6 flex-shrink-0 overflow-y-auto">
+        <div className="flex items-center gap-2 mb-3">
+          <Smartphone className="w-4 h-4 text-gray-500" />
+          <span className="text-xs font-medium text-gray-500">保護者アプリ（ライブビュー）</span>
+        </div>
+
+        {/* Phone Frame */}
+        <div className="w-[260px] bg-black rounded-[2rem] p-2 shadow-xl">
+          <div className="bg-white rounded-[1.5rem] overflow-hidden h-[520px] flex flex-col">
+            {/* Phone Status Bar */}
+            <div className="bg-blue-700 text-white px-4 py-2 flex items-center justify-between text-[10px]">
+              <span>9:41</span>
+              <div className="flex gap-1">
+                <span>●●●</span>
+              </div>
+            </div>
+
+            {/* Phone Header */}
+            <div className="bg-blue-700 text-white px-4 pb-3 pt-1">
+              <div className="flex items-center gap-2">
+                <Home className="w-4 h-4" />
+                <span className="font-bold text-sm">ニュースフィード</span>
+              </div>
+            </div>
+
+            {/* Phone Content */}
+            <div className="flex-1 overflow-y-auto bg-gray-50">
+              {previewPost ? (
+                /* Single Post Detail View */
+                <div className="bg-white">
+                  {/* Post Header */}
+                  <div className="px-3 py-2 flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-full bg-blue-600 text-white flex items-center justify-center text-xs font-bold">
+                      {(previewPost.authorName || "A").charAt(0)}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-semibold text-gray-900 truncate">{previewPost.authorName || "管理者"}</p>
+                      <p className="text-[10px] text-gray-400">
+                        {new Date(previewPost.createdAt).toLocaleDateString("ja-JP", { month: "2-digit", day: "2-digit" })}
+                      </p>
+                    </div>
+                    {previewPost.isPinned && <Pin className="w-3 h-3 text-blue-500" />}
+                  </div>
+
+                  {/* Post Image */}
+                  {previewPost.media && previewPost.media.length > 0 ? (
+                    <div className="w-full aspect-[4/3] bg-gray-200 overflow-hidden">
+                      <img
+                        src={getMediaUrl(previewPost.media[0].fileUrl)}
+                        alt=""
+                        className="w-full h-full object-cover"
+                      />
+                    </div>
+                  ) : extractFirstImage(previewPost.content || "") ? (
+                    <div className="w-full aspect-[4/3] bg-gray-200 overflow-hidden">
+                      <img
+                        src={extractFirstImage(previewPost.content || "")!}
+                        alt=""
+                        className="w-full h-full object-cover"
+                      />
+                    </div>
+                  ) : null}
+
+                  {/* Post Title & Content */}
+                  <div className="px-3 py-2">
+                    {previewPost.title && (
+                      <h3 className="text-sm font-bold text-gray-900 mb-1">{previewPost.title}</h3>
+                    )}
+                    <p className="text-xs text-gray-600 line-clamp-4">
+                      {previewPost.content?.replace(/<[^>]*>/g, "").slice(0, 200)}
+                    </p>
+                  </div>
+
+                  {/* Post Stats */}
+                  <div className="px-3 py-2 flex items-center gap-4 border-t text-gray-400">
+                    <span className="flex items-center gap-1 text-[10px]">
+                      <Heart className="w-3 h-3" /> {previewPost.likeCount}
+                    </span>
+                    <span className="flex items-center gap-1 text-[10px]">
+                      <MessageCircle className="w-3 h-3" /> {previewPost.commentCount}
+                    </span>
+                    <span className="flex items-center gap-1 text-[10px]">
+                      <Eye className="w-3 h-3" /> {previewPost.viewCount}
+                    </span>
+                  </div>
+
+                  {/* Hashtags */}
+                  {previewPost.hashtags && previewPost.hashtags.length > 0 && (
+                    <div className="px-3 pb-2 flex flex-wrap gap-1">
+                      {previewPost.hashtags.map((tag, i) => (
+                        <span key={i} className="text-[10px] text-blue-600">#{tag}</span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                /* Feed List View */
+                <div>
+                  {posts.slice(0, 10).map((post) => (
+                    <div
+                      key={post.id}
+                      className="bg-white mb-1.5 cursor-pointer hover:bg-blue-50/50 transition-colors"
+                      onClick={() => setPreviewPostId(post.id)}
+                    >
+                      <div className="flex gap-2 p-2.5">
+                        {/* Thumbnail */}
+                        {post.media && post.media.length > 0 ? (
+                          <div className="w-16 h-16 rounded-lg bg-gray-200 overflow-hidden flex-shrink-0">
+                            <img
+                              src={getMediaUrl(post.media[0].thumbnailUrl || post.media[0].fileUrl)}
+                              alt=""
+                              className="w-full h-full object-cover"
+                            />
+                          </div>
+                        ) : extractFirstImage(post.content || "") ? (
+                          <div className="w-16 h-16 rounded-lg bg-gray-200 overflow-hidden flex-shrink-0">
+                            <img
+                              src={extractFirstImage(post.content || "")!}
+                              alt=""
+                              className="w-full h-full object-cover"
+                            />
+                          </div>
+                        ) : (
+                          <div className="w-16 h-16 rounded-lg bg-gray-100 flex items-center justify-center flex-shrink-0">
+                            <ImageIcon className="w-5 h-5 text-gray-300" />
+                          </div>
+                        )}
+
+                        {/* Text */}
+                        <div className="flex-1 min-w-0">
+                          <p className="text-[11px] font-semibold text-gray-900 truncate leading-tight">
+                            {post.title || "(無題)"}
+                          </p>
+                          <p className="text-[10px] text-gray-500 line-clamp-2 mt-0.5 leading-tight">
+                            {post.content?.replace(/<[^>]*>/g, "").slice(0, 60)}
+                          </p>
+                          <div className="flex items-center gap-2 mt-1 text-[9px] text-gray-400">
+                            <span className="flex items-center gap-0.5">
+                              <Clock className="w-2.5 h-2.5" />
+                              {new Date(post.createdAt).toLocaleDateString("ja-JP", { month: "2-digit", day: "2-digit" })}
+                            </span>
+                            <span className="flex items-center gap-0.5"><Heart className="w-2.5 h-2.5" /> {post.likeCount}</span>
+                            <span className="flex items-center gap-0.5"><MessageCircle className="w-2.5 h-2.5" /> {post.commentCount}</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                  {posts.length > 10 && (
+                    <p className="text-center text-[10px] text-gray-400 py-2">
+                      他 {posts.length - 10} 件の投稿
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Phone Bottom Nav */}
+            <div className="bg-white border-t px-2 py-1.5 flex justify-around">
+              <button
+                type="button"
+                className={`flex flex-col items-center gap-0.5 text-[9px] ${!previewPostId ? "text-blue-600" : "text-gray-400"}`}
+                onClick={() => setPreviewPostId(null)}
+              >
+                <Home className="w-4 h-4" />
+                <span>ホーム</span>
+              </button>
+              <button type="button" className="flex flex-col items-center gap-0.5 text-[9px] text-gray-400">
+                <Bell className="w-4 h-4" />
+                <span>通知</span>
+              </button>
+              <button type="button" className="flex flex-col items-center gap-0.5 text-[9px] text-gray-400">
+                <Users className="w-4 h-4" />
+                <span>マイページ</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Preview navigation */}
+        {previewPostId && (
+          <div className="flex items-center gap-2 mt-3">
+            <button
+              type="button"
+              className="p-1.5 rounded-full bg-white shadow hover:bg-gray-50 transition-colors disabled:opacity-30"
+              disabled={posts.findIndex((p) => p.id === previewPostId) <= 0}
+              onClick={() => {
+                const idx = posts.findIndex((p) => p.id === previewPostId);
+                if (idx > 0) setPreviewPostId(posts[idx - 1].id);
+              }}
+            >
+              <ChevronUp className="w-4 h-4 text-gray-600" />
+            </button>
+            <span className="text-[10px] text-gray-500">
+              {posts.findIndex((p) => p.id === previewPostId) + 1} / {posts.length}
+            </span>
+            <button
+              type="button"
+              className="p-1.5 rounded-full bg-white shadow hover:bg-gray-50 transition-colors disabled:opacity-30"
+              disabled={posts.findIndex((p) => p.id === previewPostId) >= posts.length - 1}
+              onClick={() => {
+                const idx = posts.findIndex((p) => p.id === previewPostId);
+                if (idx < posts.length - 1) setPreviewPostId(posts[idx + 1].id);
+              }}
+            >
+              <ChevronDown className="w-4 h-4 text-gray-600" />
+            </button>
+          </div>
+        )}
+      </div>
 
       <div className="flex-1 overflow-auto">
         <div className="p-6">
@@ -654,6 +988,229 @@ export default function FeedPage() {
               </Button>
             </Card>
           ) : (
+            <>
+            {/* Comment Panel */}
+            {commentPanelPostId && commentPanelPost && (
+              <div className="bg-white border rounded-lg mb-4 shadow-sm">
+                {/* Panel Header */}
+                <div className="flex items-center justify-between px-4 py-3 border-b bg-gray-50 rounded-t-lg">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <MessageCircle className="w-4 h-4 text-blue-600 flex-shrink-0" />
+                    <span className="font-medium text-sm text-gray-900 truncate">
+                      コメント一覧 - {commentPanelPost.title || "(無題)"} - {comments.length}件
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    className="p-1 rounded hover:bg-gray-200 transition-colors flex-shrink-0"
+                    onClick={handleCloseCommentPanel}
+                  >
+                    <X className="w-4 h-4 text-gray-500" />
+                  </button>
+                </div>
+
+                {/* Comments List */}
+                <div className="max-h-80 overflow-y-auto">
+                  {commentsLoading ? (
+                    <div className="flex items-center justify-center py-8">
+                      <Loader2 className="w-5 h-5 animate-spin text-gray-400" />
+                    </div>
+                  ) : comments.length === 0 ? (
+                    <div className="py-8 text-center text-sm text-gray-400">
+                      コメントはまだありません
+                    </div>
+                  ) : (
+                    <div className="divide-y">
+                      {comments.map((comment) => (
+                        <div key={comment.id} className="px-4 py-3">
+                          {/* Comment Row */}
+                          <div className="flex gap-3">
+                            {/* Avatar */}
+                            <div className="w-8 h-8 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center text-xs font-bold flex-shrink-0">
+                              {(comment.commenterName || "?").charAt(0)}
+                            </div>
+                            {/* Content */}
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="text-sm font-medium text-gray-900">
+                                  {comment.commenterName || "不明"}
+                                </span>
+                                {comment.guardianName && (
+                                  <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-orange-100 text-orange-700">
+                                    保護者: {comment.guardianName}
+                                  </span>
+                                )}
+                                <span className="text-[11px] text-gray-400">
+                                  {new Date(comment.createdAt).toLocaleString("ja-JP", {
+                                    month: "2-digit",
+                                    day: "2-digit",
+                                    hour: "2-digit",
+                                    minute: "2-digit",
+                                  })}
+                                </span>
+                              </div>
+                              <p className="text-sm text-gray-700 mt-0.5 whitespace-pre-wrap break-words">
+                                {comment.content}
+                              </p>
+                              {/* Action buttons */}
+                              <div className="flex items-center gap-3 mt-1.5">
+                                {comment.replyCount > 0 && (
+                                  <button
+                                    type="button"
+                                    className="text-xs text-blue-600 hover:text-blue-800 transition-colors"
+                                    onClick={() => {
+                                      if (expandedCommentId === comment.id) {
+                                        setExpandedCommentId(null);
+                                      } else {
+                                        setExpandedCommentId(comment.id);
+                                        if (!replies[comment.id]) {
+                                          loadReplies(comment.id);
+                                        }
+                                      }
+                                    }}
+                                  >
+                                    {expandedCommentId === comment.id ? "返信を隠す" : `返信を表示(${comment.replyCount})`}
+                                  </button>
+                                )}
+                                <button
+                                  type="button"
+                                  className="text-xs text-gray-500 hover:text-blue-600 transition-colors"
+                                  onClick={() => {
+                                    setReplyTargetCommentId(
+                                      replyTargetCommentId === comment.id ? null : comment.id
+                                    );
+                                    setReplyText("");
+                                  }}
+                                >
+                                  返信する
+                                </button>
+                                <button
+                                  type="button"
+                                  className="text-xs text-gray-400 hover:text-red-500 transition-colors"
+                                  onClick={() => handleDeleteComment(comment.id, commentPanelPostId!)}
+                                >
+                                  削除
+                                </button>
+                              </div>
+
+                              {/* Expanded Replies */}
+                              {expandedCommentId === comment.id && (
+                                <div className="mt-2 ml-2 pl-3 border-l-2 border-gray-200 space-y-2">
+                                  {replies[comment.id] ? (
+                                    replies[comment.id].length > 0 ? (
+                                      replies[comment.id].map((reply) => (
+                                        <div key={reply.id} className="flex gap-2 py-1.5">
+                                          <div className="w-6 h-6 rounded-full bg-gray-100 text-gray-600 flex items-center justify-center text-[10px] font-bold flex-shrink-0">
+                                            {(reply.commenterName || "?").charAt(0)}
+                                          </div>
+                                          <div className="flex-1 min-w-0">
+                                            <div className="flex items-center gap-2">
+                                              <span className="text-xs font-medium text-gray-900">
+                                                {reply.commenterName || "不明"}
+                                              </span>
+                                              <span className="text-[10px] text-gray-400">
+                                                {new Date(reply.createdAt).toLocaleString("ja-JP", {
+                                                  month: "2-digit",
+                                                  day: "2-digit",
+                                                  hour: "2-digit",
+                                                  minute: "2-digit",
+                                                })}
+                                              </span>
+                                            </div>
+                                            <p className="text-xs text-gray-700 mt-0.5 whitespace-pre-wrap break-words">
+                                              {reply.content}
+                                            </p>
+                                            <button
+                                              type="button"
+                                              className="text-[10px] text-gray-400 hover:text-red-500 mt-1 transition-colors"
+                                              onClick={() => handleDeleteComment(reply.id, commentPanelPostId!)}
+                                            >
+                                              削除
+                                            </button>
+                                          </div>
+                                        </div>
+                                      ))
+                                    ) : (
+                                      <p className="text-xs text-gray-400 py-1">返信はありません</p>
+                                    )
+                                  ) : (
+                                    <Loader2 className="w-4 h-4 animate-spin text-gray-300" />
+                                  )}
+                                </div>
+                              )}
+
+                              {/* Reply Input for this comment */}
+                              {replyTargetCommentId === comment.id && (
+                                <div className="flex items-center gap-2 mt-2">
+                                  <Input
+                                    value={replyText}
+                                    onChange={(e) => setReplyText(e.target.value)}
+                                    onKeyDown={(e) => {
+                                      if (e.key === "Enter" && !e.shiftKey) {
+                                        e.preventDefault();
+                                        handleSubmitReply(commentPanelPostId!, comment.id);
+                                      }
+                                    }}
+                                    placeholder={`${comment.commenterName || ""}に返信...`}
+                                    className="text-sm h-8"
+                                    disabled={replySubmitting}
+                                  />
+                                  <Button
+                                    size="sm"
+                                    className="h-8 px-2"
+                                    onClick={() => handleSubmitReply(commentPanelPostId!, comment.id)}
+                                    disabled={replySubmitting || !replyText.trim()}
+                                  >
+                                    {replySubmitting ? (
+                                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                    ) : (
+                                      <Send className="w-3.5 h-3.5" />
+                                    )}
+                                  </Button>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Bottom: New top-level comment input */}
+                <div className="flex items-center gap-2 px-4 py-3 border-t bg-gray-50 rounded-b-lg">
+                  <Input
+                    value={replyTargetCommentId ? "" : replyText}
+                    onChange={(e) => {
+                      setReplyTargetCommentId(null);
+                      setReplyText(e.target.value);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && !e.shiftKey && !replyTargetCommentId) {
+                        e.preventDefault();
+                        handleSubmitReply(commentPanelPostId!);
+                      }
+                    }}
+                    placeholder="コメントを入力..."
+                    className="text-sm h-9"
+                    disabled={replySubmitting || !!replyTargetCommentId}
+                  />
+                  <Button
+                    size="sm"
+                    className="h-9 px-3"
+                    onClick={() => handleSubmitReply(commentPanelPostId!)}
+                    disabled={replySubmitting || !replyText.trim() || !!replyTargetCommentId}
+                  >
+                    {replySubmitting ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Send className="w-4 h-4" />
+                    )}
+                  </Button>
+                </div>
+              </div>
+            )}
+
             <div className="bg-white border rounded-lg overflow-hidden">
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
@@ -686,9 +1243,10 @@ export default function FeedPage() {
                     {posts.map((post, index) => (
                       <tr
                         key={post.id}
-                        className={`border-b last:border-b-0 hover:bg-blue-50/50 transition-colors ${
-                          !post.isPublished ? "bg-gray-50/50" : ""
+                        className={`border-b last:border-b-0 hover:bg-blue-50/50 transition-colors cursor-pointer ${
+                          previewPostId === post.id ? "bg-blue-50 ring-1 ring-inset ring-blue-200" : !post.isPublished ? "bg-gray-50/50" : ""
                         }`}
+                        onClick={() => setPreviewPostId(previewPostId === post.id ? null : post.id)}
                       >
                         {/* No */}
                         <td className="px-3 py-2 text-gray-500 text-center">{index + 1}</td>
@@ -822,7 +1380,20 @@ export default function FeedPage() {
                         <td className="px-3 py-2 text-center text-xs text-gray-600">{post.likeCount}</td>
 
                         {/* コメント */}
-                        <td className="px-3 py-2 text-center text-xs text-gray-600">{post.commentCount}</td>
+                        <td className="px-3 py-2 text-center text-xs">
+                          <button
+                            type="button"
+                            className={`inline-flex items-center justify-center min-w-[28px] h-7 px-1.5 rounded transition-colors ${
+                              commentPanelPostId === post.id
+                                ? "bg-blue-100 text-blue-700 font-semibold"
+                                : "text-gray-600 hover:bg-gray-100 hover:text-blue-600"
+                            }`}
+                            onClick={() => handleOpenCommentPanel(post)}
+                            title="コメントを表示"
+                          >
+                            {post.commentCount}
+                          </button>
+                        </td>
 
                         {/* 閲覧数 */}
                         <td className="px-3 py-2 text-center text-xs text-gray-600">{post.viewCount}</td>
@@ -846,6 +1417,7 @@ export default function FeedPage() {
                 </table>
               </div>
             </div>
+            </>
           )}
         </div>
       </div>
