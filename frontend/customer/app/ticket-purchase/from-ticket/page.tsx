@@ -356,6 +356,7 @@ export default function FromTicketPurchasePage() {
   const [currentScheduleSchoolId, setCurrentScheduleSchoolId] = useState<string | null>(null);  // 現在のスケジュール表示校舎
   const [classScheduleDataPerSchool, setClassScheduleDataPerSchool] = useState<Map<string, ClassScheduleResponse>>(new Map());  // 校舎ごとのスケジュール
   const [showSchoolMapModal, setShowSchoolMapModal] = useState(false);  // 校舎選択マップモーダル
+  const [showScheduleConfirmation, setShowScheduleConfirmation] = useState(false);  // スケジュール確認画面
 
   // パック内アイテム（tickets と courses を統一）
   type PackItem = {
@@ -1128,6 +1129,11 @@ export default function FromTicketPurchasePage() {
   };
 
   const handleBackToStep = (targetStep: number) => {
+    // 確認画面表示中は確認画面を閉じるだけ
+    if (step === 9 && showScheduleConfirmation) {
+      setShowScheduleConfirmation(false);
+      return;
+    }
     // 講習会・検定の場合は、スキップしたステップを考慮
     if (itemType === 'seminar' || itemType === 'certification') {
       // 講習会・検定のステップ: 1, 2, 3, 4-5, 7, 10, 11
@@ -1354,7 +1360,10 @@ export default function FromTicketPurchasePage() {
     });
   };
 
-  // コースタイプに応じてコースをフィルタリング + 学年でフィルタ + 校舎チケットでフィルタ
+  // コースタイプに応じてコースをフィルタリング + 学年でフィルタ
+  // 注意: 校舎チケットフィルタはコース選択段階では適用しない
+  // （ClassScheduleデータが不完全な場合に有効なコースが非表示になるため）
+  // スケジュール選択時に空き状況を確認する
   const availableItems: (PublicCourse | PublicPack)[] = (() => {
     let items: (PublicCourse | PublicPack)[] = [];
     if (courseType === 'single') {
@@ -1367,10 +1376,9 @@ export default function FromTicketPurchasePage() {
       items = [...packs, ...plusCourses];
     }
     const afterGradeFilter = filterByGrade(items);
-    const afterTicketFilter = filterBySchoolTickets(afterGradeFilter);
 
     // ¥0のコース/パックを除外（表示ロジックと同じ方法で価格を判定）
-    const afterPriceFilter = afterTicketFilter.filter((item) => {
+    const afterPriceFilter = afterGradeFilter.filter((item) => {
       // 表示と同じロジック: tuitionPriceがあればそれを使用、なければitemsからtuitionを探す
       let displayPrice = 0;
       if ('tuitionPrice' in item && item.tuitionPrice) {
@@ -1413,7 +1421,7 @@ export default function FromTicketPurchasePage() {
       return true;
     });
 
-    // 学年でフィルタリング → 校舎チケットでフィルタリング → 価格フィルタ → 週回数フィルタ → 複数条件でソート
+    // 学年でフィルタリング → 価格フィルタ → 週回数フィルタ → 複数条件でソート
     // ソート順: 校舎 → ブランド → 学年 → チケット
     return sortByMultipleCriteria(afterFrequencyFilter);
   })();
@@ -1513,7 +1521,8 @@ export default function FromTicketPurchasePage() {
             ))}
           </div>
           <p className="text-center text-[10px] text-gray-500 mt-0.5">
-            {step === 9 && preSelectClassMode ? 'クラス選択' :
+            {step === 9 && showScheduleConfirmation ? '内容確認' :
+             step === 9 && preSelectClassMode ? 'クラス選択' :
              step === 10 ? '入会規約' :
              step === 11 ? '購入確認' :
              itemType === 'regular' ? `${step}/11` :
@@ -2410,6 +2419,9 @@ export default function FromTicketPurchasePage() {
 
           // パックの次のアイテムに進む / 単体コースの次の週次選択に進む
           const handleNextItem = () => {
+            // スケジュール未選択で「後で予約」の場合は確認画面をスキップ
+            const isLaterReservation = !selectedTime && (!classScheduleData || classScheduleData.timeSlots.length === 0);
+
             // パックの場合
             if (hasPackItems) {
               // 現在のアイテムの選択を保存（曜日と時間も含む）
@@ -2436,8 +2448,12 @@ export default function FromTicketPurchasePage() {
                 setSelectedScheduleItem(null);
                 fetchClassSchedules(packItems[nextIndex].ticketCode);
               } else {
-                // すべてのアイテムの選択が完了したら規約確認へ
-                setStep(10);
+                // すべてのアイテムの選択が完了 → 確認画面 or 規約へ
+                if (isLaterReservation && selectedClassesPerTicket.size === 0) {
+                  setStep(10);
+                } else {
+                  setShowScheduleConfirmation(true);
+                }
               }
             }
             // 単体コースで週あたり複数回の場合
@@ -2463,7 +2479,7 @@ export default function FromTicketPurchasePage() {
                   setSelectedDayOfWeek(null);
                   setSelectedScheduleItem(null);
                 } else {
-                  // 最大枠まで選択したら料金プレビューを更新してから規約確認へ
+                  // 最大枠まで選択したら料金プレビューを更新してから確認画面へ
                   if (selectedCourse && selectedChild && startDate) {
                     const daysOfWeek = newSchedules.map(s => dayOfWeekToBackendNumber(s.dayOfWeek)).filter((d): d is number => d !== undefined);
                     previewPricing({
@@ -2474,20 +2490,24 @@ export default function FromTicketPurchasePage() {
                       daysOfWeek: daysOfWeek,
                     }).then(preview => {
                       setPricingPreview(preview);
-                      setStep(10);
+                      setShowScheduleConfirmation(true);
                     }).catch(err => {
                       console.error('料金プレビュー再取得エラー:', err);
-                      setStep(10);
+                      setShowScheduleConfirmation(true);
                     });
                   } else {
-                    setStep(10);
+                    setShowScheduleConfirmation(true);
                   }
                 }
               }
             }
             // 単体コースで週1回の場合（従来通り）
             else {
-              setStep(10);
+              if (isLaterReservation) {
+                setStep(10);
+              } else {
+                setShowScheduleConfirmation(true);
+              }
             }
           };
 
@@ -2525,9 +2545,162 @@ export default function FromTicketPurchasePage() {
               }
             }
 
-            // 規約確認へ
-            setStep(10);
+            // 確認画面へ
+            setShowScheduleConfirmation(true);
           };
+
+          // 確認画面のスケジュール一覧を収集
+          const allScheduleSelections: { dayOfWeek: string; time: string; schoolName: string }[] = [];
+          if (hasPackItems) {
+            Array.from(selectedClassesPerTicket.values()).forEach(s => {
+              allScheduleSelections.push({ dayOfWeek: s.dayOfWeek, time: s.time, schoolName: s.schoolName });
+            });
+          } else if (hasSingleCourseMultipleWeekly) {
+            selectedWeeklySchedules.forEach(s => {
+              allScheduleSelections.push({ dayOfWeek: s.dayOfWeek, time: s.time, schoolName: s.schoolName });
+            });
+          } else if (selectedDayOfWeek && selectedTime) {
+            const schoolName = schools.find(s => s.id === currentScheduleSchoolId)?.name || selectedSchool?.name || '';
+            allScheduleSelections.push({ dayOfWeek: selectedDayOfWeek, time: selectedTime, schoolName });
+          }
+
+          if (showScheduleConfirmation) {
+            return (
+              <div>
+                {/* 選択中カード */}
+                <div className="mb-3">
+                  <Card className="rounded-lg shadow-sm bg-blue-50 border-blue-200">
+                    <CardContent className="p-2">
+                      <p className="text-[10px] text-gray-600 mb-0.5">選択内容</p>
+                      <p className="font-semibold text-sm text-gray-800">{selectedChild?.fullName} {selectedChild && <span className="text-gray-600 text-xs">({getDisplayGrade(selectedChild)})</span>}</p>
+                      <p className="text-xs text-gray-700">{selectedCourse && getCourseName(selectedCourse)}</p>
+                      <p className="text-xs text-gray-700">{selectedSchool?.name}</p>
+                      <p className="text-xs text-gray-700">開始日: {startDate && format(startDate, 'yyyy年MM月dd日', { locale: ja })}</p>
+                    </CardContent>
+                  </Card>
+                </div>
+
+                {/* 週間カレンダー */}
+                {allScheduleSelections.length > 0 && (
+                  <div className="mb-3">
+                    <p className="text-xs font-semibold text-gray-700 mb-1">週間スケジュール</p>
+                    <div className="grid grid-cols-7 gap-1">
+                      {['月', '火', '水', '木', '金', '土', '日'].map((day) => (
+                        <div key={day} className={`text-center text-[10px] font-bold py-1 rounded-t-md ${
+                          day === '土' ? 'bg-blue-600 text-white' :
+                          day === '日' ? 'bg-red-500 text-white' :
+                          'bg-gray-700 text-white'
+                        }`}>
+                          {day}
+                        </div>
+                      ))}
+                      {['月', '火', '水', '木', '金', '土', '日'].map((day) => {
+                        const daySlots = allScheduleSelections.filter(s => s.dayOfWeek.replace('曜日', '') === day);
+                        return (
+                          <div key={day} className="min-h-[40px] bg-gray-50 rounded-b-md p-0.5 flex flex-col gap-0.5">
+                            {daySlots.length === 0 ? (
+                              <div className="flex-1 flex items-center justify-center">
+                                <span className="text-[9px] text-gray-300">—</span>
+                              </div>
+                            ) : (
+                              daySlots.map((slot, idx) => (
+                                <div key={idx} className="bg-blue-500 text-white rounded px-0.5 py-1 text-center">
+                                  <span className="block text-[10px] font-bold leading-tight">{slot.time}</span>
+                                  <span className="block text-[8px] leading-tight">{slot.schoolName.slice(0, 3)}</span>
+                                </div>
+                              ))
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* 選択した時間割リスト */}
+                {allScheduleSelections.length > 0 && (
+                  <div className="mb-3 p-2 rounded-lg border border-green-200 bg-green-50">
+                    <p className="text-[10px] font-semibold text-green-700 mb-1">選択した時間割</p>
+                    <div className="space-y-1">
+                      {allScheduleSelections.map((s, idx) => (
+                        <div key={idx} className="flex items-center gap-2 text-xs">
+                          <span className="w-5 h-5 rounded-full bg-green-600 text-white flex items-center justify-center text-[10px] font-bold shrink-0">{idx + 1}</span>
+                          <span className="font-semibold text-gray-800">{s.dayOfWeek.replace('曜日', '')}曜</span>
+                          <span className="text-gray-800">{s.time}</span>
+                          <span className="text-gray-600">({s.schoolName})</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* 通常請求額 */}
+                {pricingPreview?.billingByMonth?.month1 && (
+                  <div className="mb-3 p-2 rounded-lg border border-gray-200 bg-white">
+                    <p className="text-[10px] font-semibold text-gray-700 mb-1">通常請求額</p>
+                    <div className="space-y-1">
+                      {(() => {
+                        const existingFacilityMax = pricingPreview.existingFacilityFee?.maxFee || 0;
+                        const processedItems = pricingPreview.billingByMonth.month1.items.map((item: any) => {
+                          if (item.itemType === 'facility' && existingFacilityMax > 0) {
+                            const adjustedPrice = Math.max(0, item.priceWithTax - existingFacilityMax);
+                            return { ...item, priceWithTax: adjustedPrice, originalPrice: item.priceWithTax };
+                          }
+                          return item;
+                        }).filter((item: any) => item.priceWithTax > 0);
+                        return processedItems.map((item: any, idx: number) => (
+                          <div key={idx} className="flex items-center justify-between text-xs">
+                            <span className="text-gray-600">{item.billingCategoryName || item.productName}</span>
+                            <span className="font-medium text-gray-800">¥{item.priceWithTax.toLocaleString()}</span>
+                          </div>
+                        ));
+                      })()}
+                      <div className="border-t pt-1 mt-1 flex items-center justify-between">
+                        <span className="text-xs font-semibold text-gray-700">合計</span>
+                        <div className="text-right">
+                          <span className="text-sm font-bold text-gray-800">
+                            ¥{(() => {
+                              const existingFacilityMax = pricingPreview.existingFacilityFee?.maxFee || 0;
+                              let total = pricingPreview.billingByMonth.month1.total;
+                              if (existingFacilityMax > 0) {
+                                const facilityItem = pricingPreview.billingByMonth.month1.items.find((i: any) => i.itemType === 'facility');
+                                if (facilityItem) {
+                                  const reduction = Math.min(existingFacilityMax, facilityItem.priceWithTax);
+                                  total -= reduction;
+                                }
+                              }
+                              return Math.max(0, total).toLocaleString();
+                            })()}
+                          </span>
+                          <span className="text-[10px] text-gray-500">/月</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* ボタン */}
+                <div className="space-y-2">
+                  <Button
+                    onClick={() => {
+                      setShowScheduleConfirmation(false);
+                      setStep(10);
+                    }}
+                    className="w-full h-11 rounded-full bg-blue-600 hover:bg-blue-700 text-white font-semibold text-sm"
+                  >
+                    この内容で進む
+                  </Button>
+                  <Button
+                    onClick={() => setShowScheduleConfirmation(false)}
+                    variant="outline"
+                    className="w-full h-10 rounded-full border-gray-300 text-gray-700 hover:bg-gray-50 font-semibold text-sm"
+                  >
+                    スケジュールを変更する
+                  </Button>
+                </div>
+              </div>
+            );
+          }
 
           return (
             <div>
@@ -2710,22 +2883,26 @@ export default function FromTicketPurchasePage() {
                 </div>
               )}
 
-              <div className="mb-2 flex items-center gap-3 text-[10px]">
+              <div className="mb-2 flex items-center flex-wrap gap-x-3 gap-y-1 text-[10px]">
                 <div className="flex items-center gap-0.5">
-                  <Circle className="h-3 w-3 text-green-600 fill-green-600" />
+                  <span className="inline-block w-2.5 h-2.5 rounded-full bg-green-500" />
                   <span>空席あり</span>
                 </div>
                 <div className="flex items-center gap-0.5">
-                  <Triangle className="h-3 w-3 text-orange-500 fill-orange-500" />
+                  <span className="inline-block w-2.5 h-2.5 rounded-full bg-orange-400" />
                   <span>残り僅か</span>
                 </div>
                 <div className="flex items-center gap-0.5">
-                  <XIcon className="h-3 w-3 text-red-600" />
+                  <span className="inline-block w-2.5 h-2.5 rounded-full bg-red-400" />
                   <span>満席</span>
                 </div>
                 <div className="flex items-center gap-0.5">
-                  <Minus className="h-3 w-3 text-gray-300" />
-                  <span>休講</span>
+                  <span className="inline-block w-2.5 h-2.5 rounded-full bg-blue-500" />
+                  <span>選択中</span>
+                </div>
+                <div className="flex items-center gap-0.5">
+                  <span className="inline-block w-2.5 h-2.5 rounded-full bg-green-600" />
+                  <span>確定済み</span>
                 </div>
               </div>
 
@@ -2752,81 +2929,100 @@ export default function FromTicketPurchasePage() {
                   </CardContent>
                 </Card>
               ) : (
-                <Card className="rounded-lg shadow-sm overflow-hidden mb-3">
-                  <CardContent className="p-0">
-                    <div className="overflow-x-auto">
-                      <table className="w-full">
-                        <thead>
-                          <tr className="bg-gradient-to-r from-blue-600 to-blue-700 text-white">
-                            <th className="text-[10px] font-semibold py-2 px-1.5 text-left sticky left-0 bg-blue-600 z-10">時間</th>
-                            {dayLabels.map((label, idx) => (
-                              <th key={idx} className="text-[10px] font-semibold py-2 px-1.5 text-center min-w-[40px]">
-                                {label}
-                              </th>
-                            ))}
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {classScheduleData.timeSlots.map((timeSlot, timeIdx) => (
-                            <tr key={timeIdx} className="border-b border-gray-200 hover:bg-gray-50">
-                              <td className="text-[10px] font-semibold py-1.5 px-1.5 bg-gray-50 sticky left-0 z-10">
-                                {timeSlot.time}
-                              </td>
-                              {dayLabels.map((label, dayIdx) => {
-                                const dayData = timeSlot.days[label];
-                                const status = dayData?.status || 'none';
-                                const dayOfWeekName = label + '曜日';
-                                // 既に選択済みかどうかチェック（同じ曜日・時間帯の重複選択を防止）
-                                // 単体コースの複数週次選択と、パックの複数チケット選択の両方をチェック
-                                // dayOfWeekは「水曜日」形式で保存されているため、dayOfWeekNameと比較する
-                                // 既に選択済みの校舎名略称を取得
-                                const selectedWeeklySlot = selectedWeeklySchedules.find(
-                                  s => s.time === timeSlot.time && s.dayOfWeek === dayOfWeekName
-                                );
-                                const selectedPackSlot = Array.from(selectedClassesPerTicket.values()).find(
-                                  s => s.time === timeSlot.time && s.dayOfWeek === dayOfWeekName
-                                );
-                                const isAlreadySelectedWeekly = !!selectedWeeklySlot;
-                                const isAlreadySelectedPack = !!selectedPackSlot;
-                                // 現在選択中（まだ確定していない）のスロットもチェック
-                                const isCurrentlySelected = selectedTime === timeSlot.time && selectedDayOfWeek === dayOfWeekName;
-                                const isAlreadySelected = isAlreadySelectedWeekly || isAlreadySelectedPack;
-                                // 選択不可: 空席なし、満席、既に確定済み、または現在選択中
-                                const canSelect = status !== 'none' && status !== 'full' && !isAlreadySelected && !isCurrentlySelected;
-                                const isSelected = isCurrentlySelected;
-                                // 表示する校舎名略称
-                                const selectedSchoolShort = selectedWeeklySlot?.schoolNameShort || selectedPackSlot?.schoolNameShort || '';
+                <div className="mb-3">
+                  {/* 曜日ヘッダー */}
+                  <div className="grid grid-cols-7 gap-1 mb-1">
+                    {dayLabels.map((label, idx) => (
+                      <div
+                        key={idx}
+                        className={`text-center text-[10px] font-bold py-1.5 rounded-t-md ${
+                          label === '土' ? 'bg-blue-600 text-white' :
+                          label === '日' ? 'bg-red-500 text-white' :
+                          'bg-gray-700 text-white'
+                        }`}
+                      >
+                        {label}
+                      </div>
+                    ))}
+                  </div>
+                  {/* 曜日ごとの時間スロット */}
+                  <div className="grid grid-cols-7 gap-1">
+                    {dayLabels.map((label, dayIdx) => {
+                      const dayOfWeekName = label + '曜日';
+                      const slots = classScheduleData.timeSlots
+                        .map(ts => ({ time: ts.time, ...ts.days[label] }))
+                        .filter(s => s.status && s.status !== 'none');
 
-                                return (
-                                  <td
-                                    key={dayIdx}
-                                    className={`text-center py-1 px-0.5 ${canSelect ? 'cursor-pointer hover:bg-blue-50' : ''
-                                      } ${isSelected ? 'bg-blue-100' : ''
-                                      } ${isAlreadySelected ? 'bg-green-100' : ''
-                                      }`}
-                                    onClick={() => {
-                                      if (canSelect) {
-                                        handleTimeSlotSelect(timeSlot.time, dayOfWeekName);
-                                      }
-                                    }}
-                                  >
-                                    {isAlreadySelected ? (
-                                      <span className="text-[10px] font-bold text-green-700">{selectedSchoolShort}</span>
-                                    ) : isSelected ? (
-                                      <span className="text-[10px] font-bold text-blue-600">
-                                        {(schools.find(s => s.id === currentScheduleSchoolId)?.name || '').slice(0, 3)}
-                                      </span>
-                                    ) : getStatusIcon(status)}
-                                  </td>
-                                );
-                              })}
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </CardContent>
-                </Card>
+                      return (
+                        <div key={dayIdx} className="flex flex-col gap-1 min-h-[60px] bg-gray-50 rounded-b-md p-0.5">
+                          {slots.length === 0 ? (
+                            <div className="flex-1 flex items-center justify-center">
+                              <span className="text-[9px] text-gray-300">—</span>
+                            </div>
+                          ) : (
+                            slots.map((slot, slotIdx) => {
+                              const selectedWeeklySlot = selectedWeeklySchedules.find(
+                                s => s.time === slot.time && s.dayOfWeek === dayOfWeekName
+                              );
+                              const selectedPackSlot = Array.from(selectedClassesPerTicket.values()).find(
+                                s => s.time === slot.time && s.dayOfWeek === dayOfWeekName
+                              );
+                              const isAlreadySelectedWeekly = !!selectedWeeklySlot;
+                              const isAlreadySelectedPack = !!selectedPackSlot;
+                              const isCurrentlySelected = selectedTime === slot.time && selectedDayOfWeek === dayOfWeekName;
+                              const isAlreadySelected = isAlreadySelectedWeekly || isAlreadySelectedPack;
+                              const isFull = slot.status === 'full';
+                              const canSelect = !isFull && !isAlreadySelected && !isCurrentlySelected;
+                              const selectedSchoolShort = selectedWeeklySlot?.schoolNameShort || selectedPackSlot?.schoolNameShort || '';
+
+                              return (
+                                <button
+                                  key={slotIdx}
+                                  type="button"
+                                  disabled={!canSelect}
+                                  onClick={() => {
+                                    if (canSelect) {
+                                      handleTimeSlotSelect(slot.time, dayOfWeekName);
+                                    }
+                                  }}
+                                  className={`
+                                    w-full rounded-md px-0.5 py-1.5 text-center transition-colors
+                                    ${isCurrentlySelected
+                                      ? 'bg-blue-500 text-white ring-2 ring-blue-400 ring-offset-1'
+                                      : isAlreadySelected
+                                      ? 'bg-green-500 text-white'
+                                      : isFull
+                                      ? 'bg-red-50 text-red-300 line-through cursor-not-allowed'
+                                      : slot.status === 'few'
+                                      ? 'bg-orange-50 text-orange-700 border border-orange-200 hover:bg-orange-100 cursor-pointer'
+                                      : 'bg-green-50 text-green-700 border border-green-200 hover:bg-green-100 cursor-pointer'
+                                    }
+                                  `}
+                                >
+                                  <span className="block text-[10px] font-bold leading-tight">{slot.time}</span>
+                                  {isAlreadySelected && (
+                                    <span className="block text-[8px] font-medium leading-tight mt-0.5">{selectedSchoolShort}</span>
+                                  )}
+                                  {isCurrentlySelected && (
+                                    <span className="block text-[8px] font-medium leading-tight mt-0.5">
+                                      {(schools.find(s => s.id === currentScheduleSchoolId)?.name || '').slice(0, 3)}
+                                    </span>
+                                  )}
+                                  {!isAlreadySelected && !isCurrentlySelected && isFull && (
+                                    <span className="block text-[8px] leading-tight mt-0.5">満席</span>
+                                  )}
+                                  {!isAlreadySelected && !isCurrentlySelected && slot.status === 'few' && (
+                                    <span className="block text-[8px] leading-tight mt-0.5">残少</span>
+                                  )}
+                                </button>
+                              );
+                            })
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
               )}
 
               {/* 選択済みの曜日・時間帯を表示（コンパクト版） */}
