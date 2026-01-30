@@ -1,10 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import {
@@ -14,13 +13,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from "@/components/ui/dialog";
 import apiClient, { getMediaUrl } from "@/lib/api/client";
 import {
   Plus,
@@ -30,19 +22,20 @@ import {
   Pin,
   Pencil,
   Trash2,
-  Image as ImageIcon,
   Users,
   Building,
   Calendar,
   Globe,
   Lock,
-  X,
   Loader2,
+  ArrowLeft,
+  Image as ImageIcon,
   Film,
+  Settings2,
 } from "lucide-react";
-import { FileUpload } from "@/components/ui/file-upload";
 import { MultiSelect } from "@/components/ui/multi-select";
-import { ImageEditorV2 } from "@/components/ui/image-editor-v2";
+import { FileUpload } from "@/components/ui/file-upload";
+import FeedEditor, { type FeedEditorHandle } from "@/components/feed/FeedEditor";
 
 interface FeedPost {
   id: string;
@@ -88,11 +81,13 @@ export default function FeedPage() {
   const [brands, setBrands] = useState<Brand[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedPost, setSelectedPost] = useState<FeedPost | null>(null);
-  const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [editingMode, setEditingMode] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [editingMediaIndex, setEditingMediaIndex] = useState<number | null>(null);
-  const [editingMediaUrl, setEditingMediaUrl] = useState<string | null>(null);
+  const [sidebarTab, setSidebarTab] = useState<"media" | "settings">("media");
+  const [mediaTab, setMediaTab] = useState<"photo" | "video">("photo");
+
+  const editorRef = useRef<FeedEditorHandle>(null);
 
   const [formData, setFormData] = useState({
     title: "",
@@ -108,7 +103,6 @@ export default function FeedPage() {
     isPinned: false,
     publishStartAt: "",
     publishEndAt: "",
-    mediaFiles: [] as Array<{ url: string; type: "image" | "video"; filename: string }>,
   });
 
   useEffect(() => {
@@ -133,7 +127,6 @@ export default function FeedPage() {
 
   async function loadSchools() {
     try {
-      // 全件取得するためpage_sizeを大きく設定
       const response = await apiClient.get<any>("/schools/schools/?page_size=500");
       const data = response.results || response.data || response || [];
       setSchools(Array.isArray(data) ? data : []);
@@ -144,7 +137,6 @@ export default function FeedPage() {
 
   async function loadBrands() {
     try {
-      // 全件取得するためpage_sizeを大きく設定
       const response = await apiClient.get<any>("/schools/brands/?page_size=500");
       const data = response.results || response.data || response || [];
       setBrands(Array.isArray(data) ? data : []);
@@ -168,11 +160,11 @@ export default function FeedPage() {
       isPinned: false,
       publishStartAt: "",
       publishEndAt: "",
-      mediaFiles: [],
     });
     setSelectedPost(null);
     setIsEditing(false);
-    setIsDialogOpen(true);
+    setEditingMode(true);
+    setSidebarTab("media");
   }
 
   function handleEdit(post: FeedPost) {
@@ -190,65 +182,79 @@ export default function FeedPage() {
       isPinned: post.isPinned ?? false,
       publishStartAt: post.publishStartAt ? post.publishStartAt.slice(0, 16) : "",
       publishEndAt: post.publishEndAt ? post.publishEndAt.slice(0, 16) : "",
-      mediaFiles: (post.media || []).map(m => ({
-        url: m.fileUrl,
-        type: m.mediaType === "VIDEO" ? "video" as const : "image" as const,
-        filename: m.fileUrl.split("/").pop() || "",
-      })),
     });
     setSelectedPost(post);
     setIsEditing(true);
-    setIsDialogOpen(true);
+    setEditingMode(true);
+    setSidebarTab("media");
   }
 
-  async function handleSave() {
+  function handleBackToList() {
+    setEditingMode(false);
+    setSelectedPost(null);
+  }
+
+  async function handleSave(overrides?: Partial<typeof formData>) {
     try {
       setSaving(true);
+      const data = { ...formData, ...overrides };
+      const content = editorRef.current?.getContent() || data.content;
 
-      // 投稿タイプを判定
+      // Detect media in HTML content
+      const tempDiv = document.createElement("div");
+      tempDiv.innerHTML = content;
+      const images = tempDiv.querySelectorAll("img");
+      const videos = tempDiv.querySelectorAll("video");
+
       let postType = "TEXT";
-      if (formData.mediaFiles.length > 0) {
-        const hasVideo = formData.mediaFiles.some(f => f.type === "video");
-        postType = hasVideo ? "VIDEO" : (formData.mediaFiles.length > 1 ? "GALLERY" : "IMAGE");
+      if (videos.length > 0) {
+        postType = "VIDEO";
+      } else if (images.length > 1) {
+        postType = "GALLERY";
+      } else if (images.length === 1) {
+        postType = "IMAGE";
       }
 
       const payload: any = {
         post_type: postType,
-        title: formData.title,
-        content: formData.content,
-        visibility: formData.visibility,
-        hashtags: formData.hashtags.split(",").map(t => t.trim()).filter(t => t),
-        allow_comments: formData.allowComments,
-        allow_likes: formData.allowLikes,
-        is_published: formData.isPublished,
-        is_pinned: formData.isPinned,
+        title: data.title,
+        content,
+        visibility: data.visibility,
+        hashtags: data.hashtags.split(",").map((t) => t.trim()).filter((t) => t),
+        allow_comments: data.allowComments,
+        allow_likes: data.allowLikes,
+        is_published: data.isPublished,
+        is_pinned: data.isPinned,
       };
 
-      if (formData.school && formData.school !== "_none") {
-        payload.school = formData.school;
+      if (data.school && data.school !== "_none") {
+        payload.school = data.school;
+      }
+      if (data.targetBrands.length > 0) {
+        payload.target_brands = data.targetBrands;
+      }
+      if (data.targetSchools.length > 0) {
+        payload.target_schools = data.targetSchools;
+      }
+      if (data.publishStartAt) {
+        payload.publish_start_at = new Date(data.publishStartAt).toISOString();
+      }
+      if (data.publishEndAt) {
+        payload.publish_end_at = new Date(data.publishEndAt).toISOString();
       }
 
-      // ブランド・校舎フィルター
-      if (formData.targetBrands.length > 0) {
-        payload.target_brands = formData.targetBrands;
-      }
-      if (formData.targetSchools.length > 0) {
-        payload.target_schools = formData.targetSchools;
-      }
-
-      // 公開日時
-      if (formData.publishStartAt) {
-        payload.publish_start_at = new Date(formData.publishStartAt).toISOString();
-      }
-      if (formData.publishEndAt) {
-        payload.publish_end_at = new Date(formData.publishEndAt).toISOString();
-      }
-
-      if (formData.mediaFiles.length > 0) {
-        payload.media_items = formData.mediaFiles.map(f => ({
-          media_type: f.type.toUpperCase(),
-          file_url: f.url,
-        }));
+      // Extract media items
+      const mediaItems: any[] = [];
+      images.forEach((img) => {
+        const src = img.getAttribute("src");
+        if (src) mediaItems.push({ media_type: "IMAGE", file_url: src });
+      });
+      videos.forEach((vid) => {
+        const src = vid.getAttribute("src");
+        if (src) mediaItems.push({ media_type: "VIDEO", file_url: src });
+      });
+      if (mediaItems.length > 0) {
+        payload.media_items = mediaItems;
       }
 
       if (isEditing && selectedPost) {
@@ -258,7 +264,7 @@ export default function FeedPage() {
       }
 
       await loadPosts();
-      setIsDialogOpen(false);
+      setEditingMode(false);
     } catch (error) {
       console.error("Failed to save post:", error);
       alert("保存に失敗しました");
@@ -278,87 +284,339 @@ export default function FeedPage() {
     }
   }
 
-  // 画像編集を開始
-  function handleEditMedia(index: number, url: string) {
-    setEditingMediaIndex(index);
-    setEditingMediaUrl(url);
-  }
-
-  // 画像編集完了 - アップロードして差し替え
-  async function handleMediaEditSave(editedFile: File) {
-    if (editingMediaIndex === null) return;
-
-    try {
-      const token = (await import("@/lib/api/client")).getAccessToken();
-      const baseUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1";
-      const formDataUpload = new FormData();
-      formDataUpload.append("file", editedFile);
-
-      const response = await fetch(`${baseUrl}/core/upload/`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-        body: formDataUpload,
-      });
-
-      if (!response.ok) {
-        throw new Error("アップロードに失敗しました");
-      }
-
-      const data = await response.json();
-
-      // mediaFilesの該当インデックスを更新
-      const newMediaFiles = [...formData.mediaFiles];
-      newMediaFiles[editingMediaIndex] = {
-        url: data.url,
-        type: data.type,
-        filename: data.filename,
-      };
-      setFormData({ ...formData, mediaFiles: newMediaFiles });
-    } catch (error) {
-      console.error("Failed to upload edited image:", error);
-      alert("画像のアップロードに失敗しました");
-    } finally {
-      setEditingMediaIndex(null);
-      setEditingMediaUrl(null);
+  function handleMediaUpload(file: { url: string }) {
+    const fullUrl = getMediaUrl(file.url);
+    if (mediaTab === "photo") {
+      editorRef.current?.insertImage(fullUrl);
+    } else {
+      editorRef.current?.insertVideo(fullUrl);
     }
-  }
-
-  // 画像編集キャンセル
-  function handleMediaEditCancel() {
-    setEditingMediaIndex(null);
-    setEditingMediaUrl(null);
   }
 
   function getVisibilityIcon(visibility: string) {
     switch (visibility) {
-      case "PUBLIC":
-        return <Globe className="w-4 h-4" />;
-      case "SCHOOL":
-        return <Building className="w-4 h-4" />;
-      case "STAFF":
-        return <Lock className="w-4 h-4" />;
-      default:
-        return <Users className="w-4 h-4" />;
+      case "PUBLIC": return <Globe className="w-4 h-4" />;
+      case "SCHOOL": return <Building className="w-4 h-4" />;
+      case "STAFF": return <Lock className="w-4 h-4" />;
+      default: return <Users className="w-4 h-4" />;
     }
   }
 
   function getVisibilityLabel(visibility: string) {
     switch (visibility) {
-      case "PUBLIC":
-        return "全体公開";
-      case "SCHOOL":
-        return "校舎限定";
-      case "GRADE":
-        return "学年限定";
-      case "STAFF":
-        return "スタッフのみ";
-      default:
-        return visibility;
+      case "PUBLIC": return "全体公開";
+      case "SCHOOL": return "校舎限定";
+      case "GRADE": return "学年限定";
+      case "STAFF": return "スタッフのみ";
+      default: return visibility;
     }
   }
 
+  // ========== EDITOR MODE ==========
+  if (editingMode) {
+    return (
+      <div className="flex h-screen bg-gray-50">
+        <Sidebar />
+
+        <div className="flex-1 flex flex-col overflow-hidden">
+          {/* Top Bar */}
+          <div className="border-b px-4 py-3 flex items-center justify-between bg-white flex-shrink-0">
+            <div className="flex items-center gap-3">
+              <Button variant="ghost" size="sm" onClick={handleBackToList} className="gap-1">
+                <ArrowLeft className="w-4 h-4" />
+                一覧に戻る
+              </Button>
+              <span className="text-sm text-gray-500">
+                {isEditing ? "投稿を編集" : "新規投稿"}
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => handleSave({ isPublished: false })}
+                disabled={saving}
+              >
+                {saving && <Loader2 className="w-4 h-4 animate-spin mr-1" />}
+                下書き保存
+              </Button>
+              <Button
+                size="sm"
+                onClick={() => handleSave({ isPublished: true })}
+                disabled={saving}
+              >
+                {saving && <Loader2 className="w-4 h-4 animate-spin mr-1" />}
+                {isEditing ? "更新する" : "投稿する"}
+              </Button>
+            </div>
+          </div>
+
+          {/* Editor + Right Sidebar */}
+          <div className="flex-1 flex overflow-hidden">
+            {/* Left: Title + Editor */}
+            <div className="flex-1 flex flex-col overflow-y-auto">
+              <div className="max-w-4xl w-full mx-auto p-6 flex flex-col flex-1">
+                {/* Title Input */}
+                <Input
+                  value={formData.title}
+                  onChange={(e) => setFormData({ ...formData, title: e.target.value })}
+                  placeholder="タイトルを入力..."
+                  className="text-lg font-medium mb-4 h-12 border-blue-200 focus:border-blue-500"
+                />
+
+                {/* Rich Text Editor */}
+                <FeedEditor
+                  key={selectedPost?.id || "new"}
+                  ref={editorRef}
+                  initialContent={formData.content}
+                  onChange={(html) => setFormData((prev) => ({ ...prev, content: html }))}
+                  className="flex-1"
+                />
+              </div>
+            </div>
+
+            {/* Right Sidebar: メディア / 設定 */}
+            <div className="w-80 border-l bg-white flex flex-col flex-shrink-0">
+              {/* Sidebar Tab Headers */}
+              <div className="border-b flex">
+                <button
+                  type="button"
+                  className={`flex-1 py-3 text-sm font-medium text-center transition-colors ${
+                    sidebarTab === "media"
+                      ? "text-blue-600 border-b-2 border-blue-600"
+                      : "text-gray-500 hover:text-gray-700"
+                  }`}
+                  onClick={() => setSidebarTab("media")}
+                >
+                  <ImageIcon className="w-4 h-4 inline mr-1" />
+                  写真・動画
+                </button>
+                <button
+                  type="button"
+                  className={`flex-1 py-3 text-sm font-medium text-center transition-colors ${
+                    sidebarTab === "settings"
+                      ? "text-blue-600 border-b-2 border-blue-600"
+                      : "text-gray-500 hover:text-gray-700"
+                  }`}
+                  onClick={() => setSidebarTab("settings")}
+                >
+                  <Settings2 className="w-4 h-4 inline mr-1" />
+                  設定
+                </button>
+              </div>
+
+              {/* Sidebar Content */}
+              <div className="flex-1 overflow-y-auto">
+                {sidebarTab === "media" ? (
+                  <div className="p-4">
+                    {/* Photo / Video sub-tabs */}
+                    <div className="flex gap-2 mb-4">
+                      <button
+                        type="button"
+                        className={`flex-1 py-2 text-sm rounded-lg transition-colors ${
+                          mediaTab === "photo"
+                            ? "bg-blue-50 text-blue-700 font-medium"
+                            : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                        }`}
+                        onClick={() => setMediaTab("photo")}
+                      >
+                        写真
+                      </button>
+                      <button
+                        type="button"
+                        className={`flex-1 py-2 text-sm rounded-lg transition-colors ${
+                          mediaTab === "video"
+                            ? "bg-blue-50 text-blue-700 font-medium"
+                            : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                        }`}
+                        onClick={() => setMediaTab("video")}
+                      >
+                        動画
+                      </button>
+                    </div>
+
+                    {/* Upload Area */}
+                    <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
+                      <div className="mb-3">
+                        {mediaTab === "photo" ? (
+                          <ImageIcon className="w-12 h-12 mx-auto text-gray-300" />
+                        ) : (
+                          <Film className="w-12 h-12 mx-auto text-gray-300" />
+                        )}
+                      </div>
+                      <p className="text-sm text-gray-500 mb-3">
+                        ここにドロップ<br />またはクリックで
+                      </p>
+                      <FileUpload
+                        accept={mediaTab === "photo" ? "image/*" : "video/*"}
+                        label={mediaTab === "photo" ? "画像をアップロード" : "動画をアップロード"}
+                        enableImageEdit={false}
+                        onUpload={handleMediaUpload}
+                      />
+                    </div>
+
+                    <p className="text-xs text-gray-500 mt-3 text-center">
+                      アップロードした{mediaTab === "photo" ? "画像" : "動画"}はエディタに挿入されます
+                    </p>
+                  </div>
+                ) : (
+                  /* Settings Tab */
+                  <div className="p-4 space-y-4">
+                    {/* Visibility */}
+                    <div>
+                      <label className="text-sm font-medium block mb-1">公開範囲</label>
+                      <Select
+                        value={formData.visibility}
+                        onValueChange={(v) => setFormData({ ...formData, visibility: v })}
+                      >
+                        <SelectTrigger className="w-full">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="PUBLIC">全体公開</SelectItem>
+                          <SelectItem value="SCHOOL">校舎限定</SelectItem>
+                          <SelectItem value="GRADE">学年限定</SelectItem>
+                          <SelectItem value="STAFF">スタッフのみ</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    {/* School */}
+                    <div>
+                      <label className="text-sm font-medium block mb-1">投稿校舎</label>
+                      <Select
+                        value={formData.school}
+                        onValueChange={(v) => setFormData({ ...formData, school: v })}
+                      >
+                        <SelectTrigger className="w-full">
+                          <SelectValue placeholder="選択..." />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="_none">なし</SelectItem>
+                          {schools.map((school) => (
+                            <SelectItem key={school.id} value={school.id}>
+                              {school.schoolName}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    {/* Target Brands */}
+                    <div>
+                      <label className="text-sm font-medium flex items-center gap-1 mb-1">
+                        <Building className="w-3.5 h-3.5" />
+                        対象ブランド
+                      </label>
+                      <MultiSelect
+                        options={brands.map((brand) => ({
+                          value: brand.id,
+                          label: brand.brandName,
+                        }))}
+                        selected={formData.targetBrands}
+                        onChange={(selected) => setFormData({ ...formData, targetBrands: selected })}
+                        placeholder="ブランドを選択..."
+                        emptyMessage="ブランドがありません"
+                        badgeVariant="default"
+                      />
+                      <p className="text-xs text-gray-500 mt-1">未選択の場合は全ブランド</p>
+                    </div>
+
+                    {/* Target Schools */}
+                    <div>
+                      <label className="text-sm font-medium flex items-center gap-1 mb-1">
+                        <Building className="w-3.5 h-3.5" />
+                        対象校舎
+                      </label>
+                      <MultiSelect
+                        options={schools.map((school) => ({
+                          value: school.id,
+                          label: school.schoolName,
+                        }))}
+                        selected={formData.targetSchools}
+                        onChange={(selected) => setFormData({ ...formData, targetSchools: selected })}
+                        placeholder="校舎を選択..."
+                        emptyMessage="校舎がありません"
+                        badgeVariant="outline"
+                      />
+                      <p className="text-xs text-gray-500 mt-1">未選択の場合は全校舎</p>
+                    </div>
+
+                    {/* Publish Period */}
+                    <div>
+                      <label className="text-sm font-medium flex items-center gap-1 mb-1">
+                        <Calendar className="w-3.5 h-3.5" />
+                        公開期間
+                      </label>
+                      <div className="space-y-2">
+                        <div>
+                          <label className="text-xs text-gray-500">開始日時</label>
+                          <Input
+                            type="datetime-local"
+                            value={formData.publishStartAt}
+                            onChange={(e) => setFormData({ ...formData, publishStartAt: e.target.value })}
+                          />
+                        </div>
+                        <div>
+                          <label className="text-xs text-gray-500">終了日時</label>
+                          <Input
+                            type="datetime-local"
+                            value={formData.publishEndAt}
+                            onChange={(e) => setFormData({ ...formData, publishEndAt: e.target.value })}
+                          />
+                        </div>
+                      </div>
+                      <p className="text-xs text-gray-500 mt-1">未設定の場合は即時・無期限</p>
+                    </div>
+
+                    {/* Hashtags */}
+                    <div>
+                      <label className="text-sm font-medium block mb-1">ハッシュタグ</label>
+                      <Input
+                        value={formData.hashtags}
+                        onChange={(e) => setFormData({ ...formData, hashtags: e.target.value })}
+                        placeholder="カンマ区切り: タグ1, タグ2"
+                      />
+                    </div>
+
+                    {/* Checkboxes */}
+                    <div className="space-y-2 pt-2 border-t">
+                      <label className="flex items-center gap-2 cursor-pointer text-sm">
+                        <input
+                          type="checkbox"
+                          checked={formData.allowComments}
+                          onChange={(e) => setFormData({ ...formData, allowComments: e.target.checked })}
+                        />
+                        コメント許可
+                      </label>
+                      <label className="flex items-center gap-2 cursor-pointer text-sm">
+                        <input
+                          type="checkbox"
+                          checked={formData.allowLikes}
+                          onChange={(e) => setFormData({ ...formData, allowLikes: e.target.checked })}
+                        />
+                        いいね許可
+                      </label>
+                      <label className="flex items-center gap-2 cursor-pointer text-sm">
+                        <input
+                          type="checkbox"
+                          checked={formData.isPinned}
+                          onChange={(e) => setFormData({ ...formData, isPinned: e.target.checked })}
+                        />
+                        ピン留め
+                      </label>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ========== LIST MODE ==========
   return (
     <div className="flex h-screen bg-gray-50">
       <Sidebar />
@@ -368,9 +626,7 @@ export default function FeedPage() {
           <div className="flex justify-between items-center mb-6">
             <div>
               <h1 className="text-2xl font-bold text-gray-900">フィード管理</h1>
-              <p className="text-gray-600">
-                {posts.length}件の投稿
-              </p>
+              <p className="text-gray-600">{posts.length}件の投稿</p>
             </div>
             <Button onClick={handleCreate}>
               <Plus className="w-4 h-4 mr-2" />
@@ -409,9 +665,7 @@ export default function FeedPage() {
                     <div className="flex-1 min-w-0">
                       {/* ヘッダー */}
                       <div className="flex items-center gap-2 mb-2">
-                        {post.isPinned && (
-                          <Pin className="w-4 h-4 text-blue-500" />
-                        )}
+                        {post.isPinned && <Pin className="w-4 h-4 text-blue-500" />}
                         <span className="text-sm font-medium">{post.authorName || "スタッフ"}</span>
                         {post.schoolName && (
                           <Badge variant="outline" className="text-xs">
@@ -422,9 +676,7 @@ export default function FeedPage() {
                           {getVisibilityIcon(post.visibility)}
                           {getVisibilityLabel(post.visibility)}
                         </span>
-                        {!post.isPublished && (
-                          <Badge variant="secondary">下書き</Badge>
-                        )}
+                        {!post.isPublished && <Badge variant="secondary">下書き</Badge>}
                       </div>
 
                       {/* 題名 */}
@@ -434,7 +686,7 @@ export default function FeedPage() {
 
                       {/* コンテンツ */}
                       <p className="text-gray-700 mb-2 line-clamp-3 whitespace-pre-wrap">
-                        {post.content}
+                        {post.content?.replace(/<[^>]*>/g, "").slice(0, 200)}
                       </p>
 
                       {/* ハッシュタグ */}
@@ -451,16 +703,13 @@ export default function FeedPage() {
                       {/* 統計 */}
                       <div className="flex items-center gap-4 text-sm text-gray-500">
                         <span className="flex items-center gap-1">
-                          <Heart className="w-4 h-4" />
-                          {post.likeCount}
+                          <Heart className="w-4 h-4" /> {post.likeCount}
                         </span>
                         <span className="flex items-center gap-1">
-                          <MessageCircle className="w-4 h-4" />
-                          {post.commentCount}
+                          <MessageCircle className="w-4 h-4" /> {post.commentCount}
                         </span>
                         <span className="flex items-center gap-1">
-                          <Eye className="w-4 h-4" />
-                          {post.viewCount}
+                          <Eye className="w-4 h-4" /> {post.viewCount}
                         </span>
                         <span className="flex items-center gap-1">
                           <Calendar className="w-4 h-4" />
@@ -485,283 +734,6 @@ export default function FeedPage() {
           )}
         </div>
       </div>
-
-      {/* 投稿ダイアログ */}
-      <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-        <DialogContent className="max-w-lg max-h-[90vh] flex flex-col">
-          <DialogHeader>
-            <DialogTitle>
-              {isEditing ? "投稿を編集" : "新規投稿"}
-            </DialogTitle>
-          </DialogHeader>
-
-          <div className="space-y-4 py-4 overflow-y-auto flex-1">
-            <div>
-              <label className="text-sm font-medium">題名</label>
-              <Input
-                value={formData.title}
-                onChange={(e) => setFormData({ ...formData, title: e.target.value })}
-                placeholder="投稿の題名を入力..."
-              />
-            </div>
-
-            <div>
-              <label className="text-sm font-medium">内容</label>
-              <Textarea
-                value={formData.content}
-                onChange={(e) => setFormData({ ...formData, content: e.target.value })}
-                placeholder="投稿内容を入力..."
-                rows={6}
-              />
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="text-sm font-medium">公開範囲</label>
-                <Select
-                  value={formData.visibility}
-                  onValueChange={(v) => setFormData({ ...formData, visibility: v })}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="PUBLIC">全体公開</SelectItem>
-                    <SelectItem value="SCHOOL">校舎限定</SelectItem>
-                    <SelectItem value="GRADE">学年限定</SelectItem>
-                    <SelectItem value="STAFF">スタッフのみ</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div>
-                <label className="text-sm font-medium">投稿校舎</label>
-                <Select
-                  value={formData.school}
-                  onValueChange={(v) => setFormData({ ...formData, school: v })}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="選択..." />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="_none">なし</SelectItem>
-                    {schools.map((school) => (
-                      <SelectItem key={school.id} value={school.id}>
-                        {school.schoolName}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-
-            {/* 対象ブランド選択 */}
-            <div>
-              <label className="text-sm font-medium flex items-center gap-1 mb-2">
-                <Building className="w-4 h-4" />
-                対象ブランド
-              </label>
-              <MultiSelect
-                options={brands.map((brand) => ({
-                  value: brand.id,
-                  label: brand.brandName,
-                }))}
-                selected={formData.targetBrands}
-                onChange={(selected) => setFormData({ ...formData, targetBrands: selected })}
-                placeholder="ブランドを選択..."
-                emptyMessage="ブランドがありません"
-                badgeVariant="default"
-              />
-              <p className="text-xs text-gray-500 mt-1">未選択の場合は全ブランドに表示されます</p>
-            </div>
-
-            {/* 対象校舎選択 */}
-            <div>
-              <label className="text-sm font-medium flex items-center gap-1 mb-2">
-                <Building className="w-4 h-4" />
-                対象校舎
-              </label>
-              <MultiSelect
-                options={schools.map((school) => ({
-                  value: school.id,
-                  label: school.schoolName,
-                }))}
-                selected={formData.targetSchools}
-                onChange={(selected) => setFormData({ ...formData, targetSchools: selected })}
-                placeholder="校舎を選択..."
-                emptyMessage="校舎がありません"
-                badgeVariant="outline"
-              />
-              <p className="text-xs text-gray-500 mt-1">未選択の場合は全校舎に表示されます</p>
-            </div>
-
-            {/* 公開期間設定 */}
-            <div>
-              <label className="text-sm font-medium flex items-center gap-1 mb-2">
-                <Calendar className="w-4 h-4" />
-                公開期間
-              </label>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="text-xs text-gray-500">開始日時</label>
-                  <Input
-                    type="datetime-local"
-                    value={formData.publishStartAt}
-                    onChange={(e) => setFormData({ ...formData, publishStartAt: e.target.value })}
-                  />
-                </div>
-                <div>
-                  <label className="text-xs text-gray-500">終了日時</label>
-                  <Input
-                    type="datetime-local"
-                    value={formData.publishEndAt}
-                    onChange={(e) => setFormData({ ...formData, publishEndAt: e.target.value })}
-                  />
-                </div>
-              </div>
-              <p className="text-xs text-gray-500 mt-1">未設定の場合は即時公開・無期限となります</p>
-            </div>
-
-            {/* メディアアップロード */}
-            <div>
-              <label className="text-sm font-medium flex items-center gap-1 mb-2">
-                <ImageIcon className="w-4 h-4" />
-                <Film className="w-4 h-4" />
-                画像・動画
-              </label>
-              <FileUpload
-                accept="image/*,video/*"
-                multiple
-                label="画像・動画をアップロード"
-                onUpload={(file) => {
-                  setFormData({
-                    ...formData,
-                    mediaFiles: [...formData.mediaFiles, {
-                      url: file.url,
-                      type: file.type,
-                      filename: file.filename,
-                    }],
-                  });
-                }}
-              />
-              {formData.mediaFiles.length > 0 && (
-                <div className="mt-3 flex flex-wrap gap-2">
-                  {formData.mediaFiles.map((file, idx) => (
-                    <div key={idx} className="relative group">
-                      {file.type === "video" ? (
-                        <video
-                          src={getMediaUrl(file.url)}
-                          className="w-20 h-20 object-cover rounded border"
-                          preload="metadata"
-                          muted
-                          playsInline
-                        />
-                      ) : (
-                        <img
-                          src={getMediaUrl(file.url)}
-                          alt={file.filename}
-                          className="w-20 h-20 object-cover rounded border"
-                        />
-                      )}
-                      {/* 編集ボタン（画像のみ） */}
-                      {file.type === "image" && (
-                        <button
-                          type="button"
-                          onClick={() => handleEditMedia(idx, getMediaUrl(file.url))}
-                          className="absolute top-1 left-1 bg-blue-500 text-white rounded-full p-1 hover:bg-blue-600 opacity-0 group-hover:opacity-100 transition-opacity"
-                          title="編集"
-                        >
-                          <Pencil className="w-3 h-3" />
-                        </button>
-                      )}
-                      {/* 削除ボタン */}
-                      <button
-                        type="button"
-                        onClick={() => setFormData({
-                          ...formData,
-                          mediaFiles: formData.mediaFiles.filter((_, i) => i !== idx),
-                        })}
-                        className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 hover:bg-red-600"
-                      >
-                        <X className="w-3 h-3" />
-                      </button>
-                      {file.type === "video" && (
-                        <div className="absolute bottom-1 left-1 bg-black/50 text-white text-xs px-1 rounded">
-                          動画
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            <div>
-              <label className="text-sm font-medium">ハッシュタグ（カンマ区切り）</label>
-              <Input
-                value={formData.hashtags}
-                onChange={(e) => setFormData({ ...formData, hashtags: e.target.value })}
-                placeholder="タグ1, タグ2, タグ3"
-              />
-            </div>
-
-            <div className="flex flex-wrap gap-4">
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={formData.allowComments}
-                  onChange={(e) => setFormData({ ...formData, allowComments: e.target.checked })}
-                />
-                <span className="text-sm">コメント許可</span>
-              </label>
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={formData.allowLikes}
-                  onChange={(e) => setFormData({ ...formData, allowLikes: e.target.checked })}
-                />
-                <span className="text-sm">いいね許可</span>
-              </label>
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={formData.isPinned}
-                  onChange={(e) => setFormData({ ...formData, isPinned: e.target.checked })}
-                />
-                <span className="text-sm">ピン留め</span>
-              </label>
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={formData.isPublished}
-                  onChange={(e) => setFormData({ ...formData, isPublished: e.target.checked })}
-                />
-                <span className="text-sm">公開</span>
-              </label>
-            </div>
-          </div>
-
-          <DialogFooter className="flex-shrink-0 border-t pt-4 mt-2">
-            <Button variant="outline" onClick={() => setIsDialogOpen(false)}>
-              キャンセル
-            </Button>
-            <Button onClick={handleSave} disabled={saving || !formData.content.trim()}>
-              {saving ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
-              {isEditing ? "更新" : "投稿"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* 画像編集ダイアログ */}
-      {editingMediaUrl && editingMediaIndex !== null && (
-        <ImageEditorV2
-          file={new File([], "edit.jpg")} // ダミーファイル - initialImageUrlを使用
-          initialImageUrl={editingMediaUrl}
-          onSave={handleMediaEditSave}
-          onCancel={handleMediaEditCancel}
-        />
-      )}
     </div>
   );
 }
