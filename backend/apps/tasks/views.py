@@ -10,7 +10,7 @@ from apps.core.permissions import IsTenantUser
 from apps.core.exceptions import UnauthorizedError, ValidationException
 from .models import Task, TaskCategory, TaskComment
 from .serializers import (
-    TaskSerializer, TaskCreateUpdateSerializer,
+    TaskSerializer, TaskDetailSerializer, TaskCreateUpdateSerializer,
     TaskCategorySerializer, TaskCommentSerializer
 )
 
@@ -40,7 +40,18 @@ class TaskViewSet(viewsets.ModelViewSet):
     def get_serializer_class(self):
         if self.action in ['create', 'update', 'partial_update']:
             return TaskCreateUpdateSerializer
+        if self.action == 'retrieve':
+            return TaskDetailSerializer
         return TaskSerializer
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        if self.action == 'retrieve':
+            qs = qs.select_related(
+                'student__primary_school', 'student__primary_brand',
+                'student__grade', 'student__guardian',
+            )
+        return qs
 
     def update(self, request, *args, **kwargs):
         """更新後にTaskSerializerで完全なデータを返す"""

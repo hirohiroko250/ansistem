@@ -9,11 +9,12 @@ import { GanttChart } from "@/components/tasks/GanttChart";
 import { TaskFilters, TaskFilterValues, defaultFilterValues } from "@/components/tasks/TaskFilters";
 import { TaskCreateDialog } from "@/components/tasks/TaskCreateDialog";
 import { TaskComments } from "@/components/tasks/TaskComments";
+import { TaskChatTab } from "@/components/tasks/TaskChatTab";
+import { TaskAssignment } from "@/components/tasks/TaskAssignment";
 import { getTasks, getTaskDetail, updateTask, Task } from "@/lib/api/staff";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
-import { Separator } from "@/components/ui/separator";
-import { Plus, LayoutGrid, List, BarChart3, Loader2 } from "lucide-react";
+import { Plus, LayoutGrid, List, BarChart3, Loader2, FileText, MessageCircle, UserPlus, MessageSquare } from "lucide-react";
 
 type ViewMode = "kanban" | "list" | "gantt";
 
@@ -151,17 +152,45 @@ export default function TasksPage() {
     <ThreePaneLayout
       isRightPanelOpen={!!selectedTaskId}
       onCloseRightPanel={handleCloseDetail}
+      rightPanelTitle=""
       rightPanel={
         selectedTask ? (
-          <div className="flex flex-col h-full">
-            <div className="flex-1 overflow-auto p-4">
+          <Tabs defaultValue="detail" key={selectedTask.id} className="flex flex-col h-full">
+            <TabsList className="w-full justify-start rounded-none border-b bg-white px-2 h-auto py-0 gap-0">
+              <TabsTrigger value="detail" className="rounded-none border-b-2 border-transparent data-[state=active]:border-blue-600 data-[state=active]:shadow-none py-2.5 px-3 gap-1.5 text-xs">
+                <FileText className="h-3.5 w-3.5" />
+                詳細
+              </TabsTrigger>
+              <TabsTrigger value="chat" className="rounded-none border-b-2 border-transparent data-[state=active]:border-blue-600 data-[state=active]:shadow-none py-2.5 px-3 gap-1.5 text-xs">
+                <MessageCircle className="h-3.5 w-3.5" />
+                チャット
+              </TabsTrigger>
+              <TabsTrigger value="assignment" className="rounded-none border-b-2 border-transparent data-[state=active]:border-blue-600 data-[state=active]:shadow-none py-2.5 px-3 gap-1.5 text-xs">
+                <UserPlus className="h-3.5 w-3.5" />
+                割り当て
+              </TabsTrigger>
+              <TabsTrigger value="comments" className="rounded-none border-b-2 border-transparent data-[state=active]:border-blue-600 data-[state=active]:shadow-none py-2.5 px-3 gap-1.5 text-xs">
+                <MessageSquare className="h-3.5 w-3.5" />
+                コメント
+              </TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="detail" className="flex-1 overflow-auto mt-0 p-4">
               <TaskDetail task={selectedTask} onTaskUpdated={handleTaskUpdated} />
-            </div>
-            <Separator />
-            <div className="h-[300px]">
+            </TabsContent>
+
+            <TabsContent value="chat" className="flex-1 overflow-hidden mt-0">
+              <TaskChatTab task={selectedTask} />
+            </TabsContent>
+
+            <TabsContent value="assignment" className="flex-1 overflow-hidden mt-0">
+              <TaskAssignment task={selectedTask} onTaskUpdated={handleTaskUpdated} />
+            </TabsContent>
+
+            <TabsContent value="comments" className="flex-1 overflow-hidden mt-0">
               <TaskComments taskId={selectedTask.id} />
-            </div>
-          </div>
+            </TabsContent>
+          </Tabs>
         ) : (
           <div className="flex items-center justify-center h-full text-gray-500">
             <Loader2 className="h-6 w-6 animate-spin mr-2" />

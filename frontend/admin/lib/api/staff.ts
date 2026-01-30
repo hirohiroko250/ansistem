@@ -40,6 +40,41 @@ export type {
   StudentFilters,
 };
 
+export type TaskStudentDetail = {
+  id: string;
+  student_no: string;
+  full_name: string;
+  status: string;
+  status_display: string;
+  grade_text: string;
+  birth_date?: string | null;
+  gender: string;
+  email: string;
+  phone: string;
+  line_id: string;
+  enrollment_date?: string | null;
+  registered_date?: string | null;
+  primary_school_name?: string | null;
+  primary_brand_name?: string | null;
+  active_courses: {
+    id: string;
+    course_name: string;
+    brand_name: string;
+    school_name: string;
+  }[];
+  guardian_id?: string | null;
+};
+
+export type TaskGuardianDetail = {
+  id: string;
+  guardian_no: string;
+  full_name: string;
+  email: string;
+  phone: string;
+  phone_mobile: string;
+  line_id: string;
+};
+
 export type Task = {
   id: string;
   title: string;
@@ -73,6 +108,8 @@ export type Task = {
   metadata?: Record<string, unknown>;
   created_at: string;
   updated_at?: string;
+  student_detail?: TaskStudentDetail;
+  guardian_detail?: TaskGuardianDetail;
 };
 
 export type Message = {

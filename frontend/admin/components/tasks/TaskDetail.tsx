@@ -5,7 +5,7 @@ import { Task, approveEmployeeTask, rejectEmployeeTask, completeTask } from "@/l
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-import { Calendar, User, CheckCircle, Edit, UserCheck, UserX, Loader2 } from "lucide-react";
+import { Calendar, User, CheckCircle, Edit, UserCheck, UserX, Loader2, GraduationCap, Phone, Mail, BookOpen, Shield } from "lucide-react";
 import { format } from "date-fns";
 import { ja } from "date-fns/locale";
 import {
@@ -279,6 +279,121 @@ export function TaskDetail({ task, onTaskUpdated }: TaskDetailProps) {
           )}
         </div>
       </div>
+
+      {/* 生徒情報カード */}
+      {task.student_detail && (
+        <>
+          <Separator />
+          <div>
+            <h3 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
+              <GraduationCap className="w-4 h-4" />
+              生徒情報
+            </h3>
+            <div className="bg-gray-50 rounded-lg p-3 space-y-2 text-sm">
+              <div className="flex items-center justify-between">
+                <span className="font-medium">{task.student_detail.full_name}</span>
+                <div className="flex items-center gap-1">
+                  <Badge variant="outline" className="text-xs">
+                    {task.student_detail.student_no}
+                  </Badge>
+                  <Badge
+                    variant={task.student_detail.status === 'enrolled' ? 'default' : 'secondary'}
+                    className="text-xs"
+                  >
+                    {task.student_detail.status_display}
+                  </Badge>
+                </div>
+              </div>
+
+              {task.student_detail.grade_text && (
+                <div className="flex items-center gap-2 text-gray-600">
+                  <BookOpen className="w-3.5 h-3.5" />
+                  <span>{task.student_detail.grade_text}</span>
+                </div>
+              )}
+
+              {task.student_detail.enrollment_date && (
+                <div className="flex items-center gap-2 text-gray-600">
+                  <Calendar className="w-3.5 h-3.5" />
+                  <span>入会: {task.student_detail.enrollment_date}</span>
+                </div>
+              )}
+
+              {(task.student_detail.phone || task.student_detail.email) && (
+                <div className="space-y-1 pt-1">
+                  {task.student_detail.phone && (
+                    <div className="flex items-center gap-2 text-gray-600">
+                      <Phone className="w-3.5 h-3.5" />
+                      <span>{task.student_detail.phone}</span>
+                    </div>
+                  )}
+                  {task.student_detail.email && (
+                    <div className="flex items-center gap-2 text-gray-600">
+                      <Mail className="w-3.5 h-3.5" />
+                      <span className="truncate">{task.student_detail.email}</span>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {task.student_detail.primary_school_name && (
+                <div className="text-xs text-gray-400 pt-1">
+                  {task.student_detail.primary_brand_name && `${task.student_detail.primary_brand_name} / `}
+                  {task.student_detail.primary_school_name}
+                </div>
+              )}
+
+              {task.student_detail.active_courses.length > 0 && (
+                <div className="pt-1">
+                  <p className="text-xs text-gray-500 mb-1">受講中コース</p>
+                  <div className="flex flex-wrap gap-1">
+                    {task.student_detail.active_courses.map((course) => (
+                      <Badge key={course.id} variant="outline" className="text-xs">
+                        {course.course_name || course.brand_name}
+                      </Badge>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* 保護者情報カード */}
+      {task.guardian_detail && (
+        <>
+          <Separator />
+          <div>
+            <h3 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
+              <Shield className="w-4 h-4" />
+              保護者情報
+            </h3>
+            <div className="bg-gray-50 rounded-lg p-3 space-y-2 text-sm">
+              <div className="flex items-center justify-between">
+                <span className="font-medium">{task.guardian_detail.full_name}</span>
+                <Badge variant="outline" className="text-xs">
+                  {task.guardian_detail.guardian_no}
+                </Badge>
+              </div>
+
+              {(task.guardian_detail.phone_mobile || task.guardian_detail.phone) && (
+                <div className="flex items-center gap-2 text-gray-600">
+                  <Phone className="w-3.5 h-3.5" />
+                  <span>{task.guardian_detail.phone_mobile || task.guardian_detail.phone}</span>
+                </div>
+              )}
+
+              {task.guardian_detail.email && (
+                <div className="flex items-center gap-2 text-gray-600">
+                  <Mail className="w-3.5 h-3.5" />
+                  <span className="truncate">{task.guardian_detail.email}</span>
+                </div>
+              )}
+            </div>
+          </div>
+        </>
+      )}
 
       <Separator />
 

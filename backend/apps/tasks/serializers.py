@@ -84,6 +84,75 @@ class TaskSerializer(serializers.ModelSerializer):
         return None
 
 
+class TaskDetailSerializer(TaskSerializer):
+    """作業詳細シリアライザ（生徒・保護者情報付き）"""
+    student_detail = serializers.SerializerMethodField()
+    guardian_detail = serializers.SerializerMethodField()
+
+    class Meta(TaskSerializer.Meta):
+        fields = TaskSerializer.Meta.fields + ['student_detail', 'guardian_detail']
+
+    def get_student_detail(self, obj):
+        """生徒の詳細情報を返す"""
+        if not obj.student:
+            return None
+        s = obj.student
+        # 受講中コース一覧
+        active_courses = []
+        try:
+            from apps.contracts.models import Contract
+            contracts = Contract.objects.filter(
+                student=s, status='active'
+            ).select_related('course', 'brand', 'school')
+            for c in contracts:
+                active_courses.append({
+                    'id': str(c.id),
+                    'course_name': c.course.course_name if c.course else '',
+                    'brand_name': c.brand.brand_name if c.brand else '',
+                    'school_name': c.school.school_name if c.school else '',
+                })
+        except Exception:
+            pass
+
+        return {
+            'id': str(s.id),
+            'student_no': s.student_no,
+            'full_name': f"{s.last_name}{s.first_name}",
+            'status': s.status,
+            'status_display': s.get_status_display() if hasattr(s, 'get_status_display') else s.status,
+            'grade_text': s.grade_text or '',
+            'birth_date': str(s.birth_date) if s.birth_date else None,
+            'gender': s.gender,
+            'email': s.email,
+            'phone': s.phone,
+            'line_id': s.line_id,
+            'enrollment_date': str(s.enrollment_date) if s.enrollment_date else None,
+            'registered_date': str(s.registered_date) if s.registered_date else None,
+            'primary_school_name': s.primary_school.school_name if s.primary_school else None,
+            'primary_brand_name': s.primary_brand.brand_name if s.primary_brand else None,
+            'active_courses': active_courses,
+            'guardian_id': str(s.guardian_id) if s.guardian_id else None,
+        }
+
+    def get_guardian_detail(self, obj):
+        """保護者の詳細情報を返す"""
+        guardian = obj.guardian
+        # タスクにguardianが紐付いていない場合、生徒の主保護者をフォールバック
+        if not guardian and obj.student and obj.student.guardian:
+            guardian = obj.student.guardian
+        if not guardian:
+            return None
+        return {
+            'id': str(guardian.id),
+            'guardian_no': guardian.guardian_no,
+            'full_name': f"{guardian.last_name}{guardian.first_name}",
+            'email': guardian.email,
+            'phone': guardian.phone,
+            'phone_mobile': guardian.phone_mobile,
+            'line_id': guardian.line_id,
+        }
+
+
 class TaskCreateUpdateSerializer(serializers.ModelSerializer):
     """作業作成・更新シリアライザ"""
     class Meta:

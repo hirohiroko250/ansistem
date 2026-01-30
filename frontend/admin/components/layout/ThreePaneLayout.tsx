@@ -10,6 +10,7 @@ interface ThreePaneLayoutProps {
   isRightPanelOpen?: boolean;
   onCloseRightPanel?: () => void;
   hideQuickAccess?: boolean;
+  rightPanelTitle?: string;
 }
 
 export function ThreePaneLayout({
@@ -18,6 +19,7 @@ export function ThreePaneLayout({
   isRightPanelOpen = false,
   onCloseRightPanel = () => {},
   hideQuickAccess = false,
+  rightPanelTitle,
 }: ThreePaneLayoutProps) {
   return (
     <div className="flex h-screen overflow-hidden bg-gray-50">
@@ -26,7 +28,7 @@ export function ThreePaneLayout({
         {!hideQuickAccess && <QuickAccessHeader />}
         <main className="flex-1 overflow-y-auto bg-gray-50">{children}</main>
       </div>
-      <RightPanel isOpen={isRightPanelOpen} onClose={onCloseRightPanel}>
+      <RightPanel isOpen={isRightPanelOpen} onClose={onCloseRightPanel} title={rightPanelTitle}>
         {rightPanel}
       </RightPanel>
     </div>

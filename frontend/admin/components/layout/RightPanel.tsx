@@ -9,9 +9,10 @@ interface RightPanelProps {
   onClose: () => void;
   children: React.ReactNode;
   className?: string;
+  title?: string;
 }
 
-export function RightPanel({ isOpen, onClose, children, className }: RightPanelProps) {
+export function RightPanel({ isOpen, onClose, children, className, title }: RightPanelProps) {
   return (
     <div
       className={cn(
@@ -23,7 +24,11 @@ export function RightPanel({ isOpen, onClose, children, className }: RightPanelP
       {isOpen && (
         <>
           <div className="flex items-center justify-between px-4 py-2 border-b border-gray-200">
-            <h2 className="text-lg font-semibold text-gray-900">詳細</h2>
+            {title !== undefined ? (
+              title ? <h2 className="text-lg font-semibold text-gray-900">{title}</h2> : <div />
+            ) : (
+              <h2 className="text-lg font-semibold text-gray-900">詳細</h2>
+            )}
             <Button variant="ghost" size="icon" onClick={onClose}>
               <X className="w-5 h-5" />
             </Button>
