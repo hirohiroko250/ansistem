@@ -61,8 +61,10 @@ export async function getAnnouncements(limit: number = 10): Promise<Announcement
  */
 export async function getFeedPosts(limit: number = 10): Promise<FeedPost[]> {
   try {
-    const response = await api.get<FeedPostResponse>(`/communications/feed/posts/?page_size=${limit}`);
-    return response?.results || [];
+    const response = await api.get<any>(`/communications/feed/posts/?page_size=${limit}`);
+    // ページネーション形式 { results: [...] } と配列の両方に対応
+    const data = response?.results || response?.data || response || [];
+    return Array.isArray(data) ? data : [];
   } catch (error) {
     console.error('Failed to fetch feed posts:', error);
     return [];
