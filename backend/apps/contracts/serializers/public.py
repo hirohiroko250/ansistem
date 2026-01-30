@@ -13,6 +13,7 @@ class PublicBrandCategorySerializer(serializers.Serializer):
     categoryName = serializers.CharField(source='category_name')
     categoryNameShort = serializers.CharField(source='category_name_short', allow_null=True)
     colorPrimary = serializers.CharField(source='color_primary', allow_null=True)
+    purchaseNotes = serializers.CharField(source='purchase_notes', allow_blank=True)
     sortOrder = serializers.IntegerField(source='sort_order')
 
 

@@ -838,6 +838,7 @@ export interface PublicBrandCategory {
   categoryName: string;
   categoryNameShort?: string;
   colorPrimary?: string;
+  purchaseNotes?: string;
   sortOrder: number;
 }
 

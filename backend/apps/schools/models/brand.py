@@ -17,6 +17,7 @@ class BrandCategory(TenantModel):
     logo_url = models.URLField('ロゴURL', blank=True)
     color_primary = models.CharField('プライマリカラー', max_length=7, blank=True)  # #RRGGBB
     color_secondary = models.CharField('セカンダリカラー', max_length=7, blank=True)
+    purchase_notes = models.TextField('購入時注意書き', blank=True)
     sort_order = models.IntegerField('表示順', default=0)
     is_active = models.BooleanField('有効', default=True)
 

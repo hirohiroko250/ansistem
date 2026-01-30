@@ -3335,6 +3335,14 @@ export default function FromTicketPurchasePage() {
                   </div>
                 )}
 
+                {/* カテゴリ注意書き */}
+                {selectedCategory?.purchaseNotes && (
+                  <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 mt-4">
+                    <p className="text-sm font-medium text-gray-700 mb-1">※ 注意書き</p>
+                    <p className="text-xs text-gray-600 whitespace-pre-line">{selectedCategory.purchaseNotes}</p>
+                  </div>
+                )}
+
                 {/* マイル割引セクション */}
                 {pricingPreview?.mileInfo && pricingPreview.mileInfo.balance > 0 && (
                   <div className="border-t pt-4">

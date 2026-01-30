@@ -770,18 +770,33 @@ export default function FeedPage() {
     );
   }
 
-  const customerUrl = process.env.NEXT_PUBLIC_CUSTOMER_URL || "https://oz-a.jp";
+  // 承認済みの投稿のみプレビュー表示（保護者が見る状態を再現）
+  const previewPosts = posts.filter(
+    (p) => p.isPublished && p.approvalStatus === "approved"
+  );
+
+  function formatPreviewDate(dateString: string) {
+    const date = new Date(dateString);
+    const now = new Date();
+    const diff = now.getTime() - date.getTime();
+    const hours = Math.floor(diff / (1000 * 60 * 60));
+    const days = Math.floor(hours / 24);
+    if (hours < 1) return "今";
+    if (hours < 24) return `${hours}時間前`;
+    if (days < 7) return `${days}日前`;
+    return date.toLocaleDateString("ja-JP");
+  }
 
   // ========== LIST MODE ==========
   return (
     <div className="flex h-screen bg-gray-50">
       <Sidebar />
 
-      {/* Phone Preview Panel - iframe of actual customer feed */}
+      {/* Phone Preview Panel - feed preview */}
       <div className="w-[340px] border-r bg-gray-100 flex flex-col items-center py-4 flex-shrink-0">
         <div className="flex items-center gap-2 mb-3">
           <Smartphone className="w-4 h-4 text-gray-500" />
-          <span className="text-xs font-medium text-gray-500">保護者アプリ（ライブビュー）</span>
+          <span className="text-xs font-medium text-gray-500">フィードプレビュー</span>
         </div>
 
         {/* Phone Frame */}
@@ -790,12 +805,91 @@ export default function FeedPage() {
           <div className="flex justify-center mb-1">
             <div className="w-20 h-5 bg-black rounded-b-xl" />
           </div>
-          <div className="flex-1 min-h-0 bg-white rounded-[1.5rem] overflow-hidden">
-            <iframe
-              src={`${customerUrl}/feed`}
-              className="w-full h-full border-0"
-              title="フィードプレビュー"
-            />
+          <div className="flex-1 min-h-0 bg-white rounded-[1.5rem] overflow-hidden flex flex-col">
+            {/* Preview Header */}
+            <div className="sticky top-0 z-10 bg-white shadow-sm px-3 py-2 flex items-center justify-between flex-shrink-0">
+              <span className="text-sm font-bold text-gray-800">フィード</span>
+              <span className="text-[10px] text-gray-400">{previewPosts.length}件</span>
+            </div>
+            {/* Preview Posts */}
+            <div className="flex-1 overflow-y-auto">
+              {loading ? (
+                <div className="flex items-center justify-center py-12">
+                  <Loader2 className="w-5 h-5 animate-spin text-gray-300" />
+                </div>
+              ) : previewPosts.length === 0 ? (
+                <div className="py-12 text-center text-xs text-gray-400">
+                  公開中の投稿はありません
+                </div>
+              ) : (
+                <div className="divide-y">
+                  {previewPosts.map((post) => (
+                    <div key={post.id} className="pb-2">
+                      {/* Author row */}
+                      <div className="px-3 py-2 flex items-center gap-2">
+                        <div className="w-7 h-7 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center text-[10px] font-bold flex-shrink-0">
+                          {(post.authorName || "U").charAt(0)}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs font-semibold text-gray-800 truncate">{post.authorName || "運営"}</p>
+                          <p className="text-[10px] text-gray-400">{formatPreviewDate(post.createdAt)}</p>
+                        </div>
+                        {post.isPinned && (
+                          <span className="text-[9px] px-1.5 py-0.5 bg-red-500 text-white rounded font-medium">重要</span>
+                        )}
+                      </div>
+                      {/* Media */}
+                      {post.media && post.media.length > 0 ? (
+                        <div className="relative">
+                          {post.media[0].mediaType === "VIDEO" ? (
+                            <div className="w-full aspect-square bg-gray-900 flex items-center justify-center">
+                              <Eye className="w-6 h-6 text-white/50" />
+                            </div>
+                          ) : (
+                            <img
+                              src={getMediaUrl(post.media[0].fileUrl)}
+                              alt=""
+                              className="w-full aspect-square object-cover"
+                            />
+                          )}
+                          {post.media.length > 1 && (
+                            <span className="absolute top-1.5 right-1.5 text-[9px] bg-black/60 text-white px-1.5 py-0.5 rounded">
+                              +{post.media.length - 1}
+                            </span>
+                          )}
+                        </div>
+                      ) : post.content && !post.content.includes("<img") ? (
+                        <div className="w-full aspect-video bg-gradient-to-br from-blue-50 to-blue-100 flex items-center justify-center">
+                          <p className="text-blue-400 text-[10px]">テキスト投稿</p>
+                        </div>
+                      ) : null}
+                      {/* Actions & content */}
+                      <div className="px-3 pt-1.5">
+                        <div className="flex items-center gap-3 mb-1">
+                          <Heart className="w-4 h-4 text-gray-600" />
+                          {post.allowComments && <MessageCircle className="w-4 h-4 text-gray-600" />}
+                        </div>
+                        {post.likeCount > 0 && (
+                          <p className="text-[10px] font-semibold text-gray-700">{post.likeCount}件のいいね</p>
+                        )}
+                        {post.title && (
+                          <p className="text-[11px] font-semibold text-gray-900 mt-0.5">{post.title}</p>
+                        )}
+                        <p className="text-[10px] text-gray-700 mt-0.5 line-clamp-2">
+                          <span className="font-semibold mr-1">{post.authorName || "運営"}</span>
+                          {post.content?.replace(/<[^>]*>/g, "").slice(0, 80)}
+                        </p>
+                        {post.commentCount > 0 && (
+                          <p className="text-[10px] text-gray-400 mt-0.5">
+                            {post.commentCount}件のコメントを見る
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
           {/* Home indicator */}
           <div className="flex justify-center mt-2">
