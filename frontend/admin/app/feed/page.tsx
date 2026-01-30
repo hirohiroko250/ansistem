@@ -34,11 +34,6 @@ import {
   X,
   Send,
   Smartphone,
-  Home,
-  Bell,
-  ChevronUp,
-  ChevronDown,
-  Clock,
 } from "lucide-react";
 import { MultiSelect } from "@/components/ui/multi-select";
 import { FileUpload } from "@/components/ui/file-upload";
@@ -104,7 +99,6 @@ export default function FeedPage() {
   const [saving, setSaving] = useState(false);
   const [sidebarTab, setSidebarTab] = useState<"media" | "settings">("media");
   const [mediaTab, setMediaTab] = useState<"photo" | "video">("photo");
-  const [previewPostId, setPreviewPostId] = useState<string | null>(null);
 
   const editorRef = useRef<FeedEditorHandle>(null);
 
@@ -738,228 +732,38 @@ export default function FeedPage() {
     );
   }
 
-  const previewPost = previewPostId ? posts.find((p) => p.id === previewPostId) : null;
-
-  function extractFirstImage(html: string): string | null {
-    const match = html.match(/<img[^>]+src="([^"]+)"/);
-    return match ? match[1] : null;
-  }
+  const customerUrl = process.env.NEXT_PUBLIC_CUSTOMER_URL || "https://oz-a.jp";
 
   // ========== LIST MODE ==========
   return (
     <div className="flex h-screen bg-gray-50">
       <Sidebar />
 
-      {/* Phone Preview Panel */}
-      <div className="w-[300px] border-r bg-gray-100 flex flex-col items-center py-6 flex-shrink-0 overflow-y-auto">
+      {/* Phone Preview Panel - iframe of actual customer feed */}
+      <div className="w-[340px] border-r bg-gray-100 flex flex-col items-center py-4 flex-shrink-0">
         <div className="flex items-center gap-2 mb-3">
           <Smartphone className="w-4 h-4 text-gray-500" />
           <span className="text-xs font-medium text-gray-500">保護者アプリ（ライブビュー）</span>
         </div>
 
         {/* Phone Frame */}
-        <div className="w-[260px] bg-black rounded-[2rem] p-2 shadow-xl">
-          <div className="bg-white rounded-[1.5rem] overflow-hidden h-[520px] flex flex-col">
-            {/* Phone Status Bar */}
-            <div className="bg-blue-700 text-white px-4 py-2 flex items-center justify-between text-[10px]">
-              <span>9:41</span>
-              <div className="flex gap-1">
-                <span>●●●</span>
-              </div>
-            </div>
-
-            {/* Phone Header */}
-            <div className="bg-blue-700 text-white px-4 pb-3 pt-1">
-              <div className="flex items-center gap-2">
-                <Home className="w-4 h-4" />
-                <span className="font-bold text-sm">ニュースフィード</span>
-              </div>
-            </div>
-
-            {/* Phone Content */}
-            <div className="flex-1 overflow-y-auto bg-gray-50">
-              {previewPost ? (
-                /* Single Post Detail View */
-                <div className="bg-white">
-                  {/* Post Header */}
-                  <div className="px-3 py-2 flex items-center gap-2">
-                    <div className="w-8 h-8 rounded-full bg-blue-600 text-white flex items-center justify-center text-xs font-bold">
-                      {(previewPost.authorName || "A").charAt(0)}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs font-semibold text-gray-900 truncate">{previewPost.authorName || "管理者"}</p>
-                      <p className="text-[10px] text-gray-400">
-                        {new Date(previewPost.createdAt).toLocaleDateString("ja-JP", { month: "2-digit", day: "2-digit" })}
-                      </p>
-                    </div>
-                    {previewPost.isPinned && <Pin className="w-3 h-3 text-blue-500" />}
-                  </div>
-
-                  {/* Post Image */}
-                  {previewPost.media && previewPost.media.length > 0 ? (
-                    <div className="w-full aspect-[4/3] bg-gray-200 overflow-hidden">
-                      <img
-                        src={getMediaUrl(previewPost.media[0].fileUrl)}
-                        alt=""
-                        className="w-full h-full object-cover"
-                      />
-                    </div>
-                  ) : extractFirstImage(previewPost.content || "") ? (
-                    <div className="w-full aspect-[4/3] bg-gray-200 overflow-hidden">
-                      <img
-                        src={extractFirstImage(previewPost.content || "")!}
-                        alt=""
-                        className="w-full h-full object-cover"
-                      />
-                    </div>
-                  ) : null}
-
-                  {/* Post Title & Content */}
-                  <div className="px-3 py-2">
-                    {previewPost.title && (
-                      <h3 className="text-sm font-bold text-gray-900 mb-1">{previewPost.title}</h3>
-                    )}
-                    <p className="text-xs text-gray-600 line-clamp-4">
-                      {previewPost.content?.replace(/<[^>]*>/g, "").slice(0, 200)}
-                    </p>
-                  </div>
-
-                  {/* Post Stats */}
-                  <div className="px-3 py-2 flex items-center gap-4 border-t text-gray-400">
-                    <span className="flex items-center gap-1 text-[10px]">
-                      <Heart className="w-3 h-3" /> {previewPost.likeCount}
-                    </span>
-                    <span className="flex items-center gap-1 text-[10px]">
-                      <MessageCircle className="w-3 h-3" /> {previewPost.commentCount}
-                    </span>
-                    <span className="flex items-center gap-1 text-[10px]">
-                      <Eye className="w-3 h-3" /> {previewPost.viewCount}
-                    </span>
-                  </div>
-
-                  {/* Hashtags */}
-                  {previewPost.hashtags && previewPost.hashtags.length > 0 && (
-                    <div className="px-3 pb-2 flex flex-wrap gap-1">
-                      {previewPost.hashtags.map((tag, i) => (
-                        <span key={i} className="text-[10px] text-blue-600">#{tag}</span>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              ) : (
-                /* Feed List View */
-                <div>
-                  {posts.slice(0, 10).map((post) => (
-                    <div
-                      key={post.id}
-                      className="bg-white mb-1.5 cursor-pointer hover:bg-blue-50/50 transition-colors"
-                      onClick={() => setPreviewPostId(post.id)}
-                    >
-                      <div className="flex gap-2 p-2.5">
-                        {/* Thumbnail */}
-                        {post.media && post.media.length > 0 ? (
-                          <div className="w-16 h-16 rounded-lg bg-gray-200 overflow-hidden flex-shrink-0">
-                            <img
-                              src={getMediaUrl(post.media[0].thumbnailUrl || post.media[0].fileUrl)}
-                              alt=""
-                              className="w-full h-full object-cover"
-                            />
-                          </div>
-                        ) : extractFirstImage(post.content || "") ? (
-                          <div className="w-16 h-16 rounded-lg bg-gray-200 overflow-hidden flex-shrink-0">
-                            <img
-                              src={extractFirstImage(post.content || "")!}
-                              alt=""
-                              className="w-full h-full object-cover"
-                            />
-                          </div>
-                        ) : (
-                          <div className="w-16 h-16 rounded-lg bg-gray-100 flex items-center justify-center flex-shrink-0">
-                            <ImageIcon className="w-5 h-5 text-gray-300" />
-                          </div>
-                        )}
-
-                        {/* Text */}
-                        <div className="flex-1 min-w-0">
-                          <p className="text-[11px] font-semibold text-gray-900 truncate leading-tight">
-                            {post.title || "(無題)"}
-                          </p>
-                          <p className="text-[10px] text-gray-500 line-clamp-2 mt-0.5 leading-tight">
-                            {post.content?.replace(/<[^>]*>/g, "").slice(0, 60)}
-                          </p>
-                          <div className="flex items-center gap-2 mt-1 text-[9px] text-gray-400">
-                            <span className="flex items-center gap-0.5">
-                              <Clock className="w-2.5 h-2.5" />
-                              {new Date(post.createdAt).toLocaleDateString("ja-JP", { month: "2-digit", day: "2-digit" })}
-                            </span>
-                            <span className="flex items-center gap-0.5"><Heart className="w-2.5 h-2.5" /> {post.likeCount}</span>
-                            <span className="flex items-center gap-0.5"><MessageCircle className="w-2.5 h-2.5" /> {post.commentCount}</span>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                  {posts.length > 10 && (
-                    <p className="text-center text-[10px] text-gray-400 py-2">
-                      他 {posts.length - 10} 件の投稿
-                    </p>
-                  )}
-                </div>
-              )}
-            </div>
-
-            {/* Phone Bottom Nav */}
-            <div className="bg-white border-t px-2 py-1.5 flex justify-around">
-              <button
-                type="button"
-                className={`flex flex-col items-center gap-0.5 text-[9px] ${!previewPostId ? "text-blue-600" : "text-gray-400"}`}
-                onClick={() => setPreviewPostId(null)}
-              >
-                <Home className="w-4 h-4" />
-                <span>ホーム</span>
-              </button>
-              <button type="button" className="flex flex-col items-center gap-0.5 text-[9px] text-gray-400">
-                <Bell className="w-4 h-4" />
-                <span>通知</span>
-              </button>
-              <button type="button" className="flex flex-col items-center gap-0.5 text-[9px] text-gray-400">
-                <Users className="w-4 h-4" />
-                <span>マイページ</span>
-              </button>
-            </div>
+        <div className="w-[300px] flex-1 min-h-0 bg-black rounded-[2.5rem] p-3 shadow-xl flex flex-col">
+          {/* Notch */}
+          <div className="flex justify-center mb-1">
+            <div className="w-20 h-5 bg-black rounded-b-xl" />
+          </div>
+          <div className="flex-1 min-h-0 bg-white rounded-[1.5rem] overflow-hidden">
+            <iframe
+              src={`${customerUrl}/feed`}
+              className="w-full h-full border-0"
+              title="フィードプレビュー"
+            />
+          </div>
+          {/* Home indicator */}
+          <div className="flex justify-center mt-2">
+            <div className="w-24 h-1 bg-gray-600 rounded-full" />
           </div>
         </div>
-
-        {/* Preview navigation */}
-        {previewPostId && (
-          <div className="flex items-center gap-2 mt-3">
-            <button
-              type="button"
-              className="p-1.5 rounded-full bg-white shadow hover:bg-gray-50 transition-colors disabled:opacity-30"
-              disabled={posts.findIndex((p) => p.id === previewPostId) <= 0}
-              onClick={() => {
-                const idx = posts.findIndex((p) => p.id === previewPostId);
-                if (idx > 0) setPreviewPostId(posts[idx - 1].id);
-              }}
-            >
-              <ChevronUp className="w-4 h-4 text-gray-600" />
-            </button>
-            <span className="text-[10px] text-gray-500">
-              {posts.findIndex((p) => p.id === previewPostId) + 1} / {posts.length}
-            </span>
-            <button
-              type="button"
-              className="p-1.5 rounded-full bg-white shadow hover:bg-gray-50 transition-colors disabled:opacity-30"
-              disabled={posts.findIndex((p) => p.id === previewPostId) >= posts.length - 1}
-              onClick={() => {
-                const idx = posts.findIndex((p) => p.id === previewPostId);
-                if (idx < posts.length - 1) setPreviewPostId(posts[idx + 1].id);
-              }}
-            >
-              <ChevronDown className="w-4 h-4 text-gray-600" />
-            </button>
-          </div>
-        )}
       </div>
 
       <div className="flex-1 overflow-auto">
@@ -1243,10 +1047,9 @@ export default function FeedPage() {
                     {posts.map((post, index) => (
                       <tr
                         key={post.id}
-                        className={`border-b last:border-b-0 hover:bg-blue-50/50 transition-colors cursor-pointer ${
-                          previewPostId === post.id ? "bg-blue-50 ring-1 ring-inset ring-blue-200" : !post.isPublished ? "bg-gray-50/50" : ""
+                        className={`border-b last:border-b-0 hover:bg-blue-50/50 transition-colors ${
+                          !post.isPublished ? "bg-gray-50/50" : ""
                         }`}
-                        onClick={() => setPreviewPostId(previewPostId === post.id ? null : post.id)}
                       >
                         {/* No */}
                         <td className="px-3 py-2 text-gray-500 text-center">{index + 1}</td>
