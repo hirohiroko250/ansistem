@@ -145,9 +145,13 @@ class MyStudentItemSerializer(serializers.ModelSerializer):
         return None
 
     def get_status(self, obj):
+        if obj.contract:
+            return obj.contract.status
         return 'active'
 
     def get_endDate(self, obj):
+        if obj.contract and obj.contract.end_date:
+            return obj.contract.end_date
         return None
 
     def get_dayOfWeek(self, obj):

@@ -185,7 +185,7 @@ class TaskAdmin(CSVImportExportMixin, admin.ModelAdmin):
 
 
 @admin.register(TaskComment)
-class TaskCommentAdmin(admin.ModelAdmin):
+class TaskCommentAdmin(CSVImportExportMixin, admin.ModelAdmin):
     """作業コメントAdmin"""
     list_display = ['task', 'comment_preview', 'commented_by_id', 'is_internal', 'created_at']
     list_filter = ['is_internal', 'created_at']
@@ -197,3 +197,17 @@ class TaskCommentAdmin(admin.ModelAdmin):
             return obj.comment[:50] + '...'
         return obj.comment
     comment_preview.short_description = 'コメント'
+
+    csv_import_fields = {}
+    csv_required_fields = []
+    csv_unique_fields = []
+    csv_export_fields = [
+        'task.title', 'comment', 'commented_by_id', 'is_internal', 'created_at',
+    ]
+    csv_export_headers = {
+        'task.title': '作業タイトル',
+        'comment': 'コメント',
+        'commented_by_id': 'コメント者ID',
+        'is_internal': '内部コメント',
+        'created_at': '作成日時',
+    }

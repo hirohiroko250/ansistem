@@ -160,6 +160,32 @@ class StudentDiscountAdmin(CSVImportExportMixin, admin.ModelAdmin):
     raw_id_fields = ['student', 'guardian', 'contract', 'student_item', 'brand']
     date_hierarchy = 'start_date'
 
+    csv_import_fields = {}
+    csv_required_fields = []
+    csv_unique_fields = []
+    csv_export_fields = [
+        'student.student_no', 'student.last_name', 'student.first_name',
+        'guardian.guardian_no', 'discount_name', 'amount', 'discount_unit',
+        'start_date', 'end_date', 'is_recurring', 'is_auto', 'is_active',
+        'end_condition', 'created_at',
+    ]
+    csv_export_headers = {
+        'student.student_no': '生徒番号',
+        'student.last_name': '生徒姓',
+        'student.first_name': '生徒名',
+        'guardian.guardian_no': '保護者番号',
+        'discount_name': '割引名',
+        'amount': '金額',
+        'discount_unit': '割引単位',
+        'start_date': '開始日',
+        'end_date': '終了日',
+        'is_recurring': '継続',
+        'is_auto': '自動',
+        'is_active': '有効',
+        'end_condition': '終了条件',
+        'created_at': '作成日時',
+    }
+
 
 # =============================================================================
 # T55: 講習申込

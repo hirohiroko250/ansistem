@@ -3,6 +3,7 @@ History Admin - 契約履歴・監査ログ管理
 ContractHistoryAdmin, ContractHistoryInline, SystemAuditLogAdmin
 """
 from django.contrib import admin
+from apps.core.admin_csv import CSVImportExportMixin
 from ..models import ContractHistory, SystemAuditLog
 
 
@@ -31,7 +32,7 @@ class ContractHistoryInline(admin.TabularInline):
 # 契約履歴（単体）
 # =============================================================================
 @admin.register(ContractHistory)
-class ContractHistoryAdmin(admin.ModelAdmin):
+class ContractHistoryAdmin(CSVImportExportMixin, admin.ModelAdmin):
     list_display = [
         'contract', 'action_type', 'change_summary',
         'amount_before', 'amount_after', 'changed_by_name',
@@ -80,12 +81,36 @@ class ContractHistoryAdmin(admin.ModelAdmin):
     def has_delete_permission(self, request, obj=None):
         return False
 
+    csv_import_fields = {}
+    csv_required_fields = []
+    csv_unique_fields = []
+    csv_export_fields = [
+        'contract.contract_no', 'action_type', 'change_summary',
+        'amount_before', 'amount_after', 'discount_amount',
+        'mile_used', 'mile_discount', 'effective_date',
+        'changed_by_name', 'is_system_change', 'created_at',
+    ]
+    csv_export_headers = {
+        'contract.contract_no': '契約番号',
+        'action_type': '操作種別',
+        'change_summary': '変更概要',
+        'amount_before': '変更前金額',
+        'amount_after': '変更後金額',
+        'discount_amount': '割引額',
+        'mile_used': '使用マイル',
+        'mile_discount': 'マイル割引',
+        'effective_date': '有効日',
+        'changed_by_name': '変更者',
+        'is_system_change': 'システム変更',
+        'created_at': '作成日時',
+    }
+
 
 # =============================================================================
 # システム監査ログ
 # =============================================================================
 @admin.register(SystemAuditLog)
-class SystemAuditLogAdmin(admin.ModelAdmin):
+class SystemAuditLogAdmin(CSVImportExportMixin, admin.ModelAdmin):
     list_display = [
         'created_at', 'entity_type', 'action_type', 'action_detail',
         'user_name', 'is_system_action', 'is_success'
@@ -138,3 +163,27 @@ class SystemAuditLogAdmin(admin.ModelAdmin):
 
     def has_delete_permission(self, request, obj=None):
         return False
+
+    csv_import_fields = {}
+    csv_required_fields = []
+    csv_unique_fields = []
+    csv_export_fields = [
+        'created_at', 'entity_type', 'entity_name', 'action_type', 'action_detail',
+        'user_name', 'user_email', 'is_system_action', 'is_success',
+        'error_message', 'ip_address', 'request_path', 'request_method',
+    ]
+    csv_export_headers = {
+        'created_at': '日時',
+        'entity_type': 'エンティティ種別',
+        'entity_name': 'エンティティ名',
+        'action_type': '操作種別',
+        'action_detail': '操作詳細',
+        'user_name': '操作者名',
+        'user_email': '操作者メール',
+        'is_system_action': 'システム操作',
+        'is_success': '成功',
+        'error_message': 'エラーメッセージ',
+        'ip_address': 'IPアドレス',
+        'request_path': 'リクエストパス',
+        'request_method': 'リクエストメソッド',
+    }

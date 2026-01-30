@@ -59,16 +59,18 @@ class CustomerActionsMixin:
             deleted_at__isnull=True
         )
 
-        # 生徒のStudentItem（受講コース）を取得
+        # 生徒のStudentItem（受講コース）を取得 — 退会済みは除外
         student_items = StudentItem.objects.filter(
             student__in=students,
             tenant_id=tenant_id,
             deleted_at__isnull=True,
         ).filter(
             Q(course__isnull=False) | Q(brand__isnull=False)
+        ).exclude(
+            contract__status='cancelled'
         ).select_related(
             'student', 'student__grade',
-            'school', 'brand', 'course'
+            'school', 'brand', 'course', 'contract'
         ).order_by('student__last_name', 'student__first_name', '-created_at')
 
         # 重複を排除（同じ生徒・コース・校舎の組み合わせは1つにまとめる）

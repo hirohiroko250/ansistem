@@ -3,11 +3,12 @@ Enrollment Admin - 生徒受講履歴・振替チケット管理Admin
 """
 from django.contrib import admin
 from django.db.models import Case, When
+from apps.core.admin_csv import CSVImportExportMixin
 from ..models import StudentEnrollment, AbsenceTicket
 
 
 @admin.register(StudentEnrollment)
-class StudentEnrollmentAdmin(admin.ModelAdmin):
+class StudentEnrollmentAdmin(CSVImportExportMixin, admin.ModelAdmin):
     """生徒受講履歴Admin"""
     list_display = [
         'get_student_name',
@@ -82,6 +83,33 @@ class StudentEnrollmentAdmin(admin.ModelAdmin):
         return "-"
     get_day_of_week_display.short_description = '曜日'
 
+    csv_import_fields = {}
+    csv_required_fields = []
+    csv_unique_fields = []
+    csv_export_fields = [
+        'student.student_no', 'student.last_name', 'student.first_name',
+        'school.school_name', 'brand.brand_name',
+        'day_of_week', 'start_time', 'end_time',
+        'status', 'change_type', 'effective_date', 'end_date',
+        'notes', 'created_at',
+    ]
+    csv_export_headers = {
+        'student.student_no': '生徒番号',
+        'student.last_name': '生徒姓',
+        'student.first_name': '生徒名',
+        'school.school_name': '校舎名',
+        'brand.brand_name': 'ブランド名',
+        'day_of_week': '曜日',
+        'start_time': '開始時間',
+        'end_time': '終了時間',
+        'status': 'ステータス',
+        'change_type': '変更種別',
+        'effective_date': '有効日',
+        'end_date': '終了日',
+        'notes': '備考',
+        'created_at': '作成日時',
+    }
+
     def get_queryset(self, request):
         """現在有効な記録を優先して表示"""
         qs = super().get_queryset(request).select_related(
@@ -97,7 +125,7 @@ class StudentEnrollmentAdmin(admin.ModelAdmin):
 
 
 @admin.register(AbsenceTicket)
-class AbsenceTicketAdmin(admin.ModelAdmin):
+class AbsenceTicketAdmin(CSVImportExportMixin, admin.ModelAdmin):
     """欠席・振替チケット管理"""
     list_display = [
         'get_student_name',
@@ -152,6 +180,27 @@ class AbsenceTicketAdmin(admin.ModelAdmin):
         return "-"
     get_student_no.short_description = '生徒番号'
     get_student_no.admin_order_field = 'student__student_no'
+
+    csv_import_fields = {}
+    csv_required_fields = []
+    csv_unique_fields = []
+    csv_export_fields = [
+        'student.student_no', 'student.last_name', 'student.first_name',
+        'absence_date', 'consumption_symbol', 'status',
+        'valid_until', 'used_date', 'notes', 'created_at',
+    ]
+    csv_export_headers = {
+        'student.student_no': '生徒番号',
+        'student.last_name': '生徒姓',
+        'student.first_name': '生徒名',
+        'absence_date': '欠席日',
+        'consumption_symbol': '消化記号',
+        'status': 'ステータス',
+        'valid_until': '有効期限',
+        'used_date': '振替使用日',
+        'notes': '備考',
+        'created_at': '作成日時',
+    }
 
     def get_queryset(self, request):
         """発行済を優先して表示"""

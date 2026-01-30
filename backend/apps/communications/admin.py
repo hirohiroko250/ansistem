@@ -312,15 +312,32 @@ class FeedPostAdmin(CSVImportExportMixin, admin.ModelAdmin):
 
 
 @admin.register(FeedMedia)
-class FeedMediaAdmin(admin.ModelAdmin):
+class FeedMediaAdmin(CSVImportExportMixin, admin.ModelAdmin):
     """フィードメディアAdmin"""
     list_display = ['post', 'media_type', 'file_name', 'sort_order', 'created_at']
     list_filter = ['media_type']
     search_fields = ['file_name', 'file_url']
 
+    csv_import_fields = {}
+    csv_required_fields = []
+    csv_unique_fields = []
+    csv_export_fields = [
+        'post.id', 'media_type', 'file_url', 'file_name',
+        'file_size', 'sort_order', 'created_at',
+    ]
+    csv_export_headers = {
+        'post.id': '投稿ID',
+        'media_type': 'メディア種別',
+        'file_url': 'ファイルURL',
+        'file_name': 'ファイル名',
+        'file_size': 'ファイルサイズ',
+        'sort_order': '並び順',
+        'created_at': '作成日時',
+    }
+
 
 @admin.register(FeedComment)
-class FeedCommentAdmin(admin.ModelAdmin):
+class FeedCommentAdmin(CSVImportExportMixin, admin.ModelAdmin):
     """フィードコメントAdmin"""
     list_display = ['get_content_preview', 'post', 'user', 'guardian', 'like_count', 'is_deleted', 'created_at']
     list_filter = ['is_deleted']
@@ -330,17 +347,56 @@ class FeedCommentAdmin(admin.ModelAdmin):
         return obj.content[:30] + '...' if len(obj.content) > 30 else obj.content
     get_content_preview.short_description = 'コメント'
 
+    csv_import_fields = {}
+    csv_required_fields = []
+    csv_unique_fields = []
+    csv_export_fields = [
+        'post.id', 'user.email', 'guardian.guardian_no',
+        'content', 'like_count', 'is_deleted', 'created_at',
+    ]
+    csv_export_headers = {
+        'post.id': '投稿ID',
+        'user.email': 'ユーザー',
+        'guardian.guardian_no': '保護者番号',
+        'content': 'コメント内容',
+        'like_count': 'いいね数',
+        'is_deleted': '削除済',
+        'created_at': '作成日時',
+    }
+
 
 @admin.register(FeedLike)
-class FeedLikeAdmin(admin.ModelAdmin):
+class FeedLikeAdmin(CSVImportExportMixin, admin.ModelAdmin):
     """フィードいいねAdmin"""
     list_display = ['post', 'user', 'guardian', 'created_at']
 
+    csv_import_fields = {}
+    csv_required_fields = []
+    csv_unique_fields = []
+    csv_export_fields = ['post.id', 'user.email', 'guardian.guardian_no', 'created_at']
+    csv_export_headers = {
+        'post.id': '投稿ID',
+        'user.email': 'ユーザー',
+        'guardian.guardian_no': '保護者番号',
+        'created_at': '作成日時',
+    }
+
 
 @admin.register(FeedBookmark)
-class FeedBookmarkAdmin(admin.ModelAdmin):
+class FeedBookmarkAdmin(CSVImportExportMixin, admin.ModelAdmin):
     """フィードブックマークAdmin"""
     list_display = ['post', 'user', 'guardian', 'created_at']
+
+    csv_import_fields = {}
+    csv_required_fields = []
+    csv_unique_fields = []
+    csv_export_fields = ['post.id', 'user.email', 'guardian.guardian_no', 'created_at']
+    csv_export_headers = {
+        'post.id': '投稿ID',
+        'user.email': 'ユーザー',
+        'guardian.guardian_no': '保護者番号',
+        'created_at': '作成日時',
+    }
 
 
 @admin.register(ChatLog)

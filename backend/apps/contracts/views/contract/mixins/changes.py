@@ -377,11 +377,17 @@ class ChangeActionsMixin:
 
         # リクエストデータ
         cancel_date = request.data.get('cancel_date')
-        reason = request.data.get('reason', '')
+        reason = request.data.get('reason', '').strip()
 
         if not cancel_date:
             return Response(
                 {'error': '退会日は必須です'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        if not reason:
+            return Response(
+                {'error': '退会理由は必須です'},
                 status=status.HTTP_400_BAD_REQUEST
             )
 

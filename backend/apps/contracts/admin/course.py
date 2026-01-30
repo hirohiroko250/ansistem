@@ -159,7 +159,8 @@ class CourseAdmin(CSVImportExportMixin, admin.ModelAdmin):
     csv_export_fields = [
         'course_code', 'course_name', 'brand.brand_name', 'school.school_name',
         'grade.grade_name', 'product_set.set_name', 'course_price',
-        'description', 'sort_order', 'is_active'
+        'promotion_course.course_code', 'promotion_course.course_name',
+        'description', 'sort_order', 'is_visible', 'mile', 'is_active'
     ]
     csv_export_headers = {
         'course_code': 'コースコード',
@@ -169,8 +170,12 @@ class CourseAdmin(CSVImportExportMixin, admin.ModelAdmin):
         'grade.grade_name': '学年名',
         'product_set.set_name': '商品セット',
         'course_price': 'コース料金',
+        'promotion_course.course_code': '昇格先コースコード',
+        'promotion_course.course_name': '昇格先コース名',
         'description': '説明',
         'sort_order': '表示順',
+        'is_visible': '保護者に表示',
+        'mile': 'マイル',
         'is_active': '有効',
     }
 

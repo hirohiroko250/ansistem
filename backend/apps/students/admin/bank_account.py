@@ -3,11 +3,12 @@ Bank Account Admin - 銀行口座管理Admin
 """
 from django.contrib import admin
 from django.db.models import Case, When
+from apps.core.admin_csv import CSVImportExportMixin
 from ..models import BankAccount, BankAccountChangeRequest
 
 
 @admin.register(BankAccount)
-class BankAccountAdmin(admin.ModelAdmin):
+class BankAccountAdmin(CSVImportExportMixin, admin.ModelAdmin):
     """銀行口座履歴Admin
 
     口座変更時に旧口座を履歴として保存するテーブル。
@@ -71,9 +72,36 @@ class BankAccountAdmin(admin.ModelAdmin):
     get_guardian_name.short_description = '保護者名'
     get_guardian_name.admin_order_field = 'guardian__last_name'
 
+    csv_import_fields = {}
+    csv_required_fields = []
+    csv_unique_fields = []
+    csv_export_fields = [
+        'guardian.guardian_no', 'guardian.last_name', 'guardian.first_name',
+        'bank_name', 'bank_code', 'branch_name', 'branch_code',
+        'account_type', 'account_number', 'account_holder', 'account_holder_kana',
+        'is_primary', 'is_active', 'notes', 'created_at',
+    ]
+    csv_export_headers = {
+        'guardian.guardian_no': '保護者番号',
+        'guardian.last_name': '保護者姓',
+        'guardian.first_name': '保護者名',
+        'bank_name': '銀行名',
+        'bank_code': '銀行コード',
+        'branch_name': '支店名',
+        'branch_code': '支店コード',
+        'account_type': '口座種別',
+        'account_number': '口座番号',
+        'account_holder': '口座名義',
+        'account_holder_kana': '口座名義カナ',
+        'is_primary': 'メイン口座',
+        'is_active': '有効',
+        'notes': '備考',
+        'created_at': '作成日時',
+    }
+
 
 @admin.register(BankAccountChangeRequest)
-class BankAccountChangeRequestAdmin(admin.ModelAdmin):
+class BankAccountChangeRequestAdmin(CSVImportExportMixin, admin.ModelAdmin):
     """銀行口座変更申請Admin（作業一覧）"""
     list_display = [
         'get_guardian_name',
@@ -183,3 +211,32 @@ class BankAccountChangeRequestAdmin(admin.ModelAdmin):
                 obj.approve(request.user, notes=obj.process_notes or '')
                 return
         super().save_model(request, obj, form, change)
+
+    csv_import_fields = {}
+    csv_required_fields = []
+    csv_unique_fields = []
+    csv_export_fields = [
+        'guardian.guardian_no', 'guardian.last_name', 'guardian.first_name',
+        'request_type', 'bank_name', 'bank_code', 'branch_name', 'branch_code',
+        'account_type', 'account_number', 'account_holder', 'account_holder_kana',
+        'is_primary', 'status', 'requested_at', 'processed_at', 'created_at',
+    ]
+    csv_export_headers = {
+        'guardian.guardian_no': '保護者番号',
+        'guardian.last_name': '保護者姓',
+        'guardian.first_name': '保護者名',
+        'request_type': '申請種別',
+        'bank_name': '銀行名',
+        'bank_code': '銀行コード',
+        'branch_name': '支店名',
+        'branch_code': '支店コード',
+        'account_type': '口座種別',
+        'account_number': '口座番号',
+        'account_holder': '口座名義',
+        'account_holder_kana': '口座名義カナ',
+        'is_primary': 'メイン口座',
+        'status': 'ステータス',
+        'requested_at': '申請日時',
+        'processed_at': '処理日時',
+        'created_at': '作成日時',
+    }

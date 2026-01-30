@@ -6,6 +6,7 @@ from django.utils.html import format_html
 from import_export import resources, fields
 from import_export.admin import ImportExportModelAdmin
 from import_export.widgets import ForeignKeyWidget
+from apps.core.admin_csv import CSVImportExportMixin
 
 from apps.students.models import Guardian
 from ..models import GuardianBalance, OffsetLog, RefundRequest, MileTransaction
@@ -78,7 +79,7 @@ class GuardianBalanceAdmin(ImportExportModelAdmin):
 
 
 @admin.register(OffsetLog)
-class OffsetLogAdmin(admin.ModelAdmin):
+class OffsetLogAdmin(CSVImportExportMixin, admin.ModelAdmin):
     """相殺ログ管理"""
     list_display = [
         'guardian', 'transaction_type', 'amount_display',
@@ -99,9 +100,29 @@ class OffsetLogAdmin(admin.ModelAdmin):
         return f"¥{obj.balance_after:,.0f}"
     balance_after_display.short_description = '取引後残高'
 
+    csv_import_fields = {}
+    csv_required_fields = []
+    csv_unique_fields = []
+    csv_export_fields = [
+        'guardian.guardian_no', 'guardian.last_name', 'guardian.first_name',
+        'invoice.invoice_no', 'transaction_type', 'amount', 'balance_after',
+        'reason', 'created_at',
+    ]
+    csv_export_headers = {
+        'guardian.guardian_no': '保護者番号',
+        'guardian.last_name': '保護者姓',
+        'guardian.first_name': '保護者名',
+        'invoice.invoice_no': '請求書番号',
+        'transaction_type': '取引種別',
+        'amount': '金額',
+        'balance_after': '取引後残高',
+        'reason': '理由',
+        'created_at': '作成日時',
+    }
+
 
 @admin.register(RefundRequest)
-class RefundRequestAdmin(admin.ModelAdmin):
+class RefundRequestAdmin(CSVImportExportMixin, admin.ModelAdmin):
     """返金申請管理"""
     list_display = [
         'request_no', 'guardian', 'refund_amount_display',
@@ -159,9 +180,33 @@ class RefundRequestAdmin(admin.ModelAdmin):
         )
     status_badge.short_description = 'ステータス'
 
+    csv_import_fields = {}
+    csv_required_fields = []
+    csv_unique_fields = []
+    csv_export_fields = [
+        'request_no', 'guardian.guardian_no', 'guardian.last_name', 'guardian.first_name',
+        'invoice.invoice_no', 'refund_amount', 'refund_method', 'reason',
+        'status', 'requested_at', 'approved_at', 'processed_at', 'created_at',
+    ]
+    csv_export_headers = {
+        'request_no': '申請番号',
+        'guardian.guardian_no': '保護者番号',
+        'guardian.last_name': '保護者姓',
+        'guardian.first_name': '保護者名',
+        'invoice.invoice_no': '請求書番号',
+        'refund_amount': '返金額',
+        'refund_method': '返金方法',
+        'reason': '理由',
+        'status': 'ステータス',
+        'requested_at': '申請日時',
+        'approved_at': '承認日時',
+        'processed_at': '処理日時',
+        'created_at': '作成日時',
+    }
+
 
 @admin.register(MileTransaction)
-class MileTransactionAdmin(admin.ModelAdmin):
+class MileTransactionAdmin(CSVImportExportMixin, admin.ModelAdmin):
     """マイル取引管理"""
     list_display = [
         'guardian', 'transaction_type', 'miles_display',
@@ -183,3 +228,28 @@ class MileTransactionAdmin(admin.ModelAdmin):
             return f"¥{obj.discount_amount:,.0f}"
         return '-'
     discount_amount_display.short_description = '割引額'
+
+    csv_import_fields = {}
+    csv_required_fields = []
+    csv_unique_fields = []
+    csv_export_fields = [
+        'guardian.guardian_no', 'guardian.last_name', 'guardian.first_name',
+        'invoice.invoice_no', 'transaction_type', 'miles', 'balance_after',
+        'discount_amount', 'earn_source', 'earn_date', 'expire_date',
+        'notes', 'created_at',
+    ]
+    csv_export_headers = {
+        'guardian.guardian_no': '保護者番号',
+        'guardian.last_name': '保護者姓',
+        'guardian.first_name': '保護者名',
+        'invoice.invoice_no': '請求書番号',
+        'transaction_type': '取引種別',
+        'miles': 'マイル',
+        'balance_after': '取引後残高',
+        'discount_amount': '割引額',
+        'earn_source': '獲得元',
+        'earn_date': '獲得日',
+        'expire_date': '有効期限',
+        'notes': '備考',
+        'created_at': '作成日時',
+    }

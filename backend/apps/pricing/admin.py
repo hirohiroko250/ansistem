@@ -3,6 +3,7 @@ Pricing Admin - マージン計算管理画面
 """
 from django.contrib import admin
 from django.utils.html import format_html
+from apps.core.admin_csv import CSVImportExportMixin
 from .models import (
     CostCategory,
     ProductCost,
@@ -14,7 +15,7 @@ from .models import (
 
 
 @admin.register(CostCategory)
-class CostCategoryAdmin(admin.ModelAdmin):
+class CostCategoryAdmin(CSVImportExportMixin, admin.ModelAdmin):
     """原価項目カテゴリ管理"""
 
     list_display = [
@@ -54,9 +55,37 @@ class CostCategoryAdmin(admin.ModelAdmin):
         return "-"
     default_rate_display.short_description = 'デフォルト率'
 
+    csv_import_fields = {
+        'コード': 'code',
+        '名前': 'name',
+        '説明': 'description',
+        '原価種別': 'cost_type',
+        'デフォルト金額': 'default_amount',
+        'デフォルト率': 'default_rate',
+        '並び順': 'sort_order',
+        '有効': 'is_active',
+    }
+    csv_required_fields = ['コード', '名前']
+    csv_unique_fields = ['code']
+    csv_export_fields = [
+        'code', 'name', 'description', 'cost_type',
+        'default_amount', 'default_rate', 'sort_order', 'is_active', 'created_at',
+    ]
+    csv_export_headers = {
+        'code': 'コード',
+        'name': '名前',
+        'description': '説明',
+        'cost_type': '原価種別',
+        'default_amount': 'デフォルト金額',
+        'default_rate': 'デフォルト率',
+        'sort_order': '並び順',
+        'is_active': '有効',
+        'created_at': '作成日時',
+    }
+
 
 @admin.register(ProductCost)
-class ProductCostAdmin(admin.ModelAdmin):
+class ProductCostAdmin(CSVImportExportMixin, admin.ModelAdmin):
     """商品原価管理"""
 
     list_display = [
@@ -82,9 +111,25 @@ class ProductCostAdmin(admin.ModelAdmin):
         return "(デフォルト)"
     rate_display.short_description = '率'
 
+    csv_import_fields = {}
+    csv_required_fields = []
+    csv_unique_fields = []
+    csv_export_fields = [
+        'product.product_name', 'cost_category.name',
+        'amount', 'rate', 'is_active', 'created_at',
+    ]
+    csv_export_headers = {
+        'product.product_name': '商品名',
+        'cost_category.name': '原価カテゴリ',
+        'amount': '金額',
+        'rate': '率',
+        'is_active': '有効',
+        'created_at': '作成日時',
+    }
+
 
 @admin.register(MarginRule)
-class MarginRuleAdmin(admin.ModelAdmin):
+class MarginRuleAdmin(CSVImportExportMixin, admin.ModelAdmin):
     """マージン計算ルール管理"""
 
     list_display = [
@@ -159,6 +204,30 @@ class MarginRuleAdmin(admin.ModelAdmin):
         return "-"
     fixed_margin_display.short_description = '固定マージン'
 
+    csv_import_fields = {}
+    csv_required_fields = []
+    csv_unique_fields = []
+    csv_export_fields = [
+        'name', 'rule_target', 'calculation_type',
+        'margin_rate', 'fixed_margin_amount', 'fixed_margin_target',
+        'school_distribution_rate', 'brand_distribution_rate',
+        'priority', 'is_default', 'is_active', 'created_at',
+    ]
+    csv_export_headers = {
+        'name': 'ルール名',
+        'rule_target': 'ルール対象',
+        'calculation_type': '計算種別',
+        'margin_rate': 'マージン率',
+        'fixed_margin_amount': '固定マージン額',
+        'fixed_margin_target': '固定マージン対象',
+        'school_distribution_rate': '校舎配分率',
+        'brand_distribution_rate': 'ブランド配分率',
+        'priority': '優先度',
+        'is_default': 'デフォルト',
+        'is_active': '有効',
+        'created_at': '作成日時',
+    }
+
 
 class MarginCalculationCostLineInline(admin.TabularInline):
     """マージン計算原価明細インライン"""
@@ -173,7 +242,7 @@ class MarginCalculationCostLineInline(admin.TabularInline):
 
 
 @admin.register(MarginCalculation)
-class MarginCalculationAdmin(admin.ModelAdmin):
+class MarginCalculationAdmin(CSVImportExportMixin, admin.ModelAdmin):
     """マージン計算結果管理"""
 
     list_display = [
@@ -268,9 +337,37 @@ class MarginCalculationAdmin(admin.ModelAdmin):
         return f"¥{obj.brand_margin:,.0f}"
     brand_margin_display.short_description = 'ブランドマージン'
 
+    csv_import_fields = {}
+    csv_required_fields = []
+    csv_unique_fields = []
+    csv_export_fields = [
+        'calculation_year', 'calculation_month',
+        'product.product_name', 'school.school_name', 'brand.brand_name',
+        'sales_amount', 'total_cost', 'net_profit', 'margin_pool',
+        'school_margin', 'brand_margin', 'fixed_margin',
+        'status', 'confirmed_at', 'created_at',
+    ]
+    csv_export_headers = {
+        'calculation_year': '計算年',
+        'calculation_month': '計算月',
+        'product.product_name': '商品名',
+        'school.school_name': '校舎名',
+        'brand.brand_name': 'ブランド名',
+        'sales_amount': '売上金額',
+        'total_cost': '総原価',
+        'net_profit': '純利益',
+        'margin_pool': 'マージンプール',
+        'school_margin': '校舎マージン',
+        'brand_margin': 'ブランドマージン',
+        'fixed_margin': '固定マージン',
+        'status': 'ステータス',
+        'confirmed_at': '確定日時',
+        'created_at': '作成日時',
+    }
+
 
 @admin.register(MonthlyMarginSummary)
-class MonthlyMarginSummaryAdmin(admin.ModelAdmin):
+class MonthlyMarginSummaryAdmin(CSVImportExportMixin, admin.ModelAdmin):
     """月次マージン集計管理"""
 
     list_display = [
@@ -323,3 +420,27 @@ class MonthlyMarginSummaryAdmin(admin.ModelAdmin):
     def total_brand_margin_display(self, obj):
         return f"¥{obj.total_brand_margin:,.0f}"
     total_brand_margin_display.short_description = 'ブランドマージン'
+
+    csv_import_fields = {}
+    csv_required_fields = []
+    csv_unique_fields = []
+    csv_export_fields = [
+        'year', 'month', 'school.school_name', 'brand.brand_name',
+        'total_sales', 'total_cost', 'total_net_profit', 'total_margin_pool',
+        'total_school_margin', 'total_brand_margin',
+        'calculation_count', 'aggregated_at',
+    ]
+    csv_export_headers = {
+        'year': '年',
+        'month': '月',
+        'school.school_name': '校舎名',
+        'brand.brand_name': 'ブランド名',
+        'total_sales': '売上合計',
+        'total_cost': '原価合計',
+        'total_net_profit': '純利益合計',
+        'total_margin_pool': 'マージンプール合計',
+        'total_school_margin': '校舎マージン合計',
+        'total_brand_margin': 'ブランドマージン合計',
+        'calculation_count': '計算件数',
+        'aggregated_at': '集計日時',
+    }

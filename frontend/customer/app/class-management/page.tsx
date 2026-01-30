@@ -1405,14 +1405,15 @@ export default function ClassManagementPage() {
 
                   <div>
                     <label className="block text-sm font-semibold text-gray-700 mb-2">
-                      退会理由（任意）
+                      退会理由 <span className="text-red-500">*</span>
                     </label>
                     <textarea
                       value={cancelReason}
                       onChange={(e) => setCancelReason(e.target.value)}
                       className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
                       rows={3}
-                      placeholder="差し支えなければ、退会理由をお聞かせください"
+                      placeholder="退会理由をご入力ください"
+                      required
                     />
                   </div>
                 </CardContent>
@@ -1432,7 +1433,7 @@ export default function ClassManagementPage() {
                 </div>
               </div>
 
-              {cancelDate && (
+              {cancelDate && cancelReason.trim() && (
                 <Button
                   className="w-full bg-red-500 hover:bg-red-600"
                   onClick={handleConfirmCancellation}

@@ -398,7 +398,7 @@ export async function requestSuspension(
  */
 export interface RequestCancellationRequest {
   cancelDate: string;
-  reason?: string;
+  reason: string;
 }
 
 /**

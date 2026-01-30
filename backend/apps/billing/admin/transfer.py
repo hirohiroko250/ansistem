@@ -3,12 +3,13 @@ Transfer Admin - 引落結果・現金・振込入金管理
 """
 from django.contrib import admin
 from django.utils.html import format_html
+from apps.core.admin_csv import CSVImportExportMixin
 
 from ..models import DirectDebitResult, CashManagement, BankTransfer
 
 
 @admin.register(DirectDebitResult)
-class DirectDebitResultAdmin(admin.ModelAdmin):
+class DirectDebitResultAdmin(CSVImportExportMixin, admin.ModelAdmin):
     """引落結果管理"""
     list_display = [
         'guardian', 'debit_date', 'amount_display',
@@ -63,9 +64,37 @@ class DirectDebitResultAdmin(admin.ModelAdmin):
         return '-'
     failure_reason_display.short_description = '失敗理由'
 
+    csv_import_fields = {}
+    csv_required_fields = []
+    csv_unique_fields = []
+    csv_export_fields = [
+        'guardian.guardian_no', 'guardian.last_name', 'guardian.first_name',
+        'invoice.invoice_no', 'debit_date', 'amount',
+        'result_status', 'failure_reason', 'failure_detail',
+        'notice_flag', 'notice_date', 'retry_count', 'next_retry_date',
+        'notes', 'created_at',
+    ]
+    csv_export_headers = {
+        'guardian.guardian_no': '保護者番号',
+        'guardian.last_name': '保護者姓',
+        'guardian.first_name': '保護者名',
+        'invoice.invoice_no': '請求書番号',
+        'debit_date': '引落日',
+        'amount': '引落金額',
+        'result_status': '結果ステータス',
+        'failure_reason': '失敗理由',
+        'failure_detail': '失敗詳細',
+        'notice_flag': '通知済',
+        'notice_date': '通知日',
+        'retry_count': 'リトライ回数',
+        'next_retry_date': '次回リトライ日',
+        'notes': '備考',
+        'created_at': '作成日時',
+    }
+
 
 @admin.register(CashManagement)
-class CashManagementAdmin(admin.ModelAdmin):
+class CashManagementAdmin(CSVImportExportMixin, admin.ModelAdmin):
     """現金管理"""
     list_display = [
         'guardian', 'transaction_date', 'transaction_type_display',
@@ -118,9 +147,33 @@ class CashManagementAdmin(admin.ModelAdmin):
         )
     status_badge.short_description = 'ステータス'
 
+    csv_import_fields = {}
+    csv_required_fields = []
+    csv_unique_fields = []
+    csv_export_fields = [
+        'guardian.guardian_no', 'guardian.last_name', 'guardian.first_name',
+        'invoice.invoice_no', 'transaction_date', 'amount',
+        'transaction_type', 'status', 'receipt_no', 'receipt_issued',
+        'notes', 'created_at',
+    ]
+    csv_export_headers = {
+        'guardian.guardian_no': '保護者番号',
+        'guardian.last_name': '保護者姓',
+        'guardian.first_name': '保護者名',
+        'invoice.invoice_no': '請求書番号',
+        'transaction_date': '取引日',
+        'amount': '金額',
+        'transaction_type': '取引種別',
+        'status': 'ステータス',
+        'receipt_no': '領収書番号',
+        'receipt_issued': '領収書発行済',
+        'notes': '備考',
+        'created_at': '作成日時',
+    }
+
 
 @admin.register(BankTransfer)
-class BankTransferAdmin(admin.ModelAdmin):
+class BankTransferAdmin(CSVImportExportMixin, admin.ModelAdmin):
     """振込入金管理"""
     list_display = [
         'payer_name', 'transfer_date', 'amount_display',
@@ -174,3 +227,32 @@ class BankTransferAdmin(admin.ModelAdmin):
             color, obj.get_status_display()
         )
     status_badge.short_description = 'ステータス'
+
+    csv_import_fields = {}
+    csv_required_fields = []
+    csv_unique_fields = []
+    csv_export_fields = [
+        'payer_name', 'payer_name_kana', 'transfer_date', 'amount',
+        'source_bank_name', 'source_branch_name',
+        'guardian.guardian_no', 'guardian.last_name', 'guardian.first_name',
+        'invoice.invoice_no', 'status', 'matched_at',
+        'import_batch_id', 'import_row_no', 'notes', 'created_at',
+    ]
+    csv_export_headers = {
+        'payer_name': '振込人名',
+        'payer_name_kana': '振込人名カナ',
+        'transfer_date': '振込日',
+        'amount': '振込金額',
+        'source_bank_name': '振込元銀行',
+        'source_branch_name': '振込元支店',
+        'guardian.guardian_no': '保護者番号',
+        'guardian.last_name': '保護者姓',
+        'guardian.first_name': '保護者名',
+        'invoice.invoice_no': '請求書番号',
+        'status': 'ステータス',
+        'matched_at': '照合日時',
+        'import_batch_id': 'インポートバッチID',
+        'import_row_no': 'インポート行番号',
+        'notes': '備考',
+        'created_at': '作成日時',
+    }

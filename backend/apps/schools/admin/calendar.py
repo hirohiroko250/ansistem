@@ -249,7 +249,7 @@ class ClassScheduleAdmin(CSVImportExportMixin, admin.ModelAdmin):
 
 
 @admin.register(CalendarOperationLog)
-class CalendarOperationLogAdmin(admin.ModelAdmin):
+class CalendarOperationLogAdmin(CSVImportExportMixin, admin.ModelAdmin):
     """カレンダー操作ログ管理"""
     list_display = [
         'operation_type', 'operation_date', 'school', 'brand',
@@ -273,3 +273,25 @@ class CalendarOperationLogAdmin(admin.ModelAdmin):
 
     def has_delete_permission(self, request, obj=None):
         return False
+
+    csv_import_fields = {}
+    csv_required_fields = []
+    csv_unique_fields = []
+    csv_export_fields = [
+        'operation_type', 'operation_date',
+        'school.school_name', 'brand.brand_name',
+        'old_value', 'new_value', 'reason', 'notes',
+        'operated_by.email', 'operated_at',
+    ]
+    csv_export_headers = {
+        'operation_type': '操作種別',
+        'operation_date': '操作対象日',
+        'school.school_name': '校舎名',
+        'brand.brand_name': 'ブランド名',
+        'old_value': '変更前',
+        'new_value': '変更後',
+        'reason': '理由',
+        'notes': '備考',
+        'operated_by.email': '操作者',
+        'operated_at': '操作日時',
+    }

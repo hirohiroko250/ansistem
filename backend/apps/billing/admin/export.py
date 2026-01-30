@@ -3,12 +3,13 @@ Export Admin - 決済代行・請求期間・引落エクスポート管理
 """
 from django.contrib import admin
 from django.utils.html import format_html
+from apps.core.admin_csv import CSVImportExportMixin
 
 from ..models import PaymentProvider, BillingPeriod, DebitExportBatch, DebitExportLine
 
 
 @admin.register(PaymentProvider)
-class PaymentProviderAdmin(admin.ModelAdmin):
+class PaymentProviderAdmin(CSVImportExportMixin, admin.ModelAdmin):
     """決済代行会社マスタ管理"""
     list_display = [
         'code', 'name', 'consignor_code',
@@ -43,9 +44,41 @@ class PaymentProviderAdmin(admin.ModelAdmin):
         return format_html('<span style="color: red;">✗</span>')
     is_active_badge.short_description = '有効'
 
+    csv_import_fields = {
+        'コード': 'code',
+        '名前': 'name',
+        '委託者コード': 'consignor_code',
+        'デフォルト銀行コード': 'default_bank_code',
+        'ファイルエンコーディング': 'file_encoding',
+        '締日': 'closing_day',
+        '引落日': 'debit_day',
+        '有効': 'is_active',
+        '並び順': 'sort_order',
+    }
+    csv_required_fields = ['コード', '名前']
+    csv_unique_fields = ['code']
+    csv_export_fields = [
+        'code', 'name', 'consignor_code', 'default_bank_code',
+        'file_encoding', 'closing_day', 'debit_day',
+        'is_active', 'sort_order', 'notes', 'created_at',
+    ]
+    csv_export_headers = {
+        'code': 'コード',
+        'name': '名前',
+        'consignor_code': '委託者コード',
+        'default_bank_code': 'デフォルト銀行コード',
+        'file_encoding': 'ファイルエンコーディング',
+        'closing_day': '締日',
+        'debit_day': '引落日',
+        'is_active': '有効',
+        'sort_order': '並び順',
+        'notes': '備考',
+        'created_at': '作成日時',
+    }
+
 
 @admin.register(BillingPeriod)
-class BillingPeriodAdmin(admin.ModelAdmin):
+class BillingPeriodAdmin(CSVImportExportMixin, admin.ModelAdmin):
     """請求期間/締日管理"""
     list_display = [
         'provider', 'period_display', 'closing_date',
@@ -124,6 +157,24 @@ class BillingPeriodAdmin(admin.ModelAdmin):
         if created_count > 0:
             self.message_user(request, f'合計{created_count}件のバッチを作成しました。')
 
+    csv_import_fields = {}
+    csv_required_fields = []
+    csv_unique_fields = []
+    csv_export_fields = [
+        'provider.name', 'year', 'month', 'closing_date',
+        'is_closed', 'closed_at', 'notes', 'created_at',
+    ]
+    csv_export_headers = {
+        'provider.name': '決済代行会社',
+        'year': '年',
+        'month': '月',
+        'closing_date': '締日',
+        'is_closed': '締済',
+        'closed_at': '締め日時',
+        'notes': '備考',
+        'created_at': '作成日時',
+    }
+
 
 class DebitExportLineInline(admin.TabularInline):
     """引落エクスポート明細インライン"""
@@ -156,7 +207,7 @@ class DebitExportLineInline(admin.TabularInline):
 
 
 @admin.register(DebitExportBatch)
-class DebitExportBatchAdmin(admin.ModelAdmin):
+class DebitExportBatchAdmin(CSVImportExportMixin, admin.ModelAdmin):
     """引落エクスポートバッチ管理"""
     list_display = [
         'batch_no', 'provider', 'billing_period',
@@ -218,6 +269,29 @@ class DebitExportBatchAdmin(admin.ModelAdmin):
             color, obj.get_status_display()
         )
     status_badge.short_description = 'ステータス'
+
+    csv_import_fields = {}
+    csv_required_fields = []
+    csv_unique_fields = []
+    csv_export_fields = [
+        'batch_no', 'provider.name', 'status',
+        'total_count', 'total_amount', 'success_count', 'success_amount',
+        'failed_count', 'failed_amount', 'export_date', 'notes', 'created_at',
+    ]
+    csv_export_headers = {
+        'batch_no': 'バッチ番号',
+        'provider.name': '決済代行会社',
+        'status': 'ステータス',
+        'total_count': '総件数',
+        'total_amount': '総金額',
+        'success_count': '成功件数',
+        'success_amount': '成功金額',
+        'failed_count': '失敗件数',
+        'failed_amount': '失敗金額',
+        'export_date': 'エクスポート日',
+        'notes': '備考',
+        'created_at': '作成日時',
+    }
 
     @admin.action(description='選択したバッチのCSVをエクスポート')
     def export_to_csv_action(self, request, queryset):
@@ -282,7 +356,7 @@ class DebitExportBatchAdmin(admin.ModelAdmin):
 
 
 @admin.register(DebitExportLine)
-class DebitExportLineAdmin(admin.ModelAdmin):
+class DebitExportLineAdmin(CSVImportExportMixin, admin.ModelAdmin):
     """引落エクスポート明細管理"""
     list_display = [
         'batch', 'line_no', 'guardian', 'amount_display',
@@ -316,3 +390,34 @@ class DebitExportLineAdmin(admin.ModelAdmin):
             color, obj.get_result_status_display()
         )
     result_status_badge.short_description = '結果'
+
+    csv_import_fields = {}
+    csv_required_fields = []
+    csv_unique_fields = []
+    csv_export_fields = [
+        'batch.batch_no', 'line_no',
+        'guardian.guardian_no', 'guardian.last_name', 'guardian.first_name',
+        'invoice.invoice_no', 'amount',
+        'bank_code', 'branch_code', 'account_type', 'account_number',
+        'account_holder_kana', 'customer_code',
+        'result_code', 'result_status', 'result_message', 'created_at',
+    ]
+    csv_export_headers = {
+        'batch.batch_no': 'バッチ番号',
+        'line_no': '行番号',
+        'guardian.guardian_no': '保護者番号',
+        'guardian.last_name': '保護者姓',
+        'guardian.first_name': '保護者名',
+        'invoice.invoice_no': '請求書番号',
+        'amount': '金額',
+        'bank_code': '銀行コード',
+        'branch_code': '支店コード',
+        'account_type': '口座種別',
+        'account_number': '口座番号',
+        'account_holder_kana': '口座名義カナ',
+        'customer_code': '顧客コード',
+        'result_code': '結果コード',
+        'result_status': '結果ステータス',
+        'result_message': '結果メッセージ',
+        'created_at': '作成日時',
+    }

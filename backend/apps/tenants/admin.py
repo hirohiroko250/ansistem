@@ -221,7 +221,7 @@ class FeatureMasterAdmin(CSVImportExportMixin, admin.ModelAdmin):
 
 
 @admin.register(PositionPermission)
-class PositionPermissionAdmin(admin.ModelAdmin):
+class PositionPermissionAdmin(CSVImportExportMixin, admin.ModelAdmin):
     """役職権限管理"""
     list_display = ['position', 'feature', 'has_permission_display']
     list_filter = ['position', 'has_permission', 'feature__category']
@@ -234,6 +234,20 @@ class PositionPermissionAdmin(admin.ModelAdmin):
             return format_html('<span style="color: green; font-weight: bold;">○</span>')
         return format_html('<span style="color: red;">×</span>')
     has_permission_display.short_description = '権限'
+
+    csv_import_fields = {}
+    csv_required_fields = []
+    csv_unique_fields = []
+    csv_export_fields = [
+        'position.position_name', 'feature.feature_code', 'feature.feature_name',
+        'has_permission',
+    ]
+    csv_export_headers = {
+        'position.position_name': '役職名',
+        'feature.feature_code': '機能コード',
+        'feature.feature_name': '機能名',
+        'has_permission': '権限',
+    }
 
 
 @admin.register(Employee)

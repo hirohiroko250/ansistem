@@ -3,11 +3,12 @@ Withdrawal Admin - 退会申請管理Admin
 """
 from django.contrib import admin
 from django.db.models import Case, When
+from apps.core.admin_csv import CSVImportExportMixin
 from ..models import WithdrawalRequest
 
 
 @admin.register(WithdrawalRequest)
-class WithdrawalRequestAdmin(admin.ModelAdmin):
+class WithdrawalRequestAdmin(CSVImportExportMixin, admin.ModelAdmin):
     """退会申請Admin"""
     list_display = [
         'get_student_name',
@@ -99,3 +100,31 @@ class WithdrawalRequestAdmin(admin.ModelAdmin):
         count = queryset.filter(status='pending').update(status='rejected')
         self.message_user(request, f'{count}件の退会申請を却下しました。')
     reject_requests.short_description = '選択した申請を却下'
+
+    csv_import_fields = {}
+    csv_required_fields = []
+    csv_unique_fields = []
+    csv_export_fields = [
+        'student.student_no', 'student.last_name', 'student.first_name',
+        'school.school_name', 'brand.brand_name',
+        'withdrawal_date', 'last_lesson_date', 'status',
+        'reason', 'reason_detail', 'refund_amount', 'refund_calculated',
+        'remaining_tickets', 'requested_at', 'processed_at',
+    ]
+    csv_export_headers = {
+        'student.student_no': '生徒番号',
+        'student.last_name': '生徒姓',
+        'student.first_name': '生徒名',
+        'school.school_name': '校舎名',
+        'brand.brand_name': 'ブランド名',
+        'withdrawal_date': '退会日',
+        'last_lesson_date': '最終レッスン日',
+        'status': 'ステータス',
+        'reason': '理由',
+        'reason_detail': '理由詳細',
+        'refund_amount': '返金額',
+        'refund_calculated': '返金計算済',
+        'remaining_tickets': '残チケット数',
+        'requested_at': '申請日時',
+        'processed_at': '処理日時',
+    }

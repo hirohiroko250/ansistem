@@ -3,6 +3,7 @@ Invoice Admin - 請求書・入金管理
 """
 from django.contrib import admin
 from django.utils.html import format_html
+from apps.core.admin_csv import CSVImportExportMixin
 
 from ..models import Invoice, InvoiceLine, Payment
 
@@ -21,7 +22,7 @@ class InvoiceLineInline(admin.TabularInline):
 
 
 @admin.register(Invoice)
-class InvoiceAdmin(admin.ModelAdmin):
+class InvoiceAdmin(CSVImportExportMixin, admin.ModelAdmin):
     """請求書管理"""
     list_display = [
         'invoice_no', 'guardian', 'billing_period',
@@ -95,9 +96,39 @@ class InvoiceAdmin(admin.ModelAdmin):
         )
     status_badge.short_description = 'ステータス'
 
+    csv_import_fields = {}
+    csv_required_fields = []
+    csv_unique_fields = []
+    csv_export_fields = [
+        'invoice_no', 'guardian.guardian_no', 'guardian.last_name', 'guardian.first_name',
+        'billing_year', 'billing_month', 'issue_date', 'due_date',
+        'subtotal', 'tax_amount', 'discount_total', 'miles_used', 'miles_discount',
+        'total_amount', 'paid_amount', 'balance_due', 'status', 'created_at',
+    ]
+    csv_export_headers = {
+        'invoice_no': '請求書番号',
+        'guardian.guardian_no': '保護者番号',
+        'guardian.last_name': '保護者姓',
+        'guardian.first_name': '保護者名',
+        'billing_year': '請求年',
+        'billing_month': '請求月',
+        'issue_date': '発行日',
+        'due_date': '支払期限',
+        'subtotal': '小計',
+        'tax_amount': '税額',
+        'discount_total': '割引合計',
+        'miles_used': '使用マイル',
+        'miles_discount': 'マイル割引',
+        'total_amount': '請求合計',
+        'paid_amount': '入金済',
+        'balance_due': '未払額',
+        'status': 'ステータス',
+        'created_at': '作成日時',
+    }
+
 
 @admin.register(Payment)
-class PaymentAdmin(admin.ModelAdmin):
+class PaymentAdmin(CSVImportExportMixin, admin.ModelAdmin):
     """入金管理"""
     list_display = [
         'payment_no', 'guardian', 'payment_date',
@@ -150,3 +181,27 @@ class PaymentAdmin(admin.ModelAdmin):
             color, obj.get_status_display()
         )
     status_badge.short_description = 'ステータス'
+
+    csv_import_fields = {}
+    csv_required_fields = []
+    csv_unique_fields = []
+    csv_export_fields = [
+        'payment_no', 'guardian.guardian_no', 'guardian.last_name', 'guardian.first_name',
+        'invoice.invoice_no', 'payment_date', 'amount', 'method', 'status',
+        'payer_name', 'bank_name', 'notes', 'created_at',
+    ]
+    csv_export_headers = {
+        'payment_no': '入金番号',
+        'guardian.guardian_no': '保護者番号',
+        'guardian.last_name': '保護者姓',
+        'guardian.first_name': '保護者名',
+        'invoice.invoice_no': '請求書番号',
+        'payment_date': '入金日',
+        'amount': '金額',
+        'method': '入金方法',
+        'status': 'ステータス',
+        'payer_name': '支払者名',
+        'bank_name': '銀行名',
+        'notes': '備考',
+        'created_at': '作成日時',
+    }

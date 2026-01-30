@@ -4,11 +4,12 @@ Friendship Admin - 友達登録・FS割引管理Admin
 from django.contrib import admin
 from django.db.models import Case, When
 from django.utils.html import format_html
+from apps.core.admin_csv import CSVImportExportMixin
 from ..models import FriendshipRegistration, FSDiscount
 
 
 @admin.register(FriendshipRegistration)
-class FriendshipRegistrationAdmin(admin.ModelAdmin):
+class FriendshipRegistrationAdmin(CSVImportExportMixin, admin.ModelAdmin):
     """友達登録Admin（FS登録）"""
     list_display = [
         'get_requester_name',
@@ -121,9 +122,31 @@ class FriendshipRegistrationAdmin(admin.ModelAdmin):
         self.message_user(request, f'{count}件の友達登録を拒否しました。')
     reject_registrations.short_description = '選択した友達登録を拒否'
 
+    csv_import_fields = {}
+    csv_required_fields = []
+    csv_unique_fields = []
+    csv_export_fields = [
+        'requester.guardian_no', 'requester.last_name', 'requester.first_name',
+        'target.guardian_no', 'target.last_name', 'target.first_name',
+        'status', 'friend_code', 'requested_at', 'accepted_at', 'notes',
+    ]
+    csv_export_headers = {
+        'requester.guardian_no': '申請者番号',
+        'requester.last_name': '申請者姓',
+        'requester.first_name': '申請者名',
+        'target.guardian_no': '対象者番号',
+        'target.last_name': '対象者姓',
+        'target.first_name': '対象者名',
+        'status': 'ステータス',
+        'friend_code': '友達コード',
+        'requested_at': '申請日時',
+        'accepted_at': '承認日時',
+        'notes': '備考',
+    }
+
 
 @admin.register(FSDiscount)
-class FSDiscountAdmin(admin.ModelAdmin):
+class FSDiscountAdmin(CSVImportExportMixin, admin.ModelAdmin):
     """FS割引Admin（友達紹介割引）"""
     list_display = [
         'get_guardian_name',
@@ -213,6 +236,30 @@ class FSDiscountAdmin(admin.ModelAdmin):
             color, obj.get_status_display()
         )
     status_badge.short_description = 'ステータス'
+
+    csv_import_fields = {}
+    csv_required_fields = []
+    csv_unique_fields = []
+    csv_export_fields = [
+        'guardian.guardian_no', 'guardian.last_name', 'guardian.first_name',
+        'discount_type', 'discount_value', 'status',
+        'valid_from', 'valid_until', 'applied_amount',
+        'used_at', 'notes', 'created_at',
+    ]
+    csv_export_headers = {
+        'guardian.guardian_no': '保護者番号',
+        'guardian.last_name': '保護者姓',
+        'guardian.first_name': '保護者名',
+        'discount_type': '割引タイプ',
+        'discount_value': '割引値',
+        'status': 'ステータス',
+        'valid_from': '有効開始日',
+        'valid_until': '有効終了日',
+        'applied_amount': '適用額',
+        'used_at': '使用日時',
+        'notes': '備考',
+        'created_at': '作成日時',
+    }
 
     def get_queryset(self, request):
         """有効な割引を優先して表示"""

@@ -291,3 +291,32 @@ class ProductPriceAdmin(CSVImportExportMixin, admin.ModelAdmin):
     }
     csv_required_fields = ['商品コード']
     csv_unique_fields = ['product__product_code']
+    csv_export_fields = [
+        'product.product_code', 'product.product_name',
+        'enrollment_price_apr', 'enrollment_price_may', 'enrollment_price_jun',
+        'enrollment_price_jul', 'enrollment_price_aug', 'enrollment_price_sep',
+        'enrollment_price_oct', 'enrollment_price_nov', 'enrollment_price_dec',
+        'enrollment_price_jan', 'enrollment_price_feb', 'enrollment_price_mar',
+        'billing_price_apr', 'billing_price_may', 'billing_price_jun',
+        'billing_price_jul', 'billing_price_aug', 'billing_price_sep',
+        'billing_price_oct', 'billing_price_nov', 'billing_price_dec',
+        'billing_price_jan', 'billing_price_feb', 'billing_price_mar',
+        'is_active',
+    ]
+    csv_export_headers = {
+        'product.product_code': '商品コード',
+        'product.product_name': '商品名',
+        'enrollment_price_apr': '4月入会者', 'enrollment_price_may': '5月入会者',
+        'enrollment_price_jun': '6月入会者', 'enrollment_price_jul': '7月入会者',
+        'enrollment_price_aug': '8月入会者', 'enrollment_price_sep': '9月入会者',
+        'enrollment_price_oct': '10月入会者', 'enrollment_price_nov': '11月入会者',
+        'enrollment_price_dec': '12月入会者', 'enrollment_price_jan': '1月入会者',
+        'enrollment_price_feb': '2月入会者', 'enrollment_price_mar': '3月入会者',
+        'billing_price_apr': '4月', 'billing_price_may': '5月',
+        'billing_price_jun': '6月', 'billing_price_jul': '7月',
+        'billing_price_aug': '8月', 'billing_price_sep': '9月',
+        'billing_price_oct': '10月', 'billing_price_nov': '11月',
+        'billing_price_dec': '12月', 'billing_price_jan': '1月',
+        'billing_price_feb': '2月', 'billing_price_mar': '3月',
+        'is_active': '有効',
+    }
