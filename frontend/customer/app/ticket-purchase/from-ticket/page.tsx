@@ -690,7 +690,12 @@ export default function FromTicketPurchasePage() {
       setCertificationsError(null);
       try {
         const params = new URLSearchParams({ is_active: 'true' });
-        params.append('brand_id', selectedBrand.id);
+        // カテゴリ内の全ブランドで検定を検索（検定は別ブランドに紐付く場合がある）
+        if (categoryBrandIds.length > 0) {
+          params.append('brand_ids', categoryBrandIds.join(','));
+        } else {
+          params.append('brand_id', selectedBrand.id);
+        }
         const response = await api.get<{ results?: typeof certifications } | typeof certifications>(`/contracts/certifications/?${params.toString()}`);
         const data = Array.isArray(response) ? response : (response.results || []);
 
@@ -735,7 +740,7 @@ export default function FromTicketPurchasePage() {
       }
     };
     fetchCertifications();
-  }, [selectedBrand, itemType]);
+  }, [selectedBrand, itemType, categoryBrandIds]);
 
   // コース選択時に料金プレビューを取得してStep 6へ（校舎は既に選択済み）
   const handleCourseSelect = async (course: PublicCourse | PublicPack) => {

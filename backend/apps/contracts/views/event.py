@@ -92,10 +92,17 @@ class CertificationViewSet(CSVMixin, viewsets.ModelViewSet):
         if is_active is not None:
             queryset = queryset.filter(is_active=is_active.lower() == 'true')
 
-        # brand_id フィルター
-        brand_id = self.request.query_params.get('brand_id')
-        if brand_id:
-            queryset = queryset.filter(brand_id=brand_id)
+        # brand_ids フィルター（カンマ区切り複数ブランド対応）
+        brand_ids = self.request.query_params.get('brand_ids')
+        if brand_ids:
+            brand_id_list = [bid.strip() for bid in brand_ids.split(',') if bid.strip()]
+            if brand_id_list:
+                queryset = queryset.filter(brand_id__in=brand_id_list)
+        else:
+            # brand_id フィルター（単一ブランド）
+            brand_id = self.request.query_params.get('brand_id')
+            if brand_id:
+                queryset = queryset.filter(brand_id=brand_id)
 
         return queryset
 
